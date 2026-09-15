@@ -314,19 +314,20 @@ this is a "if solving one of these, start here" list:
    exclusion, or a `com.apple.metadata:com_apple_backup_excludeItem`
    extended attribute set at setup time) if `data.db` is to stay
    unencrypted.
-8. **A `SECURITY.md` at the repo root** (distinct from this design doc) once
-   the project is pushed to GitHub, so GitHub's security-advisory reporting
-   flow is wired up — see [§10](#10-reporting-a-vulnerability).
+8. **GitHub's private vulnerability reporting**, enabled via the repo's
+   Security settings so `SECURITY.md`'s reporting flow is backed by
+   Advisories rather than a plain email thread — see
+   [§10](#10-reporting-a-vulnerability).
 
 ## 10. Reporting a vulnerability
 
-There is no code and no public repository yet, so there's no formal
-disclosure process to point to today. Once the project is pushed to GitHub:
-
-- A root-level `SECURITY.md` should be added enabling GitHub's private
-  vulnerability reporting flow.
-- Until then, report concerns directly to the project owner,
-  bhattacharjeenirjhar26@gmail.com.
+The project is on GitHub at
+[github.com/NirjharBhattacharjee/mockingbird](https://github.com/NirjharBhattacharjee/mockingbird),
+and the root-level [`SECURITY.md`](../SECURITY.md) is the canonical
+reporting entry point — **do not open a public issue for a vulnerability.**
+In short: report privately to bhattacharjeenirjhar26@gmail.com, or via
+GitHub's private vulnerability reporting once it's enabled on the repo (see
+[§9](#9-hardening-roadmap), item 8, still open).
 
 This document should move out of "pre-code" status and start being checked
 against real code (permissions actually requested, what actually gets

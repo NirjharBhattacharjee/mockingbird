@@ -19,6 +19,12 @@ This folder is the project's living design record.
   cleanup LLM): what each one does, where it sits in the pipeline, how it's
   invoked, and its licensing.
 
+See also, at the repo root: **[../CONTRIBUTING.md](../CONTRIBUTING.md)** —
+required reading before opening an issue or PR, for humans and AI agents
+alike: standards, workflow, PR checklist, and licensing terms — and
+**[../SECURITY.md](../SECURITY.md)** — where to report a vulnerability
+privately (never in a public issue).
+
 If a decision made in code contradicts this doc, the doc is wrong and should be
 fixed in the same PR that makes the change. Nobody should have to read git log
 to understand why the system is shaped the way it is.
