@@ -14,6 +14,7 @@ it is not a design doc that gets abandoned once code exists.
 | Date | Change |
 |---|---|
 | 2026-09-15 | Initial version. Stack finalized as TypeScript + Bun, no Electron, no Swift, no Docker for the shipped app. |
+| 2026-09-16 | `packages/llm` scoped to a provider interface + adapters (Ollama, `llama-server`), matching the existing `asr`/`inject` pattern — stays in-process, not a separate service (§6, §10). |
 
 ---
 
@@ -237,6 +238,18 @@ always-running ring buffer) is what prevents the first syllable of every
 utterance from being clipped. The LLM gate exists so a two-word confirmation
 like "yes please" doesn't pay ~200ms of LLM latency it doesn't need.
 
+`packages/llm` sits behind a single provider interface (`complete()`,
+`health()`), with thin adapters per backend (Ollama, `llama-server`, and
+later a remote-LAN target per [§13](#13-is-docker-needed)) — the same
+interface-plus-adapter shape `packages/asr` and `packages/inject` already
+use. This is what makes the base-URL/model swap in [§3](#3-technology-stack)
+and the fallback-to-raw-ASR behavior in [§2](#2-core-principles) (point 5) a
+property of one small class instead of logic scattered across the Gate. It
+stays in-process inside `mockingbirdd` — this is *not* a separate service or
+process; that's a deliberate scope cut, tracked as a possible future step
+only if a second consumer beyond mockingbird ever needs the LLM independently
+of the dictation daemon's lifecycle.
+
 ## 7. Where SQLite fits
 
 SQLite — via `bun:sqlite`, built into Bun with zero external dependency — is
@@ -392,7 +405,9 @@ mockingbird/
 │   ├── audio/                   ring buffer, ffmpeg supervisor, per-OS args
 │   ├── vad/                     Silero ONNX wrapper
 │   ├── asr/                     engine interface + whisper-server adapter
-│   ├── llm/                     prompt assembly, per-app profiles, caching
+│   ├── llm/                     provider interface + adapters (Ollama,
+│   │                            llama-server), prompt assembly, per-app
+│   │                            profiles, caching
 │   ├── inject/                  interface + darwin backend (x11/win32 later)
 │   ├── context/                 frontmost-app polling
 │   └── store/                   bun:sqlite, migrations, FTS5, sqlite-vec
