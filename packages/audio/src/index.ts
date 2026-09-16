@@ -1,3 +1,4 @@
+export { AudioDecodeError, type DecodeOptions, decodeWithFfmpeg, loadAudio } from "./load.ts";
 export {
   decodeWav,
   durationMs,
