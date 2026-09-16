@@ -53,11 +53,11 @@ sequenceDiagram
     participant Fmt as Formatter
     participant Inj as Injector
 
-    RB->>VAD: 20ms frames, continuously
+    RB->>VAD: 32ms windows (512 samples), continuously
     VAD-->>RB: speech / silence boundary
     Note over RB,ASR: on hotkey release, segment cut
-    RB->>ASR: POST /transcribe (PCM segment)
-    ASR-->>Gate: {text, avgLogprob, words}
+    RB->>ASR: POST /inference (WAV segment)
+    ASR-->>Gate: {text, confidence, words}
     alt short + high confidence
         Gate->>Fmt: raw text (LLM skipped entirely)
     else needs cleanup
@@ -76,7 +76,9 @@ every captured segment goes through both.
 
 ## 3. Voice activity detection — Silero VAD
 
-- **Job:** classify 20ms audio frames as speech/silence in real time, while
+- **Job:** classify 32ms audio windows (512 samples at 16kHz, the size
+  Silero v5 requires, with the previous window's last 64 samples prepended
+  as context) as speech/silence in real time, while
   the ring buffer is filling, to find utterance boundaries (and to detect
   700ms of silence as the auto-chunk boundary in `CAPTURE_LOCK` mode — see
   [ARCHITECTURE.md §5](./ARCHITECTURE.md#5-the-hotkey-state-machine)).
@@ -96,20 +98,25 @@ every captured segment goes through both.
 ## 4. Speech-to-text — Whisper (whisper.cpp)
 
 - **Job:** convert a cut audio segment (PCM, 16kHz) into a raw text
-  transcript, plus per-word confidence (`avgLogprob`) used by the LLM Gate's
-  skip decision.
+  transcript, plus a `confidence` score (mean probability of the spoken,
+  non-punctuation words) used by the LLM Gate's skip decision.
 - **Where it's used:** once per finalized utterance — triggered when the
   hotkey is released (`CAPTURE_PTT`) or a silence boundary is hit in lock
   mode (`CAPTURE_LOCK`). Never runs continuously; only on a cut segment.
 - **How it's invoked:** `whisper-server`, a supervised child process running
-  `whisper.cpp`, listening on `127.0.0.1:8771`. The daemon `POST`s the PCM
-  segment to `/transcribe` and gets back `{text, avgLogprob, words}`. If
+  `whisper.cpp`, listening on `127.0.0.1:8771`. The daemon `POST`s the
+  segment as a WAV upload to `/inference` (`response_format=verbose_json`)
+  and gets back `{text, confidence, words}`. First start on a machine takes
+  ~15s while Metal compiles its shaders (cached afterwards), which is why it
+  runs as a long-lived child rather than per dictation. If
   `whisper-server` dies, the supervisor restarts it — dictation queues or
   degrades rather than silently failing, per the "degrade, don't break"
   principle in [ARCHITECTURE.md §2](./ARCHITECTURE.md#2-core-principles).
 - **Model file:** `large-v3-turbo`, quantized to `Q5_0`. This is the
   accuracy/latency/size tradeoff point chosen for v1 — swappable per
-  [§7](#7-model-swapping--configuration).
+  [§7](#7-model-swapping--configuration). Development and the integration
+  tests currently use the much smaller `base.en` (~148 MB); `large-v3-turbo`
+  hasn't been measured on this pipeline yet.
 
 ## 5. Cleanup / formatting LLM — Qwen3-4B-Instruct
 
