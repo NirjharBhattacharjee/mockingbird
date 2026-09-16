@@ -13,7 +13,8 @@
     "test": "bun test",
     "test:integration": "MOCKINGBIRD_INTEGRATION=1 bun test",
     "transcribe": "bun apps/daemon/src/transcribe.ts",
-    "fixtures": "sh scripts/make-fixtures.sh"
+    "fixtures": "sh scripts/make-fixtures.sh",
+    "demo": "sh scripts/render-demo.sh"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",
