@@ -16,6 +16,7 @@ it is not a design doc that gets abandoned once code exists.
 | 2026-09-15 | Initial version. Stack finalized as TypeScript + Bun, no Electron, no Swift, no Docker for the shipped app. |
 | 2026-09-16 | `packages/llm` scoped to a provider interface + adapters (Ollama, `llama-server`), matching the existing `asr`/`inject` pattern — stays in-process, not a separate service (§6, §10). |
 | 2026-09-16 | Workspace bootstrapped; headless pipeline built in `packages/{audio,vad,asr,llm}` and `apps/daemon/src/pipeline.ts`. Corrected from measurement: VAD windows are 32ms (Silero v5 needs 512 samples), ASR returns `confidence` not `avgLogprob`, whisper-server's endpoint is `/inference`, warm LLM cleanup is ~1.1s not ~200ms (§6). Lint tool: Biome (§14). |
+| 2026-09-16 | `bun run transcribe <file>` (`apps/daemon/src/transcribe.ts`) runs the pipeline on a recording. `packages/audio` now also decodes non-WAV input by piping it through ffmpeg, so ffmpeg is used for file decoding as well as capture (§3, §10). |
 
 ---
 
@@ -84,7 +85,7 @@ against this list.
 |---|---|---|---|
 | Language / runtime | TypeScript on **Bun** | Bun ≥ 1.2 | our process |
 | Package manager / workspaces | Bun workspaces | — | — |
-| Microphone capture | `ffmpeg` (avfoundation on macOS) | system binary | subprocess, piped stdout |
+| Microphone capture, audio file decoding | `ffmpeg` (avfoundation on macOS) | system binary | subprocess, piped stdout |
 | Global hotkey | `uiohook-napi` (fallback: `iohook-macos`, fallback: `bun:ffi` → CoreGraphics) | 1.5.5 | native module **in-process** |
 | Voice activity detection | Silero VAD via `onnxruntime-node` | — | native module in-process |
 | Speech-to-text (ASR) | `whisper.cpp` (`whisper-server`), model: `large-v3-turbo` Q5_0 | — | subprocess, HTTP :8771 |
@@ -410,6 +411,8 @@ mockingbird/
 │   │   └── src/
 │   │       ├── workers/hotkey.worker.ts
 │   │       ├── supervisor.ts    child process lifecycle + restart policy
+│   │       ├── pipeline.ts      VAD → ASR → LLM gate → format
+│   │       ├── transcribe.ts    `bun run transcribe <file>` CLI
 │   │       └── main.ts
 │   └── tui/                     mockingbird-tui — OpenTUI client, IPC only
 ├── packages/

@@ -12,6 +12,7 @@
     "format": "biome check --write .",
     "test": "bun test",
     "test:integration": "MOCKINGBIRD_INTEGRATION=1 bun test",
+    "transcribe": "bun apps/daemon/src/transcribe.ts",
     "fixtures": "sh scripts/make-fixtures.sh"
   },
   "devDependencies": {
