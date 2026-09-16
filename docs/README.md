@@ -18,6 +18,12 @@ This folder is the project's living design record.
 - **[MODELS.md](./MODELS.md)** — every model mockingbird runs (VAD, ASR,
   cleanup LLM): what each one does, where it sits in the pipeline, how it's
   invoked, and its licensing.
+- **[DATABASE.md](./DATABASE.md)** — the SQLite schema in full: every table,
+  column, primary/foreign key, index, and the open schema decisions not yet
+  settled.
+- **[TUI.md](./TUI.md)** — the terminal UI's Catppuccin theming (palette,
+  flavors, semantic color mapping) and what each of its four screens
+  (Dashboard, History, Dictionary, Latency waterfall) actually controls.
 
 See also, at the repo root: **[../CONTRIBUTING.md](../CONTRIBUTING.md)** —
 required reading before opening an issue or PR, for humans and AI agents
