@@ -1,8 +1,8 @@
 # mockingbird — architecture bible
 
-> **Status:** v1 design, pre-code.
+> **Status:** v1 in progress — the headless pipeline (VAD → ASR → LLM → format) exists; daemon, hotkey, injection, storage and TUI do not yet.
 > **Owner:** bhattacharjeenirjhar26@gmail.com
-> **Last updated:** 2026-09-15
+> **Last updated:** 2026-09-16
 
 This document is the single source of truth for what mockingbird is, what it's
 built from, and why. It is written to be read cover to cover once, then used
@@ -15,6 +15,7 @@ it is not a design doc that gets abandoned once code exists.
 |---|---|
 | 2026-09-15 | Initial version. Stack finalized as TypeScript + Bun, no Electron, no Swift, no Docker for the shipped app. |
 | 2026-09-16 | `packages/llm` scoped to a provider interface + adapters (Ollama, `llama-server`), matching the existing `asr`/`inject` pattern — stays in-process, not a separate service (§6, §10). |
+| 2026-09-16 | Workspace bootstrapped; headless pipeline built in `packages/{audio,vad,asr,llm}` and `apps/daemon/src/pipeline.ts`. Corrected from measurement: VAD windows are 32ms (Silero v5 needs 512 samples), ASR returns `confidence` not `avgLogprob`, whisper-server's endpoint is `/inference`, warm LLM cleanup is ~1.1s not ~200ms (§6). Lint tool: Biome (§14). |
 
 ---
 
@@ -214,13 +215,13 @@ sequenceDiagram
     HK->>FSM: fn_down
     FSM->>RB: mark t0 - 300ms (pre-roll)
     loop while held
-        RB->>VAD: 20ms frames
+        RB->>VAD: 32ms windows (512 samples)
     end
     User->>HK: releases Fn
     HK->>FSM: fn_up
     FSM->>RB: cut segment [t0-300ms, t1]
-    RB->>ASR: POST /transcribe (PCM)
-    ASR-->>Gate: {text, avgLogprob, words}
+    RB->>ASR: POST /inference (WAV)
+    ASR-->>Gate: {text, confidence, words}
     alt short + high confidence
         Gate->>Fmt: raw text (skip LLM)
     else needs cleanup
@@ -235,8 +236,19 @@ sequenceDiagram
 
 Pre-roll (starting capture 300ms *before* the key registers, using the
 always-running ring buffer) is what prevents the first syllable of every
-utterance from being clipped. The LLM gate exists so a two-word confirmation
-like "yes please" doesn't pay ~200ms of LLM latency it doesn't need.
+utterance from being clipped. The same 300ms is used as padding when VAD trims
+a segment before ASR; 100ms was measured to cut soft onsets like "um". The LLM
+gate exists so a two-word confirmation like "yes please" doesn't pay LLM
+latency it doesn't need. That latency is larger than first assumed: measured
+on an Apple M3, warm Qwen3-4B Q4 cleanup of a 13-word sentence takes ~1.1s,
+against ~0.2s for `base.en` ASR (see the integration test in
+`apps/daemon/test/pipeline.integration.test.ts`).
+
+`confidence` is the mean probability of the spoken (non-punctuation) words
+whisper-server returns; whisper.cpp exposes per-word probabilities, not an
+average log-probability. The gate currently skips the LLM for utterances of
+at most 4 words with confidence ≥ 0.7. Both thresholds were tuned on synthetic
+`say` speech only and need retuning on real recordings once `bench/` exists.
 
 `packages/llm` sits behind a single provider interface (`complete()`,
 `health()`), with thin adapters per backend (Ollama, `llama-server`, and
@@ -562,7 +574,8 @@ flowchart TB
 
 1. `bun install` — deterministic via `bun.lock`.
 2. Typecheck every workspace with `tsc --noEmit`.
-3. Lint (Biome or ESLint — pick one, keep it fast).
+3. Lint and format check with Biome (`biome.json`) — one fast binary, no
+   separate Prettier.
 4. `bun test` across all `packages/*` — this is where the FSM, ring buffer,
    formatter, and store logic get unit tested with zero OS dependency.
 5. **Headless pipeline integration test** — the one that matters most: feed a

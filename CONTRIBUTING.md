@@ -108,21 +108,21 @@ Code isn't the only contribution that matters here:
 
 ## 5. Development workflow
 
-The repository is currently docs-only (`docs/`), so there's no build to set
-up yet. Once `apps/` and `packages/` exist, per
-[ARCHITECTURE.md §10](./docs/ARCHITECTURE.md#10-repository-layout), the
-standard flow will be:
+The workspace follows
+[ARCHITECTURE.md §10](./docs/ARCHITECTURE.md#10-repository-layout). So far
+only the headless pipeline exists (`packages/{audio,vad,asr,llm}` and
+`apps/daemon`); other packages get created when their work starts.
 
 1. Fork the repository, clone your fork.
 2. Create a branch off `main`, named for what it does
    (`fix/hotkey-double-tap-race`, `docs/models-licensing-table`).
-3. `bun install` at the workspace root.
+3. `bun install` at the workspace root (Bun 1.4.2, the version CI pins).
 4. Make your change inside the correct package/app — see
    [§6](#6-coding-standards) for the boundary rules.
 5. Run the checks in [§8](#8-tests--ci-gate) locally before opening a PR.
 6. Push to your fork and open a PR against `main`.
 
-`main` is expected to require `ci.yml` green before merge once CI exists
+`main` is expected to require `ci.yml` green before merge
 ([ARCHITECTURE.md §14](./docs/ARCHITECTURE.md#14-cicd-pipeline)) — don't
 rely on a maintainer catching what CI would have caught.
 
@@ -175,17 +175,28 @@ These are enforced, not stylistic suggestions:
 
 ## 8. Tests & CI gate
 
-Once `ci.yml` exists, these are the checks a PR must pass, in this order
-(see [ARCHITECTURE.md §14](./docs/ARCHITECTURE.md#14-cicd-pipeline)):
+These are the checks a PR must pass
+(see [ARCHITECTURE.md §14](./docs/ARCHITECTURE.md#14-cicd-pipeline)).
+`ci.yml` currently runs the first four on every push and PR:
 
-| Check | Command |
-|---|---|
-| Install (deterministic) | `bun install` |
-| Typecheck, all workspaces | `bun run typecheck` |
-| Lint | `bun run lint` |
-| Unit tests, all packages | `bun test` |
-| Headless pipeline integration test | fixture WAV → ASR → LLM → text, no mic/hotkey needed |
-| Build smoke test (macOS runner) | `bun build --compile` |
+| Check | Command | In CI |
+|---|---|---|
+| Install (deterministic) | `bun install --frozen-lockfile` | yes |
+| Typecheck, all workspaces | `bun run typecheck` | yes |
+| Lint + format check (Biome) | `bun run lint` (`bun run format` fixes) | yes |
+| Unit tests, all packages | `bun test` | yes |
+| Integration tests, incl. fixture WAV → VAD → ASR → LLM → text | `bun run test:integration` | not yet — needs local models |
+| Build smoke test (macOS runner) | `bun build --compile` | not yet — no entry point to compile |
+
+`bun run test:integration` needs, locally:
+
+- `whisper-server` (`brew install whisper-cpp`)
+- `~/.mockingbird/models/ggml-base.en.bin` and `~/.mockingbird/models/silero_vad.onnx`
+- Ollama running with `qwen3:4b-instruct-2507-q4_K_M` pulled
+
+Override locations with `MOCKINGBIRD_HOME`, `MOCKINGBIRD_LLM_URL`, and
+`MOCKINGBIRD_LLM_MODEL`. Run the integration tests for any change that
+touches `packages/{vad,asr,llm}` or the pipeline.
 
 Run whichever of these apply to your change locally before opening a PR.
 A PR that only "probably passes CI" is not ready for review — run it first.
@@ -323,4 +334,6 @@ Named explicitly rather than silently deferred, matching the style of
   ([github.com/NirjharBhattacharjee/mockingbird](https://github.com/NirjharBhattacharjee/mockingbird))
   is live, but labels haven't been set up yet.
 - **Branch protection on `main`** — should require `ci.yml` green before
-  merge once CI exists, per [§8](#8-tests--ci-gate); not yet configured.
+  merge, per [§8](#8-tests--ci-gate); not yet configured in GitHub settings.
+- **Integration tests in CI** — they need whisper-server, Ollama, and about
+  2.7 GB of models, so they only run locally for now.

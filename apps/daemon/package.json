@@ -1,0 +1,11 @@
+{
+  "name": "@mockingbird/daemon",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@mockingbird/asr": "workspace:*",
+    "@mockingbird/audio": "workspace:*",
+    "@mockingbird/llm": "workspace:*",
+    "@mockingbird/vad": "workspace:*"
+  }
+}
