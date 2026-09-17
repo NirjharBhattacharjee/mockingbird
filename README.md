@@ -31,11 +31,12 @@ It's an open-source alternative to tools like Wispr Flow. Why it exists and
 what it will never become: [docs/PHILOSOPHY.md](docs/PHILOSOPHY.md).
 
 > [!NOTE]
-> **Early development.** Live dictation doesn't work yet. Today you can
-> transcribe a recording: `bun run transcribe my-recording.mp3` runs it through
-> voice detection, speech-to-text, and cleanup, and prints the text (that's the
-> demo above). The hotkey, live microphone capture, typing into apps, history,
-> and the terminal UI are still to be built.
+> **Early development.** You can talk to mockingbird live in the terminal:
+> `bun run listen`, press Enter, speak, press Enter again, and the cleaned-up
+> text is printed. You can also transcribe a recording with
+> `bun run transcribe my-recording.mp3` (that's the demo above). It doesn't
+> type into other apps yet, and the `Fn` hotkey, history, and terminal UI are
+> still to be built.
 
 ## 🚀 Quick start: run it in the terminal
 
@@ -122,14 +123,62 @@ The first time, macOS asks whether your terminal can use the microphone:
 click **Allow**. If you missed it, turn it on in **System Settings → Privacy &
 Security → Microphone** and run the command again.
 
+**7. Talk to it live**
+
+```sh
+bun run listen
+```
+
+Wait for `○ ready`, press **Enter**, say something, press **Enter** again. The
+text appears a moment later. Press **q** to quit. The bars next to `ready`
+move when the microphone hears you; if they don't, see
+[Troubleshooting](#troubleshooting).
+
 Every time you come back later, it's just:
 
 ```sh
 cd mockingbird
-bun run transcribe path/to/recording.mp3
+bun run listen
 ```
 
 with Ollama running in another window.
+
+## 🎤 Using `listen`
+
+`listen` keeps your microphone open and turns what you say into text, using
+the keyboard as the talk button.
+
+| Key | What it does |
+|---|---|
+| **Enter** or **Space** | Start recording; press again to stop and transcribe |
+| **Esc** | Cancel the current recording |
+| **q** or **Ctrl+C** | Quit |
+
+```
+○ ready  ▮▮▮▯▯▯▯▯▯▯  Enter: start speaking · q: quit
+● recording 3.4s  ▮▮▮▮▮▮▯▯▯▯  Enter: stop · Esc: cancel
+… transcribing
+```
+
+- **Which microphone:** by default, the input selected in **System Settings →
+  Sound → Input**. To pick another one:
+
+  ```sh
+  bun run listen --list-devices
+  bun run listen --device 2
+  ```
+
+- **The first word isn't lost:** the last 300 ms before you press Enter is
+  included, so you can start talking as you press it.
+- **Options:** `--terminal` and `--json` work like they do for `transcribe`.
+- **Limits:** a single recording stops growing after 2 minutes. Audio is only
+  held in memory (the last 30 seconds) and is never saved to disk.
+- **Privacy indicator:** while `listen` runs, macOS shows the orange
+  microphone dot, because the microphone really is open. Quit with **q** to
+  close it.
+- If the microphone stops (for example, you unplug a headset), `listen`
+  restarts it automatically. After five quick failures in a row it gives up
+  and tells you why.
 
 ## 🎙️ Using `transcribe`
 
@@ -182,7 +231,11 @@ Example: `MOCKINGBIRD_ASR_PORT=9000 bun run transcribe memo.m4a`
 | `Script not found "transcribe"` | `cd` into the `mockingbird` folder first. |
 | `Whisper model not found` | Redo step 3 of the quick start. |
 | `warning: Ollama isn't running` | Start `ollama serve` in another window (step 4). |
-| `no speech detected` | The recording is silent. Check the microphone number (step 6). |
+| `no speech detected` | Speak closer to the microphone, or check you're using the right one (`bun run listen --list-devices`). |
+| `the recording was completely silent` | Your terminal isn't allowed to use the microphone. Turn it on in **System Settings → Privacy & Security → Microphone**, then quit and restart the terminal. |
+| `listen` stays on `waiting for the microphone` | Same as above, or the microphone is in use elsewhere. |
+| `giving up on the microphone` | The device couldn't be opened. Check `bun run listen --list-devices` and pick one with `--device`. |
+| `listen needs an interactive terminal` | Run `listen` directly in a terminal window, not through a pipe or script. |
 | `command not found: bun` | Reopen the terminal after installing Bun. |
 
 ## 🗺️ How it will work
@@ -208,8 +261,9 @@ microphone → voice detection (Silero) → speech-to-text (Whisper) → cleanup
 | Text cleanup via Ollama | ✅ Working |
 | Pipeline with fallbacks | ✅ Working |
 | `bun run transcribe <file>` | ✅ Working |
-| Live microphone capture | 🔲 Not started |
-| `Fn` hotkey | 🔲 Not started |
+| Live microphone capture, with automatic restart | ✅ Working |
+| `bun run listen` (Enter to talk) | ✅ Working |
+| `Fn` hotkey (hold to talk, double-tap for hands-free) | 🔲 Not started |
 | Typing text into other apps | 🔲 Not started |
 | History and vocabulary (SQLite) | 🔲 Not started |
 | Terminal UI | 🔲 Not started |
@@ -242,9 +296,14 @@ Details: [docs/SECURITY_PRIVACY.md](docs/SECURITY_PRIVACY.md).
 | `bun run demo` | Re-record the demo GIF above ([vhs](https://github.com/charmbracelet/vhs), Ollama running) |
 
 ```
-apps/daemon/       the background service; today, the pipeline (src/pipeline.ts)
-                   and the transcribe command (src/transcribe.ts)
-packages/audio/    loading audio files (WAV directly, other formats via ffmpeg)
+apps/daemon/src/   pipeline.ts           VAD → ASR → cleanup → format
+                   listen.ts             the listen command
+                   listen-controller.ts  its keys and status line
+                   recorder.ts           cuts recordings (with pre-roll) from live audio
+                   supervisor.ts         restarts ffmpeg if it dies
+                   runtime.ts            model checks and server startup
+                   transcribe.ts         the transcribe command
+packages/audio/    audio files, live ffmpeg capture, ring buffer
 packages/vad/      Silero voice activity detection
 packages/asr/      speech-to-text, whisper-server adapter
 packages/llm/      cleanup prompt, skip rule, formatting, Ollama adapter
