@@ -1,6 +1,6 @@
 # mockingbird — architecture bible
 
-> **Status:** v1 in progress — the headless pipeline (VAD → ASR → LLM → format) exists; daemon, hotkey, injection, storage and TUI do not yet.
+> **Status:** v1 in progress — the pipeline (VAD → ASR → LLM → format), live microphone capture, and a keyboard push-to-talk CLI (`bun run listen`) exist; the Fn hotkey FSM, text injection, IPC, storage and TUI do not yet.
 > **Owner:** bhattacharjeenirjhar26@gmail.com
 > **Last updated:** 2026-09-16
 
@@ -17,6 +17,7 @@ it is not a design doc that gets abandoned once code exists.
 | 2026-09-16 | `packages/llm` scoped to a provider interface + adapters (Ollama, `llama-server`), matching the existing `asr`/`inject` pattern — stays in-process, not a separate service (§6, §10). |
 | 2026-09-16 | Workspace bootstrapped; headless pipeline built in `packages/{audio,vad,asr,llm}` and `apps/daemon/src/pipeline.ts`. Corrected from measurement: VAD windows are 32ms (Silero v5 needs 512 samples), ASR returns `confidence` not `avgLogprob`, whisper-server's endpoint is `/inference`, warm LLM cleanup is ~1.1s not ~200ms (§6). Lint tool: Biome (§14). |
 | 2026-09-16 | `bun run transcribe <file>` (`apps/daemon/src/transcribe.ts`) runs the pipeline on a recording. `packages/audio` now also decodes non-WAV input by piping it through ffmpeg, so ffmpeg is used for file decoding as well as capture (§3, §10). |
+| 2026-09-17 | Live capture: `packages/audio` streams the microphone through ffmpeg into a 30s `RingBuffer`; `apps/daemon` adds the restart `Supervisor` (backoff 250ms→5s, gives up after 5 quick failures), a `Recorder` (300ms pre-roll, 2-minute cap), and `bun run listen`, a keyboard push-to-talk stand-in for the Fn FSM (§5, §10, §16). |
 
 ---
 
@@ -411,13 +412,17 @@ mockingbird/
 │   │   └── src/
 │   │       ├── workers/hotkey.worker.ts
 │   │       ├── supervisor.ts    child process lifecycle + restart policy
+│   │       ├── recorder.ts      ring buffer → recordings, with pre-roll and a length cap
 │   │       ├── pipeline.ts      VAD → ASR → LLM gate → format
+│   │       ├── runtime.ts       model checks, engine startup shared by the CLIs
 │   │       ├── transcribe.ts    `bun run transcribe <file>` CLI
+│   │       ├── listen.ts        `bun run listen` CLI (keyboard push-to-talk)
+│   │       ├── listen-controller.ts
 │   │       └── main.ts
 │   └── tui/                     mockingbird-tui — OpenTUI client, IPC only
 ├── packages/
 │   ├── protocol/                shared IPC types + zod schemas
-│   ├── audio/                   ring buffer, ffmpeg supervisor, per-OS args
+│   ├── audio/                   ring buffer, ffmpeg capture + file decoding, per-OS args
 │   ├── vad/                     Silero ONNX wrapper
 │   ├── asr/                     engine interface + whisper-server adapter
 │   ├── llm/                     provider interface + adapters (Ollama,
@@ -669,14 +674,18 @@ actual decision before or during v1, not an assumption:
 - **Multi-language support.** Whisper itself is multilingual; our formatting
   rules, voice commands, and dictionary matching are currently English-only
   assumptions baked into the design.
-- **Long-session memory bounds.** Max lock-mode session length / ring buffer
-  memory ceiling isn't defined yet — needs a safety cutoff so an accidental
-  hours-long lock session doesn't grow memory unbounded.
+- **Long-session memory bounds.** Partly settled: the ring buffer is fixed at
+  30s (~1 MB), and a single push-to-talk recording stops growing at 2 minutes
+  (`Recorder.maxRecordingMs`). Lock mode, which emits a chunk per silence
+  instead of one recording, still needs its own cutoff.
 - **Config surface.** Dictionary editing is planned in the TUI; broader
   settings (model choice, thresholds, hotkey rebinding) need either more TUI
   screens or a `mockingbird config` CLI — undecided which.
-- **Device picker.** Multiple microphones / input device selection isn't
-  addressed; v1 assumes the system default input device.
+- **Device picker.** Partly settled: capture uses the system default input
+  (avfoundation `:default`), and `bun run listen --list-devices` /
+  `--device <n|name>` override it per run. Not yet decided: persisting the
+  choice in `settings`, and following the system default when it changes
+  while mockingbird is running (today that needs a restart).
 - **Uninstall story.** What `brew uninstall` leaves behind in `~/.mockingbird/`
   (models, history, logs) and whether/how to offer full cleanup.
 

@@ -38,6 +38,18 @@ export type PipelineResult = {
 
 const elapsed = (start: number) => Math.round(performance.now() - start);
 
+/** One-line timing summary, e.g. "speech 4.5s · vad 17ms · asr 201ms · cleanup 1645ms". */
+export function describeTimings(result: PipelineResult): string {
+  const parts = [
+    `speech ${(result.durationMs / 1000).toFixed(1)}s`,
+    `vad ${result.vadMs}ms`,
+    `asr ${result.asrMs ?? "-"}ms`,
+  ];
+  if (result.llmOutcome === "cleaned") parts.push(`cleanup ${result.llmMs}ms`);
+  else if (result.asrMs !== null) parts.push(`cleanup ${result.llmOutcome}`);
+  return parts.join(" · ");
+}
+
 export async function runPipeline(
   { audio, style = "default" }: { audio: PcmAudio; style?: AppStyle },
   deps: PipelineDeps,
