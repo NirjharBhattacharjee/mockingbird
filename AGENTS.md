@@ -168,12 +168,10 @@ should quote.
   semantic color mapping, and screen breakdown in
   [TUI.md](./docs/TUI.md). Verify any hardcoded hex value there against the
   canonical Catppuccin palette before shipping a theme file.
-- **No `LICENSE` file yet** — open decision
-  ([ARCHITECTURE.md §16](./docs/ARCHITECTURE.md#16-known-gaps--scope-not-yet-decided)).
-  Don't assume specific license terms in code headers or docs until this
-  is resolved; the DCO-not-CLA stance in
-  [CONTRIBUTING.md §11](./CONTRIBUTING.md#11-contributor-licensing--dco-not-a-cla)
-  holds regardless of which OSI license is eventually picked.
+- **License: MIT** ([LICENSE](./LICENSE)). Don't add per-file license
+  headers, and don't copy in code under a license that isn't MIT-compatible
+  (e.g. GPL); third-party code with a different license goes in its own
+  repo, like `agent-skills`.
 
 ## Local test infrastructure
 

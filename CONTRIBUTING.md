@@ -263,11 +263,8 @@ project's open-source license. No copyright transfer, no extra rights
 granted beyond what that license already gives everyone. (DCO enforcement
 in CI is not yet wired up — tracked in [§15](#15-open-gaps-in-this-process).)
 
-The project's license itself is still an open decision — see
-[ARCHITECTURE.md §16](./docs/ARCHITECTURE.md#16-known-gaps--scope-not-yet-decided)
-— but per `PHILOSOPHY.md`, it will be an OSI-approved, genuinely open
-license that permits forking, not a source-available or "free but
-restricted" arrangement.
+The project is licensed under the [MIT License](./LICENSE). By contributing,
+you agree that your contribution is released under it too.
 
 ## 12. Reporting security issues
 
@@ -326,10 +323,6 @@ Named explicitly rather than silently deferred, matching the style of
 - **DCO enforcement in CI** — the policy in [§11](#11-contributor-licensing--dco-not-a-cla)
   is stated but not yet mechanically checked (e.g. a DCO GitHub App/Action
   that blocks unsigned commits).
-- **License file** — see
-  [ARCHITECTURE.md §16](./docs/ARCHITECTURE.md#16-known-gaps--scope-not-yet-decided);
-  this doc's DCO/no-CLA stance is written to hold regardless of which
-  specific OSI license is ultimately chosen.
 - **Issue labels** (`good first issue`, `help wanted`) — the repo
   ([github.com/NirjharBhattacharjee/mockingbird](https://github.com/NirjharBhattacharjee/mockingbird))
   is live, but labels haven't been set up yet.
