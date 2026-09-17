@@ -1,7 +1,7 @@
 # Agent workflow
 
 > This file governs every agent working in this repository — human-invoked
-> or automated, including the skills in `~/.claude/skills`
+> or automated, including the skills in [`agent-skills/`](./agent-skills)
 > (`new-feature`, `code-structure`, `evidence-driven-testing`,
 > `before-and-after`, `greploop`/`greploop-apps`, `unslop`). It's the
 > repo-specific fill-in that collection's own template asks for.
@@ -200,10 +200,28 @@ should quote.
 
 ## Skill sources
 
+The skills live in [`agent-skills/`](./agent-skills), a git submodule of
+[NirjharBhattacharjee/skills](https://github.com/NirjharBhattacharjee/skills).
+It's a separate repo on purpose: it has its own history and pull requests,
+and `before-and-after` is PolyForm Shield licensed, which mockingbird's
+code can't be (see [PHILOSOPHY.md §3](./docs/PHILOSOPHY.md#3-non-negotiables)).
+Nothing in `apps/` or `packages/` imports from it.
+
+Fetch it and make the skills available to Claude Code in this project:
+
+```sh
+git submodule update --init
+mkdir -p .claude/skills
+for f in agent-skills/*/SKILL.md; do d="$(dirname "$f")"; ln -sfn "../../$d" ".claude/skills/$(basename "$d")"; done
+```
+
+To move to a newer version of the skills, run
+`git -C agent-skills pull` and commit the updated `agent-skills` pointer.
+
 | Skill | Source |
 |---|---|
-| `new-feature`, `code-structure`, `evidence-driven-testing` | `greptileai`-adjacent collection at `~/repos/openSource/mockingbird/skills` (sibling repo, not part of this one) |
-| `before-and-after` | same collection, vendored from `vercel-labs/before-and-after` |
-| `greploop` | same collection, vendored from `greptileai/skills` |
-| `greploop-apps` | same collection, local variant for huge PRs |
-| `unslop` | same collection, vendored from `cursor/plugins (pstack)` |
+| `new-feature`, `code-structure`, `evidence-driven-testing` | the skills repo itself |
+| `before-and-after` | vendored there from `vercel-labs/before-and-after` (PolyForm Shield 1.0.0) |
+| `greploop` | vendored there from `greptileai/skills` (MIT) |
+| `greploop-apps` | local variant there, for huge PRs (MIT) |
+| `unslop` | vendored there from `cursor/plugins (pstack)` (MIT) |
