@@ -85,10 +85,11 @@ ollama pull qwen3:4b-instruct-2507-q4_K_M
 bun run listen
 ```
 
-Hold **Fn**, speak, let go, and your words are typed into whatever app you're
-in. (Enter works too, for this terminal.) The first time, click **Allow** when
-macOS asks for the microphone, and see [Usage](#-usage) for the two
-permissions `Fn` and typing need.
+Leave it running, click into any app (Slack, Notes, a browser), then hold
+**Fn**, speak, and let go: your words are typed where your cursor is. (Enter
+works too, for this terminal.) The first time, click **Allow** when macOS asks
+for the microphone, and see [Usage](#-usage) for the two permissions `Fn` and
+typing need.
 
 ## 🎤 Usage
 
@@ -112,9 +113,29 @@ browser) and printed here too. Use `--no-type` to only print it.
 | **Input Monitoring** | noticing the `Fn` key |
 | **Accessibility** | typing into other apps |
 
-Switch your terminal on in both, then quit it with **Cmd+Q** and reopen.
-Without them, Enter still records and the text is printed here. To check
-typing on its own:
+Switch on the app you run `bun run listen` from (Terminal, Ghostty, iTerm, VS
+Code…) in both. If it isn't in the list, click **+** and add it from
+Applications. Then **quit that app completely and reopen it**: press **Cmd+Q**
+until its Dock icon has no dot under it. Closing its windows isn't enough;
+macOS only applies the new permissions when the app restarts.
+
+Without them, Enter still records and the text is printed here.
+
+<details>
+<summary>Fn still not working?</summary>
+
+- **`listen` says "Fn key off".** The app you ran it from doesn't have Input
+  Monitoring yet, or hasn't been fully quit and reopened since you allowed it.
+  Each terminal app needs its own permission: allowing VS Code doesn't cover
+  Ghostty.
+- **Holding Fn opens emoji or Apple's dictation.** In System Settings →
+  Keyboard, set **Press 🌐 key to** to **Do Nothing**.
+- **Text is typed twice.** `bun run listen` is running in two windows. Quit
+  one with `q`.
+
+</details>
+
+To check typing on its own:
 
 ```sh
 bun run type --check          # is typing allowed? which app is in front?
