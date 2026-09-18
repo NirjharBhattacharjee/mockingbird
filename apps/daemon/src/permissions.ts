@@ -44,7 +44,10 @@ export function permissionHelp(
 export function askForPermissions(
   missing: [Permission, ...Permission[]],
   request: Record<Permission, () => void>,
+  spawn: (cmd: string[]) => void = (cmd) => {
+    Bun.spawn(cmd, { stdout: "ignore", stderr: "ignore" });
+  },
 ): void {
   for (const permission of missing) request[permission]();
-  Bun.spawn(["open", PANES[missing[0]].url], { stdout: "ignore", stderr: "ignore" });
+  spawn(["open", PANES[missing[0]].url]);
 }

@@ -1,5 +1,35 @@
 import { describe, expect, test } from "bun:test";
-import { permissionHelp } from "../src/permissions.ts";
+import { askForPermissions, type Permission, permissionHelp } from "../src/permissions.ts";
+
+describe("askForPermissions", () => {
+  const record = (missing: [Permission, ...Permission[]]) => {
+    const calls: string[] = [];
+    askForPermissions(
+      missing,
+      {
+        "input-monitoring": () => calls.push("request input-monitoring"),
+        accessibility: () => calls.push("request accessibility"),
+      },
+      (cmd) => calls.push(cmd.join(" ")),
+    );
+    return calls;
+  };
+
+  test("requests each missing permission in order, then opens the first one's pane", () => {
+    expect(record(["input-monitoring", "accessibility"])).toEqual([
+      "request input-monitoring",
+      "request accessibility",
+      "open x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent",
+    ]);
+  });
+
+  test("opens Accessibility when it's the only one missing", () => {
+    expect(record(["accessibility"])).toEqual([
+      "request accessibility",
+      "open x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+    ]);
+  });
+});
 
 describe("permissionHelp", () => {
   test("names the app and the one permission it needs", () => {

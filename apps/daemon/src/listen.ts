@@ -108,13 +108,14 @@ async function main(): Promise<number> {
   if (typingWanted && !typingAllowed) missing.push("accessibility");
   const [first, ...rest] = missing;
   if (first) {
+    // The terminal is in front until System Settings opens, and it's the app
+    // macOS grants these to, so look it up before asking.
+    const app = (await frontmostApp().catch(() => undefined))?.name;
     // Asked before the engines start, so System Settings is up while they load.
     askForPermissions([first, ...rest], {
       "input-monitoring": requestInputMonitoring,
       accessibility: requestTypingAccess,
     });
-    // The terminal is in front right now, and it's the app macOS grants these to.
-    const app = (await frontmostApp().catch(() => undefined))?.name;
     log(permissionHelp([first, ...rest], app));
   }
   /** Looks up the app that was in front when the recording started. */
