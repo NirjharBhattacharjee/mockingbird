@@ -100,4 +100,11 @@ describe("HotkeyFsm", () => {
     fsm.tick(60);
     expect(fsm.handle(fnUp(70))).toBe("stop");
   });
+
+  test("a hold released before tick() runs still counts as a hold", () => {
+    const fsm = new HotkeyFsm({ holdMs: 180 });
+    fsm.handle(fnDown(0));
+    expect(fsm.handle(fnUp(250))).toBe("stop");
+    expect(fsm.state).toBe("IDLE");
+  });
 });
