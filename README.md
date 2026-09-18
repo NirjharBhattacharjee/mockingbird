@@ -112,7 +112,8 @@ browser) and printed here too. Use `--no-type` to only print it.
 No need to start Ollama yourself: if it isn't running, `listen` starts it and
 stops it again when you quit.
 
-**Two permissions are needed**, both in System Settings → Privacy & Security:
+**Two permissions are needed**, both in System Settings → Privacy & Security.
+`bun run listen` opens the right page for you when one is missing:
 
 | Permission | For |
 |---|---|
