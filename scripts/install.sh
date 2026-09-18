@@ -10,6 +10,8 @@
 # MOCKINGBIRD_DIR   where to clone the code (default ~/mockingbird; ignored
 #                   when run from inside a clone)
 # MOCKINGBIRD_HOME  where models/ goes (default ~/.mockingbird)
+# MOCKINGBIRD_LLM_URL  the Ollama server to check and pull the model into
+#                      (default http://127.0.0.1:11434)
 
 # Everything is inside main, so a download cut short by curl runs nothing.
 main() {
@@ -19,7 +21,6 @@ main() {
   local models="${MOCKINGBIRD_HOME:-$HOME/.mockingbird}/models"
   local llm_url="${MOCKINGBIRD_LLM_URL:-http://127.0.0.1:11434}"
   local llm_model="${MOCKINGBIRD_LLM_MODEL:-qwen3:4b-instruct-2507-q4_K_M}"
-  local new_terminal=0
 
   step() { printf '\n\033[1;35m==>\033[0m \033[1m%s\033[0m\n' "$1"; }
   skip() { printf '    %s\n' "$1"; }
@@ -34,16 +35,11 @@ main() {
   command -v brew >/dev/null 2>&1 || fail "Homebrew is needed first: see https://brew.sh, then run this again."
 
   step "1/5 Tools"
-  if command -v bun >/dev/null 2>&1; then
-    skip "bun is installed"
-  else
-    curl -fsSL https://bun.sh/install | bash
-    export PATH="$HOME/.bun/bin:$PATH"
-    new_terminal=1
-  fi
+  # All from Homebrew, which checks each download against its formula's sha256.
+  # A tool already on the PATH (say, bun from bun.sh) is used as it is.
   local formula
-  for formula in whisper-cpp ollama ffmpeg; do
-    if brew list --formula "$formula" >/dev/null 2>&1; then
+  for formula in bun whisper-cpp ollama ffmpeg; do
+    if command -v "$formula" >/dev/null 2>&1 || brew list --formula "$formula" >/dev/null 2>&1; then
       skip "$formula is installed"
     else
       brew install "$formula"
@@ -59,7 +55,7 @@ main() {
     skip "using this clone: $dir"
   else
     dir="${MOCKINGBIRD_DIR:-$HOME/mockingbird}"
-    if [ -d "$dir/.git" ]; then
+    if [ -d "$dir/.git" ] && grep -q '"name": "mockingbird"' "$dir/package.json" 2>/dev/null; then
       skip "already cloned: $dir"
     elif [ -e "$dir" ]; then
       fail "$dir already exists and isn't a clone of mockingbird. Set MOCKINGBIRD_DIR to use another folder."
@@ -71,19 +67,28 @@ main() {
 
   step "3/5 Models"
   mkdir -p "$models"
+  # Pinned to a fixed version and checked against its sha256, so a changed,
+  # truncated or corrupt file is downloaded again rather than loaded.
+  sha256() { shasum -a 256 "$1" | cut -d' ' -f1; }
   download() {
-    if [ -s "$models/$1" ]; then
+    if [ -f "$models/$1" ] && [ "$(sha256 "$models/$1")" = "$3" ]; then
       skip "$1 is downloaded"
       return
     fi
     # Download to a temporary name first, so an interrupted download isn't mistaken for a model.
     curl -fL --progress-bar -o "$models/$1.part" "$2"
+    if [ "$(sha256 "$models/$1.part")" != "$3" ]; then
+      rm -f "$models/$1.part"
+      fail "$1 didn't match its expected checksum. Run this again; if it keeps happening, please open an issue."
+    fi
     mv "$models/$1.part" "$models/$1"
   }
   download ggml-base.en.bin \
-    https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
+    https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base.en.bin \
+    a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002
   download silero_vad.onnx \
-    https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx
+    https://github.com/snakers4/silero-vad/raw/v6.2.2/src/silero_vad/data/silero_vad.onnx \
+    1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3
 
   step "4/5 Ollama"
   ollama_up() { curl -fsS "$llm_url/api/version" >/dev/null 2>&1; }
@@ -101,11 +106,11 @@ main() {
   fi
 
   step "5/5 Cleanup model"
-  ollama pull "$llm_model"
+  # The ollama CLI finds its server through OLLAMA_HOST, so point it at the one mockingbird uses.
+  OLLAMA_HOST="$llm_url" ollama pull "$llm_model"
 
   printf '\n\033[1;32mAll set.\033[0m Now run:\n\n'
-  [ "$new_terminal" = 1 ] && printf '    # open a new terminal window first, so it finds bun\n'
-  printf '    cd %s\n    bun run listen\n\n' "$dir"
+  printf '    cd %q\n    bun run listen\n\n' "$dir"
 }
 
 main "$@"

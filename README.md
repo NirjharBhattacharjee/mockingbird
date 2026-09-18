@@ -46,8 +46,9 @@ free space.
 curl -fsSL https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/scripts/install.sh | bash
 ```
 
-This installs Bun, whisper-cpp, Ollama and ffmpeg, clones mockingbird into
-`~/mockingbird`, downloads the models, and starts Ollama in the background
+This installs Bun, whisper-cpp, Ollama and ffmpeg with Homebrew, clones
+mockingbird into `~/mockingbird`, downloads the models (checking each against
+its sha256), and starts Ollama in the background
 (it keeps running after a restart; stop it with `brew services stop ollama`).
 It skips anything you already have, so it's safe to run again.
 [Read the script](scripts/install.sh) first if you like.
@@ -56,9 +57,8 @@ It skips anything you already have, so it's safe to run again.
 <summary>Rather do it step by step?</summary>
 
 ```sh
-# Tools (then open a new terminal window)
-curl -fsSL https://bun.sh/install | bash
-brew install whisper-cpp ollama ffmpeg
+# Tools
+brew install bun whisper-cpp ollama ffmpeg
 
 # Code
 git clone https://github.com/NirjharBhattacharjee/mockingbird.git
@@ -67,10 +67,14 @@ bun install
 
 # Models
 mkdir -p ~/.mockingbird/models
-curl -L -o ~/.mockingbird/models/ggml-base.en.bin \
-  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
-curl -L -o ~/.mockingbird/models/silero_vad.onnx \
-  https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx
+curl -fL -o ~/.mockingbird/models/ggml-base.en.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base.en.bin
+curl -fL -o ~/.mockingbird/models/silero_vad.onnx \
+  https://github.com/snakers4/silero-vad/raw/v6.2.2/src/silero_vad/data/silero_vad.onnx
+(cd ~/.mockingbird/models && shasum -a 256 -c) <<'SUMS'
+a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002  ggml-base.en.bin
+1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3  silero_vad.onnx
+SUMS
 
 # Ollama: run `ollama serve` in a second window and leave it open, then:
 ollama pull qwen3:4b-instruct-2507-q4_K_M
