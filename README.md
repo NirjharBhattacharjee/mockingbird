@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/demo.gif" alt="Terminal demo: bun run listen records a sentence and prints the cleaned-up text" width="100%">
+  <img src="docs/assets/demo.gif" alt="Illustration: holding Fn in a chat app, speaking, and letting go types the cleaned-up sentence into the message box, while bun run listen shows its status" width="100%">
 </p>
 
 <p align="center">
@@ -31,8 +31,9 @@ cloud, no usage limits. A free, open-source alternative to Wispr Flow
 ([why](docs/PHILOSOPHY.md)).
 
 > [!NOTE]
-> **Early days.** Talking to mockingbird in the terminal works today. Typing
-> straight into other apps with the `Fn` key is coming next.
+> **Early days.** Hold `Fn` anywhere, speak, and the text is typed into
+> whatever app you're in. History, custom vocabulary and the dashboard are
+> still to come.
 
 ## 🚀 Quick start
 
@@ -84,8 +85,11 @@ ollama pull qwen3:4b-instruct-2507-q4_K_M
 bun run listen
 ```
 
-Press **Enter**, speak, press **Enter** again. Your words appear as text. The
-first time, click **Allow** when macOS asks for the microphone.
+Leave it running, click into any app (Slack, Notes, a browser), then hold
+**Fn**, speak, and let go: your words are typed where your cursor is. (Enter
+works too, for this terminal.) The first time, click **Allow** when macOS asks
+for the microphone, and see [Usage](#-usage) for the two permissions `Fn` and
+typing need.
 
 ## 🎤 Usage
 
@@ -99,10 +103,44 @@ first time, click **Allow** when macOS asks for the microphone.
 | **Esc** | Cancel the recording |
 | **q** | Quit |
 
-`Fn` needs **Input Monitoring** permission: System Settings → Privacy &
-Security → Input Monitoring, switch on your terminal, then quit it with
-**Cmd+Q** and reopen. Without it, Enter still works. The text still prints in
-the terminal for now; typing it into other apps is the next step.
+Whatever you say is typed into the app in front (Slack, your editor, a
+browser) and printed here too. Use `--no-type` to only print it.
+
+**Two permissions are needed**, both in System Settings → Privacy & Security:
+
+| Permission | For |
+|---|---|
+| **Input Monitoring** | noticing the `Fn` key |
+| **Accessibility** | typing into other apps |
+
+Switch on the app you run `bun run listen` from (Terminal, Ghostty, iTerm, VS
+Code…) in both. If it isn't in the list, click **+** and add it from
+Applications. Then **quit that app completely and reopen it**: press **Cmd+Q**
+until its Dock icon has no dot under it. Closing its windows isn't enough;
+macOS only applies the new permissions when the app restarts.
+
+Without them, Enter still records and the text is printed here.
+
+<details>
+<summary>Fn still not working?</summary>
+
+- **`listen` says "Fn key off".** The app you ran it from doesn't have Input
+  Monitoring yet, or hasn't been fully quit and reopened since you allowed it.
+  Each terminal app needs its own permission: allowing VS Code doesn't cover
+  Ghostty.
+- **Holding Fn opens emoji or Apple's dictation.** In System Settings →
+  Keyboard, set **Press 🌐 key to** to **Do Nothing**.
+- **Text is typed twice.** `bun run listen` is running in two windows. Quit
+  one with `q`.
+
+</details>
+
+To check typing on its own:
+
+```sh
+bun run type --check          # is typing allowed? which app is in front?
+bun run type "hello there"    # waits 3s, then types into the app you click
+```
 
 Using the wrong microphone? List them and pick one:
 
@@ -152,6 +190,7 @@ Environment variables:
 | `recording was completely silent` or stuck on `waiting for the microphone` | Allow your terminal in **System Settings → Privacy & Security → Microphone**, then restart the terminal. |
 | The level bars don't move | Wrong microphone. Use `--list-devices` and `--device`. |
 | `Fn key off` or `Fn` does nothing | Allow your terminal in **System Settings → Privacy & Security → Input Monitoring**, then quit it with Cmd+Q and reopen. |
+| Text prints but isn't typed into the app | Allow your terminal in **Accessibility** (same settings page), quit with Cmd+Q, reopen. Check with `bun run type --check`. |
 | `Ollama isn't running` | Run `ollama serve` in another window. You still get text, just not cleaned up. |
 | `Whisper model not found` | Redo step 3. |
 | `command not found: bun` | Open a new terminal window. |
@@ -167,7 +206,7 @@ that it's quick.
 | ✅ | Live microphone with `bun run listen` |
 | ✅ | Transcribe recordings with `bun run transcribe` |
 | ✅ | Hold `Fn` to talk, double-tap for hands-free |
-| 🔲 | Type the text into any app |
+| ✅ | Types into any app: Slack, editors, browsers, terminals |
 | 🔲 | History and custom vocabulary |
 | 🔲 | Terminal dashboard (Catppuccin themed) |
 | 🔲 | `brew install mockingbird` |
@@ -179,6 +218,9 @@ that it's quick.
   run in the quick start.
 - Nothing is saved to disk. Live audio is kept in memory only (the last 30
   seconds). While `listen` runs, macOS shows the orange microphone dot.
+- Typing uses key events, not the clipboard, so yours is never touched. Line
+  breaks are removed first, so dictation can't send a message or run a command
+  by itself.
 
 More: [docs/SECURITY_PRIVACY.md](docs/SECURITY_PRIVACY.md)
 
@@ -190,7 +232,8 @@ More: [docs/SECURITY_PRIVACY.md](docs/SECURITY_PRIVACY.md)
 | `bun run test:integration` | All tests, using the real models |
 | `bun run typecheck` | Type-check |
 | `bun run lint` / `bun run format` | Check / fix style |
-| `bun run demo` | Re-record the GIF above (needs [vhs](https://github.com/charmbracelet/vhs)) |
+| `bun run type --check` | Check typing permission and the app in front |
+| `bun run demo` | Redraw the GIF above (needs `brew install librsvg`) |
 
 Code lives in `apps/daemon` (the commands) and `packages/` (audio, voice
 detection, speech-to-text, cleanup). The agent skills are a submodule in

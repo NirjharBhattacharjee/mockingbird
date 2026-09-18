@@ -77,6 +77,11 @@ export class HotkeyFsm {
     if (event.type === "fn-up") {
       switch (this.current) {
         case "ARMED":
+          // Held long enough but tick() hasn't run yet: still a hold.
+          if (event.at - this.since >= this.holdMs) {
+            this.enter("IDLE", event.at);
+            return "stop";
+          }
           // Too short to be a hold: drop it and wait for a possible second tap.
           this.enter("TAP_WAIT", event.at);
           return "cancel";

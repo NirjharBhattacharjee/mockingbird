@@ -6,11 +6,13 @@ import {
   peak,
   startCapture,
 } from "@mockingbird/audio";
+import { type FrontmostApp, frontmostApp, isTerminal } from "@mockingbird/context";
 import {
   checkInputMonitoring,
   type HotkeyListener,
   startHotkeyListener,
 } from "@mockingbird/hotkey";
+import { checkTypingAccess, typeText } from "@mockingbird/inject";
 import { HotkeyFsm } from "./hotkey-fsm.ts";
 import { ListenController } from "./listen-controller.ts";
 import { describeTimings, runPipeline } from "./pipeline.ts";
@@ -22,8 +24,8 @@ import { Supervisor } from "./supervisor.ts";
 const USAGE = `Usage: bun run listen [--device <number|name>] [--terminal] [--json]
        bun run listen --list-devices
 
-Listens to your microphone and prints what you say. (It isn't typed into other
-apps yet.)
+Listens to your microphone and types what you say into whatever app is in
+front, and prints it here too.
 
 Keys:
   Fn (hold)        record while held, anywhere on the Mac
@@ -32,10 +34,12 @@ Keys:
   Esc              cancel the current recording
   q or Ctrl+C      quit
 
-Fn needs Input Monitoring permission; without it, Enter still works.
+Fn needs Input Monitoring permission and typing needs Accessibility; without
+them, Enter still works and the text is only printed here.
 
 Options:
   --no-hotkey      don't watch the Fn key
+  --no-type        print the text only, don't type it into apps
   --device <d>     microphone number from --list-devices, or its exact name
                    (default: the input selected in System Settings → Sound)
   --list-devices   list microphones and exit
@@ -60,6 +64,7 @@ function parse() {
         device: { type: "string" },
         "list-devices": { type: "boolean" },
         "no-hotkey": { type: "boolean" },
+        "no-type": { type: "boolean" },
         terminal: { type: "boolean" },
         json: { type: "boolean" },
         help: { type: "boolean", short: "h" },
@@ -92,7 +97,17 @@ async function main(): Promise<number> {
     throw new UsageError("listen needs an interactive terminal to read key presses");
   }
 
-  const style = values.terminal ? "terminal" : "default";
+  const typingWanted = !values["no-type"];
+  const typingAllowed = typingWanted && checkTypingAccess();
+  if (typingWanted && !typingAllowed) {
+    log(
+      "typing into apps is off: enable Accessibility for this terminal in System Settings →\n" +
+        "Privacy & Security → Accessibility, then quit and reopen it. Text is printed here meanwhile.",
+    );
+  }
+  /** Looks up the app that was in front when the recording started. */
+  let targetLookup: Promise<FrontmostApp | undefined> = Promise.resolve(undefined);
+
   const inputArgs = process.env.MOCKINGBIRD_MIC_INPUT
     ? process.env.MOCKINGBIRD_MIC_INPUT.split(/\s+/).filter(Boolean)
     : micInputArgs(values.device);
@@ -100,6 +115,7 @@ async function main(): Promise<number> {
   const engines = await startEngines(log);
 
   const transcribe = async ({ audio, truncated }: Recording) => {
+    const target = await targetLookup;
     if (peak(audio.samples) === 0) {
       clearLine();
       log(
@@ -108,6 +124,8 @@ async function main(): Promise<number> {
       );
       return;
     }
+    // Terminals get command-friendly text: no trailing period.
+    const style = values.terminal || isTerminal(target) ? "terminal" : "default";
     const result = await runPipeline({ audio, style }, engines.deps);
     clearLine();
     if (values.json) console.log(JSON.stringify(result, null, 2));
@@ -115,6 +133,24 @@ async function main(): Promise<number> {
     else log("no speech detected");
     if (truncated) log("the recording hit the 2-minute limit, so the end was cut off");
     if (result.llmOutcome === "failed") log(`cleanup failed: ${result.llmError}`);
+
+    if (typingAllowed && result.finalText) {
+      try {
+        // Transcription takes a while; if the user switched apps meanwhile, the text
+        // would land somewhere they didn't dictate it for, so only print it.
+        const now = await frontmostApp();
+        if (!target || !now || now.bundleId !== target.bundleId) {
+          log(
+            `not typing it: the app in front changed since you started speaking` +
+              ` (${target?.name ?? "unknown"} → ${now?.name ?? "unknown"})`,
+          );
+        } else {
+          await typeText(result.finalText);
+        }
+      } catch (error) {
+        log(`couldn't type it: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
     if (!values.json) log(describeTimings(result));
   };
 
@@ -130,6 +166,9 @@ async function main(): Promise<number> {
     hotkeyAllowed
       ? { start: "hold Fn to talk (or Enter) · q: quit", stop: "release Fn · Esc: cancel" }
       : { start: "Enter: start speaking · q: quit", stop: "Enter: stop · Esc: cancel" },
+    () => {
+      targetLookup = frontmostApp().catch(() => undefined);
+    },
   );
 
   const fsm = new HotkeyFsm();
