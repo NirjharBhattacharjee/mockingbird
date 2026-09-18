@@ -10,11 +10,13 @@ import { type FrontmostApp, frontmostApp, isTerminal } from "@mockingbird/contex
 import {
   checkInputMonitoring,
   type HotkeyListener,
+  requestInputMonitoring,
   startHotkeyListener,
 } from "@mockingbird/hotkey";
-import { checkTypingAccess, typeText } from "@mockingbird/inject";
+import { checkTypingAccess, requestTypingAccess, typeText } from "@mockingbird/inject";
 import { HotkeyFsm } from "./hotkey-fsm.ts";
 import { ListenController } from "./listen-controller.ts";
+import { askForPermissions, type Permission, permissionHelp } from "./permissions.ts";
 import { describeTimings, runPipeline } from "./pipeline.ts";
 import type { Recording } from "./recorder.ts";
 import { Recorder } from "./recorder.ts";
@@ -99,11 +101,21 @@ async function main(): Promise<number> {
 
   const typingWanted = !values["no-type"];
   const typingAllowed = typingWanted && checkTypingAccess();
-  if (typingWanted && !typingAllowed) {
-    log(
-      "typing into apps is off: enable Accessibility for this terminal in System Settings →\n" +
-        "Privacy & Security → Accessibility, then quit and reopen it. Text is printed here meanwhile.",
-    );
+  const hotkeyWanted = !values["no-hotkey"];
+  const hotkeyAllowed = hotkeyWanted && checkInputMonitoring() === "granted";
+  const missing: Permission[] = [];
+  if (hotkeyWanted && !hotkeyAllowed) missing.push("input-monitoring");
+  if (typingWanted && !typingAllowed) missing.push("accessibility");
+  const [first, ...rest] = missing;
+  if (first) {
+    // Asked before the engines start, so System Settings is up while they load.
+    askForPermissions([first, ...rest], {
+      "input-monitoring": requestInputMonitoring,
+      accessibility: requestTypingAccess,
+    });
+    // The terminal is in front right now, and it's the app macOS grants these to.
+    const app = (await frontmostApp().catch(() => undefined))?.name;
+    log(permissionHelp([first, ...rest], app));
   }
   /** Looks up the app that was in front when the recording started. */
   let targetLookup: Promise<FrontmostApp | undefined> = Promise.resolve(undefined);
@@ -154,8 +166,6 @@ async function main(): Promise<number> {
     if (!values.json) log(describeTimings(result));
   };
 
-  const hotkeyWanted = !values["no-hotkey"];
-  const hotkeyAllowed = hotkeyWanted && checkInputMonitoring() === "granted";
   const controller = new ListenController(
     new Recorder(),
     transcribe,
@@ -194,11 +204,6 @@ async function main(): Promise<number> {
       await hotkey.stop();
       hotkey = undefined;
     }
-  } else if (hotkeyWanted) {
-    log(
-      "Fn key off: enable Input Monitoring for this terminal in System Settings →\n" +
-        "Privacy & Security → Input Monitoring, then quit and reopen it. Enter still works.",
-    );
   }
 
   let finish: (code: number) => void = () => {};
