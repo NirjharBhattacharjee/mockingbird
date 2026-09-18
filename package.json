@@ -17,7 +17,7 @@
     "listen": "bun apps/daemon/src/listen.ts",
     "type": "bun apps/daemon/src/type.ts",
     "fixtures": "sh scripts/make-fixtures.sh",
-    "demo": "sh scripts/render-demo.sh"
+    "demo": "bun scripts/render-demo.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",

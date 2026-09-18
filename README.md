@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/demo.gif" alt="Terminal demo: bun run listen records a sentence and prints the cleaned-up text" width="100%">
+  <img src="docs/assets/demo.gif" alt="Illustration: holding Fn in a chat app, speaking, and letting go types the cleaned-up sentence into the message box, while bun run listen shows its status" width="100%">
 </p>
 
 <p align="center">
@@ -212,7 +212,7 @@ More: [docs/SECURITY_PRIVACY.md](docs/SECURITY_PRIVACY.md)
 | `bun run typecheck` | Type-check |
 | `bun run lint` / `bun run format` | Check / fix style |
 | `bun run type --check` | Check typing permission and the app in front |
-| `bun run demo` | Re-record the GIF above (needs [vhs](https://github.com/charmbracelet/vhs)) |
+| `bun run demo` | Redraw the GIF above (needs `brew install librsvg`) |
 
 Code lives in `apps/daemon` (the commands) and `packages/` (audio, voice
 detection, speech-to-text, cleanup). The agent skills are a submodule in
