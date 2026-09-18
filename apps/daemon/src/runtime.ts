@@ -11,7 +11,7 @@ export function requireFile(path: string, what: string, hint = ""): string {
   return path;
 }
 
-const SETUP_HINT = "\nSee the Setup section of README.md.";
+const SETUP_HINT = "\nRun scripts/install.sh to download it (see Quick start in README.md).";
 
 export type Engines = {
   deps: PipelineDeps;

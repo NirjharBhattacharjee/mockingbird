@@ -40,48 +40,48 @@ cloud, no usage limits. A free, open-source alternative to Wispr Flow
 You need a Mac with Apple Silicon, [Homebrew](https://brew.sh), and about 3 GB of
 free space.
 
-**1. Install the tools**
+**1. Install everything**
 
 ```sh
-curl -fsSL https://bun.sh/install | bash
-brew install whisper-cpp ollama ffmpeg
+curl -fsSL https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/scripts/install.sh | bash
 ```
 
-Then open a new terminal window.
+This installs Bun, whisper-cpp, Ollama and ffmpeg, clones mockingbird into
+`~/mockingbird`, downloads the models, and starts Ollama in the background
+(it keeps running after a restart; stop it with `brew services stop ollama`).
+It skips anything you already have, so it's safe to run again.
+[Read the script](scripts/install.sh) first if you like.
 
-**2. Get mockingbird**
+<details>
+<summary>Rather do it step by step?</summary>
 
 ```sh
+# Tools (then open a new terminal window)
+curl -fsSL https://bun.sh/install | bash
+brew install whisper-cpp ollama ffmpeg
+
+# Code
 git clone https://github.com/NirjharBhattacharjee/mockingbird.git
 cd mockingbird
 bun install
-```
 
-**3. Download the models**
-
-```sh
+# Models
 mkdir -p ~/.mockingbird/models
 curl -L -o ~/.mockingbird/models/ggml-base.en.bin \
   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
 curl -L -o ~/.mockingbird/models/silero_vad.onnx \
   https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx
-```
 
-**4. Start Ollama** in a second terminal window and leave it open
-
-```sh
-ollama serve
-```
-
-Back in the first window, download the cleanup model (once):
-
-```sh
+# Ollama: run `ollama serve` in a second window and leave it open, then:
 ollama pull qwen3:4b-instruct-2507-q4_K_M
 ```
 
-**5. Talk to it**
+</details>
+
+**2. Talk to it**
 
 ```sh
+cd ~/mockingbird
 bun run listen
 ```
 
@@ -191,8 +191,8 @@ Environment variables:
 | The level bars don't move | Wrong microphone. Use `--list-devices` and `--device`. |
 | `Fn key off` or `Fn` does nothing | Allow your terminal in **System Settings → Privacy & Security → Input Monitoring**, then quit it with Cmd+Q and reopen. |
 | Text prints but isn't typed into the app | Allow your terminal in **Accessibility** (same settings page), quit with Cmd+Q, reopen. Check with `bun run type --check`. |
-| `Ollama isn't running` | Run `ollama serve` in another window. You still get text, just not cleaned up. |
-| `Whisper model not found` | Redo step 3. |
+| `Ollama isn't running` | Run `brew services start ollama` (or `ollama serve` in another window). You still get text, just not cleaned up. |
+| `Whisper model not found` | Run the install command again. |
 | `command not found: bun` | Open a new terminal window. |
 
 The first run pauses for about 15 seconds while macOS prepares the GPU. After
