@@ -127,7 +127,7 @@ about what each one actually means:
 | Permission | Why it's needed | What it *also* grants |
 |---|---|---|
 | **Microphone** | Capture audio for dictation | Nothing beyond mic access — the narrowest of the three |
-| **Accessibility** | Inject text via System Events keystroke, poll frontmost app | Broad UI automation: reading and controlling other apps' UI elements |
+| **Accessibility** | Type dictated text into the focused app (`CGEventPost`) | Broad UI automation: the ability to synthesize any input into any app |
 | **Input Monitoring** | Global hotkey detection (CoreGraphics event tap via `bun:ffi`) | **System-wide keystroke observation** — the same class of access a keylogger needs |
 | macOS grants storage (which apps hold which TCC grants) | — | Lives in Apple's TCC database, **not** ours — see [state ownership map, ARCHITECTURE.md §8](./ARCHITECTURE.md#8-state-ownership-map) |
 
@@ -145,6 +145,24 @@ security-sensitive file in the repo. As implemented today, that file:
   no other keycode is ever passed on, stored, or logged — the filter is three
   lines in one function, and deliberately easy to verify;
 - never records typed characters, only key identity and timing.
+
+Typing into other apps (Accessibility) is the mirror image of that risk, and
+lives in `packages/inject/src/typing.ts`. As implemented today it:
+
+- types text as Unicode key events, so the **clipboard is never read or
+  written** — nothing of yours is clobbered, and dictation doesn't end up in
+  clipboard-history tools;
+- **removes line breaks before typing** (they become spaces), so dictated text
+  can't press Return for you: it can't send a half-finished message or run a
+  command in a terminal;
+- strips other control codes, which could otherwise do stranger things to a
+  terminal;
+- types only what the pipeline produced, into whichever app you had in front;
+  it never reads what's already in that app.
+
+Both grants are checked before use (`CGPreflightPostEventAccess`,
+`IOHIDCheckAccess`) rather than assumed, and mockingbird degrades to printing
+in the terminal when they're missing.
 
 Because these grants are broad, macOS's own permission prompts are the
 user's real control surface — mockingbird should never try to work around a

@@ -19,6 +19,7 @@ it is not a design doc that gets abandoned once code exists.
 | 2026-09-16 | `bun run transcribe <file>` (`apps/daemon/src/transcribe.ts`) runs the pipeline on a recording. `packages/audio` now also decodes non-WAV input by piping it through ffmpeg, so ffmpeg is used for file decoding as well as capture (§3, §10). |
 | 2026-09-17 | Live capture: `packages/audio` streams the microphone through ffmpeg into a 30s `RingBuffer`; `apps/daemon` adds the restart `Supervisor` (backoff 250ms→5s, gives up after 5 quick failures), a `Recorder` (300ms pre-roll, 2-minute cap), and `bun run listen`, a keyboard push-to-talk stand-in for the Fn FSM (§5, §10, §16). |
 | 2026-09-17 | License decided: MIT (`LICENSE`). The §16 license gap now only covers the licenses of binaries a release archive would bundle. |
+| 2026-09-18 | Text injection: `packages/inject` types text into the focused app as Unicode key events (`CGEventKeyboardSetUnicodeString` + `CGEventPost` via `bun:ffi`), and `packages/context` reads the frontmost app with `lsappinfo`. Decided against the planned clipboard-paste/`osascript` route: typing Unicode directly needs no clipboard (nothing to clobber or restore) and no AppleScript. Text is sanitized first — newlines become spaces, so dictation can never submit a message or run a shell command (§3, §10). |
 | 2026-09-18 | Fn hotkey works, via a CoreGraphics event tap through `bun:ffi` in a worker thread (`packages/hotkey`) plus the §5 state machine (`apps/daemon/src/hotkey-fsm.ts`), wired into `bun run listen`. Measured: `uiohook-napi` panics Bun 1.4.2 (`unsupported uv function: uv_cond_init`), so it's out; macOS reports Fn as `flagsChanged` keycode 63 with flag `0x800000`. The tap is listen-only and discards every key except Fn and Esc (§3, §5, §10). |
 
 
@@ -94,8 +95,8 @@ against this list.
 | Voice activity detection | Silero VAD via `onnxruntime-node` | — | native module in-process |
 | Speech-to-text (ASR) | `whisper.cpp` (`whisper-server`), model: `large-v3-turbo` Q5_0 | — | subprocess, HTTP :8771 |
 | Cleanup / formatting LLM | Ollama **or** `llama-server` (llama.cpp), model: Qwen3-4B-Instruct Q4 | Ollama v0.11.4 (Go) | subprocess, HTTP :8772 |
-| Text injection | `osascript` (System Events keystroke) + clipboard paste | system binary | subprocess |
-| Clipboard | `pbcopy` / Bun `Clipboard` polyfill | system binary | subprocess |
+| Text injection | **`bun:ffi` → `CGEventKeyboardSetUnicodeString` + `CGEventPost`** | — | FFI, in-process |
+| Frontmost app | `lsappinfo` (needs no TCC grant, unlike System Events) | system binary | subprocess |
 | Persistent storage | **`bun:sqlite`** (built into Bun) + `sqlite-vec` extension | bundled with Bun | in-process, embedded |
 | Terminal UI | `@opentui/react` | 0.5.11 | separate Bun process |
 | Validation / IPC contract | `zod` + hand-written protocol types | — | shared package |
@@ -432,8 +433,8 @@ mockingbird/
 │   │                            llama-server), prompt assembly, per-app
 │   │                            profiles, caching
 │   ├── hotkey/                  CGEventTap via bun:ffi, run in a worker thread
-│   ├── inject/                  interface + darwin backend (x11/win32 later)
-│   ├── context/                 frontmost-app polling
+│   ├── inject/                  types text as Unicode key events (x11/win32 later)
+│   ├── context/                 frontmost app via lsappinfo, terminal detection
 │   └── store/                   bun:sqlite, migrations, FTS5, sqlite-vec
 ├── bench/                       WER + latency harness over a fixed corpus
 ├── scripts/                     setup, model download, release packaging

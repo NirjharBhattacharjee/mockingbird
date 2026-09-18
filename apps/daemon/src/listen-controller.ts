@@ -30,6 +30,8 @@ export class ListenController {
       start: "Enter: start speaking · q: quit",
       stop: "Enter: stop · Esc: cancel",
     },
+    /** Called whenever a recording begins, to note which app is in front. */
+    private readonly onStart: () => void = () => {},
   ) {}
 
   get busy(): boolean {
@@ -77,7 +79,9 @@ export class ListenController {
   }
 
   startRecording(): void {
-    if (!this.pending) this.recorder.start();
+    if (this.pending || this.recorder.recording) return;
+    this.recorder.start();
+    this.onStart();
   }
 
   /** Stops and transcribes; ignored if nothing is being recorded. */
@@ -95,7 +99,7 @@ export class ListenController {
   private toggle(): void {
     if (this.pending) return;
     if (!this.recorder.recording) {
-      this.recorder.start();
+      this.startRecording();
       return;
     }
     const recording = this.recorder.stop();

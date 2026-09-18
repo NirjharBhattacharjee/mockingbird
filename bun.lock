@@ -15,7 +15,9 @@
       "dependencies": {
         "@mockingbird/asr": "workspace:*",
         "@mockingbird/audio": "workspace:*",
+        "@mockingbird/context": "workspace:*",
         "@mockingbird/hotkey": "workspace:*",
+        "@mockingbird/inject": "workspace:*",
         "@mockingbird/llm": "workspace:*",
         "@mockingbird/vad": "workspace:*",
       },
@@ -29,8 +31,14 @@
     "packages/audio": {
       "name": "@mockingbird/audio",
     },
+    "packages/context": {
+      "name": "@mockingbird/context",
+    },
     "packages/hotkey": {
       "name": "@mockingbird/hotkey",
+    },
+    "packages/inject": {
+      "name": "@mockingbird/inject",
     },
     "packages/llm": {
       "name": "@mockingbird/llm",
@@ -66,9 +74,13 @@
 
     "@mockingbird/audio": ["@mockingbird/audio@workspace:packages/audio"],
 
+    "@mockingbird/context": ["@mockingbird/context@workspace:packages/context"],
+
     "@mockingbird/daemon": ["@mockingbird/daemon@workspace:apps/daemon"],
 
     "@mockingbird/hotkey": ["@mockingbird/hotkey@workspace:packages/hotkey"],
+
+    "@mockingbird/inject": ["@mockingbird/inject@workspace:packages/inject"],
 
     "@mockingbird/llm": ["@mockingbird/llm@workspace:packages/llm"],
 
