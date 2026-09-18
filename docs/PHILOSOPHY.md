@@ -93,13 +93,14 @@ this project is built inside of.
    for everyone, always. See [SECURITY_PRIVACY.md](./SECURITY_PRIVACY.md)
    for the specifics of what that guarantees and what it doesn't yet.
 4. **The license must never allow this to be taken away from the people
-   using it.** Whatever license is finally chosen (still open per
-   [ARCHITECTURE.md §16](./ARCHITECTURE.md#16-known-gaps--scope-not-yet-decided)),
-   it must keep the project genuinely open source (OSI-approved), permit
-   forking, and never rely on a "source-available but not really open"
-   structure that could let a future rug-pull relicense this into something
-   closed or paid. The license decision is downstream of this document, not
-   independent of it.
+   using it.** mockingbird is released under the [MIT License](../LICENSE):
+   genuinely open source (OSI-approved), free to use, change, and fork, with
+   no "source-available but not really open" catch. Every version released
+   under MIT stays that way permanently; a license already granted can't be
+   withdrawn. MIT is permissive, so it doesn't stop anyone from building a
+   closed product on top of the code. What protects users is that the MIT
+   original always remains available to fork, and that this project itself
+   will never go closed or paid ([§3, point 1](#3-non-negotiables)).
 5. **Contributions are welcome from anyone, and the project is built to
    stay learnable.** A contributor shouldn't need a paid course or insider
    knowledge to understand this codebase — the docs in this folder exist so

@@ -187,9 +187,10 @@ everything else in this file). Tracked as undecided, not silently assumed.
 
 ## 9. Licensing
 
-Per [ARCHITECTURE.md §16](./ARCHITECTURE.md#16-known-gaps--scope-not-yet-decided),
-overall repo licensing is still an open decision, and bundled/depended-on
-tooling licenses need checking before shipping an archive containing them:
+mockingbird's own code is [MIT](../LICENSE). The models and the tools that
+run them have their own licenses, which need checking before shipping an
+archive that contains them
+([ARCHITECTURE.md §16](./ARCHITECTURE.md#16-known-gaps--scope-not-yet-decided)):
 
 | Component | License (verify before release) |
 |---|---|

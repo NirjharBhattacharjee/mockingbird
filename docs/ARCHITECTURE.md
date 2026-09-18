@@ -18,7 +18,9 @@ it is not a design doc that gets abandoned once code exists.
 | 2026-09-16 | Workspace bootstrapped; headless pipeline built in `packages/{audio,vad,asr,llm}` and `apps/daemon/src/pipeline.ts`. Corrected from measurement: VAD windows are 32ms (Silero v5 needs 512 samples), ASR returns `confidence` not `avgLogprob`, whisper-server's endpoint is `/inference`, warm LLM cleanup is ~1.1s not ~200ms (§6). Lint tool: Biome (§14). |
 | 2026-09-16 | `bun run transcribe <file>` (`apps/daemon/src/transcribe.ts`) runs the pipeline on a recording. `packages/audio` now also decodes non-WAV input by piping it through ffmpeg, so ffmpeg is used for file decoding as well as capture (§3, §10). |
 | 2026-09-17 | Live capture: `packages/audio` streams the microphone through ffmpeg into a 30s `RingBuffer`; `apps/daemon` adds the restart `Supervisor` (backoff 250ms→5s, gives up after 5 quick failures), a `Recorder` (300ms pre-roll, 2-minute cap), and `bun run listen`, a keyboard push-to-talk stand-in for the Fn FSM (§5, §10, §16). |
+| 2026-09-17 | License decided: MIT (`LICENSE`). The §16 license gap now only covers the licenses of binaries a release archive would bundle. |
 | 2026-09-18 | Fn hotkey works, via a CoreGraphics event tap through `bun:ffi` in a worker thread (`packages/hotkey`) plus the §5 state machine (`apps/daemon/src/hotkey-fsm.ts`), wired into `bun run listen`. Measured: `uiohook-napi` panics Bun 1.4.2 (`unsupported uv function: uv_cond_init`), so it's out; macOS reports Fn as `flagsChanged` keycode 63 with flag `0x800000`. The tap is listen-only and discards every key except Fn and Esc (§3, §5, §10). |
+
 
 ---
 
@@ -647,11 +649,11 @@ has a fixed line to improve past:
 Flagged explicitly rather than silently deferred. Each of these needs an
 actual decision before or during v1, not an assumption:
 
-- **License.** Repo is intended open source but has no `LICENSE` file yet —
-  MIT vs. Apache-2.0 vs. AGPL is an open choice with real consequences for a
-  project that bundles/depends on GPL-adjacent tooling (whisper.cpp is MIT,
-  llama.cpp is MIT, but double-check every bundled binary's license before
-  shipping an archive containing it).
+- **Licenses of bundled binaries.** mockingbird itself is MIT (decided
+  2026-09-17, see `LICENSE`). Still open: checking every binary a release
+  archive would bundle. whisper.cpp and llama.cpp are MIT, but a static
+  ffmpeg build can be GPL depending on how it was configured (Homebrew's is
+  built with `--enable-gpl`), which matters if it ships inside our archive.
 - **Windows & Linux hotkey/inject/context backends.** Designed for (see
   [§10](#10-repository-layout)'s package boundaries) but not implemented.
   Notably: **Fn does not exist on Windows** (handled in keyboard firmware,
