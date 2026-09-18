@@ -251,6 +251,14 @@ flowchart LR
   the `curl -fsSL install.sh | sh` path is only as trustworthy as the
   install script verifying that checksum *before* execution — this must be
   a hard requirement of that script, not an afterthought.
+- **The current source installer** (`scripts/install.sh`, run from `main`
+  before any release exists) trusts GitHub and this repo, the same way
+  `git clone` does: it clones `main`, so pinning the script alone would add
+  nothing, and a checksum published in this repo can't catch a compromise of
+  this repo. Everything it fetches from elsewhere is verified: tools come from
+  Homebrew (sha256 per formula) and the models are pinned and sha256-checked.
+  Once releases exist, the one-line install should move to a tagged release
+  and verify `checksums.txt` as above.
 - **Bundled third-party binaries** (ffmpeg, whisper-server) ship inside the
   release archive. Their provenance (which upstream build, which commit,
   which signature if any) should be recorded in the release process so a

@@ -7,5 +7,11 @@ export {
   type GateOptions,
   shouldSkipLlm,
 } from "./cleanup.ts";
-export { OllamaProvider } from "./ollama.ts";
+export {
+  isLocalUrl,
+  OllamaProvider,
+  type OllamaServerProcess,
+  ollamaRunning,
+  startOllamaServer,
+} from "./ollama.ts";
 export { type CompletionRequest, type LlmProvider, LlmRequestError } from "./provider.ts";

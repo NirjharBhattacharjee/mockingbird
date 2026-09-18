@@ -48,8 +48,7 @@ curl -fsSL https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/ma
 
 This installs Bun, whisper-cpp, Ollama and ffmpeg with Homebrew, clones
 mockingbird into `~/mockingbird`, downloads the models (checking each against
-its sha256), and starts Ollama in the background
-(it keeps running after a restart; stop it with `brew services stop ollama`).
+its sha256), and the cleanup model.
 It skips anything you already have, so it's safe to run again.
 [Read the script](scripts/install.sh) first if you like.
 
@@ -76,7 +75,7 @@ a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002  ggml-base.en.b
 1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3  silero_vad.onnx
 SUMS
 
-# Ollama: run `ollama serve` in a second window and leave it open, then:
+# Cleanup model (Ollama must be running for this: `ollama serve` in another window)
 ollama pull qwen3:4b-instruct-2507-q4_K_M
 ```
 
@@ -109,6 +108,9 @@ typing need.
 
 Whatever you say is typed into the app in front (Slack, your editor, a
 browser) and printed here too. Use `--no-type` to only print it.
+
+No need to start Ollama yourself: if it isn't running, `listen` starts it and
+stops it again when you quit.
 
 **Two permissions are needed**, both in System Settings → Privacy & Security:
 
@@ -195,7 +197,8 @@ Environment variables:
 | The level bars don't move | Wrong microphone. Use `--list-devices` and `--device`. |
 | `Fn key off` or `Fn` does nothing | Allow your terminal in **System Settings → Privacy & Security → Input Monitoring**, then quit it with Cmd+Q and reopen. |
 | Text prints but isn't typed into the app | Allow your terminal in **Accessibility** (same settings page), quit with Cmd+Q, reopen. Check with `bun run type --check`. |
-| `Ollama isn't running` | Run `brew services start ollama` (or `ollama serve` in another window). You still get text, just not cleaned up. |
+| `Ollama isn't running` | `listen` starts Ollama by itself, so this means it's missing or failed to start: run the install command again. You still get text, just not cleaned up. |
+| `… isn't downloaded` | Run `ollama pull qwen3:4b-instruct-2507-q4_K_M` (or the install command again). |
 | `Whisper model not found` | Run the install command again. |
 | `command not found: bun` | Open a new terminal window. |
 
