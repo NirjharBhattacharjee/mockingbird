@@ -6,6 +6,12 @@ import {
   peak,
   startCapture,
 } from "@mockingbird/audio";
+import {
+  checkInputMonitoring,
+  type HotkeyListener,
+  startHotkeyListener,
+} from "@mockingbird/hotkey";
+import { HotkeyFsm } from "./hotkey-fsm.ts";
 import { ListenController } from "./listen-controller.ts";
 import { describeTimings, runPipeline } from "./pipeline.ts";
 import type { Recording } from "./recorder.ts";
@@ -16,15 +22,20 @@ import { Supervisor } from "./supervisor.ts";
 const USAGE = `Usage: bun run listen [--device <number|name>] [--terminal] [--json]
        bun run listen --list-devices
 
-Listens to your microphone. Press Enter, speak, press Enter again, and the
-cleaned-up text is printed. (It isn't typed into other apps yet.)
+Listens to your microphone and prints what you say. (It isn't typed into other
+apps yet.)
 
 Keys:
-  Enter or Space   start / stop recording
+  Fn (hold)        record while held, anywhere on the Mac
+  Fn (double-tap)  record hands-free until you press Fn again
+  Enter or Space   start / stop recording (this terminal only)
   Esc              cancel the current recording
   q or Ctrl+C      quit
 
+Fn needs Input Monitoring permission; without it, Enter still works.
+
 Options:
+  --no-hotkey      don't watch the Fn key
   --device <d>     microphone number from --list-devices, or its exact name
                    (default: the input selected in System Settings → Sound)
   --list-devices   list microphones and exit
@@ -48,6 +59,7 @@ function parse() {
       options: {
         device: { type: "string" },
         "list-devices": { type: "boolean" },
+        "no-hotkey": { type: "boolean" },
         terminal: { type: "boolean" },
         json: { type: "boolean" },
         help: { type: "boolean", short: "h" },
@@ -106,10 +118,49 @@ async function main(): Promise<number> {
     if (!values.json) log(describeTimings(result));
   };
 
-  const controller = new ListenController(new Recorder(), transcribe, (error) => {
-    clearLine();
-    log(`error: ${error instanceof Error ? error.message : String(error)}`);
-  });
+  const hotkeyWanted = !values["no-hotkey"];
+  const hotkeyAllowed = hotkeyWanted && checkInputMonitoring() === "granted";
+  const controller = new ListenController(
+    new Recorder(),
+    transcribe,
+    (error) => {
+      clearLine();
+      log(`error: ${error instanceof Error ? error.message : String(error)}`);
+    },
+    hotkeyAllowed
+      ? { start: "hold Fn to talk (or Enter) · q: quit", stop: "release Fn · Esc: cancel" }
+      : { start: "Enter: start speaking · q: quit", stop: "Enter: stop · Esc: cancel" },
+  );
+
+  const fsm = new HotkeyFsm();
+  let hotkey: HotkeyListener | undefined;
+  if (hotkeyAllowed) {
+    hotkey = startHotkeyListener({
+      onEvent: (event) => {
+        const action = fsm.handle(event);
+        if (action === "start") controller.startRecording();
+        else if (action === "stop") controller.stopRecording();
+        else if (action === "cancel") controller.cancelRecording();
+      },
+      onError: (error) => {
+        clearLine();
+        log(`Fn key unavailable: ${error.message}`);
+      },
+    });
+    try {
+      await hotkey.ready;
+    } catch (error) {
+      clearLine();
+      log(`Fn key unavailable: ${error instanceof Error ? error.message : String(error)}`);
+      await hotkey.stop();
+      hotkey = undefined;
+    }
+  } else if (hotkeyWanted) {
+    log(
+      "Fn key off: enable Input Monitoring for this terminal in System Settings →\n" +
+        "Privacy & Security → Input Monitoring, then quit and reopen it. Enter still works.",
+    );
+  }
 
   let finish: (code: number) => void = () => {};
   const finished = new Promise<number>((resolve) => {
@@ -156,6 +207,7 @@ async function main(): Promise<number> {
   };
 
   const ticker = setInterval(() => {
+    fsm.tick(Date.now());
     process.stderr.write(`\r\x1b[2K${controller.status()}`);
   }, 100);
   process.stdin.setRawMode(true);
@@ -173,6 +225,7 @@ async function main(): Promise<number> {
   clearLine();
   if (controller.busy) log("finishing the current transcription...");
   await controller.settled();
+  await hotkey?.stop();
   await supervisor.stop();
   await engines.close();
   return code;

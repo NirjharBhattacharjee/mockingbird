@@ -19,6 +19,8 @@ it is not a design doc that gets abandoned once code exists.
 | 2026-09-16 | `bun run transcribe <file>` (`apps/daemon/src/transcribe.ts`) runs the pipeline on a recording. `packages/audio` now also decodes non-WAV input by piping it through ffmpeg, so ffmpeg is used for file decoding as well as capture (§3, §10). |
 | 2026-09-17 | Live capture: `packages/audio` streams the microphone through ffmpeg into a 30s `RingBuffer`; `apps/daemon` adds the restart `Supervisor` (backoff 250ms→5s, gives up after 5 quick failures), a `Recorder` (300ms pre-roll, 2-minute cap), and `bun run listen`, a keyboard push-to-talk stand-in for the Fn FSM (§5, §10, §16). |
 | 2026-09-17 | License decided: MIT (`LICENSE`). The §16 license gap now only covers the licenses of binaries a release archive would bundle. |
+| 2026-09-18 | Fn hotkey works, via a CoreGraphics event tap through `bun:ffi` in a worker thread (`packages/hotkey`) plus the §5 state machine (`apps/daemon/src/hotkey-fsm.ts`), wired into `bun run listen`. Measured: `uiohook-napi` panics Bun 1.4.2 (`unsupported uv function: uv_cond_init`), so it's out; macOS reports Fn as `flagsChanged` keycode 63 with flag `0x800000`. The tap is listen-only and discards every key except Fn and Esc (§3, §5, §10). |
+
 
 ---
 
@@ -88,7 +90,7 @@ against this list.
 | Language / runtime | TypeScript on **Bun** | Bun ≥ 1.2 | our process |
 | Package manager / workspaces | Bun workspaces | — | — |
 | Microphone capture, audio file decoding | `ffmpeg` (avfoundation on macOS) | system binary | subprocess, piped stdout |
-| Global hotkey | `uiohook-napi` (fallback: `iohook-macos`, fallback: `bun:ffi` → CoreGraphics) | 1.5.5 | native module **in-process** |
+| Global hotkey | **`bun:ffi` → CoreGraphics event tap** (`uiohook-napi` crashes Bun, see §16) | — | FFI in a worker thread |
 | Voice activity detection | Silero VAD via `onnxruntime-node` | — | native module in-process |
 | Speech-to-text (ASR) | `whisper.cpp` (`whisper-server`), model: `large-v3-turbo` Q5_0 | — | subprocess, HTTP :8771 |
 | Cleanup / formatting LLM | Ollama **or** `llama-server` (llama.cpp), model: Qwen3-4B-Instruct Q4 | Ollama v0.11.4 (Go) | subprocess, HTTP :8772 |
@@ -119,7 +121,7 @@ flowchart TB
 
         subgraph Daemon["mockingbirdd (Bun process, always running)"]
             direction TB
-            HKW["Hotkey Worker\n(uiohook-napi / bun:ffi)\nblocking CFRunLoop"]
+            HKW["Hotkey Worker\n(bun:ffi CGEventTap)\nblocking CFRunLoop"]
             FSM["Hotkey FSM\n(main thread)"]
             RB["Ring Buffer\n(30s circular, PCM)"]
             SEG["Segmenter + VAD"]
@@ -411,7 +413,7 @@ mockingbird/
 ├── apps/
 │   ├── daemon/                  mockingbirdd — supervisor, FSM, IPC server
 │   │   └── src/
-│   │       ├── workers/hotkey.worker.ts
+│   │       ├── hotkey-fsm.ts     Fn hold / double-tap state machine (§5)
 │   │       ├── supervisor.ts    child process lifecycle + restart policy
 │   │       ├── recorder.ts      ring buffer → recordings, with pre-roll and a length cap
 │   │       ├── pipeline.ts      VAD → ASR → LLM gate → format
@@ -429,6 +431,7 @@ mockingbird/
 │   ├── llm/                     provider interface + adapters (Ollama,
 │   │                            llama-server), prompt assembly, per-app
 │   │                            profiles, caching
+│   ├── hotkey/                  CGEventTap via bun:ffi, run in a worker thread
 │   ├── inject/                  interface + darwin backend (x11/win32 later)
 │   ├── context/                 frontmost-app polling
 │   └── store/                   bun:sqlite, migrations, FTS5, sqlite-vec

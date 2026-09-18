@@ -128,7 +128,7 @@ about what each one actually means:
 |---|---|---|
 | **Microphone** | Capture audio for dictation | Nothing beyond mic access — the narrowest of the three |
 | **Accessibility** | Inject text via System Events keystroke, poll frontmost app | Broad UI automation: reading and controlling other apps' UI elements |
-| **Input Monitoring** | Global hotkey detection (`uiohook-napi`) | **System-wide keystroke observation** — the same class of access a keylogger needs |
+| **Input Monitoring** | Global hotkey detection (CoreGraphics event tap via `bun:ffi`) | **System-wide keystroke observation** — the same class of access a keylogger needs |
 | macOS grants storage (which apps hold which TCC grants) | — | Lives in Apple's TCC database, **not** ours — see [state ownership map, ARCHITECTURE.md §8](./ARCHITECTURE.md#8-state-ownership-map) |
 
 Input Monitoring in particular means the daemon *could* technically log every
@@ -136,8 +136,15 @@ keystroke on the system, not just what it types itself. mockingbird's design
 intent is that it only ever acts on the hotkey and never records or persists
 other keystrokes — but this is a code-review and audit obligation, not
 something the OS permission model itself prevents. Anyone auditing this
-project for trust should treat the hotkey-worker code path as the most
-security-sensitive file in the repo once it exists.
+project for trust should start at `packages/hotkey/src/event-tap.ts`, the most
+security-sensitive file in the repo. As implemented today, that file:
+
+- creates the tap with `kCGEventTapOptionListenOnly`, so events are observed
+  and never modified or swallowed;
+- **discards every keystroke except Fn and Esc inside the tap callback**, so
+  no other keycode is ever passed on, stored, or logged — the filter is three
+  lines in one function, and deliberately easy to verify;
+- never records typed characters, only key identity and timing.
 
 Because these grants are broad, macOS's own permission prompts are the
 user's real control surface — mockingbird should never try to work around a

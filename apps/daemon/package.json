@@ -5,6 +5,7 @@
   "dependencies": {
     "@mockingbird/asr": "workspace:*",
     "@mockingbird/audio": "workspace:*",
+    "@mockingbird/hotkey": "workspace:*",
     "@mockingbird/llm": "workspace:*",
     "@mockingbird/vad": "workspace:*"
   }

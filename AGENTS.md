@@ -193,7 +193,7 @@ should quote.
   can't be scripted; verify manually on a real machine.
 - Actual keystroke injection into other GUI apps — needs a real logged-in
   GUI session, not available on typical CI runners.
-- Real hotkey detection via `uiohook-napi`/CoreGraphics event taps — needs
+- Real Fn key presses (the CoreGraphics tap needs Input Monitoring) — needs
   physical or simulated key events outside typical CI sandboxes.
 
 ## Skill sources

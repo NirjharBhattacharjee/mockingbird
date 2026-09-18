@@ -15,6 +15,7 @@
       "dependencies": {
         "@mockingbird/asr": "workspace:*",
         "@mockingbird/audio": "workspace:*",
+        "@mockingbird/hotkey": "workspace:*",
         "@mockingbird/llm": "workspace:*",
         "@mockingbird/vad": "workspace:*",
       },
@@ -27,6 +28,9 @@
     },
     "packages/audio": {
       "name": "@mockingbird/audio",
+    },
+    "packages/hotkey": {
+      "name": "@mockingbird/hotkey",
     },
     "packages/llm": {
       "name": "@mockingbird/llm",
@@ -63,6 +67,8 @@
     "@mockingbird/audio": ["@mockingbird/audio@workspace:packages/audio"],
 
     "@mockingbird/daemon": ["@mockingbird/daemon@workspace:apps/daemon"],
+
+    "@mockingbird/hotkey": ["@mockingbird/hotkey@workspace:packages/hotkey"],
 
     "@mockingbird/llm": ["@mockingbird/llm@workspace:packages/llm"],
 
