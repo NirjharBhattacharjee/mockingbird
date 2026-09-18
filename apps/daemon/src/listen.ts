@@ -105,8 +105,8 @@ async function main(): Promise<number> {
         "Privacy & Security → Accessibility, then quit and reopen it. Text is printed here meanwhile.",
     );
   }
-  /** The app that was in front when the recording started. */
-  let target: FrontmostApp | undefined;
+  /** Looks up the app that was in front when the recording started. */
+  let targetLookup: Promise<FrontmostApp | undefined> = Promise.resolve(undefined);
 
   const inputArgs = process.env.MOCKINGBIRD_MIC_INPUT
     ? process.env.MOCKINGBIRD_MIC_INPUT.split(/\s+/).filter(Boolean)
@@ -115,6 +115,7 @@ async function main(): Promise<number> {
   const engines = await startEngines(log);
 
   const transcribe = async ({ audio, truncated }: Recording) => {
+    const target = await targetLookup;
     if (peak(audio.samples) === 0) {
       clearLine();
       log(
@@ -135,7 +136,17 @@ async function main(): Promise<number> {
 
     if (typingAllowed && result.finalText) {
       try {
-        await typeText(result.finalText);
+        // Transcription takes a while; if the user switched apps meanwhile, the text
+        // would land somewhere they didn't dictate it for, so only print it.
+        const now = await frontmostApp();
+        if (!target || !now || now.bundleId !== target.bundleId) {
+          log(
+            `not typing it: the app in front changed since you started speaking` +
+              ` (${target?.name ?? "unknown"} → ${now?.name ?? "unknown"})`,
+          );
+        } else {
+          await typeText(result.finalText);
+        }
       } catch (error) {
         log(`couldn't type it: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -156,10 +167,7 @@ async function main(): Promise<number> {
       ? { start: "hold Fn to talk (or Enter) · q: quit", stop: "release Fn · Esc: cancel" }
       : { start: "Enter: start speaking · q: quit", stop: "Enter: stop · Esc: cancel" },
     () => {
-      target = undefined;
-      void frontmostApp().then((app) => {
-        target = app;
-      });
+      targetLookup = frontmostApp().catch(() => undefined);
     },
   );
 
