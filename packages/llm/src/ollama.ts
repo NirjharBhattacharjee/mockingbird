@@ -49,10 +49,14 @@ export class OllamaProvider implements LlmProvider {
   }
 }
 
-/** Whether an Ollama server answers at `baseUrl` (its models may still need pulling). */
-export async function ollamaRunning(baseUrl: string): Promise<boolean> {
+/**
+ * Whether an Ollama server answers at `baseUrl` within `timeoutMs` (its models
+ * may still need pulling). A server that accepts the connection but never
+ * replies counts as not running.
+ */
+export async function ollamaRunning(baseUrl: string, timeoutMs = 2_000): Promise<boolean> {
   try {
-    return (await fetch(`${baseUrl}/api/version`)).ok;
+    return (await fetch(`${baseUrl}/api/version`, { signal: AbortSignal.timeout(timeoutMs) })).ok;
   } catch {
     return false;
   }
@@ -104,13 +108,15 @@ export async function startOllamaServer({
   };
 
   const deadline = Date.now() + readyTimeoutMs;
+  // Each probe is cut off at the deadline, so a hung server can't hold startup past it.
+  const probe = () => ollamaRunning(baseUrl, Math.max(1, Math.min(2_000, deadline - Date.now())));
   while (Date.now() < deadline) {
     if (proc.exitCode !== null) {
       await drained;
       if (await ollamaRunning(baseUrl)) return { stop: async () => {} };
       throw new LlmRequestError(`ollama serve exited with ${proc.exitCode}: ${stderrTail.trim()}`);
     }
-    if (await ollamaRunning(baseUrl)) return { stop };
+    if (await probe()) return { stop };
     await Bun.sleep(200);
   }
   await stop();

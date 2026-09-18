@@ -36,7 +36,31 @@ describe("isLocalUrl", () => {
   });
 });
 
+describe("ollamaRunning", () => {
+  test("gives up on a server that never replies", async () => {
+    const hung = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
+    const started = Date.now();
+    expect(await ollamaRunning(`http://127.0.0.1:${hung.port}`, 100)).toBe(false);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    hung.stop(true);
+  });
+});
+
 describe("startOllamaServer", () => {
+  test("gives up at readyTimeoutMs when the server never replies", async () => {
+    const hung = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
+    const started = Date.now();
+    await expect(
+      startOllamaServer({
+        binary: await fakeOllama("await Bun.sleep(60_000);"),
+        baseUrl: `http://127.0.0.1:${hung.port}`,
+        readyTimeoutMs: 300,
+      }),
+    ).rejects.toThrow("ollama serve not ready after 300ms");
+    expect(Date.now() - started).toBeLessThan(2_000);
+    hung.stop(true);
+  });
+
   test("starts ollama serve on the URL's port and stops it", async () => {
     const baseUrl = `http://127.0.0.1:${freePort()}`;
     const server = await startOllamaServer({ binary: await fakeOllama(serves), baseUrl });

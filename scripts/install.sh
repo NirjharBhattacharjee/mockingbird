@@ -93,11 +93,17 @@ main() {
   step "4/4 Cleanup model"
   # `bun run listen` starts Ollama by itself when it isn't running, so it's only
   # needed here for the download: start it just for that, then stop it again.
-  ollama_up() { curl -fsS "$llm_url/api/version" >/dev/null 2>&1; }
+  ollama_up() { curl -fsS --max-time 2 "$llm_url/api/version" >/dev/null 2>&1; }
   local serve_pid=""
   if ! ollama_up; then
     local host="${llm_url#*://}"
-    OLLAMA_HOST="${host%%/*}" ollama serve >/dev/null 2>&1 &
+    host="${host%%/*}"
+    # Like `bun run listen`, only start a server on this Mac: anything else would
+    # put Ollama on the network. A remote one has to be running already.
+    if ! [[ "$host" =~ ^(127\.0\.0\.1|localhost|\[::1\])(:[0-9]+)?$ ]]; then
+      fail "No Ollama answers at $llm_url, and only one on 127.0.0.1, localhost or [::1] is started from here. Start it there, then run this again."
+    fi
+    OLLAMA_HOST="$host" ollama serve >/dev/null 2>&1 &
     serve_pid=$!
     trap "kill $serve_pid 2>/dev/null" EXIT
     local i
