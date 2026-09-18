@@ -38,4 +38,81 @@ export class OllamaProvider implements LlmProvider {
       return false;
     }
   }
+
+  /** Loads the model into memory without generating, so the first cleanup isn't a cold start. */
+  async load(): Promise<void> {
+    const res = await fetch(`${this.baseUrl}/api/generate`, {
+      method: "POST",
+      body: JSON.stringify({ model: this.model, keep_alive: "30m" }),
+    });
+    if (!res.ok) throw new LlmRequestError(`ollama ${res.status}: ${await res.text()}`);
+  }
+}
+
+/** Whether an Ollama server answers at `baseUrl` (its models may still need pulling). */
+export async function ollamaRunning(baseUrl: string): Promise<boolean> {
+  try {
+    return (await fetch(`${baseUrl}/api/version`)).ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Only a server on this Mac can be started from here. */
+export function isLocalUrl(baseUrl: string): boolean {
+  try {
+    return ["127.0.0.1", "localhost", "[::1]"].includes(new URL(baseUrl).hostname);
+  } catch {
+    return false;
+  }
+}
+
+export type OllamaServerProcess = {
+  stop(): Promise<void>;
+};
+
+/**
+ * Runs `ollama serve` on the host and port of `baseUrl` until stop() is called.
+ * If another Ollama comes up on that port meanwhile (say, the desktop app), that
+ * one is used and stop() leaves it alone.
+ */
+export async function startOllamaServer({
+  binary = "ollama",
+  baseUrl,
+  readyTimeoutMs = 30_000,
+}: {
+  binary?: string;
+  baseUrl: string;
+  readyTimeoutMs?: number;
+}): Promise<OllamaServerProcess> {
+  const proc = Bun.spawn([binary, "serve"], {
+    env: { ...process.env, OLLAMA_HOST: new URL(baseUrl).host },
+    stdout: "ignore",
+    stderr: "pipe",
+  });
+  // Keep draining stderr: Ollama logs every request there, and a full pipe blocks it.
+  let stderrTail = "";
+  const drained = (async () => {
+    const decoder = new TextDecoder();
+    for await (const chunk of proc.stderr) {
+      stderrTail = (stderrTail + decoder.decode(chunk, { stream: true })).slice(-2000);
+    }
+  })();
+  const stop = async () => {
+    proc.kill();
+    await proc.exited;
+  };
+
+  const deadline = Date.now() + readyTimeoutMs;
+  while (Date.now() < deadline) {
+    if (proc.exitCode !== null) {
+      await drained;
+      if (await ollamaRunning(baseUrl)) return { stop: async () => {} };
+      throw new LlmRequestError(`ollama serve exited with ${proc.exitCode}: ${stderrTail.trim()}`);
+    }
+    if (await ollamaRunning(baseUrl)) return { stop };
+    await Bun.sleep(200);
+  }
+  await stop();
+  throw new LlmRequestError(`ollama serve not ready after ${readyTimeoutMs}ms`);
 }

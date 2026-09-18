@@ -34,7 +34,7 @@ main() {
   fi
   command -v brew >/dev/null 2>&1 || fail "Homebrew is needed first: see https://brew.sh, then run this again."
 
-  step "1/5 Tools"
+  step "1/4 Tools"
   # All from Homebrew, which checks each download against its formula's sha256.
   # A tool already on the PATH (say, bun from bun.sh) is used as it is.
   local formula
@@ -46,7 +46,7 @@ main() {
     fi
   done
 
-  step "2/5 Code"
+  step "2/4 Code"
   local dir
   local here
   here="$(cd "$(dirname "${BASH_SOURCE[0]:-.}")/.." 2>/dev/null && pwd || true)"
@@ -65,7 +65,7 @@ main() {
   fi
   (cd "$dir" && bun install)
 
-  step "3/5 Models"
+  step "3/4 Models"
   mkdir -p "$models"
   # Pinned to a fixed version and checked against its sha256, so a changed,
   # truncated or corrupt file is downloaded again rather than loaded.
@@ -90,24 +90,30 @@ main() {
     https://github.com/snakers4/silero-vad/raw/v6.2.2/src/silero_vad/data/silero_vad.onnx \
     1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3
 
-  step "4/5 Ollama"
+  step "4/4 Cleanup model"
+  # `bun run listen` starts Ollama by itself when it isn't running, so it's only
+  # needed here for the download: start it just for that, then stop it again.
   ollama_up() { curl -fsS "$llm_url/api/version" >/dev/null 2>&1; }
-  if ollama_up; then
-    skip "Ollama is running"
-  else
-    # A Homebrew service keeps it running in the background, and after a restart.
-    brew services start ollama
+  local serve_pid=""
+  if ! ollama_up; then
+    local host="${llm_url#*://}"
+    OLLAMA_HOST="${host%%/*}" ollama serve >/dev/null 2>&1 &
+    serve_pid=$!
+    trap "kill $serve_pid 2>/dev/null" EXIT
     local i
     for i in $(seq 1 30); do
       ollama_up && break
       sleep 1
     done
-    ollama_up || fail "Ollama didn't start. Try \`ollama serve\` in another window, then run this again."
+    ollama_up || fail "Ollama didn't start at $llm_url. Try \`ollama serve\` in another window, then run this again."
   fi
-
-  step "5/5 Cleanup model"
   # The ollama CLI finds its server through OLLAMA_HOST, so point it at the one mockingbird uses.
   OLLAMA_HOST="$llm_url" ollama pull "$llm_model"
+  if [ -n "$serve_pid" ]; then
+    kill "$serve_pid" 2>/dev/null || true
+    wait "$serve_pid" 2>/dev/null || true
+    trap - EXIT
+  fi
 
   printf '\n\033[1;32mAll set.\033[0m Now run:\n\n'
   printf '    cd %q\n    bun run listen\n\n' "$dir"

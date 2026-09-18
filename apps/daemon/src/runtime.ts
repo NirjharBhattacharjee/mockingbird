@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { startWhisperServer } from "@mockingbird/asr";
-import { OllamaProvider } from "@mockingbird/llm";
+import { isLocalUrl, OllamaProvider, ollamaRunning, startOllamaServer } from "@mockingbird/llm";
 import { detectSpeech, SileroVad } from "@mockingbird/vad";
 import type { PipelineDeps } from "./pipeline.ts";
 
@@ -34,20 +34,43 @@ export async function startEngines(log: (message: string) => void): Promise<Engi
   const vad = await SileroVad.load(vadModel);
   let closing: Promise<void> | undefined;
   let stopWhisper = async () => {};
+  let stopOllama = async () => {};
   const close = () => {
     closing ??= (async () => {
       await stopWhisper();
+      await stopOllama();
       await vad.close();
     })();
     return closing;
   };
 
   try {
-    if (!(await llm.health())) {
+    // Start Ollama if it isn't running, and stop it again on close; one that
+    // was already running (the desktop app, a Homebrew service) is left alone.
+    const ollamaInstalled = Bun.which("ollama") !== null;
+    if (!(await ollamaRunning(llmUrl)) && isLocalUrl(llmUrl) && ollamaInstalled) {
+      log("starting Ollama...");
+      try {
+        stopOllama = (await startOllamaServer({ baseUrl: llmUrl })).stop;
+      } catch (error) {
+        log(`couldn't start Ollama: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    if (!(await ollamaRunning(llmUrl))) {
       log(
-        `warning: Ollama isn't running at ${llmUrl} or ${llm.model} isn't pulled; ` +
-          "you'll get the raw transcript.\nStart it with `ollama serve` to get cleaned-up text.",
+        `warning: Ollama isn't running at ${llmUrl}, so you'll get the raw transcript.\n` +
+          (ollamaInstalled
+            ? "Start it with `ollama serve` to get cleaned-up text."
+            : "Install it with `brew install ollama` to get cleaned-up text."),
       );
+    } else if (!(await llm.health())) {
+      log(
+        `warning: ${llm.model} isn't downloaded, so you'll get the raw transcript.\n` +
+          `Get it with \`ollama pull ${llm.model}\`.`,
+      );
+    } else {
+      // Loads while whisper-server starts; a failure here just means a slower first cleanup.
+      void llm.load().catch(() => {});
     }
     log("starting whisper-server (the first run on a Mac can take ~15s)...");
     const whisper = await startWhisperServer({
