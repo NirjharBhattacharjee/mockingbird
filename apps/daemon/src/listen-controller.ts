@@ -15,6 +15,8 @@ export function meter(level: number): string {
  * Push-to-talk from the keyboard: Enter/Space starts and stops a recording,
  * Esc cancels it, q or Ctrl+C quits. One recording is processed at a time.
  */
+export type ListenHints = { start: string; stop: string };
+
 export class ListenController {
   private level = 0;
   private heardMic = false;
@@ -24,6 +26,10 @@ export class ListenController {
     private readonly recorder: Recorder,
     private readonly handle: (recording: Recording) => Promise<void>,
     private readonly onError: (error: unknown) => void,
+    private readonly hints: ListenHints = {
+      start: "Enter: start speaking · q: quit",
+      stop: "Enter: stop · Esc: cancel",
+    },
   ) {}
 
   get busy(): boolean {
@@ -48,7 +54,7 @@ export class ListenController {
         this.toggle();
         return undefined;
       case "\x1b":
-        this.recorder.cancel();
+        this.cancelRecording();
         return undefined;
       default:
         return undefined;
@@ -64,10 +70,26 @@ export class ListenController {
     if (this.pending) return "… transcribing";
     if (this.recorder.recording) {
       const seconds = (this.recorder.recordedMs / 1000).toFixed(1);
-      return `● recording ${seconds}s  ${meter(this.level)}  Enter: stop · Esc: cancel`;
+      return `● recording ${seconds}s  ${meter(this.level)}  ${this.hints.stop}`;
     }
     if (!this.heardMic) return "○ waiting for the microphone (allow access if macOS asks)...";
-    return `○ ready  ${meter(this.level)}  Enter: start speaking · q: quit`;
+    return `○ ready  ${meter(this.level)}  ${this.hints.start}`;
+  }
+
+  startRecording(): void {
+    if (!this.pending) this.recorder.start();
+  }
+
+  /** Stops and transcribes; ignored if nothing is being recorded. */
+  stopRecording(): void {
+    if (this.pending || !this.recorder.recording) return;
+    const recording = this.recorder.stop();
+    if (!recording) return;
+    this.process(recording);
+  }
+
+  cancelRecording(): void {
+    this.recorder.cancel();
   }
 
   private toggle(): void {
@@ -78,6 +100,10 @@ export class ListenController {
     }
     const recording = this.recorder.stop();
     if (!recording) return;
+    this.process(recording);
+  }
+
+  private process(recording: Recording): void {
     this.pending = this.handle(recording)
       .catch(this.onError)
       .finally(() => {

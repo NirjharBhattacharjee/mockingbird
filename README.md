@@ -92,9 +92,16 @@ first time, click **Allow** when macOS asks for the microphone.
 
 | Key | Does |
 |---|---|
-| **Enter** / **Space** | Start or stop recording |
+| **Fn** (hold) | Record while held, from any app |
+| **Fn** (double-tap) | Record hands-free until you press **Fn** again |
+| **Enter** / **Space** | Start or stop recording (this terminal only) |
 | **Esc** | Cancel the recording |
 | **q** | Quit |
+
+`Fn` needs **Input Monitoring** permission: System Settings → Privacy &
+Security → Input Monitoring, switch on your terminal, then quit it with
+**Cmd+Q** and reopen. Without it, Enter still works. The text still prints in
+the terminal for now; typing it into other apps is the next step.
 
 Using the wrong microphone? List them and pick one:
 
@@ -143,6 +150,7 @@ Environment variables:
 | `permission denied` on a file | Put `bun run transcribe ` in front of the file path. |
 | `recording was completely silent` or stuck on `waiting for the microphone` | Allow your terminal in **System Settings → Privacy & Security → Microphone**, then restart the terminal. |
 | The level bars don't move | Wrong microphone. Use `--list-devices` and `--device`. |
+| `Fn key off` or `Fn` does nothing | Allow your terminal in **System Settings → Privacy & Security → Input Monitoring**, then quit it with Cmd+Q and reopen. |
 | `Ollama isn't running` | Run `ollama serve` in another window. You still get text, just not cleaned up. |
 | `Whisper model not found` | Redo step 3. |
 | `command not found: bun` | Open a new terminal window. |
@@ -157,7 +165,7 @@ that it's quick.
 | ✅ | Speech to text, cleanup (removes "um", fixes punctuation) |
 | ✅ | Live microphone with `bun run listen` |
 | ✅ | Transcribe recordings with `bun run transcribe` |
-| 🔲 | Hold `Fn` to talk, double-tap for hands-free |
+| ✅ | Hold `Fn` to talk, double-tap for hands-free |
 | 🔲 | Type the text into any app |
 | 🔲 | History and custom vocabulary |
 | 🔲 | Terminal dashboard (Catppuccin themed) |
