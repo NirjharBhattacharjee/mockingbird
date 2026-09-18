@@ -16,6 +16,8 @@ Options:
 
 const log = (message: string) => console.error(message);
 
+const MAX_DELAY_SECONDS = 60;
+
 async function main(): Promise<number> {
   const { values, positionals } = parseArgs({
     args: Bun.argv.slice(2),
@@ -51,6 +53,10 @@ async function main(): Promise<number> {
   }
 
   const delaySeconds = Number(values.delay ?? 3);
+  if (!Number.isFinite(delaySeconds) || delaySeconds < 0 || delaySeconds > MAX_DELAY_SECONDS) {
+    log(`error: --delay must be a number of seconds from 0 to ${MAX_DELAY_SECONDS}\n\n${USAGE}`);
+    return 2;
+  }
   if (delaySeconds > 0) {
     log(`typing in ${delaySeconds}s — click into the app you want it typed into...`);
     await Bun.sleep(delaySeconds * 1000);
