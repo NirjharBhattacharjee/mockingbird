@@ -92,15 +92,50 @@ export type TypeTextOptions = {
   /** Pause between chunks, to let the receiving app keep up. */
   chunkDelayMs?: number;
   maxUnitsPerEvent?: number;
+  /**
+   * Checked before every chunk. Returning false abandons the rest of the text
+   * where it is — the caller's chance to stop a long dictation following the
+   * user into an app they didn't dictate into.
+   */
+  stillWanted?: () => boolean;
 };
+
+/** How much of the sanitized text reached the app. */
+export type TypeResult = {
+  /** UTF-16 units posted as key events. */
+  typed: number;
+  /** Units the sanitized text had; `typed < total` means it stopped early. */
+  total: number;
+};
+
+/**
+ * Feeds text to `post` in typeable chunks, pausing between them and stopping
+ * at the first chunk `stillWanted` turns down. Separate from `typeText` so the
+ * stopping can be tested without posting real key events.
+ */
+export async function typeChunks(
+  text: string,
+  post: (chunk: string) => void,
+  options: TypeTextOptions = {},
+): Promise<TypeResult> {
+  const { chunkDelayMs = 4, maxUnitsPerEvent = MAX_UNITS_PER_EVENT, stillWanted } = options;
+  let typed = 0;
+  for (const chunk of chunkForTyping(text, maxUnitsPerEvent)) {
+    if (stillWanted && !stillWanted()) break;
+    post(chunk);
+    typed += chunk.length;
+    if (chunkDelayMs > 0) await Bun.sleep(chunkDelayMs);
+  }
+  return { typed, total: text.length };
+}
 
 /**
  * Types text into whichever app has focus, as Unicode key events. The
  * clipboard is never touched.
  */
-export async function typeText(text: string, options: TypeTextOptions = {}): Promise<void> {
+export async function typeText(text: string, options: TypeTextOptions = {}): Promise<TypeResult> {
   const clean = sanitizeForTyping(text);
-  if (!clean) return;
+  if (!clean) return { typed: 0, total: 0 };
   if (!checkTypingAccess()) {
     throw new TypingError(
       "not allowed to type into other apps. Enable Accessibility for your terminal in " +
@@ -108,26 +143,28 @@ export async function typeText(text: string, options: TypeTextOptions = {}): Pro
     );
   }
 
-  const { chunkDelayMs = 4, maxUnitsPerEvent = MAX_UNITS_PER_EVENT } = options;
   const { cf, cg } = loadSymbols();
   try {
-    for (const chunk of chunkForTyping(clean, maxUnitsPerEvent)) {
-      const units = new Uint16Array(chunk.length);
-      for (let i = 0; i < chunk.length; i++) units[i] = chunk.charCodeAt(i);
+    return await typeChunks(
+      clean,
+      (chunk) => {
+        const units = new Uint16Array(chunk.length);
+        for (let i = 0; i < chunk.length; i++) units[i] = chunk.charCodeAt(i);
 
-      for (const keyDown of [true, false]) {
-        const event = cg.symbols.CGEventCreateKeyboardEvent(null, 0, keyDown);
-        if (!event) throw new TypingError("macOS refused to create a keyboard event");
-        cg.symbols.CGEventKeyboardSetUnicodeString(
-          event,
-          BigInt(units.length) as never,
-          ptr(units) as never,
-        );
-        cg.symbols.CGEventPost(kCGHIDEventTap, event);
-        cf.symbols.CFRelease(event);
-      }
-      if (chunkDelayMs > 0) await Bun.sleep(chunkDelayMs);
-    }
+        for (const keyDown of [true, false]) {
+          const event = cg.symbols.CGEventCreateKeyboardEvent(null, 0, keyDown);
+          if (!event) throw new TypingError("macOS refused to create a keyboard event");
+          cg.symbols.CGEventKeyboardSetUnicodeString(
+            event,
+            BigInt(units.length) as never,
+            ptr(units) as never,
+          );
+          cg.symbols.CGEventPost(kCGHIDEventTap, event);
+          cf.symbols.CFRelease(event);
+        }
+      },
+      options,
+    );
   } finally {
     cf.close();
     cg.close();

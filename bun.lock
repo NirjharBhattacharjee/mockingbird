@@ -16,6 +16,7 @@
         "@mockingbird/asr": "workspace:*",
         "@mockingbird/audio": "workspace:*",
         "@mockingbird/context": "workspace:*",
+        "@mockingbird/cue": "workspace:*",
         "@mockingbird/hotkey": "workspace:*",
         "@mockingbird/inject": "workspace:*",
         "@mockingbird/llm": "workspace:*",
@@ -33,6 +34,9 @@
     },
     "packages/context": {
       "name": "@mockingbird/context",
+    },
+    "packages/cue": {
+      "name": "@mockingbird/cue",
     },
     "packages/hotkey": {
       "name": "@mockingbird/hotkey",
@@ -75,6 +79,8 @@
     "@mockingbird/audio": ["@mockingbird/audio@workspace:packages/audio"],
 
     "@mockingbird/context": ["@mockingbird/context@workspace:packages/context"],
+
+    "@mockingbird/cue": ["@mockingbird/cue@workspace:packages/cue"],
 
     "@mockingbird/daemon": ["@mockingbird/daemon@workspace:apps/daemon"],
 

@@ -34,7 +34,7 @@ main() {
   fi
   command -v brew >/dev/null 2>&1 || fail "Homebrew is needed first: see https://brew.sh, then run this again."
 
-  step "1/4 Tools"
+  step "1/5 Tools"
   # All from Homebrew, which checks each download against its formula's sha256.
   # A tool already on the PATH (say, bun from bun.sh) is used as it is.
   local formula
@@ -46,7 +46,7 @@ main() {
     fi
   done
 
-  step "2/4 Code"
+  step "2/5 Code"
   local dir
   local here
   here="$(cd "$(dirname "${BASH_SOURCE[0]:-.}")/.." 2>/dev/null && pwd || true)"
@@ -65,7 +65,7 @@ main() {
   fi
   (cd "$dir" && bun install)
 
-  step "3/4 Models"
+  step "3/5 Models"
   mkdir -p "$models"
   # Pinned to a fixed version and checked against its sha256, so a changed,
   # truncated or corrupt file is downloaded again rather than loaded.
@@ -90,7 +90,7 @@ main() {
     https://github.com/snakers4/silero-vad/raw/v6.2.2/src/silero_vad/data/silero_vad.onnx \
     1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3
 
-  step "4/4 Cleanup model"
+  step "4/5 Cleanup model"
   # `bun run listen` starts Ollama by itself when it isn't running, so it's only
   # needed here for the download: start it just for that, then stop it again.
   ollama_up() { curl -fsS --max-time 2 "$llm_url/api/version" >/dev/null 2>&1; }
@@ -121,8 +121,31 @@ main() {
     trap - EXIT
   fi
 
+  step "5/5 Command"
+  # A shim rather than a compiled binary: macOS records the Fn and typing
+  # permissions against the binary that asks for them, and rebuilding a
+  # compiled one changes its signature, which silently drops those grants.
+  local bin_dir="$HOME/.local/bin"
+  local shim="$bin_dir/mockingbird"
+  local bun_bin
+  bun_bin="$(command -v bun)"
+  mkdir -p "$bin_dir"
+  cat > "$shim" <<SHIM
+#!/bin/sh
+# Written by scripts/install.sh. Re-run it after moving the clone.
+exec "$bun_bin" "$dir/apps/daemon/src/cli.ts" "\$@"
+SHIM
+  chmod +x "$shim"
+  skip "installed $shim"
+  case ":$PATH:" in
+    *":$bin_dir:"*) ;;
+    *) printf '    \033[1;33mnote:\033[0m %s is not on your PATH. Add it to your shell profile:\n      export PATH="%s:$PATH"\n' "$bin_dir" "$bin_dir" ;;
+  esac
+
   printf '\n\033[1;32mAll set.\033[0m Now run:\n\n'
-  printf '    cd %q\n    bun run listen\n\n' "$dir"
+  printf '    mockingbird start\n\n'
+  printf 'That runs it in the background, now and at every login. macOS will ask\n'
+  printf 'for permission the first time; `mockingbird status` says what is missing.\n\n'
 }
 
 main "$@"

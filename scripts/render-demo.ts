@@ -1,10 +1,12 @@
 /**
- * Renders docs/assets/demo.gif, the illustration at the top of README.md: hold
- * Fn in a chat app, speak, let go, and the cleaned-up text is typed where the
- * cursor is, while `bun run listen` shows its status below.
+ * Renders docs/assets/demo.gif, the illustration at the top of README.md:
+ * `mockingbird start` once, the terminal goes away, and from then on holding
+ * Fn in any app types what you said where the cursor is.
  *
- * It is drawn frame by frame (SVG → PNG → GIF) rather than screen-recorded, so
- * anyone can re-render it. The status lines are the ones `listen` really prints.
+ * The terminal fading out is the point of the picture — dictation doesn't need
+ * one open, and nothing is printed there. It is drawn frame by frame
+ * (SVG → PNG → GIF) rather than screen-recorded, so anyone can re-render it,
+ * and the lines it shows are the ones the commands really print.
  * Needs rsvg-convert (`brew install librsvg`) and ffmpeg.
  */
 import { mkdir, rm } from "node:fs/promises";
@@ -16,7 +18,7 @@ const OUT = join(ROOT, "docs/assets/demo.gif");
 
 const FPS = 15;
 const W = 1000;
-const H = 580;
+const H = 604;
 
 // Catppuccin Mocha.
 const C = {
@@ -45,35 +47,39 @@ const SPOKEN = "um the demo is ready uh let's ship it on friday".split(" ");
 const TYPED = "The demo is ready, let's ship it on Friday.";
 
 // Timeline, in seconds.
-const PRESS = 1.2;
-const WORDS_FROM = 1.5;
-const WORDS_TO = 4.2;
-const RELEASE = 4.6;
-const DONE = 5.5; // transcribed and cleaned up
-const TYPED_BY = 5.8; // typing sends chunks 4ms apart, so it's nearly instant
-const END = 9;
+const TYPE_CMD_FROM = 0.4;
+const TYPE_CMD_TO = 1.5;
+const STARTED = 1.9; // the agent reports back
+const FADE_FROM = 3.0; // the terminal is no longer needed
+const FADE_TO = 3.8;
+const PRESS = 4.4;
+const WORDS_FROM = 4.8;
+const WORDS_TO = 7.4;
+const RELEASE = 7.8;
+const DONE = 8.7; // transcribed and cleaned up
+const TYPED_BY = 9.0; // typing sends chunks 4ms apart, so it's nearly instant
+const END = 12;
 
-type Phase = "idle" | "recording" | "transcribing" | "done";
+const COMMAND = "mockingbird start";
+
+type Phase = "starting" | "idle" | "recording" | "transcribing" | "done";
 
 function phaseAt(t: number): Phase {
+  if (t < FADE_TO) return "starting";
   if (t < PRESS) return "idle";
   if (t < RELEASE) return "recording";
   if (t < DONE) return "transcribing";
   return "done";
 }
 
+/** 1 while the terminal matters, 0 once it doesn't. */
+function terminalOpacity(t: number): number {
+  if (t < FADE_FROM) return 1;
+  if (t > FADE_TO) return 0.16;
+  return 1 - 0.84 * ((t - FADE_FROM) / (FADE_TO - FADE_FROM));
+}
+
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-
-function meter(level: number): string {
-  const filled = Math.max(0, Math.min(10, Math.round(level * 10)));
-  return "▮".repeat(filled) + "▯".repeat(10 - filled);
-}
-
-/** A believable speech level while recording, quiet otherwise. */
-function levelAt(t: number, phase: Phase): number {
-  if (phase !== "recording" || t < WORDS_FROM) return 0.1;
-  return 0.45 + 0.3 * Math.sin(t * 11) * Math.sin(t * 3.7) + 0.15 * Math.sin(t * 23);
-}
 
 function trafficLights(x: number, y: number): string {
   return [C.red, C.yellow, C.green]
@@ -103,6 +109,10 @@ function caption(t: number, phase: Phase): string {
   const y = 52;
   const font = `font-family="${SANS}" font-size="19"`;
   switch (phase) {
+    case "starting":
+      return t < STARTED
+        ? `<text x="${x}" y="${y}" ${font} fill="${C.subtext0}">Turn it on once…</text>`
+        : `<text x="${x}" y="${y}" ${font} fill="${C.subtext0}">…and it's there from every login. <tspan fill="${C.text}">Close the terminal.</tspan></text>`;
     case "idle":
       return `<text x="${x}" y="${y}" ${font} fill="${C.subtext0}">Hold <tspan fill="${C.text}" font-weight="bold">fn</tspan> in any app and speak</text>`;
     case "recording": {
@@ -118,7 +128,7 @@ function caption(t: number, phase: Phase): string {
     case "done":
       return `
         <path d="M${x} ${y - 7} l6 6 l11 -12" stroke="${C.green}" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-        <text x="${x + 26}" y="${y}" ${font} fill="${C.text}">Typed where your cursor is</text>`;
+        <text x="${x + 26}" y="${y}" ${font} fill="${C.text}">Typed where your cursor is<tspan fill="${C.subtext0}">&#160;— and nowhere else</tspan></text>`;
   }
 }
 
@@ -174,27 +184,40 @@ function chatWindow(t: number, phase: Phase): string {
     <text x="${x + 212}" y="${y + 276}" font-family="${SANS}" font-size="15">${composer}</text>`;
 }
 
-function terminal(t: number, phase: Phase): string {
+/** A short sound plays when recording starts and stops; show it happening. */
+function cueBadge(t: number): string {
+  const at = [PRESS, RELEASE].find((moment) => t >= moment && t < moment + 0.7);
+  if (at === undefined) return "";
+  const age = (t - at) / 0.7;
+  // Clear of the fn key, which turns mauve when pressed and would hide it.
+  const x = 104;
+  const y = 30 - age * 12;
+  return `
+    <g opacity="${(1 - age).toFixed(2)}" transform="translate(${x} ${y})">
+      <text font-family="${SANS}" font-size="20" fill="${C.mauve}">♪</text>
+    </g>`;
+}
+
+function terminal(t: number): string {
   const x = 40;
   const y = 428;
   const w = 920;
   const h = 132;
-  const level = meter(levelAt(t, phase));
-  let status: string;
-  switch (phase) {
-    case "recording":
-      status = `<tspan fill="${C.red}">●</tspan> recording ${(t - PRESS).toFixed(1)}s  <tspan fill="${C.mauve}">${level}</tspan>  <tspan fill="${C.overlay1}">release Fn · Esc: cancel</tspan>`;
-      break;
-    case "transcribing":
-      status = `<tspan fill="${C.overlay1}">… transcribing</tspan>`;
-      break;
-    default:
-      status = `○ ready  <tspan fill="${C.surface1}">${level}</tspan>  <tspan fill="${C.overlay1}">hold Fn to talk (or Enter) · q: quit</tspan>`;
-  }
+  const opacity = terminalOpacity(t);
+
+  const typed = Math.round(
+    COMMAND.length * Math.max(0, Math.min(1, (t - TYPE_CMD_FROM) / (TYPE_CMD_TO - TYPE_CMD_FROM))),
+  );
+  const caret =
+    t < TYPE_CMD_TO && Math.floor(t * 2.5) % 2 === 0 ? `<tspan fill="${C.mauve}">|</tspan>` : "";
   const lines = [
-    `<tspan fill="${C.mauve}">mockingbird</tspan> <tspan fill="${C.green}">❯</tspan> bun run listen`,
-    ...(phase === "done" ? [esc(TYPED)] : []),
-    status,
+    `<tspan fill="${C.mauve}">~</tspan> <tspan fill="${C.green}">❯</tspan> ${esc(COMMAND.slice(0, typed))}${caret}`,
+    ...(t >= STARTED
+      ? [
+          `<tspan fill="${C.subtext0}">mockingbird is running, and will start again at every login.</tspan>`,
+          `<tspan fill="${C.overlay0}">Logs: ~/.mockingbird/logs/agent.log</tspan>`,
+        ]
+      : []),
   ];
   const text = lines
     .map(
@@ -203,12 +226,21 @@ function terminal(t: number, phase: Phase): string {
     )
     .join("");
 
+  // Once it has faded, say why it's still on screen at all.
+  const note =
+    t > FADE_TO
+      ? `<text x="${x + w / 2}" y="${y + h + 26}" font-family="${SANS}" font-size="14" fill="${C.overlay0}" text-anchor="middle">no terminal needed · nothing printed here</text>`
+      : "";
+
   return `
-    <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="12" fill="${C.base}" stroke="${C.surface0}"/>
-    <path d="M${x} ${y + 30} V${y + 12} a12 12 0 0 1 12 -12 H${x + w - 12} a12 12 0 0 1 12 12 V${y + 30} Z" fill="${C.mantle}"/>
-    ${trafficLights(x + 20, y + 15)}
-    <text x="${x + w / 2}" y="${y + 20}" font-family="${SANS}" font-size="12" fill="${C.subtext0}" text-anchor="middle">Terminal · bun run listen</text>
-    ${text}`;
+    <g opacity="${opacity.toFixed(2)}">
+      <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="12" fill="${C.base}" stroke="${C.surface0}"/>
+      <path d="M${x} ${y + 30} V${y + 12} a12 12 0 0 1 12 -12 H${x + w - 12} a12 12 0 0 1 12 12 V${y + 30} Z" fill="${C.mantle}"/>
+      ${trafficLights(x + 20, y + 15)}
+      <text x="${x + w / 2}" y="${y + 20}" font-family="${SANS}" font-size="12" fill="${C.subtext0}" text-anchor="middle">Terminal</text>
+      ${text}
+    </g>
+    ${note}`;
 }
 
 function frame(t: number): string {
@@ -218,7 +250,8 @@ function frame(t: number): string {
     ${fnKey(phase === "recording")}
     ${caption(t, phase)}
     ${chatWindow(t, phase)}
-    ${terminal(t, phase)}
+    ${cueBadge(t)}
+    ${terminal(t)}
   </svg>`;
 }
 

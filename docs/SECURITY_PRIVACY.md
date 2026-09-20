@@ -158,7 +158,12 @@ lives in `packages/inject/src/typing.ts`. As implemented today it:
 - strips other control codes, which could otherwise do stranger things to a
   terminal;
 - types only what the pipeline produced, into whichever app you had in front;
-  it never reads what's already in that app.
+  it never reads what's already in that app;
+- **stops mid-text when focus leaves the app you dictated into**: typing asks a
+  guard before every chunk, and `apps/daemon/src/session.ts` answers it by
+  polling the frontmost app throughout. So a long dictation — hundreds of key
+  events, with pauses — can't follow you into a chat window or a password
+  field. What didn't get through is reported as undelivered, never as typed.
 
 Both grants are checked before use (`CGPreflightPostEventAccess`,
 `IOHIDCheckAccess`) rather than assumed, and mockingbird degrades to printing
@@ -168,6 +173,47 @@ Because these grants are broad, macOS's own permission prompts are the
 user's real control surface — mockingbird should never try to work around a
 denied grant (e.g. no fallback keylogging technique if Input Monitoring is
 refused; dictation should simply not function until granted).
+
+### The grants land on different programs depending on how you run it
+
+TCC records a grant against the **responsible process**, not the file that
+called the API. For a command run from a terminal, responsibility resolves up
+to the terminal app — which is why `mockingbird listen` uses Ghostty's or
+Terminal's grants. Under launchd there is no such parent, so the agent's own
+executable becomes responsible.
+
+`mockingbird start` therefore does not run the agent as `bun`. It installs
+**`~/.mockingbird/bin/mockingbird`** — a copy of the Bun binary, re-signed
+ad-hoc under the identifier `mockingbird` — and points the LaunchAgent at
+that. The grants land on it, and three things follow:
+
+- **`bun` itself needs no permission.** Had the agent run as
+  `/opt/homebrew/bin/bun`, Accessibility and Input Monitoring on that binary
+  would extend to *every* bun script for which bun is the responsible process:
+  each one able to synthesize input into any app and observe every keystroke,
+  with no way to scope the grant to mockingbird or revoke it for one script
+  alone. A separately-named copy is a separate TCC client, so that does not
+  happen. Anyone upgrading from an earlier build should remove `bun` from both
+  Privacy lists.
+- **The grants survive upgrades and edits.** TCC keys an unbundled client by
+  resolved path plus, absent a signing identity, its cdhash. Our copy changes
+  on neither `brew upgrade bun` (it is ours, not Homebrew's) nor a `git pull`
+  (it is the runtime, not our TypeScript). `mockingbird start` re-copies only
+  when the installed bun has actually changed, and says so, because that is
+  the one moment the grants need redoing.
+- **The checkout becomes security-critical.** The binary executes
+  `apps/daemon/src/agent.ts` from wherever mockingbird was installed, and it
+  holds Accessibility. Anyone who can write to that directory, or to
+  `~/.mockingbird/bin/`, can type into any app as you and watch your
+  keystrokes. `bin/` is created `0700` and the plist `0600`, but the checkout
+  is on the user's own filesystem and this is worth stating plainly rather
+  than implying `0700` settles it.
+
+Compiling a genuine single binary (ARCHITECTURE §11) would be cleaner still,
+and was tried: `bun build --compile` embeds the `onnxruntime-node` addon but
+not the `libonnxruntime.1.dylib` it links against, so VAD fails to load at
+runtime. It also re-signs on every build, which would drop the grants each
+time. Both are tracked in [§9](#9-hardening-roadmap).
 
 ## 5. At-rest storage & retention
 
@@ -203,6 +249,14 @@ refused; dictation should simply not function until granted).
   implemented: log stage timings, error codes, and model names freely; never
   log `raw_text`/`final_text` content at any log level above an explicitly
   opt-in "verbose debug" mode that warns the user before enabling it.
+- **As implemented, the background agent's log holds no transcript.**
+  `mockingbird start` points launchd's `StandardOutPath`/`StandardErrorPath`
+  at `~/.mockingbird/logs/agent.log` (directory `0700`, plist `0600`). It
+  records start-up, engine and permission state, errors, and the *character
+  count* of each utterance with where it was delivered — never the words. The
+  opt-in escape hatch named above is `MOCKINGBIRD_LOG_TEXT=1`, which adds the
+  text and is off by default. The agent truncates the file at 1 MB on start,
+  because launchd appends to it forever and never rotates it.
 
 ## 6. Process & trust boundaries
 
@@ -322,32 +376,41 @@ of them are mitigated by "no network calls":
 Rough priority order, highest-impact first — none of this is scheduled yet,
 this is a "if solving one of these, start here" list:
 
-1. **Encrypt `data.db` at rest**, or at minimum document and default to
+1. **Ship a genuinely compiled, stably-signed binary.** Two blockers, both
+   measured: `bun build --compile` doesn't carry `libonnxruntime.1.dylib`
+   alongside the embedded addon, and an ad-hoc signature changes on every
+   build, dropping the TCC grants. A self-signed certificate held in the
+   keychain fixes the second (the designated requirement keys on the
+   certificate, not the cdhash); the first needs the dylib shipped beside the
+   binary or VAD moved off `onnxruntime-node`. Until then the re-signed copy
+   in [§4](#4-macos-permissions-tcc) carries the grants, and the checkout it
+   runs is part of the trusted computing base.
+2. **Encrypt `data.db` at rest**, or at minimum document and default to
    `0600`/`0700` permissions on `~/.mockingbird` and its contents at setup
    time, and evaluate SQLCipher or app-level column encryption for
    `raw_text`/`final_text`.
-2. **Ship a real delete/export story** before v1 GA: `mockingbird history
+3. **Ship a real delete/export story** before v1 GA: `mockingbird history
    clear`, per-utterance delete from the TUI, and a documented retention
    policy (even if the policy is "kept forever unless you delete it" — say
    so explicitly in-product, not just in this doc).
-3. **CI network-isolation smoke test** that fails the build if the compiled
+4. **CI network-isolation smoke test** that fails the build if the compiled
    daemon makes any non-loopback connection during a scripted dictation run
    — turns [§3](#3-network-policy) from a claim into an enforced gate,
    mirroring how `ci.yml` already gates typecheck/lint/tests per
    [ARCHITECTURE.md §14](./ARCHITECTURE.md#14-cicd-pipeline).
-4. **Logging policy enforced in code review**: no transcript content above
+5. **Logging policy enforced in code review**: no transcript content above
    opt-in verbose-debug logging, checked as part of the review checklist for
    any PR touching `packages/asr`, `packages/llm`, or the daemon's logger.
-5. **Checksum/signature verification on downloaded model weights**, before
+6. **Checksum/signature verification on downloaded model weights**, before
    they're loaded by native parsers.
-6. **Loopback-service authentication** for `whisper-server`/`llama-server`
+7. **Loopback-service authentication** for `whisper-server`/`llama-server`
    (shared secret or move to Unix sockets) to close the "any local process
    can query them" gap in [§1](#1-threat-model--what-this-defends-against-and-what-it-doesnt).
-7. **Backup-tool exclusion guidance** (e.g. a documented Time Machine
+8. **Backup-tool exclusion guidance** (e.g. a documented Time Machine
    exclusion, or a `com.apple.metadata:com_apple_backup_excludeItem`
    extended attribute set at setup time) if `data.db` is to stay
    unencrypted.
-8. **GitHub's private vulnerability reporting**, enabled via the repo's
+9. **GitHub's private vulnerability reporting**, enabled via the repo's
    Security settings so `SECURITY.md`'s reporting flow is backed by
    Advisories rather than a plain email thread — see
    [§10](#10-reporting-a-vulnerability).

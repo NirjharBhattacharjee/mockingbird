@@ -68,10 +68,10 @@ export async function startEngines(log: (message: string) => void): Promise<Engi
         `warning: ${llm.model} isn't downloaded, so you'll get the raw transcript.\n` +
           `Get it with \`ollama pull ${llm.model}\`.`,
       );
-    } else {
-      // Loads while whisper-server starts; a failure here just means a slower first cleanup.
-      void llm.load().catch(() => {});
     }
+    // The model is not loaded here: an agent running all day would hold it in
+    // memory for a day in which nothing is dictated. It's warmed when a
+    // recording starts instead, which hides the cold load behind the speech.
     log("starting whisper-server (the first run on a Mac can take ~15s)...");
     const whisper = await startWhisperServer({
       modelPath: whisperModel,
