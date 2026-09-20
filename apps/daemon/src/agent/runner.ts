@@ -4,6 +4,8 @@ import {
   mkdirSync,
   readFileSync,
   realpathSync,
+  renameSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
@@ -73,23 +75,30 @@ export function ensureRunner(options: EnsureRunnerOptions = {}): EnsureRunnerRes
   if (current === wanted) return { path: destination, installed: false };
 
   mkdirSync(dirname(destination), { recursive: true, mode: 0o700 });
-  copyFileSync(source, destination);
-  chmodSync(destination, 0o755);
 
-  // Re-signing is what changes the name macOS shows. A copy keeps bun's own
-  // ad-hoc signature and still runs, so a failure here costs the name, not the
-  // feature.
+  // Built beside the destination and moved in, because writing over the file
+  // an agent is currently running fails with ETXTBSY. A rename leaves that
+  // process on the old inode and puts the new copy in place for the next start.
+  const staged = `${destination}.new`;
   const sign = options.sign ?? defaultSign;
-  const code = sign([
-    "codesign",
-    "--sign",
-    "-",
-    "--identifier",
-    "mockingbird",
-    "--force",
-    destination,
-  ]);
-  writeFileSync(marker, wanted);
+  let code: number;
+  try {
+    copyFileSync(source, staged);
+    chmodSync(staged, 0o755);
+    // Re-signing is what changes the name macOS shows. A copy keeps bun's own
+    // ad-hoc signature and still runs, so a failure here costs the name, not
+    // the feature.
+    code = sign(["codesign", "--sign", "-", "--identifier", "mockingbird", "--force", staged]);
+    renameSync(staged, destination);
+  } finally {
+    rmSync(staged, { force: true });
+  }
+
+  // The marker says this copy is current, so it's only written once the copy
+  // really is. Writing it after a failed signing would make every later start
+  // skip the retry, and the agent would stay listed as "bun" in the Privacy
+  // panes until bun itself changed.
+  if (code === 0) writeFileSync(marker, wanted);
   return {
     path: destination,
     installed: true,

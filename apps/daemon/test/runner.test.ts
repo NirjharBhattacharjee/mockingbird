@@ -35,6 +35,7 @@ describe("ensureRunner", () => {
         return 0;
       },
     });
+    // Signed where it is staged, then moved into place under that signature.
     expect(argv).toEqual([
       "codesign",
       "--sign",
@@ -42,8 +43,9 @@ describe("ensureRunner", () => {
       "--identifier",
       "mockingbird",
       "--force",
-      destination,
+      `${destination}.new`,
     ]);
+    expect(existsSync(`${destination}.new`)).toBe(false);
   });
 
   test("is executable", () => {
@@ -84,6 +86,21 @@ describe("ensureRunner", () => {
     expect(result.installed).toBe(true);
     expect(result.unsigned).toContain("1");
     expect(existsSync(destination)).toBe(true);
+    expect(existsSync(`${destination}.new`)).toBe(false);
+  });
+
+  test("tries the signing again next time, rather than trusting a failed one", () => {
+    const dir = workspace();
+    const source = fakeBun(dir);
+    const destination = join(dir, "bin", "mockingbird");
+    // A marker written after a failed signing would make every later start skip
+    // the retry, leaving the agent listed as "bun" until bun itself changed.
+    expect(ensureRunner({ source, destination, sign: () => 1 }).unsigned).toBeDefined();
+    expect(ensureRunner({ source, destination, sign: () => 1 }).unsigned).toBeDefined();
+    const signed = ensureRunner({ source, destination, sign: () => 0 });
+    expect(signed.unsigned).toBeUndefined();
+    // And once it works, it settles down again.
+    expect(ensureRunner({ source, destination, sign: () => 0 }).installed).toBe(false);
   });
 });
 
