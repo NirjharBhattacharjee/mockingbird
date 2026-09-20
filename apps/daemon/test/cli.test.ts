@@ -79,24 +79,39 @@ describe("agentVerdict", () => {
     return path;
   };
 
-  test("names both panes when the agent can use neither", async () => {
-    const path = await write("permissions: Fn MISSING (Input Monitoring), typing MISSING (Acc)\n");
-    expect(await agentVerdict(path, 0)).toEqual(["Input Monitoring", "Accessibility"]);
+  test("names every pane the agent is missing", async () => {
+    const path = await write("checks: Fn MISSING, typing MISSING, microphone SILENT\n");
+    expect(await agentVerdict(path, 0)).toEqual([
+      "Input Monitoring",
+      "Accessibility",
+      "Microphone",
+    ]);
   });
 
   test("names only the one that's missing", async () => {
-    const path = await write("permissions: Fn ok, typing MISSING (Accessibility)\n");
+    const path = await write("checks: Fn ok, typing MISSING, microphone ok\n");
     expect(await agentVerdict(path, 0)).toEqual(["Accessibility"]);
   });
 
+  test("catches a silent microphone, which no permission API reports", async () => {
+    const path = await write("checks: Fn ok, typing ok, microphone SILENT\n");
+    expect(await agentVerdict(path, 0)).toEqual(["Microphone"]);
+  });
+
   test("empty means the agent is fully working", async () => {
-    const path = await write("permissions: Fn ok, typing ok\n");
+    const path = await write("checks: Fn ok, typing ok, microphone ok\n");
     expect(await agentVerdict(path, 0)).toEqual([]);
+  });
+
+  test("waits for the checks line, not the earlier permissions one", async () => {
+    // "permissions:" is logged before the microphone has been probed.
+    const path = await write("permissions: Fn ok, typing ok\n");
+    expect(await agentVerdict(path, 0, 300)).toBeUndefined();
   });
 
   test("ignores a line from a previous run", async () => {
     // Reading a stale 'ok' would tell the user everything is fine when it isn't.
-    const old = "permissions: Fn ok, typing ok\n";
+    const old = "checks: Fn ok, typing ok, microphone ok\n";
     const path = await write(old);
     expect(await agentVerdict(path, old.length, 300)).toBeUndefined();
   });

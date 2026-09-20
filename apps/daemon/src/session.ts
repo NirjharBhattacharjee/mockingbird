@@ -33,6 +33,12 @@ export type SessionOptions = {
 
 export type Session = {
   readonly controller: ListenController;
+  /**
+   * Whether any sound at all has reached us. A microphone we aren't allowed to
+   * use still yields samples, just digitally silent ones, so this is the only
+   * way to tell a denied permission from a quiet room before transcribing.
+   */
+  readonly heardSound: boolean;
   /** Resolves with an exit code when the session stops, by itself or via `end`. */
   readonly ended: Promise<number>;
   /** Hints for the status line, reflecting whether Fn is available. */
@@ -192,9 +198,16 @@ export async function startSession(options: SessionOptions): Promise<Session> {
 
   let capture: CaptureProcess | undefined;
   let lastDetail: string | undefined;
+  let heardSound = false;
   const supervisor = new Supervisor(
     () => {
-      capture = startCapture({ inputArgs, onSamples: (s) => controller.onSamples(s) });
+      capture = startCapture({
+        inputArgs,
+        onSamples: (s) => {
+          if (!heardSound && peak(s) > 0) heardSound = true;
+          controller.onSamples(s);
+        },
+      });
       return capture;
     },
     {
@@ -223,6 +236,9 @@ export async function startSession(options: SessionOptions): Promise<Session> {
   let closing: Promise<void> | undefined;
   return {
     controller,
+    get heardSound() {
+      return heardSound;
+    },
     ended,
     hotkeyActive: hotkey !== undefined,
     end,

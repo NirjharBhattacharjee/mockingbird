@@ -16,7 +16,7 @@ import {
 import { AGENT_LABEL, agentPaths, plistFor } from "./agent/plist.ts";
 import { ensureRunner, runnerPath } from "./agent/runner.ts";
 import { main as listenMain } from "./listen.ts";
-import { openPermissionPane } from "./permissions.ts";
+import { openPermissionPane, paneFor } from "./permissions.ts";
 import { main as transcribeMain } from "./transcribe.ts";
 import { main as typeMain } from "./type.ts";
 
@@ -140,7 +140,7 @@ async function start(run: Launchctl = runLaunchctl): Promise<number> {
       `Switch it on under Privacy & Security → ${missing.join(" and ")} (click + and\n` +
       `add it if it isn't listed), then run \`mockingbird restart\`.`,
   );
-  openPermissionPane(missing[0] === "Input Monitoring" ? "input-monitoring" : "accessibility");
+  openPermissionPane(paneFor(missing[0] ?? "Accessibility"));
   return 0;
 }
 
@@ -159,14 +159,17 @@ export async function agentVerdict(
     const text = await Bun.file(logPath)
       .text()
       .catch(() => "");
+    // The "checks:" line, not the earlier "permissions:" one: it comes after
+    // the microphone probe, so it's the only one that knows about all three.
     const line = text
       .slice(since)
       .split("\n")
-      .find((l) => l.includes("permissions: Fn "));
+      .find((l) => l.includes("checks: Fn "));
     if (line) {
       const missing: string[] = [];
       if (line.includes("Fn MISSING")) missing.push("Input Monitoring");
       if (line.includes("typing MISSING")) missing.push("Accessibility");
+      if (line.includes("microphone SILENT")) missing.push("Microphone");
       return missing;
     }
     await Bun.sleep(250);

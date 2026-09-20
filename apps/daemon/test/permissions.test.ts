@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { askForPermissions, type Permission, permissionHelp } from "../src/permissions.ts";
+import { askForPermissions, type Permission, paneFor, permissionHelp } from "../src/permissions.ts";
 
 describe("askForPermissions", () => {
   const record = (missing: [Permission, ...Permission[]]) => {
@@ -28,6 +28,14 @@ describe("askForPermissions", () => {
       "request accessibility",
       "open x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
     ]);
+  });
+});
+
+describe("paneFor", () => {
+  test("maps each System Settings pane name back to its permission", () => {
+    expect(paneFor("Input Monitoring")).toBe("input-monitoring");
+    expect(paneFor("Accessibility")).toBe("accessibility");
+    expect(paneFor("Microphone")).toBe("microphone");
   });
 });
 

@@ -1,4 +1,4 @@
-export type Permission = "input-monitoring" | "accessibility";
+export type Permission = "input-monitoring" | "accessibility" | "microphone";
 
 const PANES: Record<Permission, { name: string; url: string; for: string }> = {
   "input-monitoring": {
@@ -11,7 +11,18 @@ const PANES: Record<Permission, { name: string; url: string; for: string }> = {
     url: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
     for: "to type into other apps",
   },
+  microphone: {
+    name: "Microphone",
+    url: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+    for: "to hear you",
+  },
 };
+
+/** The permission behind a System Settings pane name. */
+export function paneFor(name: string): Permission {
+  const match = (Object.keys(PANES) as Permission[]).find((p) => PANES[p].name === name);
+  return match ?? "accessibility";
+}
 
 /**
  * What to tell the user when permissions are missing. `app` is the app that
@@ -53,11 +64,12 @@ export function openPermissionPane(
  */
 export function askForPermissions(
   missing: [Permission, ...Permission[]],
-  request: Record<Permission, () => void>,
+  /** Partial: Microphone has no ask-for API — it prompts when it's opened. */
+  request: Partial<Record<Permission, () => void>>,
   spawn: (cmd: string[]) => void = (cmd) => {
     Bun.spawn(cmd, { stdout: "ignore", stderr: "ignore" });
   },
 ): void {
-  for (const permission of missing) request[permission]();
+  for (const permission of missing) request[permission]?.();
   spawn(["open", PANES[missing[0]].url]);
 }

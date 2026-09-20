@@ -4,6 +4,9 @@ import { checkTypingAccess, requestTypingAccess } from "@mockingbird/inject";
 import { agentPaths } from "./agent/plist.ts";
 import { inputArgsFor, startSession } from "./session.ts";
 
+/** Long enough for ffmpeg to open the device and deliver a few buffers. */
+const MIC_PROBE_MS = 2_500;
+
 /** launchd appends to the log forever and never rotates it. */
 const MAX_LOG_BYTES = 1024 * 1024;
 
@@ -66,6 +69,22 @@ export async function main(): Promise<number> {
     },
   });
 
+  // The microphone can't be checked by asking: a denied one still produces
+  // samples, they're just silent. So listen for a moment and see.
+  await Bun.sleep(MIC_PROBE_MS);
+  const micOk = session.heardSound;
+  log(
+    `checks: Fn ${hotkeyAllowed ? "ok" : "MISSING"}, ` +
+      `typing ${typingAllowed ? "ok" : "MISSING"}, ` +
+      `microphone ${micOk ? "ok" : "SILENT"}`,
+  );
+  if (!micOk) {
+    log(
+      "the microphone is producing silence, which usually means permission. Switch on\n" +
+        `"mockingbird" under System Settings → Privacy & Security → Microphone, then ` +
+        "run `mockingbird restart`.",
+    );
+  }
   log("listening. Hold Fn to talk.");
   for (const signal of ["SIGTERM", "SIGINT"] as const) {
     process.once(signal, () => {
