@@ -1,8 +1,8 @@
 # mockingbird — architecture bible
 
-> **Status:** v1 in progress — the pipeline (VAD → ASR → LLM → format), live microphone capture, and a keyboard push-to-talk CLI (`bun run listen`) exist; the Fn hotkey FSM, text injection, IPC, storage and TUI do not yet.
+> **Status:** v1 in progress — the pipeline (VAD → ASR → LLM → format), live microphone capture, the Fn hotkey FSM, text injection, and a `mockingbird` CLI that runs as a login agent exist; IPC, storage and the TUI do not yet.
 > **Owner:** bhattacharjeenirjhar26@gmail.com
-> **Last updated:** 2026-09-16
+> **Last updated:** 2026-09-20
 
 This document is the single source of truth for what mockingbird is, what it's
 built from, and why. It is written to be read cover to cover once, then used
@@ -22,6 +22,7 @@ it is not a design doc that gets abandoned once code exists.
 | 2026-09-18 | Text injection: `packages/inject` types text into the focused app as Unicode key events (`CGEventKeyboardSetUnicodeString` + `CGEventPost` via `bun:ffi`), and `packages/context` reads the frontmost app with `lsappinfo`. Decided against the planned clipboard-paste/`osascript` route: typing Unicode directly needs no clipboard (nothing to clobber or restore) and no AppleScript. Text is sanitized first — newlines become spaces, so dictation can never submit a message or run a shell command (§3, §10). |
 | 2026-09-18 | Fn hotkey works, via a CoreGraphics event tap through `bun:ffi` in a worker thread (`packages/hotkey`) plus the §5 state machine (`apps/daemon/src/hotkey-fsm.ts`), wired into `bun run listen`. Measured: `uiohook-napi` panics Bun 1.4.2 (`unsupported uv function: uv_cond_init`), so it's out; macOS reports Fn as `flagsChanged` keycode 63 with flag `0x800000`. The tap is listen-only and discards every key except Fn and Esc (§3, §5, §10). |
 | 2026-09-18 | `startEngines` starts `ollama serve` itself when nothing answers at a local `MOCKINGBIRD_LLM_URL`, and stops it on close; an Ollama that was already running (desktop app, Homebrew service) is left alone. The model is loaded in the background while whisper-server starts. `scripts/install.sh` sets everything up in one command and only runs Ollama for the model pull. |
+| 2026-09-20 | `mockingbird` is now one command (`apps/daemon/src/cli.ts`) with `start`/`stop`/`restart`/`status` plus the existing `listen`/`transcribe`/`type`. `start` installs a launchd LaunchAgent (`com.mockingbird.agent`, `RunAtLoad`) that runs `apps/daemon/src/agent.ts` headless; `stop` disables it, which is what survives a reboot. The wiring both modes share moved to `apps/daemon/src/session.ts`, leaving `listen.ts` as the terminal UI. Transcribed text is now printed only when it couldn't be typed. The LLM is no longer loaded at startup — it's warmed on Fn-down instead, so an idle agent holds no model (§8, §10, §11, §16). |
 
 
 ---
@@ -415,6 +416,11 @@ mockingbird/
 ├── apps/
 │   ├── daemon/                  mockingbirdd — supervisor, FSM, IPC server
 │   │   └── src/
+│   │       ├── cli.ts           `mockingbird` — the one command users run
+│   │       ├── agent.ts         headless entry launchd runs (no TTY)
+│   │       ├── agent/plist.ts   LaunchAgent plist, as a pure function
+│   │       ├── agent/launchctl.ts  launchctl argv + output parsing
+│   │       ├── session.ts       engines + capture + Fn + pipeline, no UI
 │   │       ├── hotkey-fsm.ts     Fn hold / double-tap state machine (§5)
 │   │       ├── supervisor.ts    child process lifecycle + restart policy
 │   │       ├── recorder.ts      ring buffer → recordings, with pre-roll and a length cap
@@ -668,8 +674,15 @@ actual decision before or during v1, not an assumption:
   keystroke-injection path (need to know exactly how many characters we
   typed to backspace them); the clipboard-paste path can't be undone this
   way. Needs a design decision, not just a TODO.
-- **Auto-launch on login.** A `launchd` plist, user-installed — how/when do
-  we offer to install it.
+- ~~**Auto-launch on login.**~~ Settled 2026-09-20: `mockingbird start` writes
+  `~/Library/LaunchAgents/com.mockingbird.agent.plist` with `RunAtLoad`, and
+  `mockingbird stop` runs `launchctl disable`, whose state persists across
+  reboots — so the plist stays on disk and the agent stays off until the next
+  `start`. `KeepAlive` is `Crashed`-only, so a deliberate exit (no microphone,
+  a missing model) doesn't relaunch every 10s forever. Still open: macOS
+  attributes the Fn and typing permissions to the binary launchd runs, which
+  today is `bun` itself — see SECURITY_PRIVACY §4 for why that's a real cost
+  and what would replace it.
 - **Auto-update.** Self-update command that checks GitHub Releases — must
   stay opt-in / explicit-confirm, never a silent background check, to hold
   the [§9](#9-everything-is-local) guarantee.

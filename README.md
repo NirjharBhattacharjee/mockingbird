@@ -81,22 +81,44 @@ ollama pull qwen3:4b-instruct-2507-q4_K_M
 
 </details>
 
-**2. Talk to it**
+**2. Turn it on**
 
 ```sh
-cd ~/mockingbird
-bun run listen
+mockingbird start
 ```
 
-Leave it running, click into any app (Slack, Notes, a browser), then hold
-**Fn**, speak, and let go: your words are typed where your cursor is. (Enter
-works too, for this terminal.) The first time, click **Allow** when macOS asks
-for the microphone, and see [Usage](#-usage) for the two permissions `Fn` and
-typing need.
+That's it — it runs in the background from now on, and starts again by itself
+every time you log in. You don't need to keep a terminal open.
+
+Click into any app (Slack, Notes, a browser), then hold **Fn**, speak, and let
+go: your words are typed where your cursor is. The first time, macOS will ask
+for permission — run `mockingbird status` to see what's still missing, and read
+[Permissions](#permissions) for the one surprise in how macOS grants them.
+
+To turn it off again:
+
+```sh
+mockingbird stop
+```
+
+It stays off, including after a reboot, until the next `mockingbird start`.
 
 ## 🎤 Usage
 
-### `bun run listen`: talk live
+### Running in the background
+
+| Command | Does |
+|---|---|
+| `mockingbird start` | Run in the background, now and at every login |
+| `mockingbird stop` | Stop, and stay stopped across reboots |
+| `mockingbird restart` | Restart it (do this after granting a permission) |
+| `mockingbird status` | Whether it's running, and what it can see |
+
+Nothing is printed while it runs — the text goes into your app and nowhere
+else. If something goes wrong, it's in `~/.mockingbird/logs/agent.log`, which
+records what happened but never what you said.
+
+### `mockingbird listen`: talk live in a terminal
 
 | Key | Does |
 |---|---|
@@ -107,26 +129,41 @@ typing need.
 | **q** | Quit |
 
 Whatever you say is typed into the app in front (Slack, your editor, a
-browser) and printed here too. Use `--no-type` to only print it.
+browser). It's printed here **only when it couldn't be typed** — a missing
+permission, or you switched apps while it was still transcribing — so you never
+lose words, and never get two copies. Use `--no-type` to only print.
+
+Stop the background agent first (`mockingbird stop`), or both will type.
 
 No need to start Ollama yourself: if it isn't running, `listen` starts it and
 stops it again when you quit.
 
-**Two permissions are needed**, both in System Settings → Privacy & Security.
-`bun run listen` opens the right page for you when one is missing:
+#### Permissions
+
+**Two permissions are needed**, both in System Settings → Privacy & Security:
 
 | Permission | For |
 |---|---|
 | **Input Monitoring** | noticing the `Fn` key |
 | **Accessibility** | typing into other apps |
 
-Switch on the app you run `bun run listen` from (Terminal, Ghostty, iTerm, VS
-Code…) in both. If it isn't in the list, click **+** and add it from
-Applications. Then **quit that app completely and reopen it**: press **Cmd+Q**
-until its Dock icon has no dot under it. Closing its windows isn't enough;
-macOS only applies the new permissions when the app restarts.
+macOS grants these to **whichever program asks**, and that differs between the
+two ways of running mockingbird — this catches everyone out once:
 
-Without them, Enter still records and the text is printed here.
+- **`mockingbird start`** (the background agent): grant them to **bun**, at
+  `/opt/homebrew/bin/bun`. Then run `mockingbird restart`.
+- **`mockingbird listen`** (a terminal): grant them to the terminal app itself
+  (Terminal, Ghostty, iTerm, VS Code…), then **quit it with Cmd+Q and reopen
+  it** — closing the window isn't enough. Each terminal app needs its own.
+
+If the program isn't in the list, click **+** and add it. Without these, Enter
+still records in `listen`, and the text is printed instead of typed.
+
+> [!WARNING]
+> Granting Accessibility to `bun` grants it to *every* program you run with
+> bun, not just mockingbird — each one could then type into any app and watch
+> your keystrokes. That's the trade for a background agent that survives
+> reboots. See [SECURITY_PRIVACY.md](docs/SECURITY_PRIVACY.md).
 
 <details>
 <summary>Fn still not working?</summary>
@@ -135,25 +172,32 @@ Without them, Enter still records and the text is printed here.
   Monitoring yet, or hasn't been fully quit and reopened since you allowed it.
   Each terminal app needs its own permission: allowing VS Code doesn't cover
   Ghostty.
+- **The background agent does nothing, but `listen` works.** They need separate
+  grants: `listen` uses your terminal's, the agent uses bun's. Add
+  `/opt/homebrew/bin/bun` to both lists, then `mockingbird restart`.
+- **Fn stopped working after `brew upgrade`.** Upgrading bun replaces the
+  binary macOS recorded the permission against. Remove the old `bun` entry from
+  both lists, add it again, then `mockingbird restart`.
 - **Holding Fn opens emoji or Apple's dictation.** In System Settings →
   Keyboard, set **Press 🌐 key to** to **Do Nothing**.
-- **Text is typed twice.** `bun run listen` is running in two windows. Quit
-  one with `q`.
+- **Text is typed twice.** The background agent and `mockingbird listen` are
+  both running, or `listen` is open in two windows. Run `mockingbird stop`, or
+  quit the extra window with `q`.
 
 </details>
 
 To check typing on its own:
 
 ```sh
-bun run type --check          # is typing allowed? which app is in front?
-bun run type "hello there"    # waits 3s, then types into the app you click
+mockingbird type --check          # is typing allowed? which app is in front?
+mockingbird type "hello there"    # waits 3s, then types into the app you click
 ```
 
 Using the wrong microphone? List them and pick one:
 
 ```sh
-bun run listen --list-devices
-bun run listen --device 2
+mockingbird listen --list-devices
+mockingbird listen --device 2
 ```
 
 ### `bun run transcribe`: turn a recording into text
@@ -211,8 +255,9 @@ that it's quick.
 | | |
 |---|---|
 | ✅ | Speech to text, cleanup (removes "um", fixes punctuation) |
-| ✅ | Live microphone with `bun run listen` |
-| ✅ | Transcribe recordings with `bun run transcribe` |
+| ✅ | Live microphone with `mockingbird listen` |
+| ✅ | Transcribe recordings with `mockingbird transcribe` |
+| ✅ | Runs in the background from login: `mockingbird start` / `stop` |
 | ✅ | Hold `Fn` to talk, double-tap for hands-free |
 | ✅ | Types into any app: Slack, editors, browsers, terminals |
 | 🔲 | History and custom vocabulary |
@@ -224,8 +269,15 @@ that it's quick.
 - Your audio and text never leave your Mac.
 - mockingbird makes no internet requests. The only downloads are the ones you
   run in the quick start.
-- Nothing is saved to disk. Live audio is kept in memory only (the last 30
-  seconds). While `listen` runs, macOS shows the orange microphone dot.
+- No audio or transcript is saved to disk. Live audio is kept in memory only
+  (the last 30 seconds).
+- The one file written is `~/.mockingbird/logs/agent.log`: start-up, errors,
+  and how many characters were typed — never the words themselves. It's capped
+  at 1 MB.
+- **The microphone is held open the whole time mockingbird runs**, so the
+  orange dot stays in your menu bar from login until `mockingbird stop`. That's
+  what makes the first word of a sentence come out intact. Nothing is recorded
+  until you hold Fn.
 - Typing uses key events, not the clipboard, so yours is never touched. Line
   breaks are removed first, so dictation can't send a message or run a command
   by itself.
@@ -241,6 +293,7 @@ More: [docs/SECURITY_PRIVACY.md](docs/SECURITY_PRIVACY.md)
 | `bun run typecheck` | Type-check |
 | `bun run lint` / `bun run format` | Check / fix style |
 | `bun run type --check` | Check typing permission and the app in front |
+| `bun apps/daemon/src/cli.ts <cmd>` | The `mockingbird` command, from a clone |
 | `bun run demo` | Redraw the GIF above (needs `brew install librsvg`) |
 
 Code lives in `apps/daemon` (the commands) and `packages/` (audio, voice

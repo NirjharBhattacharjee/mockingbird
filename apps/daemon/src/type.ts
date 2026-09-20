@@ -18,9 +18,9 @@ const log = (message: string) => console.error(message);
 
 const MAX_DELAY_SECONDS = 60;
 
-async function main(): Promise<number> {
+export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> {
   const { values, positionals } = parseArgs({
-    args: Bun.argv.slice(2),
+    args: argv,
     options: {
       delay: { type: "string" },
       check: { type: "boolean" },
@@ -68,10 +68,12 @@ async function main(): Promise<number> {
   return 0;
 }
 
-main().then(
-  (code) => process.exit(code),
-  (error) => {
-    log(`error: ${error instanceof Error ? error.message : String(error)}`);
-    process.exit(1);
-  },
-);
+if (import.meta.main) {
+  main().then(
+    (code) => process.exit(code),
+    (error) => {
+      log(`error: ${error instanceof Error ? error.message : String(error)}`);
+      process.exit(1);
+    },
+  );
+}

@@ -169,6 +169,40 @@ user's real control surface — mockingbird should never try to work around a
 denied grant (e.g. no fallback keylogging technique if Input Monitoring is
 refused; dictation should simply not function until granted).
 
+### The grants land on different programs depending on how you run it
+
+TCC records a grant against the **responsible process**, not the file that
+called the API. For a command run from a terminal, responsibility resolves up
+to the terminal app — which is why `mockingbird listen` uses Ghostty's or
+Terminal's grants. Under launchd there is no such parent, so the agent's own
+executable becomes responsible.
+
+Today `mockingbird start` runs the agent as `bun apps/daemon/src/agent.ts`, so
+**the grants land on `/opt/homebrew/bin/bun`**. Two consequences, neither of
+them small:
+
+- **Every program run with bun inherits them.** Accessibility and Input
+  Monitoring on the bun binary mean any bun script for which bun is the
+  responsible process can synthesize input into any app and observe every
+  keystroke. The grant cannot be scoped to mockingbird alone, and revoking it
+  for one script revokes it for all. This is a genuine widening of the trust
+  boundary, accepted deliberately for a v1 that runs from a source checkout.
+- **`brew upgrade bun` silently voids it.** An unbundled client is keyed by
+  its resolved executable path plus, absent a signing identity, its cdhash.
+  Bun is ad-hoc/linker-signed with no team identifier, so an upgrade changes
+  the Cellar path *and* the hash. The Privacy list still shows the entry
+  switched on while it no longer matches, and Fn stops working with no error.
+  `mockingbird status` names the binary the grants must be on so this is
+  diagnosable rather than mysterious.
+
+The replacement, when releases are signed: compile a single `mockingbird`
+binary (ARCHITECTURE §11) so the grant covers only our code. That was not done
+here because `bun build --compile` produces an ad-hoc signature too, so the
+grants would drop on **every rebuild** — worse for a tool installed from
+source. A stable self-signed identity produces a designated requirement keyed
+on the certificate rather than the hash, and grants then survive rebuilds;
+that is the prerequisite, and it is tracked in [§9](#9-hardening-roadmap).
+
 ## 5. At-rest storage & retention
 
 - **Location:** everything lives under `~/.mockingbird/` — `data.db`,
@@ -203,6 +237,14 @@ refused; dictation should simply not function until granted).
   implemented: log stage timings, error codes, and model names freely; never
   log `raw_text`/`final_text` content at any log level above an explicitly
   opt-in "verbose debug" mode that warns the user before enabling it.
+- **As implemented, the background agent's log holds no transcript.**
+  `mockingbird start` points launchd's `StandardOutPath`/`StandardErrorPath`
+  at `~/.mockingbird/logs/agent.log` (directory `0700`, plist `0600`). It
+  records start-up, engine and permission state, errors, and the *character
+  count* of each utterance with where it was delivered — never the words. The
+  opt-in escape hatch named above is `MOCKINGBIRD_LOG_TEXT=1`, which adds the
+  text and is off by default. The agent truncates the file at 1 MB on start,
+  because launchd appends to it forever and never rotates it.
 
 ## 6. Process & trust boundaries
 
@@ -322,32 +364,37 @@ of them are mitigated by "no network calls":
 Rough priority order, highest-impact first — none of this is scheduled yet,
 this is a "if solving one of these, start here" list:
 
-1. **Encrypt `data.db` at rest**, or at minimum document and default to
+1. **Sign the release binary with a stable identity**, so the Fn and typing
+   grants attach to mockingbird alone rather than to `/opt/homebrew/bin/bun`,
+   and survive upgrades and rebuilds. This is the prerequisite for closing the
+   trust-boundary widening described in [§4](#4-macos-permissions-tcc), and is
+   the highest-impact item on this list while the agent runs under launchd.
+2. **Encrypt `data.db` at rest**, or at minimum document and default to
    `0600`/`0700` permissions on `~/.mockingbird` and its contents at setup
    time, and evaluate SQLCipher or app-level column encryption for
    `raw_text`/`final_text`.
-2. **Ship a real delete/export story** before v1 GA: `mockingbird history
+3. **Ship a real delete/export story** before v1 GA: `mockingbird history
    clear`, per-utterance delete from the TUI, and a documented retention
    policy (even if the policy is "kept forever unless you delete it" — say
    so explicitly in-product, not just in this doc).
-3. **CI network-isolation smoke test** that fails the build if the compiled
+4. **CI network-isolation smoke test** that fails the build if the compiled
    daemon makes any non-loopback connection during a scripted dictation run
    — turns [§3](#3-network-policy) from a claim into an enforced gate,
    mirroring how `ci.yml` already gates typecheck/lint/tests per
    [ARCHITECTURE.md §14](./ARCHITECTURE.md#14-cicd-pipeline).
-4. **Logging policy enforced in code review**: no transcript content above
+5. **Logging policy enforced in code review**: no transcript content above
    opt-in verbose-debug logging, checked as part of the review checklist for
    any PR touching `packages/asr`, `packages/llm`, or the daemon's logger.
-5. **Checksum/signature verification on downloaded model weights**, before
+6. **Checksum/signature verification on downloaded model weights**, before
    they're loaded by native parsers.
-6. **Loopback-service authentication** for `whisper-server`/`llama-server`
+7. **Loopback-service authentication** for `whisper-server`/`llama-server`
    (shared secret or move to Unix sockets) to close the "any local process
    can query them" gap in [§1](#1-threat-model--what-this-defends-against-and-what-it-doesnt).
-7. **Backup-tool exclusion guidance** (e.g. a documented Time Machine
+8. **Backup-tool exclusion guidance** (e.g. a documented Time Machine
    exclusion, or a `com.apple.metadata:com_apple_backup_excludeItem`
    extended attribute set at setup time) if `data.db` is to stay
    unencrypted.
-8. **GitHub's private vulnerability reporting**, enabled via the repo's
+9. **GitHub's private vulnerability reporting**, enabled via the repo's
    Security settings so `SECURITY.md`'s reporting flow is backed by
    Advisories rather than a plain email thread — see
    [§10](#10-reporting-a-vulnerability).
