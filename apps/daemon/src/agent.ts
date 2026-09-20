@@ -7,7 +7,12 @@ import { inputArgsFor, startSession } from "./session.ts";
 /** launchd appends to the log forever and never rotates it. */
 const MAX_LOG_BYTES = 1024 * 1024;
 
-const stamp = () => new Date().toISOString().replace("T", " ").slice(0, 19);
+/**
+ * Local time, not UTC: this log is read by whoever is sitting at the Mac, and
+ * a timestamp that doesn't match their clock is worse than none. "sv-SE" is
+ * the locale whose format is already YYYY-MM-DD HH:MM:SS.
+ */
+export const stamp = (at = new Date()) => at.toLocaleString("sv-SE");
 const log = (message: string) => {
   for (const line of message.split("\n")) console.error(`${stamp()} ${line}`);
 };
