@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, realpathSync } from "node:fs";
-import { bunPath, main } from "../src/cli.ts";
+import { agentVerdict, bunPath, main } from "../src/cli.ts";
 
 /** Runs the router with stdout captured, so help text doesn't pollute the run. */
 async function run(argv: string[]): Promise<{ code: number; out: string }> {
@@ -69,5 +69,44 @@ describe("bunPath", () => {
 
   test("names a real, existing file", () => {
     expect(existsSync(bunPath())).toBe(true);
+  });
+});
+
+describe("agentVerdict", () => {
+  const write = async (body: string) => {
+    const path = `/tmp/mockingbird-verdict-${Math.random().toString(36).slice(2)}.log`;
+    await Bun.write(path, body);
+    return path;
+  };
+
+  test("names both panes when the agent can use neither", async () => {
+    const path = await write("permissions: Fn MISSING (Input Monitoring), typing MISSING (Acc)\n");
+    expect(await agentVerdict(path, 0)).toEqual(["Input Monitoring", "Accessibility"]);
+  });
+
+  test("names only the one that's missing", async () => {
+    const path = await write("permissions: Fn ok, typing MISSING (Accessibility)\n");
+    expect(await agentVerdict(path, 0)).toEqual(["Accessibility"]);
+  });
+
+  test("empty means the agent is fully working", async () => {
+    const path = await write("permissions: Fn ok, typing ok\n");
+    expect(await agentVerdict(path, 0)).toEqual([]);
+  });
+
+  test("ignores a line from a previous run", async () => {
+    // Reading a stale 'ok' would tell the user everything is fine when it isn't.
+    const old = "permissions: Fn ok, typing ok\n";
+    const path = await write(old);
+    expect(await agentVerdict(path, old.length, 300)).toBeUndefined();
+  });
+
+  test("gives up rather than hanging when the agent never reports", async () => {
+    const path = await write("starting whisper-server...\n");
+    expect(await agentVerdict(path, 0, 300)).toBeUndefined();
+  });
+
+  test("survives a log that doesn't exist yet", async () => {
+    expect(await agentVerdict("/tmp/mockingbird-nope.log", 0, 300)).toBeUndefined();
   });
 });

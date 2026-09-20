@@ -36,6 +36,16 @@ export function permissionHelp(
   );
 }
 
+/** Opens System Settings at one permission's pane. */
+export function openPermissionPane(
+  permission: Permission,
+  spawn: (cmd: string[]) => void = (cmd) => {
+    Bun.spawn(cmd, { stdout: "ignore", stderr: "ignore" });
+  },
+): void {
+  spawn(["open", PANES[permission].url]);
+}
+
 /**
  * Shows the macOS prompt where it still can (it adds the app to the list, so
  * the user only has to flip the switch), and opens System Settings at the

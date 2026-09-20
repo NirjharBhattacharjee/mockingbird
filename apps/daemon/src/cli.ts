@@ -13,6 +13,7 @@ import {
 } from "./agent/launchctl.ts";
 import { AGENT_LABEL, agentPaths, plistFor } from "./agent/plist.ts";
 import { main as listenMain } from "./listen.ts";
+import { openPermissionPane } from "./permissions.ts";
 import { main as transcribeMain } from "./transcribe.ts";
 import { main as typeMain } from "./type.ts";
 
@@ -87,6 +88,11 @@ async function start(run: Launchctl = runLaunchctl): Promise<number> {
   );
   await lint(paths.plistPath);
 
+  // Where the log ends now, so we read this run's startup line and not an old one.
+  const since = await Bun.file(paths.logPath)
+    .text()
+    .then((t) => t.length)
+    .catch(() => 0);
   const uid = process.getuid?.() ?? 0;
   await runAll(
     startArgv(uid, paths.plistPath),
@@ -97,16 +103,58 @@ async function start(run: Launchctl = runLaunchctl): Promise<number> {
   );
   log("mockingbird is running, and will start again at every login.");
   log(`Logs: ${paths.logPath}`);
-  const missing = permissionsMissing();
-  if (missing.length > 0) {
-    log(
-      `\nFn and typing need permission. macOS grants these to the binary launchd runs:\n` +
-        `  ${bunPath()}\n` +
-        `Add it under System Settings → Privacy & Security → ${missing.join(" and ")},\n` +
-        `then run \`mockingbird restart\`.`,
-    );
+
+  // Whether *this* process can see the Fn key says nothing about the agent:
+  // macOS grants these per responsible process, and under launchd that is bun
+  // rather than the terminal. So report the agent's own verdict, not ours.
+  const missing = await agentVerdict(paths.logPath, since);
+  if (missing === undefined) {
+    log("\nThe agent hasn't reported in yet. Try `mockingbird status` in a moment.");
+    return 0;
   }
+  if (missing.length === 0) {
+    log("\nFn and typing are allowed. Hold Fn anywhere and speak.");
+    return 0;
+  }
+  log(
+    `\nThe agent can't use ${missing.join(" or ")} yet. macOS grants these to the\n` +
+      `program launchd runs, which is bun — not this terminal:\n\n` +
+      `  ${bunPath()}\n\n` +
+      `Switch it on under Privacy & Security → ${missing.join(" and ")} (click + and\n` +
+      `add it if it isn't listed), then run \`mockingbird restart\`.`,
+  );
+  openPermissionPane(missing[0] === "Input Monitoring" ? "input-monitoring" : "accessibility");
   return 0;
+}
+
+/**
+ * The agent's own permission line from its log, named as System Settings panes.
+ * Undefined when it hasn't got that far yet.
+ */
+export async function agentVerdict(
+  logPath: string,
+  since: number,
+  timeoutMs = 15_000,
+  now = () => Date.now(),
+): Promise<string[] | undefined> {
+  const deadline = now() + timeoutMs;
+  while (now() < deadline) {
+    const text = await Bun.file(logPath)
+      .text()
+      .catch(() => "");
+    const line = text
+      .slice(since)
+      .split("\n")
+      .find((l) => l.includes("permissions: Fn "));
+    if (line) {
+      const missing: string[] = [];
+      if (line.includes("Fn MISSING")) missing.push("Input Monitoring");
+      if (line.includes("typing MISSING")) missing.push("Accessibility");
+      return missing;
+    }
+    await Bun.sleep(250);
+  }
+  return undefined;
 }
 
 async function stop(run: Launchctl = runLaunchctl): Promise<number> {
