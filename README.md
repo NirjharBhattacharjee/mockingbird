@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/demo.gif" alt="Illustration: holding Fn in a chat app, speaking, and letting go types the cleaned-up sentence into the message box, while bun run listen shows its status" width="100%">
+  <img src="docs/assets/demo.gif" alt="Illustration: running mockingbird start once, after which the terminal is no longer needed; then holding Fn in a chat app, speaking, and letting go types the cleaned-up sentence into the message box" width="100%">
 </p>
 
 <p align="center">
@@ -31,8 +31,9 @@ cloud, no usage limits. A free, open-source alternative to Wispr Flow
 ([why](docs/PHILOSOPHY.md)).
 
 > [!NOTE]
-> **Early days.** Hold `Fn` anywhere, speak, and the text is typed into
-> whatever app you're in. History, custom vocabulary and the dashboard are
+> **Early days.** `mockingbird start` once, then hold `Fn` anywhere, speak,
+> and the text is typed into whatever app you're in — no terminal open, and it
+> comes back at every login. History, custom vocabulary and the dashboard are
 > still to come.
 
 ## 🚀 Quick start
@@ -118,6 +119,18 @@ Nothing is printed while it runs — the text goes into your app and nowhere
 else. If something goes wrong, it's in `~/.mockingbird/logs/agent.log`, which
 records what happened but never what you said.
 
+**It tells you out loud**, since there's no screen to look at:
+
+| Sound | Means |
+|---|---|
+| A rising **tink** | recording started — it heard the `Fn` hold |
+| A falling **pop** | you let go; it's transcribing |
+| A low **basso** | it got the words but couldn't type them (the log says why) |
+
+Set `MOCKINGBIRD_CUES=0` to silence them. `mockingbird listen` is quiet by
+default instead, since it draws a live level meter; `--cues` turns them on
+there too.
+
 ### `mockingbird listen`: talk live in a terminal
 
 | Key | Does |
@@ -140,12 +153,13 @@ stops it again when you quit.
 
 #### Permissions
 
-**Two permissions are needed**, both in System Settings → Privacy & Security:
+**Three permissions are needed**, all in System Settings → Privacy & Security:
 
 | Permission | For |
 |---|---|
 | **Input Monitoring** | noticing the `Fn` key |
 | **Accessibility** | typing into other apps |
+| **Microphone** | hearing you |
 
 macOS grants these to **whichever program asks**, and that differs between the
 two ways of running mockingbird — this catches everyone out once:
@@ -159,6 +173,11 @@ two ways of running mockingbird — this catches everyone out once:
 
 If the program isn't in the list, click **+** and add it. Without these, Enter
 still records in `listen`, and the text is printed instead of typed.
+
+`mockingbird start` and `mockingbird status` both report what the agent can
+actually see, rather than what your terminal can — including the microphone,
+which can't be checked by asking, since a blocked one still returns audio.
+It's just silent.
 
 That `bin/mockingbird` is mockingbird's own copy of the Bun runtime, signed
 under its own name so macOS lists it as "mockingbird" and the permission
@@ -185,6 +204,11 @@ bun`, so the grants survive both. See
 - **Text is typed twice.** The background agent and `mockingbird listen` are
   both running, or `listen` is open in two windows. Run `mockingbird stop`, or
   quit the extra window with `q`.
+- **The sounds play but nothing is typed.** It heard you. Either Accessibility
+  is missing, or you switched apps while it was still transcribing — it won't
+  type into an app you didn't dictate into. The log says which.
+- **Recordings come back empty.** Microphone permission. `mockingbird status`
+  and the log both name it.
 
 </details>
 
@@ -202,15 +226,15 @@ mockingbird listen --list-devices
 mockingbird listen --device 2
 ```
 
-### `bun run transcribe`: turn a recording into text
+### `mockingbird transcribe`: turn a recording into text
 
 ```sh
-bun run transcribe ~/Desktop/memo.mp3
-bun run transcribe ~/Desktop/memo.mp3 | pbcopy   # copy the text
+mockingbird transcribe ~/Desktop/memo.mp3
+mockingbird transcribe ~/Desktop/memo.mp3 | pbcopy   # copy the text
 ```
 
 Works with mp3, m4a, wav, and anything else ffmpeg can open. Tip: type
-`bun run transcribe `, then drag the file into the terminal.
+`mockingbird transcribe `, then drag the file into the terminal.
 
 <details>
 <summary>More options</summary>
@@ -239,11 +263,11 @@ Environment variables:
 | Problem | Fix |
 |---|---|
 | `Script not found` | Run it from inside the `mockingbird` folder. |
-| `permission denied` on a file | Put `bun run transcribe ` in front of the file path. |
+| `permission denied` on a file | Put `mockingbird transcribe ` in front of the file path. |
 | `recording was completely silent` or stuck on `waiting for the microphone` | Allow your terminal in **System Settings → Privacy & Security → Microphone**, then restart the terminal. |
 | The level bars don't move | Wrong microphone. Use `--list-devices` and `--device`. |
 | `Fn key off` or `Fn` does nothing | Allow your terminal in **System Settings → Privacy & Security → Input Monitoring**, then quit it with Cmd+Q and reopen. |
-| Text prints but isn't typed into the app | Allow your terminal in **Accessibility** (same settings page), quit with Cmd+Q, reopen. Check with `bun run type --check`. |
+| Text prints but isn't typed into the app | The agent needs **Accessibility** on `~/.mockingbird/bin/mockingbird`, then `mockingbird restart`. In `listen`, allow your terminal instead and reopen it. Check with `mockingbird type --check`. |
 | `Ollama isn't running` | `listen` starts Ollama by itself, so this means it's missing or failed to start: run the install command again. You still get text, just not cleaned up. |
 | `… isn't downloaded` | Run `ollama pull qwen3:4b-instruct-2507-q4_K_M` (or the install command again). |
 | `Whisper model not found` | Run the install command again. |
@@ -298,9 +322,10 @@ More: [docs/SECURITY_PRIVACY.md](docs/SECURITY_PRIVACY.md)
 | `bun apps/daemon/src/cli.ts <cmd>` | The `mockingbird` command, from a clone |
 | `bun run demo` | Redraw the GIF above (needs `brew install librsvg`) |
 
-Code lives in `apps/daemon` (the commands) and `packages/` (audio, voice
-detection, speech-to-text, cleanup). The agent skills are a submodule in
-`agent-skills/`; see [AGENTS.md](AGENTS.md).
+Code lives in `apps/daemon` (the commands, the launchd agent, and the session
+wiring they share) and `packages/` (audio, voice detection, speech-to-text,
+cleanup, typing, sounds). The agent skills are a submodule in `agent-skills/`;
+see [AGENTS.md](AGENTS.md).
 
 ## 📚 Docs
 
