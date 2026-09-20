@@ -2,7 +2,7 @@ import { type CaptureProcess, micInputArgs, peak, startCapture } from "@mockingb
 import { type FrontmostApp, frontmostApp, isTerminal } from "@mockingbird/context";
 import { type Cue, cues } from "@mockingbird/cue";
 import { type HotkeyListener, startHotkeyListener } from "@mockingbird/hotkey";
-import { typeText } from "@mockingbird/inject";
+import { type TypeResult, typeText } from "@mockingbird/inject";
 import type { AppStyle } from "@mockingbird/llm";
 import { HotkeyFsm } from "./hotkey-fsm.ts";
 import { ListenController } from "./listen-controller.ts";
@@ -13,6 +13,52 @@ import { Supervisor } from "./supervisor.ts";
 
 /** Whether the text reached the app, and why not when it didn't. */
 export type Delivery = { typed: true } | { typed: false; reason: string };
+
+/** How often focus is re-checked while the text is being typed. */
+const FOCUS_POLL_MS = 50;
+
+type FocusWatch = {
+  /** False once focus has left the app the text was dictated into. */
+  stillThere: () => boolean;
+  /** Where focus went. Only meaningful once `stillThere` is false. */
+  movedTo: () => FrontmostApp | undefined;
+  /** Stops the polling at its next check. */
+  stop: () => void;
+};
+
+/**
+ * Watches focus while text is being typed. A long dictation is hundreds of key
+ * events with pauses between them, which is long enough for the user to switch
+ * apps — and without this the rest of the text would follow them there. Polls
+ * alongside the typing rather than between chunks, so it costs no typing speed.
+ * A frontmost app we can't read counts as a change: stopping early loses the
+ * tail of a dictation, typing on regardless could put it anywhere.
+ */
+function watchFocus(target: FrontmostApp): FocusWatch {
+  let moved: FrontmostApp | undefined;
+  let left = false;
+  let watching = true;
+  void (async () => {
+    while (watching) {
+      await Bun.sleep(FOCUS_POLL_MS);
+      if (!watching) return;
+      const now = await frontmostApp().catch(() => undefined);
+      if (!watching) return;
+      if (now?.bundleId !== target.bundleId) {
+        moved = now;
+        left = true;
+        return;
+      }
+    }
+  })();
+  return {
+    stillThere: () => !left,
+    movedTo: () => moved,
+    stop: () => {
+      watching = false;
+    },
+  };
+}
 
 export type SessionOptions = {
   /** ffmpeg input arguments, from `inputArgsFor`. */
@@ -87,8 +133,21 @@ export async function startSession(options: SessionOptions): Promise<Session> {
             ` (${target?.name ?? "unknown"} → ${now?.name ?? "unknown"})`,
         };
       }
-      await typeText(text);
-      return { typed: true };
+      const watch = watchFocus(now);
+      let result: TypeResult;
+      try {
+        result = await typeText(text, { stillWanted: watch.stillThere });
+      } finally {
+        watch.stop();
+      }
+      if (result.typed >= result.total) return { typed: true };
+      return {
+        typed: false,
+        reason:
+          `the app in front changed while the text was being typed` +
+          ` (${now.name} → ${watch.movedTo()?.name ?? "unknown"}), so only` +
+          ` ${result.typed} of its ${result.total} characters went in`,
+      };
     } catch (error) {
       return { typed: false, reason: error instanceof Error ? error.message : String(error) };
     }

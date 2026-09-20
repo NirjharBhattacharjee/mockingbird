@@ -158,7 +158,12 @@ lives in `packages/inject/src/typing.ts`. As implemented today it:
 - strips other control codes, which could otherwise do stranger things to a
   terminal;
 - types only what the pipeline produced, into whichever app you had in front;
-  it never reads what's already in that app.
+  it never reads what's already in that app;
+- **stops mid-text when focus leaves the app you dictated into**: typing asks a
+  guard before every chunk, and `apps/daemon/src/session.ts` answers it by
+  polling the frontmost app throughout. So a long dictation — hundreds of key
+  events, with pauses — can't follow you into a chat window or a password
+  field. What didn't get through is reported as undelivered, never as typed.
 
 Both grants are checked before use (`CGPreflightPostEventAccess`,
 `IOHIDCheckAccess`) rather than assumed, and mockingbird degrades to printing
