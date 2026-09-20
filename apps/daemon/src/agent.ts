@@ -50,6 +50,8 @@ export async function main(): Promise<number> {
     inputArgs: inputArgsFor(process.env.MOCKINGBIRD_DEVICE),
     typingAllowed,
     hotkeyAllowed,
+    // The only feedback channel a background agent has: nothing is on screen.
+    cues: process.env.MOCKINGBIRD_CUES !== "0",
     log,
     onResult: (result, delivery) => {
       // The text itself is never logged: it goes to the app and nowhere else.

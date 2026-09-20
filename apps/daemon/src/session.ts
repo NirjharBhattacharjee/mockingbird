@@ -1,5 +1,6 @@
 import { type CaptureProcess, micInputArgs, peak, startCapture } from "@mockingbird/audio";
 import { type FrontmostApp, frontmostApp, isTerminal } from "@mockingbird/context";
+import { type Cue, cues } from "@mockingbird/cue";
 import { type HotkeyListener, startHotkeyListener } from "@mockingbird/hotkey";
 import { typeText } from "@mockingbird/inject";
 import type { AppStyle } from "@mockingbird/llm";
@@ -20,6 +21,8 @@ export type SessionOptions = {
   terminalStyle?: boolean;
   typingAllowed: boolean;
   hotkeyAllowed: boolean;
+  /** Play a sound when recording starts, ends, and when something failed. */
+  cues?: boolean;
   /** Status and error messages. Never receives transcribed text. */
   log: (message: string) => void;
   /** Runs before each `log`, so a terminal can clear its status line first. */
@@ -53,6 +56,7 @@ export function inputArgsFor(device: string | undefined, env = process.env): str
  */
 export async function startSession(options: SessionOptions): Promise<Session> {
   const { inputArgs, typingAllowed, hotkeyAllowed, onResult } = options;
+  const cue: Cue = cues(options.cues ?? false);
   const notify = (message: string) => {
     options.beforeMessage?.();
     options.log(message);
@@ -102,6 +106,7 @@ export async function startSession(options: SessionOptions): Promise<Session> {
       ? await deliver(result.finalText, target)
       : { typed: false, reason: "no speech detected" };
 
+    if (!delivery.typed && result.finalText) cue("error");
     onResult?.(result, delivery);
     if (truncated) notify("the recording hit the 2-minute limit, so the end was cut off");
     if (result.llmOutcome === "failed") notify(`cleanup failed: ${result.llmError}`);
@@ -111,7 +116,10 @@ export async function startSession(options: SessionOptions): Promise<Session> {
   const controller = new ListenController(
     new Recorder(),
     transcribe,
-    (error) => notify(`error: ${error instanceof Error ? error.message : String(error)}`),
+    (error) => {
+      cue("error");
+      notify(`error: ${error instanceof Error ? error.message : String(error)}`);
+    },
     hotkeyAllowed
       ? { start: "hold Fn to talk (or Enter) · q: quit", stop: "release Fn · Esc: cancel" }
       : { start: "Enter: start speaking · q: quit", stop: "Enter: stop · Esc: cancel" },
@@ -131,6 +139,18 @@ export async function startSession(options: SessionOptions): Promise<Session> {
   // The FSM needs a nudge when a hold becomes a hold and when a tap window
   // closes. Scheduling on its deadline avoids a timer ticking all day.
   const fsm = new HotkeyFsm();
+  let capturing = false;
+  /**
+   * Beeps only once the FSM has committed to a recording. Fn-down arms
+   * optimistically and a short tap cancels it again, so cueing that transition
+   * would beep at presses that never recorded anything.
+   */
+  const syncCue = () => {
+    const now = fsm.state === "CAPTURE_PTT" || fsm.state === "CAPTURE_LOCK";
+    if (now === capturing) return;
+    capturing = now;
+    cue(now ? "start" : "stop");
+  };
   let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
   const scheduleTick = () => {
     if (deadlineTimer) clearTimeout(deadlineTimer);
@@ -141,6 +161,7 @@ export async function startSession(options: SessionOptions): Promise<Session> {
       () => {
         deadlineTimer = undefined;
         fsm.tick(Date.now());
+        syncCue();
         scheduleTick();
       },
       Math.max(0, deadline - Date.now()),
@@ -155,6 +176,7 @@ export async function startSession(options: SessionOptions): Promise<Session> {
         if (action === "start") controller.startRecording();
         else if (action === "stop") controller.stopRecording();
         else if (action === "cancel") controller.cancelRecording();
+        syncCue();
         scheduleTick();
       },
       onError: (error) => notify(`Fn key unavailable: ${error.message}`),

@@ -177,31 +177,38 @@ to the terminal app — which is why `mockingbird listen` uses Ghostty's or
 Terminal's grants. Under launchd there is no such parent, so the agent's own
 executable becomes responsible.
 
-Today `mockingbird start` runs the agent as `bun apps/daemon/src/agent.ts`, so
-**the grants land on `/opt/homebrew/bin/bun`**. Two consequences, neither of
-them small:
+`mockingbird start` therefore does not run the agent as `bun`. It installs
+**`~/.mockingbird/bin/mockingbird`** — a copy of the Bun binary, re-signed
+ad-hoc under the identifier `mockingbird` — and points the LaunchAgent at
+that. The grants land on it, and three things follow:
 
-- **Every program run with bun inherits them.** Accessibility and Input
-  Monitoring on the bun binary mean any bun script for which bun is the
-  responsible process can synthesize input into any app and observe every
-  keystroke. The grant cannot be scoped to mockingbird alone, and revoking it
-  for one script revokes it for all. This is a genuine widening of the trust
-  boundary, accepted deliberately for a v1 that runs from a source checkout.
-- **`brew upgrade bun` silently voids it.** An unbundled client is keyed by
-  its resolved executable path plus, absent a signing identity, its cdhash.
-  Bun is ad-hoc/linker-signed with no team identifier, so an upgrade changes
-  the Cellar path *and* the hash. The Privacy list still shows the entry
-  switched on while it no longer matches, and Fn stops working with no error.
-  `mockingbird status` names the binary the grants must be on so this is
-  diagnosable rather than mysterious.
+- **`bun` itself needs no permission.** Had the agent run as
+  `/opt/homebrew/bin/bun`, Accessibility and Input Monitoring on that binary
+  would extend to *every* bun script for which bun is the responsible process:
+  each one able to synthesize input into any app and observe every keystroke,
+  with no way to scope the grant to mockingbird or revoke it for one script
+  alone. A separately-named copy is a separate TCC client, so that does not
+  happen. Anyone upgrading from an earlier build should remove `bun` from both
+  Privacy lists.
+- **The grants survive upgrades and edits.** TCC keys an unbundled client by
+  resolved path plus, absent a signing identity, its cdhash. Our copy changes
+  on neither `brew upgrade bun` (it is ours, not Homebrew's) nor a `git pull`
+  (it is the runtime, not our TypeScript). `mockingbird start` re-copies only
+  when the installed bun has actually changed, and says so, because that is
+  the one moment the grants need redoing.
+- **The checkout becomes security-critical.** The binary executes
+  `apps/daemon/src/agent.ts` from wherever mockingbird was installed, and it
+  holds Accessibility. Anyone who can write to that directory, or to
+  `~/.mockingbird/bin/`, can type into any app as you and watch your
+  keystrokes. `bin/` is created `0700` and the plist `0600`, but the checkout
+  is on the user's own filesystem and this is worth stating plainly rather
+  than implying `0700` settles it.
 
-The replacement, when releases are signed: compile a single `mockingbird`
-binary (ARCHITECTURE §11) so the grant covers only our code. That was not done
-here because `bun build --compile` produces an ad-hoc signature too, so the
-grants would drop on **every rebuild** — worse for a tool installed from
-source. A stable self-signed identity produces a designated requirement keyed
-on the certificate rather than the hash, and grants then survive rebuilds;
-that is the prerequisite, and it is tracked in [§9](#9-hardening-roadmap).
+Compiling a genuine single binary (ARCHITECTURE §11) would be cleaner still,
+and was tried: `bun build --compile` embeds the `onnxruntime-node` addon but
+not the `libonnxruntime.1.dylib` it links against, so VAD fails to load at
+runtime. It also re-signs on every build, which would drop the grants each
+time. Both are tracked in [§9](#9-hardening-roadmap).
 
 ## 5. At-rest storage & retention
 
@@ -364,11 +371,15 @@ of them are mitigated by "no network calls":
 Rough priority order, highest-impact first — none of this is scheduled yet,
 this is a "if solving one of these, start here" list:
 
-1. **Sign the release binary with a stable identity**, so the Fn and typing
-   grants attach to mockingbird alone rather than to `/opt/homebrew/bin/bun`,
-   and survive upgrades and rebuilds. This is the prerequisite for closing the
-   trust-boundary widening described in [§4](#4-macos-permissions-tcc), and is
-   the highest-impact item on this list while the agent runs under launchd.
+1. **Ship a genuinely compiled, stably-signed binary.** Two blockers, both
+   measured: `bun build --compile` doesn't carry `libonnxruntime.1.dylib`
+   alongside the embedded addon, and an ad-hoc signature changes on every
+   build, dropping the TCC grants. A self-signed certificate held in the
+   keychain fixes the second (the designated requirement keys on the
+   certificate, not the cdhash); the first needs the dylib shipped beside the
+   binary or VAD moved off `onnxruntime-node`. Until then the re-signed copy
+   in [§4](#4-macos-permissions-tcc) carries the grants, and the checkout it
+   runs is part of the trusted computing base.
 2. **Encrypt `data.db` at rest**, or at minimum document and default to
    `0600`/`0700` permissions on `~/.mockingbird` and its contents at setup
    time, and evaluate SQLCipher or app-level column encryption for

@@ -5,13 +5,16 @@ import { checkTypingAccess } from "@mockingbird/inject";
 import {
   agentStatus,
   type Launchctl,
+  type LaunchctlResult,
   restartArgv,
   runAll,
   runLaunchctl,
+  settle,
   startArgv,
   stopArgv,
 } from "./agent/launchctl.ts";
 import { AGENT_LABEL, agentPaths, plistFor } from "./agent/plist.ts";
+import { ensureRunner, runnerPath } from "./agent/runner.ts";
 import { main as listenMain } from "./listen.ts";
 import { openPermissionPane } from "./permissions.ts";
 import { main as transcribeMain } from "./transcribe.ts";
@@ -54,8 +57,8 @@ export function bunPath(exec = process.execPath, which = (n: string) => Bun.whic
   }
 }
 
-function agentProgram(): string[] {
-  return [bunPath(), join(dirname(Bun.fileURLToPath(import.meta.url)), "agent.ts")];
+function agentProgram(runner: string): string[] {
+  return [runner, join(dirname(Bun.fileURLToPath(import.meta.url)), "agent.ts")];
 }
 
 async function lint(plistPath: string): Promise<void> {
@@ -73,10 +76,16 @@ async function start(run: Launchctl = runLaunchctl): Promise<number> {
   // log, so the directory has to exist first.
   mkdirSync(paths.logDir, { recursive: true, mode: 0o700 });
   mkdirSync(dirname(paths.plistPath), { recursive: true });
+
+  // Our own copy of bun, named mockingbird, so that's the name macOS shows.
+  const runner = ensureRunner();
+  if (runner.unsigned) {
+    log(`note: couldn't rename the agent for System Settings (${runner.unsigned}).`);
+  }
   writeFileSync(
     paths.plistPath,
     plistFor({
-      programArguments: agentProgram(),
+      programArguments: agentProgram(runner.path),
       logPath: paths.logPath,
       workingDirectory: paths.home,
       pathEntries: [dirname(bunPath())],
@@ -94,13 +103,21 @@ async function start(run: Launchctl = runLaunchctl): Promise<number> {
     .then((t) => t.length)
     .catch(() => 0);
   const uid = process.getuid?.() ?? 0;
-  await runAll(
-    startArgv(uid, paths.plistPath),
-    run,
-    (step, result) =>
-      // Already bootstrapped from a previous start; kickstart below restarts it.
-      step[0] === "bootstrap" && /already|service already loaded|5:/i.test(result.stderr),
-  );
+  const steps = startArgv(uid, paths.plistPath);
+  const tolerate = (step: string[], result: LaunchctlResult) =>
+    // Already bootstrapped from a previous start; kickstart below restarts it.
+    step[0] === "bootstrap" && /already|service already loaded|5:/i.test(result.stderr);
+  await runAll(steps, run, tolerate);
+  // A bootout still draining from an earlier `stop` can remove the job we just
+  // bootstrapped, so confirm it survived rather than trusting the exit codes.
+  if (!(await settle(uid, "loaded", run, 3_000))) {
+    await runAll(steps, run, tolerate);
+    if (!(await settle(uid, "loaded", run, 5_000))) {
+      throw new Error(
+        `launchd accepted the agent but it isn't loaded. See \`launchctl print gui/$UID/${AGENT_LABEL}\` and ${paths.logPath}.`,
+      );
+    }
+  }
   log("mockingbird is running, and will start again at every login.");
   log(`Logs: ${paths.logPath}`);
 
@@ -118,8 +135,8 @@ async function start(run: Launchctl = runLaunchctl): Promise<number> {
   }
   log(
     `\nThe agent can't use ${missing.join(" or ")} yet. macOS grants these to the\n` +
-      `program launchd runs, which is bun — not this terminal:\n\n` +
-      `  ${bunPath()}\n\n` +
+      `program launchd runs — listed as "mockingbird", at:\n\n` +
+      `  ${runner.path}\n\n` +
       `Switch it on under Privacy & Security → ${missing.join(" and ")} (click + and\n` +
       `add it if it isn't listed), then run \`mockingbird restart\`.`,
   );
@@ -166,6 +183,8 @@ async function stop(run: Launchctl = runLaunchctl): Promise<number> {
       // Nothing to boot out is the state we wanted anyway.
       step[0] === "bootout" && /Could not find|No such process/i.test(result.stderr),
   );
+  // bootout is asynchronous; returning early makes a following `start` race it.
+  await settle(uid, "gone", run);
   log("mockingbird is stopped, and won't come back at login until `mockingbird start`.");
   return 0;
 }
@@ -209,7 +228,7 @@ async function status(run: Launchctl = runLaunchctl): Promise<number> {
   if (state === "running") {
     console.log(
       "\nIf Fn does nothing, the agent is missing a permission even though this terminal has it:\n" +
-        `grant them to ${bunPath()} and run \`mockingbird restart\`.`,
+        `grant them to "mockingbird" (${runnerPath()}) and run \`mockingbird restart\`.`,
     );
   }
   return 0;

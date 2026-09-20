@@ -150,8 +150,9 @@ stops it again when you quit.
 macOS grants these to **whichever program asks**, and that differs between the
 two ways of running mockingbird — this catches everyone out once:
 
-- **`mockingbird start`** (the background agent): grant them to **bun**, at
-  `/opt/homebrew/bin/bun`. Then run `mockingbird restart`.
+- **`mockingbird start`** (the background agent): grant them to
+  **mockingbird**, at `~/.mockingbird/bin/mockingbird`. Then run
+  `mockingbird restart`.
 - **`mockingbird listen`** (a terminal): grant them to the terminal app itself
   (Terminal, Ghostty, iTerm, VS Code…), then **quit it with Cmd+Q and reopen
   it** — closing the window isn't enough. Each terminal app needs its own.
@@ -159,11 +160,12 @@ two ways of running mockingbird — this catches everyone out once:
 If the program isn't in the list, click **+** and add it. Without these, Enter
 still records in `listen`, and the text is printed instead of typed.
 
-> [!WARNING]
-> Granting Accessibility to `bun` grants it to *every* program you run with
-> bun, not just mockingbird — each one could then type into any app and watch
-> your keystrokes. That's the trade for a background agent that survives
-> reboots. See [SECURITY_PRIVACY.md](docs/SECURITY_PRIVACY.md).
+That `bin/mockingbird` is mockingbird's own copy of the Bun runtime, signed
+under its own name so macOS lists it as "mockingbird" and the permission
+belongs to it alone — your `bun` needs no permission at all. It also holds
+still: editing the code doesn't change it, and neither does `brew upgrade
+bun`, so the grants survive both. See
+[SECURITY_PRIVACY.md](docs/SECURITY_PRIVACY.md) for what it does mean.
 
 <details>
 <summary>Fn still not working?</summary>
@@ -172,12 +174,12 @@ still records in `listen`, and the text is printed instead of typed.
   Monitoring yet, or hasn't been fully quit and reopened since you allowed it.
   Each terminal app needs its own permission: allowing VS Code doesn't cover
   Ghostty.
-- **The background agent does nothing, but `listen` works.** They need separate
-  grants: `listen` uses your terminal's, the agent uses bun's. Add
-  `/opt/homebrew/bin/bun` to both lists, then `mockingbird restart`.
-- **Fn stopped working after `brew upgrade`.** Upgrading bun replaces the
-  binary macOS recorded the permission against. Remove the old `bun` entry from
-  both lists, add it again, then `mockingbird restart`.
+- **The background agent does nothing, but `listen` works.** They need
+  separate grants: `listen` uses your terminal's, the agent uses its own.
+  Add `~/.mockingbird/bin/mockingbird` to both lists, then
+  `mockingbird restart`.
+- **You granted the permission but nothing changed.** The agent reads them
+  once at startup. Run `mockingbird restart`.
 - **Holding Fn opens emoji or Apple's dictation.** In System Settings →
   Keyboard, set **Press 🌐 key to** to **Do Nothing**.
 - **Text is typed twice.** The background agent and `mockingbird listen` are

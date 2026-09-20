@@ -22,7 +22,7 @@ it is not a design doc that gets abandoned once code exists.
 | 2026-09-18 | Text injection: `packages/inject` types text into the focused app as Unicode key events (`CGEventKeyboardSetUnicodeString` + `CGEventPost` via `bun:ffi`), and `packages/context` reads the frontmost app with `lsappinfo`. Decided against the planned clipboard-paste/`osascript` route: typing Unicode directly needs no clipboard (nothing to clobber or restore) and no AppleScript. Text is sanitized first — newlines become spaces, so dictation can never submit a message or run a shell command (§3, §10). |
 | 2026-09-18 | Fn hotkey works, via a CoreGraphics event tap through `bun:ffi` in a worker thread (`packages/hotkey`) plus the §5 state machine (`apps/daemon/src/hotkey-fsm.ts`), wired into `bun run listen`. Measured: `uiohook-napi` panics Bun 1.4.2 (`unsupported uv function: uv_cond_init`), so it's out; macOS reports Fn as `flagsChanged` keycode 63 with flag `0x800000`. The tap is listen-only and discards every key except Fn and Esc (§3, §5, §10). |
 | 2026-09-18 | `startEngines` starts `ollama serve` itself when nothing answers at a local `MOCKINGBIRD_LLM_URL`, and stops it on close; an Ollama that was already running (desktop app, Homebrew service) is left alone. The model is loaded in the background while whisper-server starts. `scripts/install.sh` sets everything up in one command and only runs Ollama for the model pull. |
-| 2026-09-20 | `mockingbird` is now one command (`apps/daemon/src/cli.ts`) with `start`/`stop`/`restart`/`status` plus the existing `listen`/`transcribe`/`type`. `start` installs a launchd LaunchAgent (`com.mockingbird.agent`, `RunAtLoad`) that runs `apps/daemon/src/agent.ts` headless; `stop` disables it, which is what survives a reboot. The wiring both modes share moved to `apps/daemon/src/session.ts`, leaving `listen.ts` as the terminal UI. Transcribed text is now printed only when it couldn't be typed. The LLM is no longer loaded at startup — it's warmed on Fn-down instead, so an idle agent holds no model (§8, §10, §11, §16). |
+| 2026-09-20 | `mockingbird` is now one command (`apps/daemon/src/cli.ts`) with `start`/`stop`/`restart`/`status` plus the existing `listen`/`transcribe`/`type`. `start` installs a launchd LaunchAgent (`com.mockingbird.agent`, `RunAtLoad`) that runs `apps/daemon/src/agent.ts` headless; `stop` disables it, which is what survives a reboot. The wiring both modes share moved to `apps/daemon/src/session.ts`, leaving `listen.ts` as the terminal UI. Transcribed text is now printed only when it couldn't be typed. The LLM is no longer loaded at startup — it's warmed on Fn-down instead, so an idle agent holds no model. The agent runs as `~/.mockingbird/bin/mockingbird`, a copy of the bun binary re-signed under our own identifier, so macOS names the permission after mockingbird rather than bun. Measured: `bun build --compile` is not yet an option — it embeds the `onnxruntime-node` addon but not the `libonnxruntime.1.dylib` it links against, so VAD fails at runtime (§8, §10, §11, §16). |
 
 
 ---
@@ -679,10 +679,12 @@ actual decision before or during v1, not an assumption:
   `mockingbird stop` runs `launchctl disable`, whose state persists across
   reboots — so the plist stays on disk and the agent stays off until the next
   `start`. `KeepAlive` is `Crashed`-only, so a deliberate exit (no microphone,
-  a missing model) doesn't relaunch every 10s forever. Still open: macOS
-  attributes the Fn and typing permissions to the binary launchd runs, which
-  today is `bun` itself — see SECURITY_PRIVACY §4 for why that's a real cost
-  and what would replace it.
+  a missing model) doesn't relaunch every 10s forever. macOS attributes the Fn
+  and typing permissions to the binary launchd runs, which is
+  `~/.mockingbird/bin/mockingbird` — a copy of the bun binary re-signed under
+  our own identifier, so the Privacy lists name mockingbird and `bun` itself
+  stays unprivileged. What that copy costs is in SECURITY_PRIVACY §4; a truly
+  compiled binary is still blocked on `onnxruntime-node`.
 - **Auto-update.** Self-update command that checks GitHub Releases — must
   stay opt-in / explicit-confirm, never a silent background check, to hold
   the [§9](#9-everything-is-local) guarantee.

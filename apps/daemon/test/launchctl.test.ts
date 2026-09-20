@@ -7,6 +7,7 @@ import {
   parsePrint,
   restartArgv,
   runAll,
+  settle,
   startArgv,
   stopArgv,
 } from "../src/agent/launchctl.ts";
@@ -151,5 +152,40 @@ describe("runAll", () => {
       (step, result) => step[0] === "bootout" && result.stderr.includes("Could not find"),
     );
     expect(calls.map(([s]) => s)).toEqual(["bootout", "next"]);
+  });
+});
+
+describe("settle", () => {
+  /** Reports "not loaded" for the first `n` calls, then loaded. */
+  const appearsAfter = (n: number): Launchctl => {
+    let calls = 0;
+    return async () =>
+      calls++ < n
+        ? { code: 113, stdout: "", stderr: "Could not find service" }
+        : ok("\tstate = running\n\tpid = 1");
+  };
+
+  test("returns once the service is loaded", async () => {
+    expect(await settle(UID, "loaded", appearsAfter(2), 2000)).toBe(true);
+  });
+
+  test("returns once the service is gone", async () => {
+    // bootout is asynchronous, so a stop has to wait for this.
+    const run: Launchctl = async () => ({
+      code: 113,
+      stdout: "",
+      stderr: "Could not find service",
+    });
+    expect(await settle(UID, "gone", run, 2000)).toBe(true);
+  });
+
+  test("gives up rather than blocking forever", async () => {
+    const run: Launchctl = async () => ok("\tstate = running\n\tpid = 1");
+    expect(await settle(UID, "gone", run, 300)).toBe(false);
+  });
+
+  test("checks at least once even with no time left", async () => {
+    const run: Launchctl = async () => ok("\tstate = running\n\tpid = 1");
+    expect(await settle(UID, "loaded", run, 0)).toBe(true);
   });
 });

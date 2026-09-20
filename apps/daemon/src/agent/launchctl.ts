@@ -75,6 +75,28 @@ export type AgentStatus = {
   lastExitCode?: number;
 };
 
+/**
+ * Waits for the service to reach `loaded` or gone. `bootout` returns before
+ * launchd has finished unloading, so a `start` straight after a `stop` can be
+ * bootstrapped and then torn down again by the bootout still in flight.
+ */
+export async function settle(
+  uid: number,
+  want: "loaded" | "gone",
+  run: Launchctl = runLaunchctl,
+  timeoutMs = 5_000,
+  label = AGENT_LABEL,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const printed = await run(["print", target(uid, label)]);
+    const loaded = printed.code === 0;
+    if (loaded === (want === "loaded")) return true;
+    if (Date.now() >= deadline) return false;
+    await Bun.sleep(150);
+  }
+}
+
 export async function agentStatus(
   uid: number,
   run: Launchctl = runLaunchctl,

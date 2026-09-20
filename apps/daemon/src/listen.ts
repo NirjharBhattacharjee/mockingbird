@@ -30,6 +30,8 @@ Options:
                    (default: the input selected in System Settings → Sound)
   --list-devices   list microphones and exit
   --terminal       format for a terminal (no trailing period)
+  --cues           play a sound when recording starts and stops
+                   (on by default for the background agent, off here)
   --json           print each result as JSON
   -h, --help       show this help
 
@@ -77,6 +79,7 @@ function parse(argv: string[]) {
         "no-hotkey": { type: "boolean" },
         "no-type": { type: "boolean" },
         terminal: { type: "boolean" },
+        cues: { type: "boolean" },
         json: { type: "boolean" },
         help: { type: "boolean", short: "h" },
       },
@@ -136,6 +139,8 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
     terminalStyle: values.terminal,
     typingAllowed,
     hotkeyAllowed,
+    // Off by default here: the status line already shows what's happening.
+    cues: values.cues,
     log,
     beforeMessage: clearLine,
     onResult: (result, delivery) => {
