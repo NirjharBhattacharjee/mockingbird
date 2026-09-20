@@ -177,7 +177,8 @@ export async function agentVerdict(
   return undefined;
 }
 
-async function stop(run: Launchctl = runLaunchctl): Promise<number> {
+/** Exported for tests, which supply their own launchctl and a short settle. */
+export async function stop(run: Launchctl = runLaunchctl, settleMs?: number): Promise<number> {
   const uid = process.getuid?.() ?? 0;
   await runAll(
     stopArgv(uid),
@@ -187,7 +188,13 @@ async function stop(run: Launchctl = runLaunchctl): Promise<number> {
       step[0] === "bootout" && /Could not find|No such process/i.test(result.stderr),
   );
   // bootout is asynchronous; returning early makes a following `start` race it.
-  await settle(uid, "gone", run);
+  if (!(await settle(uid, "gone", run, settleMs))) {
+    log(
+      "launchd is still unloading the agent, so it may still be listening for Fn.\n" +
+        "It won't come back at login. Check `mockingbird status` before `mockingbird start`.",
+    );
+    return 1;
+  }
   log("mockingbird is stopped, and won't come back at login until `mockingbird start`.");
   return 0;
 }

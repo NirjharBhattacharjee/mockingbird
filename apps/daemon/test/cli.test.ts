@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, realpathSync } from "node:fs";
-import { agentVerdict, bunPath, main } from "../src/cli.ts";
+import type { Launchctl } from "../src/agent/launchctl.ts";
+import { agentVerdict, bunPath, main, stop } from "../src/cli.ts";
 
 /** Runs the router with stdout captured, so help text doesn't pollute the run. */
 async function run(argv: string[]): Promise<{ code: number; out: string }> {
@@ -47,6 +48,39 @@ describe("mockingbird", () => {
     const { code, out } = await run(["transcribe", "--help"]);
     expect(code).toBe(0);
     expect(out).toContain("Usage:");
+  });
+});
+
+describe("stop", () => {
+  /** A launchctl where every command succeeds and `print` answers as told. */
+  const launchctl =
+    (loaded: boolean): Launchctl =>
+    async (args) => {
+      if (args[0] !== "print") return { code: 0, stdout: "", stderr: "" };
+      return loaded
+        ? { code: 0, stdout: "state = running\n", stderr: "" }
+        : { code: 113, stdout: "", stderr: "Could not find service" };
+    };
+
+  /** `stop` reports through stderr, which the runner would otherwise print. */
+  const quiet = async <T>(body: () => Promise<T>): Promise<T> => {
+    const original = console.error;
+    console.error = () => {};
+    try {
+      return await body();
+    } finally {
+      console.error = original;
+    }
+  };
+
+  test("succeeds once launchd has let the service go", async () => {
+    expect(await quiet(() => stop(launchctl(false), 300))).toBe(0);
+  });
+
+  test("fails rather than claiming a stop launchd hasn't finished", async () => {
+    // Saying "stopped" here would leave the user thinking the microphone and
+    // the Fn tap are off while the agent is still running.
+    expect(await quiet(() => stop(launchctl(true), 300))).toBe(1);
   });
 });
 
