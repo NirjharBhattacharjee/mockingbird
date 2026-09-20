@@ -78,7 +78,20 @@ SUMS
 
 # Cleanup model (Ollama must be running for this: `ollama serve` in another window)
 ollama pull qwen3:4b-instruct-2507-q4_K_M
+
+# The `mockingbird` command — a shim, not a compiled binary, because macOS
+# records the Fn and typing permissions against the binary that asks for them,
+# and rebuilding a compiled one silently drops those grants.
+mkdir -p ~/.local/bin
+printf '#!/bin/sh\nexec "%s" "%s/apps/daemon/src/cli.ts" "$@"\n' \
+  "$(command -v bun)" "$PWD" > ~/.local/bin/mockingbird
+chmod +x ~/.local/bin/mockingbird
+
+# If ~/.local/bin isn't on your PATH yet, add it to your shell profile:
+export PATH="$HOME/.local/bin:$PATH"
 ```
+
+Re-run the shim step if you ever move the clone: it points at this directory.
 
 </details>
 
