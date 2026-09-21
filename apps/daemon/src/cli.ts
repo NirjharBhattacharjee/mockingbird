@@ -15,6 +15,7 @@ import {
 } from "./agent/launchctl.ts";
 import { AGENT_LABEL, agentPaths, plistFor } from "./agent/plist.ts";
 import { ensureRunner, runnerPath } from "./agent/runner.ts";
+import { fnConflict, readFnUsage } from "./fn-key.ts";
 import { main as listenMain } from "./listen.ts";
 import { openPermissionPane, paneFor } from "./permissions.ts";
 import { main as transcribeMain } from "./transcribe.ts";
@@ -131,6 +132,8 @@ async function start(run: Launchctl = runLaunchctl): Promise<number> {
   }
   if (missing.length === 0) {
     log("\nFn and typing are allowed. Hold Fn anywhere and speak.");
+    const conflict = fnConflict(await readFnUsage());
+    if (conflict) log(`\n${conflict}`);
     return 0;
   }
   log(
@@ -235,6 +238,9 @@ async function status(run: Launchctl = runLaunchctl): Promise<number> {
   console.log(
     `this terminal: ${missing.length === 0 ? "Fn and typing allowed" : `missing ${missing.join(", ")}`}`,
   );
+
+  const conflict = fnConflict(await readFnUsage());
+  if (conflict) console.log(`\n${conflict}`);
   if (state === "running") {
     console.log(
       "\nIf Fn does nothing, the agent is missing a permission even though this terminal has it:\n" +
