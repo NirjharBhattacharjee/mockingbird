@@ -1,6 +1,7 @@
 export {
   checkTypingAccess,
   chunkForTyping,
+  prepareForTyping,
   requestTypingAccess,
   sanitizeForTyping,
   type TypeResult,

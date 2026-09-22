@@ -98,6 +98,11 @@ export type TypeTextOptions = {
    * user into an app they didn't dictate into.
    */
   stillWanted?: () => boolean;
+  /**
+   * Typed before the text, after sanitizing (which trims, so a leading space
+   * in the text itself wouldn't survive). Nothing is typed for empty text.
+   */
+  prefix?: string;
 };
 
 /** How much of the sanitized text reached the app. */
@@ -129,12 +134,18 @@ export async function typeChunks(
   return { typed, total: text.length };
 }
 
+/** Sanitizes text for typing and puts `prefix` in front, unless nothing is left. */
+export function prepareForTyping(text: string, prefix = ""): string {
+  const clean = sanitizeForTyping(text);
+  return clean ? prefix + clean : "";
+}
+
 /**
  * Types text into whichever app has focus, as Unicode key events. The
  * clipboard is never touched.
  */
 export async function typeText(text: string, options: TypeTextOptions = {}): Promise<TypeResult> {
-  const clean = sanitizeForTyping(text);
+  const clean = prepareForTyping(text, options.prefix);
   if (!clean) return { typed: 0, total: 0 };
   if (!checkTypingAccess()) {
     throw new TypingError(

@@ -127,7 +127,7 @@ about what each one actually means:
 | Permission | Why it's needed | What it *also* grants |
 |---|---|---|
 | **Microphone** | Capture audio for dictation | Nothing beyond mic access — the narrowest of the three |
-| **Accessibility** | Type dictated text into the focused app (`CGEventPost`) | Broad UI automation: the ability to synthesize any input into any app |
+| **Accessibility** | Type dictated text into the focused app (`CGEventPost`), and read the one character before the cursor there, to decide on a space | Broad UI automation: the ability to synthesize any input into any app |
 | **Input Monitoring** | Global hotkey detection (CoreGraphics event tap via `bun:ffi`) | **System-wide keystroke observation** — the same class of access a keylogger needs |
 | macOS grants storage (which apps hold which TCC grants) | — | Lives in Apple's TCC database, **not** ours — see [state ownership map, ARCHITECTURE.md §8](./ARCHITECTURE.md#8-state-ownership-map) |
 
@@ -158,7 +158,14 @@ lives in `packages/inject/src/typing.ts`. As implemented today it:
 - strips other control codes, which could otherwise do stranger things to a
   terminal;
 - types only what the pipeline produced, into whichever app you had in front;
-  it never reads what's already in that app;
+- reads **one character** of what's already in that app: the one just before
+  the cursor (or before the selection), so a new sentence gets a space after
+  the last one. `packages/context/src/caret.ts` asks for exactly that range
+  through Accessibility (`AXStringForRange`, length 1), never the field's
+  whole value. The character decides one space and is dropped; it's never
+  logged, stored, or sent to the models, and `mockingbird type --check` reports
+  only whether it could be read. Terminals are skipped, and so is any field
+  that doesn't answer within 250ms;
 - **stops mid-text when focus leaves the app you dictated into**: typing asks a
   guard before every chunk, and `apps/daemon/src/session.ts` answers it by
   polling the frontmost app throughout. So a long dictation — hundreds of key

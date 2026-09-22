@@ -97,6 +97,10 @@ It stays off, including after a reboot, until the next `mockingbird start`.
 | `mockingbird fn` | Bind Fn to dictation only, so tapping it stops opening the emoji picker. Changes a system-wide setting, so it's never done for you |
 | `mockingbird fn --undo` | Put back the Fn setting `mockingbird fn` replaced |
 
+Dictating after text that's already there adds a space first, so "One." then
+"Two." comes out as "One. Two." It doesn't add one at the start of a line or
+after "(". Terminals are left as they are.
+
 Nothing is printed while it runs — the text goes into your app and nowhere
 else. If something goes wrong, it's in `~/.mockingbird/logs/agent.log`, which
 records what happened but never what you said.
@@ -252,6 +256,7 @@ Environment variables:
 | The level bars don't move | Wrong microphone. Use `--list-devices` and `--device`. |
 | `Fn key off` or `Fn` does nothing | Allow your terminal in **System Settings → Privacy & Security → Input Monitoring**, then quit it with Cmd+Q and reopen. |
 | Tapping `Fn` opens the emoji picker, and the text lands in its search box | macOS has its own action on that key. Set **System Settings → Keyboard → "Press 🌐 key to"** to **Do Nothing**. Holding `Fn` works either way; `mockingbird status` tells you when this is set. |
+| A new sentence runs into the last one, with no space | That app doesn't let mockingbird see the text before the cursor, which is common in web pages and Electron apps like Slack. Check with `mockingbird type --check --delay 3` and click into the app. Terminals never get the space. |
 | Text prints but isn't typed into the app | The agent needs **Accessibility** on `~/.mockingbird/bin/mockingbird`, then `mockingbird restart`. In `listen`, allow your terminal instead and reopen it. Check with `mockingbird type --check`. |
 | `Ollama isn't running` | `listen` starts Ollama by itself, so this means it's missing or failed to start: run the install command again. You still get text, just not cleaned up. |
 | `… isn't downloaded` | Run `ollama pull qwen3:4b-instruct-2507-q4_K_M` (or the install command again). |
@@ -289,6 +294,8 @@ that it's quick.
   orange dot stays in your menu bar from login until `mockingbird stop`. That's
   what makes the first word of a sentence come out intact. Nothing is recorded
   until you hold Fn.
+- To put a space between sentences, mockingbird reads the one character
+  before your cursor, and nothing else in the app. It isn't logged or kept.
 - Typing uses key events, not the clipboard, so yours is never touched. Line
   breaks are removed first, so dictation can't send a message or run a command
   by itself.

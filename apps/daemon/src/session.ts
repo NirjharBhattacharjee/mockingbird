@@ -1,5 +1,11 @@
 import { type CaptureProcess, micInputArgs, peak, startCapture } from "@mockingbird/audio";
-import { type FrontmostApp, frontmostApp, isTerminal } from "@mockingbird/context";
+import {
+  charBeforeCaret,
+  type FrontmostApp,
+  frontmostApp,
+  isTerminal,
+  needsLeadingSpace,
+} from "@mockingbird/context";
 import { type Cue, cues } from "@mockingbird/cue";
 import { type HotkeyListener, startHotkeyListener } from "@mockingbird/hotkey";
 import { type TypeResult, typeText } from "@mockingbird/inject";
@@ -133,10 +139,14 @@ export async function startSession(options: SessionOptions): Promise<Session> {
             ` (${target?.name ?? "unknown"} → ${now?.name ?? "unknown"})`,
         };
       }
+      // A second sentence shouldn't run into the first. Read now rather than
+      // when recording started, so anything typed meanwhile counts. Terminals
+      // are left alone: their text is the scrollback, not an input field.
+      const prefix = !isTerminal(now) && needsLeadingSpace(charBeforeCaret()) ? " " : "";
       const watch = watchFocus(now);
       let result: TypeResult;
       try {
-        result = await typeText(text, { stillWanted: watch.stillThere });
+        result = await typeText(text, { prefix, stillWanted: watch.stillThere });
       } finally {
         watch.stop();
       }
