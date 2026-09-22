@@ -89,7 +89,7 @@ describe("runPipeline", () => {
         llm: fakeLlm(new Error("connection refused")),
       }),
     );
-    expect(result.finalText).toBe("this should still come through fine");
+    expect(result.finalText).toBe("This should still come through fine.");
     expect(result.llmOutcome).toBe("failed");
     expect(result.llmError).toContain("connection refused");
   });
@@ -102,7 +102,7 @@ describe("runPipeline", () => {
         llm: fakeLlm("Paris."),
       }),
     );
-    expect(result.finalText).toBe("what is the capital of france");
+    expect(result.finalText).toBe("What is the capital of france?");
     expect(result.llmOutcome).toBe("rejected");
   });
 

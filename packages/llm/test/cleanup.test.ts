@@ -51,9 +51,34 @@ describe("buildCleanupPrompt", () => {
 
 describe("formatText", () => {
   test("normalizes whitespace", () => {
-    expect(formatText("  hello   world. ")).toBe("hello world.");
+    expect(formatText("  Hello   world. ")).toBe("Hello world.");
   });
   test("terminal style drops a trailing period", () => {
     expect(formatText("git status.", "terminal")).toBe("git status");
+  });
+  test("ends an unfinished sentence with a period", () => {
+    expect(formatText("Okay, thanks. Good night")).toBe("Okay, thanks. Good night.");
+  });
+  test("ends a question with a question mark", () => {
+    expect(formatText("how are you doing")).toBe("How are you doing?");
+    expect(formatText("Hi how are you doing")).toBe("Hi how are you doing?");
+    expect(formatText("so what do you think")).toBe("So what do you think?");
+  });
+  test("doesn't mistake a statement for a question", () => {
+    expect(formatText("I know how it works")).toBe("I know how it works.");
+    expect(formatText("Hi there")).toBe("Hi there.");
+  });
+  test("capitalizes the first letter", () => {
+    expect(formatText("and try again.")).toBe("And try again.");
+  });
+  test("leaves finished sentences alone", () => {
+    expect(formatText("Really?")).toBe("Really?");
+    expect(formatText('He said "yes."')).toBe('He said "yes."');
+    expect(formatText('he said "yes"')).toBe('He said "yes".');
+    expect(formatText("see the docs (page 3)")).toBe("See the docs (page 3).");
+    expect(formatText("Great!")).toBe("Great!");
+  });
+  test("terminal style isn't capitalized or punctuated", () => {
+    expect(formatText("ls -la", "terminal")).toBe("ls -la");
   });
 });
