@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { type FnUsage, fnConflict, parseFnUsage, readFnUsage } from "../src/fn-key.ts";
+import {
+  claimFnKey,
+  claimMessage,
+  type FnUsage,
+  fnConflict,
+  fnWriteArgv,
+  parseFnUsage,
+  readFnUsage,
+} from "../src/fn-key.ts";
 
 describe("parseFnUsage", () => {
   test("0 means the key is ours", () => {
@@ -63,5 +71,68 @@ describe("readFnUsage", () => {
       throw new Error("ENOENT");
     });
     expect(usage).toEqual({ kind: "unset" });
+  });
+});
+
+describe("fnWriteArgv", () => {
+  test("binds the Fn key to nothing in the right domain", () => {
+    expect(fnWriteArgv()).toEqual([
+      "defaults",
+      "write",
+      "com.apple.HIToolbox",
+      "AppleFnUsageType",
+      "-int",
+      "0",
+    ]);
+  });
+});
+
+describe("claimFnKey", () => {
+  /** A spawn that answers reads from a queue and records every command. */
+  const fake = (reads: string[]) => {
+    const commands: string[][] = [];
+    const spawn = (cmd: string[]) => {
+      commands.push(cmd);
+      if (cmd[1] === "write") return { stdout: null, exited: Promise.resolve(0) } as never;
+      const next = reads.shift() ?? "";
+      return {
+        stdout: new Response(next).body,
+        exited: Promise.resolve(next === "" ? 1 : 0),
+      } as never;
+    };
+    return { spawn, commands };
+  };
+
+  test("does nothing when Fn is already ours", async () => {
+    const { spawn, commands } = fake(["0"]);
+    expect(await claimFnKey(spawn)).toEqual({ kind: "already" });
+    // No write at all: claiming what we already hold would be a pointless change.
+    expect(commands.some((c) => c[1] === "write")).toBe(false);
+  });
+
+  test("takes the key and names what it took it from", async () => {
+    const { spawn } = fake(["2", "0"]);
+    expect(await claimFnKey(spawn)).toEqual({ kind: "claimed", from: "Show Emoji & Symbols" });
+  });
+
+  test("a write that doesn't stick is a failure, not a success", async () => {
+    // Reads 2 before and 2 after: defaults exited 0 but the value never changed.
+    const { spawn } = fake(["2", "2"]);
+    expect(await claimFnKey(spawn)).toEqual({
+      kind: "failed",
+      reason: "the setting didn't stick",
+    });
+  });
+});
+
+describe("claimMessage", () => {
+  test("says a logout is needed, because macOS only reads it at login", () => {
+    const message = claimMessage({ kind: "claimed", from: "Show Emoji & Symbols" });
+    expect(message).toContain("log out");
+    expect(message).toContain("Show Emoji & Symbols");
+  });
+
+  test("points at System Settings when it couldn't be written", () => {
+    expect(claimMessage({ kind: "failed", reason: "nope" })).toContain("System Settings");
   });
 });

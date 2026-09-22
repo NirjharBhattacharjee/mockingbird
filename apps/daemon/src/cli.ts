@@ -15,7 +15,7 @@ import {
 } from "./agent/launchctl.ts";
 import { AGENT_LABEL, agentPaths, plistFor } from "./agent/plist.ts";
 import { ensureRunner, runnerPath } from "./agent/runner.ts";
-import { fnConflict, readFnUsage } from "./fn-key.ts";
+import { claimFnKey, claimMessage, fnConflict, readFnUsage } from "./fn-key.ts";
 import { main as listenMain } from "./listen.ts";
 import { openPermissionPane, paneFor } from "./permissions.ts";
 import { main as transcribeMain } from "./transcribe.ts";
@@ -31,6 +31,7 @@ Commands:
   stop         stop, and stay stopped across reboots
   restart      restart the background agent (after granting a permission)
   status       whether it's running, and what it can see
+  fn           bind Fn to dictation only, so macOS stops opening the picker
   listen       run in this terminal instead, with a live status line
   transcribe   turn a recording into text
   type         check typing permission, or type some text
@@ -132,8 +133,10 @@ async function start(run: Launchctl = runLaunchctl): Promise<number> {
   }
   if (missing.length === 0) {
     log("\nFn and typing are allowed. Hold Fn anywhere and speak.");
-    const conflict = fnConflict(await readFnUsage());
-    if (conflict) log(`\n${conflict}`);
+    // Fn belongs to dictation while mockingbird is installed: macOS's own action
+    // on that key steals the keyboard mid-dictation, and there is no way to
+    // suppress it at runtime (see fn-key.ts).
+    log(`\n${claimMessage(await claimFnKey())}`);
     return 0;
   }
   log(
@@ -267,6 +270,9 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
       return restart();
     case "status":
       return status();
+    case "fn":
+      log(claimMessage(await claimFnKey()));
+      return 0;
     case "listen":
       return listenMain(rest);
     case "transcribe":
