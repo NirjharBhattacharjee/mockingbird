@@ -5,3 +5,6 @@ dist/
 .claude/skills/
 *.log
 .DS_Store
+
+# Screen recordings attached to bug reports: large, and not worth versioning.
+issues/*.mov
