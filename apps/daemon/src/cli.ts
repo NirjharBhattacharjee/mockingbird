@@ -15,7 +15,16 @@ import {
 } from "./agent/launchctl.ts";
 import { AGENT_LABEL, agentPaths, plistFor } from "./agent/plist.ts";
 import { ensureRunner, runnerPath } from "./agent/runner.ts";
-import { claimFnKey, claimMessage, fnConflict, readFnUsage } from "./fn-key.ts";
+import {
+  claimFnKey,
+  claimMessage,
+  fnAdvice,
+  fnConflict,
+  readFnBackup,
+  readFnUsage,
+  restoreFnKey,
+  restoreMessage,
+} from "./fn-key.ts";
 import { main as listenMain } from "./listen.ts";
 import { openPermissionPane, paneFor } from "./permissions.ts";
 import { main as transcribeMain } from "./transcribe.ts";
@@ -32,6 +41,7 @@ Commands:
   restart      restart the background agent (after granting a permission)
   status       whether it's running, and what it can see
   fn           bind Fn to dictation only, so macOS stops opening the picker
+               (\`mockingbird fn --undo\` puts back the previous setting)
   listen       run in this terminal instead, with a live status line
   transcribe   turn a recording into text
   type         check typing permission, or type some text
@@ -42,6 +52,32 @@ Run a command with --help for its own options, e.g. \`mockingbird listen --help\
 class UsageError extends Error {}
 
 const log = (message: string) => console.error(message);
+
+/** Where `mockingbird fn` keeps the Fn setting it replaced, for `--undo`. */
+function fnBackupPath(): string {
+  return join(dirname(agentPaths().logDir), "fn-key.json");
+}
+
+/** The Fn hint for `start` and `restart`, if any. Reads the setting, never writes it. */
+async function logFnAdvice(): Promise<void> {
+  const advice = fnAdvice(await readFnUsage());
+  if (advice) log(`\n${advice}`);
+}
+
+async function fn(args: string[]): Promise<number> {
+  const [flag, ...extra] = args;
+  if (extra.length > 0 || (flag !== undefined && flag !== "--undo")) {
+    throw new UsageError(`\`mockingbird fn\` takes only --undo, not "${args.join(" ")}"`);
+  }
+  if (flag === "--undo") {
+    const result = await restoreFnKey(fnBackupPath());
+    log(restoreMessage(result));
+    return result.kind === "failed" ? 1 : 0;
+  }
+  const claim = await claimFnKey(fnBackupPath());
+  log(claimMessage(claim));
+  return claim.kind === "failed" ? 1 : 0;
+}
 
 /**
  * The path to name for bun. `process.execPath` is the versioned Cellar binary,
@@ -133,10 +169,9 @@ async function start(run: Launchctl = runLaunchctl): Promise<number> {
   }
   if (missing.length === 0) {
     log("\nFn and typing are allowed. Hold Fn anywhere and speak.");
-    // Fn belongs to dictation while mockingbird is installed: macOS's own action
-    // on that key steals the keyboard mid-dictation, and there is no way to
-    // suppress it at runtime (see fn-key.ts).
-    log(`\n${claimMessage(await claimFnKey())}`);
+    // macOS's own Fn action steals the keyboard on a tap (see fn-key.ts), but
+    // it's a system-wide setting, so only point at `mockingbird fn`.
+    await logFnAdvice();
     return 0;
   }
   log(
@@ -147,6 +182,7 @@ async function start(run: Launchctl = runLaunchctl): Promise<number> {
       `add it if it isn't listed), then run \`mockingbird restart\`.`,
   );
   openPermissionPane(paneFor(missing[0] ?? "Accessibility"));
+  await logFnAdvice();
   return 0;
 }
 
@@ -202,6 +238,9 @@ export async function stop(run: Launchctl = runLaunchctl, settleMs?: number): Pr
     return 1;
   }
   log("mockingbird is stopped, and won't come back at login until `mockingbird start`.");
+  if (readFnBackup(fnBackupPath())) {
+    log("Fn is still bound to nothing. Run `mockingbird fn --undo` to give it back to macOS.");
+  }
   return 0;
 }
 
@@ -209,6 +248,7 @@ async function restart(run: Launchctl = runLaunchctl): Promise<number> {
   const uid = process.getuid?.() ?? 0;
   await runAll(restartArgv(uid), run);
   log("mockingbird restarted.");
+  await logFnAdvice();
   return 0;
 }
 
@@ -271,8 +311,7 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
     case "status":
       return status();
     case "fn":
-      log(claimMessage(await claimFnKey()));
-      return 0;
+      return fn(rest);
     case "listen":
       return listenMain(rest);
     case "transcribe":

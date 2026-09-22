@@ -94,6 +94,8 @@ It stays off, including after a reboot, until the next `mockingbird start`.
 | `mockingbird stop` | Stop, and stay stopped across reboots |
 | `mockingbird restart` | Restart it (do this after granting a permission) |
 | `mockingbird status` | Whether it's running, and what it can see |
+| `mockingbird fn` | Bind Fn to dictation only, so tapping it stops opening the emoji picker. Changes a system-wide setting, so it's never done for you |
+| `mockingbird fn --undo` | Put back the Fn setting `mockingbird fn` replaced |
 
 Nothing is printed while it runs — the text goes into your app and nowhere
 else. If something goes wrong, it's in `~/.mockingbird/logs/agent.log`, which
@@ -179,8 +181,10 @@ bun`, so the grants survive both. See
   `mockingbird restart`.
 - **You granted the permission but nothing changed.** The agent reads them
   once at startup. Run `mockingbird restart`.
-- **Holding Fn opens emoji or Apple's dictation.** In System Settings →
-  Keyboard, set **Press 🌐 key to** to **Do Nothing**.
+- **Holding Fn opens emoji or Apple's dictation.** Run `mockingbird fn`, or
+  in System Settings → Keyboard set **Press 🌐 key to** to **Do Nothing**.
+  mockingbird never changes this on its own; `mockingbird fn --undo` puts back
+  whatever `mockingbird fn` replaced.
 - **Text is typed twice.** The background agent and `mockingbird listen` are
   both running, or `listen` is open in two windows. Run `mockingbird stop`, or
   quit the extra window with `q`.
