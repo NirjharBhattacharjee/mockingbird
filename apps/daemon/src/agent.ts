@@ -60,7 +60,7 @@ export async function main(): Promise<number> {
       // The text itself is never logged: it goes to the app and nowhere else.
       // MOCKINGBIRD_LOG_TEXT=1 is the opt-in debug escape hatch.
       const chars = result.finalText.length;
-      if (delivery.typed) log(`typed ${chars} characters`);
+      if (delivery.typed) log(`typed ${chars} characters, ${delivery.spacing}`);
       else if (!result.finalText) log("no speech detected");
       else log(`not typed (${chars} characters): ${delivery.reason}`);
       if (process.env.MOCKINGBIRD_LOG_TEXT === "1" && result.finalText) {

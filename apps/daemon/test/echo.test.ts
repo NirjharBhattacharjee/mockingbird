@@ -15,7 +15,7 @@ const result = (finalText: string): PipelineResult => ({
   llmModel: "qwen3",
 });
 
-const typed: Delivery = { typed: true };
+const typed: Delivery = { typed: true, spacing: "no space (terminal)" };
 const notTyped = (reason: string): Delivery => ({ typed: false, reason });
 
 describe("echoFor", () => {

@@ -16,11 +16,17 @@ import { ListenController } from "./listen-controller.ts";
 import { describeTimings, type PipelineResult, runPipeline } from "./pipeline.ts";
 import { Recorder, type Recording } from "./recorder.ts";
 import { startEngines } from "./runtime.ts";
-import { charBefore, type LastTyped } from "./spacing.ts";
+import { charBefore, describeSpacing, type LastTyped } from "./spacing.ts";
 import { Supervisor } from "./supervisor.ts";
 
 /** Whether the text reached the app, and why not when it didn't. */
-export type Delivery = { typed: true } | { typed: false; reason: string };
+export type Delivery =
+  | {
+      typed: true;
+      /** Whether a space went in first, and why; never mentions the text. */
+      spacing: string;
+    }
+  | { typed: false; reason: string };
 
 /** How often focus is re-checked while the text is being typed. */
 const FOCUS_POLL_MS = 50;
@@ -147,16 +153,19 @@ export async function startSession(options: SessionOptions): Promise<Session> {
       // A second sentence shouldn't run into the first. Checked now rather
       // than when recording started, so anything typed meanwhile counts.
       // Terminals are left alone: their text is the scrollback, not a field.
-      const before = isTerminal(now)
+      const terminal = isTerminal(now);
+      const read = terminal ? undefined : charBeforeCaret();
+      const before = terminal
         ? undefined
         : charBefore({
-            read: charBeforeCaret(),
+            read,
             last: lastTyped,
             bundleId: now.bundleId,
             now: Date.now(),
             idleSeconds: secondsSinceInput(),
           });
       const prefix = needsLeadingSpace(before) ? " " : "";
+      const spacing = terminal ? "no space (terminal)" : describeSpacing(read, before);
       lastTyped = undefined;
       const watch = watchFocus(now);
       let result: TypeResult;
@@ -168,7 +177,7 @@ export async function startSession(options: SessionOptions): Promise<Session> {
       if (result.typed >= result.total) {
         const lastChar = prepareForTyping(text).slice(-1);
         if (lastChar) lastTyped = { bundleId: now.bundleId, at: Date.now(), lastChar };
-        return { typed: true };
+        return { typed: true, spacing };
       }
       return {
         typed: false,
