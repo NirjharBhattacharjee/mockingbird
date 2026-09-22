@@ -74,6 +74,8 @@ describe("formatText", () => {
   test("leaves finished sentences alone", () => {
     expect(formatText("Really?")).toBe("Really?");
     expect(formatText('He said "yes."')).toBe('He said "yes."');
+    expect(formatText('he said "yes"')).toBe('He said "yes".');
+    expect(formatText("see the docs (page 3)")).toBe("See the docs (page 3).");
     expect(formatText("Great!")).toBe("Great!");
   });
   test("terminal style isn't capitalized or punctuated", () => {

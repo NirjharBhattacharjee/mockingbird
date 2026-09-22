@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { charBefore, describeSpacing, type LastTyped } from "../src/spacing.ts";
 
-const last: LastTyped = { bundleId: "com.google.Chrome", at: 10_000, lastChar: "." };
+const last: LastTyped = { bundleId: "com.google.Chrome", inputAt: 10_000, lastChar: "." };
 const base = { last, bundleId: "com.google.Chrome", now: 15_000 };
 
 describe("charBefore", () => {
@@ -10,7 +10,7 @@ describe("charBefore", () => {
   });
 
   test("an empty field right after our own dictation is a hidden input box", () => {
-    expect(charBefore({ ...base, read: "", idleSeconds: 60 })).toBe(".");
+    expect(charBefore({ ...base, read: "", idleSeconds: 5 })).toBe(".");
   });
 
   test("an empty field is believed once a key was pressed or clicked since", () => {
@@ -18,11 +18,16 @@ describe("charBefore", () => {
   });
 
   test("falls back to the last dictation when nothing was typed or clicked since", () => {
-    expect(charBefore({ ...base, read: undefined, idleSeconds: 5.1 })).toBe(".");
+    expect(charBefore({ ...base, read: undefined, idleSeconds: 5 })).toBe(".");
   });
 
-  test("allows for our own key events landing just before the end", () => {
-    expect(charBefore({ ...base, read: undefined, idleSeconds: 4.9 })).toBe(".");
+  test("allows for the two clocks disagreeing by a few milliseconds", () => {
+    expect(charBefore({ ...base, read: undefined, idleSeconds: 4.97 })).toBe(".");
+  });
+
+  test("unknown after a click just after the dictation finished", () => {
+    expect(charBefore({ ...base, read: undefined, idleSeconds: 4.9 })).toBeUndefined();
+    expect(charBefore({ ...base, read: "", idleSeconds: 4.9 })).toBe("");
   });
 
   test("unknown once a key was pressed or the mouse clicked since", () => {

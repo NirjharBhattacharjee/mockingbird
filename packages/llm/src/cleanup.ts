@@ -64,6 +64,8 @@ const QUESTION_WORD =
 const INTERJECTION = /^(hi|hey|hello|okay|ok|so|and|but|well|oh|yeah|right)\b,? */i;
 /** Already ends a sentence, possibly followed by a closing quote or bracket. */
 const ENDED = /[.!?…:;]["'”’)\]]*$/;
+/** Ends on a word, possibly followed by a closing quote or bracket. */
+const ENDS_ON_WORD = /[\p{L}\p{N}]["'”’)\]]*$/u;
 
 /**
  * Makes text read as a finished sentence: a capital first letter, and a
@@ -74,7 +76,7 @@ const ENDED = /[.!?…:;]["'”’)\]]*$/;
 function finishSentence(text: string): string {
   if (!text) return text;
   const capitalized = text.charAt(0).toUpperCase() + text.slice(1);
-  if (ENDED.test(capitalized) || !/[\p{L}\p{N}]$/u.test(capitalized)) return capitalized;
+  if (ENDED.test(capitalized) || !ENDS_ON_WORD.test(capitalized)) return capitalized;
   const question = QUESTION_WORD.test(capitalized.replace(INTERJECTION, ""));
   return capitalized + (question ? "?" : ".");
 }

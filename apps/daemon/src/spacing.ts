@@ -3,17 +3,26 @@ import { needsLeadingSpace } from "@mockingbird/context";
 /** The end of the last dictation that was typed in full. */
 export type LastTyped = {
   bundleId: string;
-  /** `Date.now()` when its last key event was posted. */
-  at: number;
+  /**
+   * When the last key press or click on the system happened, read right after
+   * typing finished: our own final key event. Any later input moves it.
+   */
+  inputAt: number;
   /** Its final character. */
   lastChar: string;
 };
 
 /**
- * Slack for our own key events: they count as key presses too, landing just
- * before `at`.
+ * Slack for comparing input times: the idle clock and `Date.now()` are read
+ * separately, so the same event can come out a few milliseconds apart. Far
+ * shorter than anyone can click or press a key after typing finishes.
  */
-const OWN_TYPING_SLACK_S = 0.25;
+const SAME_INPUT_SLACK_MS = 50;
+
+/** When the last key press or click happened, from seconds since then. */
+export function lastInputAt(now: number, idleSeconds: number): number {
+  return now - idleSeconds * 1000;
+}
 
 /**
  * The character before the cursor, for deciding on a leading space. A
@@ -38,8 +47,8 @@ export function charBefore({
 }): string | undefined {
   if (read) return read;
   if (!last || last.bundleId !== bundleId || idleSeconds === undefined) return read;
-  const sinceTyped = (now - last.at) / 1000;
-  return idleSeconds >= sinceTyped - OWN_TYPING_SLACK_S ? last.lastChar : read;
+  const sameInput = lastInputAt(now, idleSeconds) - last.inputAt <= SAME_INPUT_SLACK_MS;
+  return sameInput ? last.lastChar : read;
 }
 
 /**

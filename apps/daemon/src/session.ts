@@ -16,7 +16,7 @@ import { ListenController } from "./listen-controller.ts";
 import { describeTimings, type PipelineResult, runPipeline } from "./pipeline.ts";
 import { Recorder, type Recording } from "./recorder.ts";
 import { startEngines } from "./runtime.ts";
-import { charBefore, describeSpacing, type LastTyped } from "./spacing.ts";
+import { charBefore, describeSpacing, type LastTyped, lastInputAt } from "./spacing.ts";
 import { Supervisor } from "./supervisor.ts";
 
 /** Whether the text reached the app, and why not when it didn't. */
@@ -176,7 +176,10 @@ export async function startSession(options: SessionOptions): Promise<Session> {
       }
       if (result.typed >= result.total) {
         const lastChar = prepareForTyping(text).slice(-1);
-        if (lastChar) lastTyped = { bundleId: now.bundleId, at: Date.now(), lastChar };
+        const idle = secondsSinceInput();
+        if (lastChar && idle !== undefined) {
+          lastTyped = { bundleId: now.bundleId, inputAt: lastInputAt(Date.now(), idle), lastChar };
+        }
         return { typed: true, spacing };
       }
       return {
