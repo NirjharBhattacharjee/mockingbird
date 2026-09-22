@@ -141,10 +141,16 @@ security-sensitive file in the repo. As implemented today, that file:
 
 - creates the tap with `kCGEventTapOptionListenOnly`, so events are observed
   and never modified or swallowed;
-- **discards every keystroke except Fn and Esc inside the tap callback**, so
-  no other keycode is ever passed on, stored, or logged — the filter is three
-  lines in one function, and deliberately easy to verify;
-- never records typed characters, only key identity and timing.
+- **drops the keycode of every key except Fn and Esc inside the tap
+  callback**, so no other key's identity is ever passed on, stored, or
+  logged: the filter is one function (`TapDecoder.decode`), deliberately easy
+  to verify;
+- reduces every other key press and every mouse click to a bare "input
+  happened" with a timestamp, and no key, character, or position. The only
+  use is deciding whether the text cursor may have moved since the last
+  dictation (see below). Fn, the 🌐 key, and the key events mockingbird types
+  itself (marked with `TYPED_EVENT_MARK`) don't count;
+- never records typed characters, only Fn/Esc identity and timing.
 
 Typing into other apps (Accessibility) is the mirror image of that risk, and
 lives in `packages/inject/src/typing.ts`. As implemented today it:
@@ -169,9 +175,11 @@ lives in `packages/inject/src/typing.ts`. As implemented today it:
 - where that character can't be read (Chrome pages, Google Docs, Electron
   apps), falls back to the last character of **its own** previous dictation
   into the same app, held in memory only, and only if no key was pressed and
-  no mouse button clicked since. It learns that from
-  `CGEventSourceSecondsSinceLastEventType`: a count of seconds, with no key,
-  position, or app attached, which needs no permission;
+  no mouse button clicked since. It learns that from its own Fn-key tap,
+  which passes on only that some input happened, and when (above). macOS's
+  own idle clock (`CGEventSourceSecondsSinceLastEventType`) was tried first
+  and dropped: with it, double-tap dictations never got their space, which
+  points to it counting a quick Fn tap as a key press;
 - **stops mid-text when focus leaves the app you dictated into**: typing asks a
   guard before every chunk, and `apps/daemon/src/session.ts` answers it by
   polling the frontmost app throughout. So a long dictation — hundreds of key

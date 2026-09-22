@@ -1,50 +1,41 @@
 import { describe, expect, test } from "bun:test";
 import { charBefore, describeSpacing, type LastTyped } from "../src/spacing.ts";
 
-const last: LastTyped = { bundleId: "com.google.Chrome", inputAt: 10_000, lastChar: "." };
-const base = { last, bundleId: "com.google.Chrome", now: 15_000 };
+const last: LastTyped = { bundleId: "com.google.Chrome", at: 10_000, lastChar: "." };
+const base = { last, bundleId: "com.google.Chrome" };
+/** The user's last key press or click came before the dictation was typed. */
+const before = 9_000;
+const after = 10_001;
 
 describe("charBefore", () => {
   test("a character the app reports wins", () => {
-    expect(charBefore({ ...base, read: "\n", idleSeconds: 60 })).toBe("\n");
-  });
-
-  test("an empty field right after our own dictation is a hidden input box", () => {
-    expect(charBefore({ ...base, read: "", idleSeconds: 5 })).toBe(".");
-  });
-
-  test("an empty field is believed once a key was pressed or clicked since", () => {
-    expect(charBefore({ ...base, read: "", idleSeconds: 2 })).toBe("");
+    expect(charBefore({ ...base, read: "\n", lastInputAt: before })).toBe("\n");
   });
 
   test("falls back to the last dictation when nothing was typed or clicked since", () => {
-    expect(charBefore({ ...base, read: undefined, idleSeconds: 5 })).toBe(".");
+    expect(charBefore({ ...base, read: undefined, lastInputAt: before })).toBe(".");
   });
 
-  test("allows for the two clocks disagreeing by a few milliseconds", () => {
-    expect(charBefore({ ...base, read: undefined, idleSeconds: 4.97 })).toBe(".");
-  });
-
-  test("unknown after a click just after the dictation finished", () => {
-    expect(charBefore({ ...base, read: undefined, idleSeconds: 4.9 })).toBeUndefined();
-    expect(charBefore({ ...base, read: "", idleSeconds: 4.9 })).toBe("");
+  test("an empty field right after our own dictation is a hidden input box", () => {
+    expect(charBefore({ ...base, read: "", lastInputAt: before })).toBe(".");
   });
 
   test("unknown once a key was pressed or the mouse clicked since", () => {
-    expect(charBefore({ ...base, read: undefined, idleSeconds: 2 })).toBeUndefined();
+    expect(charBefore({ ...base, read: undefined, lastInputAt: after })).toBeUndefined();
+    expect(charBefore({ ...base, read: "", lastInputAt: after })).toBe("");
   });
 
   test("unknown in a different app", () => {
     expect(
-      charBefore({ ...base, bundleId: "com.apple.Notes", read: undefined, idleSeconds: 60 }),
+      charBefore({ ...base, bundleId: "com.apple.Notes", read: undefined, lastInputAt: before }),
     ).toBeUndefined();
   });
 
-  test("unknown without a previous dictation, or without idle time", () => {
+  test("unknown without a previous dictation, or without the keyboard watcher", () => {
     expect(
-      charBefore({ ...base, last: undefined, read: undefined, idleSeconds: 60 }),
+      charBefore({ ...base, last: undefined, read: undefined, lastInputAt: before }),
     ).toBeUndefined();
-    expect(charBefore({ ...base, read: undefined, idleSeconds: undefined })).toBeUndefined();
+    expect(charBefore({ ...base, read: undefined, lastInputAt: undefined })).toBeUndefined();
   });
 });
 

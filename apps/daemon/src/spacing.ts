@@ -3,26 +3,11 @@ import { needsLeadingSpace } from "@mockingbird/context";
 /** The end of the last dictation that was typed in full. */
 export type LastTyped = {
   bundleId: string;
-  /**
-   * When the last key press or click on the system happened, read right after
-   * typing finished: our own final key event. Any later input moves it.
-   */
-  inputAt: number;
+  /** `Date.now()` once its last key event was posted. */
+  at: number;
   /** Its final character. */
   lastChar: string;
 };
-
-/**
- * Slack for comparing input times: the idle clock and `Date.now()` are read
- * separately, so the same event can come out a few milliseconds apart. Far
- * shorter than anyone can click or press a key after typing finishes.
- */
-const SAME_INPUT_SLACK_MS = 50;
-
-/** When the last key press or click happened, from seconds since then. */
-export function lastInputAt(now: number, idleSeconds: number): number {
-  return now - idleSeconds * 1000;
-}
 
 /**
  * The character before the cursor, for deciding on a leading space. A
@@ -31,24 +16,25 @@ export function lastInputAt(now: number, idleSeconds: number): number {
  * (Google Docs takes typing through a hidden, always-empty box). In both cases
  * it's the end of our own last dictation into that app, as long as nothing was
  * typed or clicked since: then the cursor can only still be right after it.
+ *
+ * `lastInputAt` is when the user last pressed a key (other than Fn) or clicked,
+ * from mockingbird's own keyboard watcher; undefined when it isn't running,
+ * which means we can't know and don't guess.
  */
 export function charBefore({
   read,
   last,
   bundleId,
-  now,
-  idleSeconds,
+  lastInputAt,
 }: {
   read: string | undefined;
   last: LastTyped | undefined;
   bundleId: string;
-  now: number;
-  idleSeconds: number | undefined;
+  lastInputAt: number | undefined;
 }): string | undefined {
   if (read) return read;
-  if (!last || last.bundleId !== bundleId || idleSeconds === undefined) return read;
-  const sameInput = lastInputAt(now, idleSeconds) - last.inputAt <= SAME_INPUT_SLACK_MS;
-  return sameInput ? last.lastChar : read;
+  if (!last || last.bundleId !== bundleId || lastInputAt === undefined) return read;
+  return lastInputAt > last.at ? read : last.lastChar;
 }
 
 /**

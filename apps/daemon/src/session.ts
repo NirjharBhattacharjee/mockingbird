@@ -5,7 +5,6 @@ import {
   frontmostApp,
   isTerminal,
   needsLeadingSpace,
-  secondsSinceInput,
 } from "@mockingbird/context";
 import { type Cue, cues } from "@mockingbird/cue";
 import { type HotkeyListener, startHotkeyListener } from "@mockingbird/hotkey";
@@ -16,7 +15,7 @@ import { ListenController } from "./listen-controller.ts";
 import { describeTimings, type PipelineResult, runPipeline } from "./pipeline.ts";
 import { Recorder, type Recording } from "./recorder.ts";
 import { startEngines } from "./runtime.ts";
-import { charBefore, describeSpacing, type LastTyped, lastInputAt } from "./spacing.ts";
+import { charBefore, describeSpacing, type LastTyped } from "./spacing.ts";
 import { Supervisor } from "./supervisor.ts";
 
 /** Whether the text reached the app, and why not when it didn't. */
@@ -135,6 +134,10 @@ export async function startSession(options: SessionOptions): Promise<Session> {
 
   /** Where the last dictation ended, for apps that can't say what's before the cursor. */
   let lastTyped: LastTyped | undefined;
+  /** When a key other than Fn was last pressed, or the mouse clicked; 0 if not yet. */
+  let lastInputAt = 0;
+  /** Whether that's being watched: it needs the Fn key's event tap. */
+  let watchingInput = false;
 
   const deliver = async (text: string, target: FrontmostApp | undefined): Promise<Delivery> => {
     if (!typingAllowed) return { typed: false, reason: "typing isn't allowed" };
@@ -161,8 +164,7 @@ export async function startSession(options: SessionOptions): Promise<Session> {
             read,
             last: lastTyped,
             bundleId: now.bundleId,
-            now: Date.now(),
-            idleSeconds: secondsSinceInput(),
+            lastInputAt: watchingInput ? lastInputAt : undefined,
           });
       const prefix = needsLeadingSpace(before) ? " " : "";
       const spacing = terminal ? "no space (terminal)" : describeSpacing(read, before);
@@ -176,10 +178,7 @@ export async function startSession(options: SessionOptions): Promise<Session> {
       }
       if (result.typed >= result.total) {
         const lastChar = prepareForTyping(text).slice(-1);
-        const idle = secondsSinceInput();
-        if (lastChar && idle !== undefined) {
-          lastTyped = { bundleId: now.bundleId, inputAt: lastInputAt(Date.now(), idle), lastChar };
-        }
+        if (lastChar) lastTyped = { bundleId: now.bundleId, at: Date.now(), lastChar };
         return { typed: true, spacing };
       }
       return {
@@ -278,6 +277,10 @@ export async function startSession(options: SessionOptions): Promise<Session> {
   if (hotkeyAllowed) {
     hotkey = startHotkeyListener({
       onEvent: (event) => {
+        if (event.type === "input") {
+          lastInputAt = Math.max(lastInputAt, event.at);
+          return;
+        }
         const action = fsm.handle(event);
         if (action === "start") controller.startRecording();
         else if (action === "stop") controller.stopRecording();
@@ -289,6 +292,7 @@ export async function startSession(options: SessionOptions): Promise<Session> {
     });
     try {
       await hotkey.ready;
+      watchingInput = true;
     } catch (error) {
       notify(`Fn key unavailable: ${error instanceof Error ? error.message : String(error)}`);
       await hotkey.stop();

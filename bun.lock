@@ -40,6 +40,9 @@
     },
     "packages/hotkey": {
       "name": "@mockingbird/hotkey",
+      "dependencies": {
+        "@mockingbird/inject": "workspace:*",
+      },
     },
     "packages/inject": {
       "name": "@mockingbird/inject",

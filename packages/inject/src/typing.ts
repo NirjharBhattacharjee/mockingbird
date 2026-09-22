@@ -5,6 +5,13 @@ const APPLICATION_SERVICES =
   "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices";
 
 const kCGHIDEventTap = 0;
+const kCGEventSourceUserData = 42;
+
+/**
+ * Stamped on every key event mockingbird posts, so its own keyboard watcher
+ * (`packages/hotkey`) can tell them from the user's typing.
+ */
+export const TYPED_EVENT_MARK = 0x6d6b6264;
 /** macOS accepts only a short string per event; 20 UTF-16 units is the usual limit. */
 const MAX_UNITS_PER_EVENT = 20;
 
@@ -64,6 +71,10 @@ function loadSymbols() {
       returns: FFIType.void,
     },
     CGEventPost: { args: [FFIType.u32, FFIType.ptr], returns: FFIType.void },
+    CGEventSetIntegerValueField: {
+      args: [FFIType.ptr, FFIType.u32, FFIType.i64],
+      returns: FFIType.void,
+    },
     CGPreflightPostEventAccess: { args: [], returns: FFIType.bool },
     CGRequestPostEventAccess: { args: [], returns: FFIType.bool },
   });
@@ -170,6 +181,7 @@ export async function typeText(text: string, options: TypeTextOptions = {}): Pro
             BigInt(units.length) as never,
             ptr(units) as never,
           );
+          cg.symbols.CGEventSetIntegerValueField(event, kCGEventSourceUserData, TYPED_EVENT_MARK);
           cg.symbols.CGEventPost(kCGHIDEventTap, event);
           cf.symbols.CFRelease(event);
         }

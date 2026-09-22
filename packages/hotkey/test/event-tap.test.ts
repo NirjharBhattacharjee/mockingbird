@@ -1,11 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import { TYPED_EVENT_MARK } from "@mockingbird/inject";
 import {
   checkInputMonitoring,
   EVENT_TYPE_FLAGS_CHANGED,
   EVENT_TYPE_KEY_DOWN,
   EVENT_TYPE_KEY_UP,
+  EVENT_TYPE_LEFT_MOUSE_DOWN,
   KEYCODE_ESCAPE,
   KEYCODE_FN,
+  KEYCODE_GLOBE,
   TapDecoder,
 } from "../src/index.ts";
 
@@ -64,15 +67,31 @@ describe("TapDecoder", () => {
     });
   });
 
-  test("drops every other keystroke", () => {
+  test("never passes on which other key was pressed", () => {
     const decoder = new TapDecoder();
     // Letters, digits, punctuation, modifiers, function keys: a password typed
-    // while mockingbird runs must never reach the app.
+    // while mockingbird runs must never reach the app. All that gets out is
+    // that some key went down, with no keycode.
     for (let keycode = 0; keycode < 128; keycode++) {
-      if (keycode === KEYCODE_ESCAPE) continue;
-      expect(decoder.decode(EVENT_TYPE_KEY_DOWN, keycode, 0, keycode)).toBeUndefined();
+      if (keycode === KEYCODE_ESCAPE || keycode === KEYCODE_FN) continue;
+      expect(decoder.decode(EVENT_TYPE_KEY_DOWN, keycode, 0, keycode)).toEqual({
+        type: "input",
+        at: keycode,
+      });
       expect(decoder.decode(EVENT_TYPE_KEY_UP, keycode, 0, keycode)).toBeUndefined();
     }
+  });
+
+  test("a mouse click counts as input", () => {
+    const decoder = new TapDecoder();
+    expect(decoder.decode(EVENT_TYPE_LEFT_MOUSE_DOWN, 0, 0, 5)).toEqual({ type: "input", at: 5 });
+  });
+
+  test("Fn, the globe key, and mockingbird's own typing aren't input", () => {
+    const decoder = new TapDecoder();
+    expect(decoder.decode(EVENT_TYPE_KEY_DOWN, KEYCODE_FN, 0, 1)).toBeUndefined();
+    expect(decoder.decode(EVENT_TYPE_KEY_DOWN, KEYCODE_GLOBE, 0, 1)).toBeUndefined();
+    expect(decoder.decode(EVENT_TYPE_KEY_DOWN, 0, 0, 1, TYPED_EVENT_MARK)).toBeUndefined();
   });
 
   test("drops flag changes from modifiers other than Fn", () => {
@@ -84,7 +103,7 @@ describe("TapDecoder", () => {
 
   test("ignores event types it doesn't handle, such as mouse moves", () => {
     const decoder = new TapDecoder();
-    for (const type of [1, 2, 5, 6, 22, 29]) {
+    for (const type of [2, 5, 6, 22, 29]) {
       expect(decoder.decode(type, KEYCODE_FN, FLAGS_FN_DOWN, 1)).toBeUndefined();
     }
   });

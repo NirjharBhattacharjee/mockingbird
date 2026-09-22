@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { charBeforeCaret, needsLeadingSpace, secondsSinceInput } from "../src/index.ts";
+import { charBeforeCaret, needsLeadingSpace } from "../src/index.ts";
 
 describe("needsLeadingSpace", () => {
   test("adds a space after the end of a sentence", () => {
@@ -38,12 +38,5 @@ describe("charBeforeCaret", () => {
   test("returns a single character, an empty string, or undefined", () => {
     const before = charBeforeCaret();
     if (before !== undefined) expect(before.length).toBeLessThanOrEqual(1);
-  });
-});
-
-describe("secondsSinceInput", () => {
-  test("is a non-negative number of seconds, or undefined", () => {
-    const seconds = secondsSinceInput();
-    if (seconds !== undefined) expect(seconds).toBeGreaterThanOrEqual(0);
   });
 });
