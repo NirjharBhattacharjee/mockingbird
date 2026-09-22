@@ -5,16 +5,18 @@ import {
   frontmostApp,
   isTerminal,
   needsLeadingSpace,
+  secondsSinceInput,
 } from "@mockingbird/context";
 import { type Cue, cues } from "@mockingbird/cue";
 import { type HotkeyListener, startHotkeyListener } from "@mockingbird/hotkey";
-import { type TypeResult, typeText } from "@mockingbird/inject";
+import { prepareForTyping, type TypeResult, typeText } from "@mockingbird/inject";
 import type { AppStyle } from "@mockingbird/llm";
 import { HotkeyFsm } from "./hotkey-fsm.ts";
 import { ListenController } from "./listen-controller.ts";
 import { describeTimings, type PipelineResult, runPipeline } from "./pipeline.ts";
 import { Recorder, type Recording } from "./recorder.ts";
 import { startEngines } from "./runtime.ts";
+import { charBefore, type LastTyped } from "./spacing.ts";
 import { Supervisor } from "./supervisor.ts";
 
 /** Whether the text reached the app, and why not when it didn't. */
@@ -125,6 +127,9 @@ export async function startSession(options: SessionOptions): Promise<Session> {
 
   const engines = await startEngines(options.log);
 
+  /** Where the last dictation ended, for apps that can't say what's before the cursor. */
+  let lastTyped: LastTyped | undefined;
+
   const deliver = async (text: string, target: FrontmostApp | undefined): Promise<Delivery> => {
     if (!typingAllowed) return { typed: false, reason: "typing isn't allowed" };
     try {
@@ -139,10 +144,20 @@ export async function startSession(options: SessionOptions): Promise<Session> {
             ` (${target?.name ?? "unknown"} → ${now?.name ?? "unknown"})`,
         };
       }
-      // A second sentence shouldn't run into the first. Read now rather than
-      // when recording started, so anything typed meanwhile counts. Terminals
-      // are left alone: their text is the scrollback, not an input field.
-      const prefix = !isTerminal(now) && needsLeadingSpace(charBeforeCaret()) ? " " : "";
+      // A second sentence shouldn't run into the first. Checked now rather
+      // than when recording started, so anything typed meanwhile counts.
+      // Terminals are left alone: their text is the scrollback, not a field.
+      const before = isTerminal(now)
+        ? undefined
+        : charBefore({
+            read: charBeforeCaret(),
+            last: lastTyped,
+            bundleId: now.bundleId,
+            now: Date.now(),
+            idleSeconds: secondsSinceInput(),
+          });
+      const prefix = needsLeadingSpace(before) ? " " : "";
+      lastTyped = undefined;
       const watch = watchFocus(now);
       let result: TypeResult;
       try {
@@ -150,7 +165,11 @@ export async function startSession(options: SessionOptions): Promise<Session> {
       } finally {
         watch.stop();
       }
-      if (result.typed >= result.total) return { typed: true };
+      if (result.typed >= result.total) {
+        const lastChar = prepareForTyping(text).slice(-1);
+        if (lastChar) lastTyped = { bundleId: now.bundleId, at: Date.now(), lastChar };
+        return { typed: true };
+      }
       return {
         typed: false,
         reason:

@@ -54,7 +54,7 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
     const before = charBeforeCaret();
     log(
       before === undefined
-        ? "text before the cursor: not readable here, so no space is added between sentences"
+        ? "text before the cursor: not readable here. A space still goes after your last dictation, unless you typed or clicked since"
         : `text before the cursor: readable (would add a space: ${needsLeadingSpace(before) ? "yes" : "no"})`,
     );
     if (!allowed) {

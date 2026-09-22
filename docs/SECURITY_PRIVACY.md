@@ -166,6 +166,12 @@ lives in `packages/inject/src/typing.ts`. As implemented today it:
   logged, stored, or sent to the models, and `mockingbird type --check` reports
   only whether it could be read. Terminals are skipped, and so is any field
   that doesn't answer within 250ms;
+- where that character can't be read (Chrome pages, Google Docs, Electron
+  apps), falls back to the last character of **its own** previous dictation
+  into the same app, held in memory only, and only if no key was pressed and
+  no mouse button clicked since. It learns that from
+  `CGEventSourceSecondsSinceLastEventType`: a count of seconds, with no key,
+  position, or app attached, which needs no permission;
 - **stops mid-text when focus leaves the app you dictated into**: typing asks a
   guard before every chunk, and `apps/daemon/src/session.ts` answers it by
   polling the frontmost app throughout. So a long dictation — hundreds of key

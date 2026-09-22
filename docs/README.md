@@ -99,7 +99,9 @@ It stays off, including after a reboot, until the next `mockingbird start`.
 
 Dictating after text that's already there adds a space first, so "One." then
 "Two." comes out as "One. Two." It doesn't add one at the start of a line or
-after "(". Terminals are left as they are.
+after "(". Terminals are left as they are. Each dictation also starts with a
+capital letter and ends with a period, or a question mark when it sounds like
+a question.
 
 Nothing is printed while it runs — the text goes into your app and nowhere
 else. If something goes wrong, it's in `~/.mockingbird/logs/agent.log`, which
@@ -256,7 +258,7 @@ Environment variables:
 | The level bars don't move | Wrong microphone. Use `--list-devices` and `--device`. |
 | `Fn key off` or `Fn` does nothing | Allow your terminal in **System Settings → Privacy & Security → Input Monitoring**, then quit it with Cmd+Q and reopen. |
 | Tapping `Fn` opens the emoji picker, and the text lands in its search box | macOS has its own action on that key. Set **System Settings → Keyboard → "Press 🌐 key to"** to **Do Nothing**. Holding `Fn` works either way; `mockingbird status` tells you when this is set. |
-| A new sentence runs into the last one, with no space | That app doesn't let mockingbird see the text before the cursor, which is common in web pages and Electron apps like Slack. Check with `mockingbird type --check --delay 3` and click into the app. Terminals never get the space. |
+| A new sentence runs into the last one, with no space | That app doesn't let mockingbird see the text before the cursor, which is common in web pages, Google Docs, and Electron apps like Slack. There it only adds the space right after its own last dictation, so a key press or click in between means no space. Check with `mockingbird type --check --delay 3` and click into the app. Terminals never get the space. |
 | Text prints but isn't typed into the app | The agent needs **Accessibility** on `~/.mockingbird/bin/mockingbird`, then `mockingbird restart`. In `listen`, allow your terminal instead and reopen it. Check with `mockingbird type --check`. |
 | `Ollama isn't running` | `listen` starts Ollama by itself, so this means it's missing or failed to start: run the install command again. You still get text, just not cleaned up. |
 | `… isn't downloaded` | Run `ollama pull qwen3:4b-instruct-2507-q4_K_M` (or the install command again). |
