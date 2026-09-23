@@ -51,6 +51,9 @@ export class WhisperServerEngine implements AsrEngine {
     form.append("file", new Blob([encodeWav(audio)], { type: "audio/wav" }), "segment.wav");
     form.append("response_format", "verbose_json");
     form.append("temperature", "0");
+    // large-v3-turbo is multilingual: pinning the language stops it drifting
+    // to another one on accented English.
+    form.append("language", "en");
 
     const res = await fetch(`${this.baseUrl}/inference`, { method: "POST", body: form });
     if (!res.ok) throw new AsrRequestError(`whisper-server ${res.status}: ${await res.text()}`);

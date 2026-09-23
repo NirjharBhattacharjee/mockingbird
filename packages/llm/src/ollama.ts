@@ -16,7 +16,12 @@ export class OllamaProvider implements LlmProvider {
         stream: false,
         // Unloading between dictations would cost a ~15s cold load on the next one.
         keep_alive: "30m",
-        options: { temperature: 0 },
+        options: {
+          temperature: 0,
+          // A cleanup is about as long as its input; without a cap the model
+          // can ramble on well past it, and that time is the user waiting.
+          num_predict: Math.max(64, Math.ceil(user.length / 2)),
+        },
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },

@@ -1,5 +1,5 @@
 import type { AsrEngine } from "@mockingbird/asr";
-import { durationMs, type PcmAudio } from "@mockingbird/audio";
+import { durationMs, normalizeLoudness, type PcmAudio } from "@mockingbird/audio";
 import {
   type AppStyle,
   acceptCleanup,
@@ -56,8 +56,12 @@ export async function runPipeline(
 ): Promise<PipelineResult> {
   const base = { durationMs: durationMs(audio), asrModel: deps.asr.model };
 
+  // A quiet voice is missed by both the VAD and Whisper, so the level is
+  // brought up before either sees it.
+  const heard = normalizeLoudness(audio);
+
   let t = performance.now();
-  const segments = await deps.detectSpeech(audio);
+  const segments = await deps.detectSpeech(heard);
   const vadMs = elapsed(t);
 
   // Whisper hallucinates text ("Thank you.") on silence, so never send it any.
@@ -75,7 +79,7 @@ export async function runPipeline(
   }
 
   t = performance.now();
-  const asr = await deps.asr.transcribe(trimToSpeech(audio, segments));
+  const asr = await deps.asr.transcribe(trimToSpeech(heard, segments));
   const asrMs = elapsed(t);
   const common = { ...base, rawText: asr.text, vadMs, asrMs };
 

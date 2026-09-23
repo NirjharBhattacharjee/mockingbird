@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { acceptCleanup, buildCleanupPrompt, formatText, shouldSkipLlm } from "../src/index.ts";
+import {
+  acceptCleanup,
+  buildCleanupPrompt,
+  formatText,
+  looksClean,
+  shouldSkipLlm,
+} from "../src/index.ts";
 
 describe("shouldSkipLlm", () => {
   test("skips short, confident utterances", () => {
@@ -8,9 +14,34 @@ describe("shouldSkipLlm", () => {
   test("does not skip short but uncertain utterances", () => {
     expect(shouldSkipLlm({ text: "Yes please.", confidence: 0.5 })).toBe(false);
   });
+  test("skips a long utterance that already reads cleanly", () => {
+    expect(
+      shouldSkipLlm({ text: "Let's move the meeting to Thursday morning.", confidence: 0.92 }),
+    ).toBe(true);
+  });
+
+  test("does not skip one with filler or a stutter, however confident", () => {
+    expect(shouldSkipLlm({ text: "um so I think we should ship it", confidence: 0.99 })).toBe(
+      false,
+    );
+    expect(shouldSkipLlm({ text: "I I think we should ship it", confidence: 0.99 })).toBe(false);
+    expect(shouldSkipLlm({ text: "you know we could just ship it today", confidence: 0.99 })).toBe(
+      false,
+    );
+  });
+
+  test("does not skip a clean-looking utterance Whisper wasn't sure about", () => {
+    expect(
+      shouldSkipLlm({ text: "Let's move the meeting to Thursday morning.", confidence: 0.6 }),
+    ).toBe(false);
+  });
+
   test("does not skip long utterances", () => {
     expect(
-      shouldSkipLlm({ text: "this sentence has more than four words", confidence: 0.99 }),
+      shouldSkipLlm(
+        { text: "this sentence has more than four words", confidence: 0.99 },
+        { minCleanConfidence: 1.1 },
+      ),
     ).toBe(false);
   });
 });
@@ -80,5 +111,24 @@ describe("formatText", () => {
   });
   test("terminal style isn't capitalized or punctuated", () => {
     expect(formatText("ls -la", "terminal")).toBe("ls -la");
+  });
+});
+
+describe("looksClean", () => {
+  test("finished text has nothing for the model to remove", () => {
+    expect(looksClean("Let's move the meeting to Thursday morning.")).toBe(true);
+    expect(looksClean("The file is in packages/llm.")).toBe(true);
+  });
+
+  test("filler and stutters need the model", () => {
+    expect(looksClean("um yes")).toBe(false);
+    expect(looksClean("so uh I think so")).toBe(false);
+    expect(looksClean("I mean it's fine")).toBe(false);
+    expect(looksClean("the the file")).toBe(false);
+  });
+
+  test("a word that merely contains a filler isn't filler", () => {
+    expect(looksClean("The album is out.")).toBe(true);
+    expect(looksClean("Humming along.")).toBe(true);
   });
 });

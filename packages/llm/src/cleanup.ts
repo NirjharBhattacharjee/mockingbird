@@ -32,18 +32,44 @@ export function buildCleanupPrompt({
   return { system: rules.join("\n"), user: `<transcript>${text}</transcript>` };
 }
 
-export type GateOptions = { maxWords?: number; minConfidence?: number };
+export type GateOptions = {
+  maxWords?: number;
+  minConfidence?: number;
+  /** Confidence needed to skip cleanup on a longer utterance that reads cleanly. */
+  minCleanConfidence?: number;
+};
 
+/** Filler words and hedges the cleanup model exists to remove. */
+const FILLER = /\b(um+|uh+|erm|hmm+|you know|i mean|sort of|kind of)\b[,.]?/gi;
+/** A word said twice in a row: "I I think", "the the file". */
+const STUTTER = /\b([\p{L}']+)\s+\1\b/giu;
+
+/**
+ * Whether the transcript already reads like finished text: nothing for the
+ * cleanup model to remove. `formatText` handles the capital and the end
+ * punctuation, so those don't need the model either.
+ */
+export function looksClean(text: string): boolean {
+  FILLER.lastIndex = 0;
+  STUTTER.lastIndex = 0;
+  return !FILLER.test(text) && !STUTTER.test(text);
+}
+
+/**
+ * Whether to type the transcript as it is instead of cleaning it up. Cleanup
+ * costs 400-1500ms, which is most of the wait after speaking, so it's skipped
+ * for short utterances and for longer ones Whisper was confident about that
+ * carry no filler or stutter.
+ */
 export function shouldSkipLlm(
   { text, confidence }: { text: string; confidence: number },
   // Provisional: tuned on synthetic speech only; retune on the bench/ corpus.
-  { maxWords = 4, minConfidence = 0.7 }: GateOptions = {},
+  { maxWords = 4, minConfidence = 0.7, minCleanConfidence = 0.8 }: GateOptions = {},
 ): boolean {
   const words = text.split(/\s+/).filter(Boolean).length;
-  return words <= maxWords && confidence >= minConfidence;
+  if (words <= maxWords && confidence >= minConfidence) return true;
+  return confidence >= minCleanConfidence && looksClean(text);
 }
-
-const FILLER = /\b(um+|uh+|erm|hmm+)\b[,.]?/gi;
 
 /**
  * Rejects LLM output that looks like an answer or a rewrite rather than a cleanup,

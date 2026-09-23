@@ -5,6 +5,7 @@ export {
   type DictionaryEntry,
   formatText,
   type GateOptions,
+  looksClean,
   shouldSkipLlm,
 } from "./cleanup.ts";
 export {

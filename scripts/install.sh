@@ -83,9 +83,9 @@ main() {
     fi
     mv "$models/$1.part" "$models/$1"
   }
-  download ggml-base.en.bin \
-    https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base.en.bin \
-    a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002
+  download ggml-large-v3-turbo-q5_0.bin \
+    https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-large-v3-turbo-q5_0.bin \
+    394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2
   download silero_vad.onnx \
     https://github.com/snakers4/silero-vad/raw/v6.2.2/src/silero_vad/data/silero_vad.onnx \
     1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3

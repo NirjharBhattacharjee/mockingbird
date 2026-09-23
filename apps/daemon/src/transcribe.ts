@@ -15,6 +15,7 @@ Options:
 
 Environment:
   MOCKINGBIRD_HOME       default ~/.mockingbird (models are read from its models/)
+  MOCKINGBIRD_ASR_MODEL  Whisper model file (default ggml-large-v3-turbo-q5_0.bin)
   MOCKINGBIRD_ASR_PORT   default 8771
   MOCKINGBIRD_LLM_URL    default http://127.0.0.1:11434
   MOCKINGBIRD_LLM_MODEL  default qwen3:4b-instruct-2507-q4_K_M`;

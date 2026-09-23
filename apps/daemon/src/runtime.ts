@@ -11,6 +11,9 @@ export function requireFile(path: string, what: string, hint = ""): string {
   return path;
 }
 
+/** Bigger than base.en, and far better on accents and quiet speech (docs/MODELS.md). */
+export const DEFAULT_ASR_MODEL = "ggml-large-v3-turbo-q5_0.bin";
+
 const SETUP_HINT = "\nRun scripts/install.sh to download it (see Install in README.md).";
 
 export type Engines = {
@@ -22,7 +25,14 @@ export type Engines = {
 export async function startEngines(log: (message: string) => void): Promise<Engines> {
   const env = process.env;
   const models = join(env.MOCKINGBIRD_HOME ?? join(homedir(), ".mockingbird"), "models");
-  const whisperModel = requireFile(join(models, "ggml-base.en.bin"), "Whisper model", SETUP_HINT);
+  // MOCKINGBIRD_ASR_MODEL takes a path, or a file name inside models/, so a
+  // smaller model can be used on a slower Mac without touching the code.
+  const asrModel = env.MOCKINGBIRD_ASR_MODEL ?? DEFAULT_ASR_MODEL;
+  const whisperModel = requireFile(
+    asrModel.includes("/") ? asrModel : join(models, asrModel),
+    "Whisper model",
+    SETUP_HINT,
+  );
   const vadModel = requireFile(join(models, "silero_vad.onnx"), "Silero VAD model", SETUP_HINT);
   const llmUrl = env.MOCKINGBIRD_LLM_URL ?? "http://127.0.0.1:11434";
   const llm = new OllamaProvider(

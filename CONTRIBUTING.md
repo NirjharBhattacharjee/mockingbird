@@ -191,7 +191,9 @@ These are the checks a PR must pass
 `bun run test:integration` needs, locally:
 
 - `whisper-server` (`brew install whisper-cpp`)
-- `~/.mockingbird/models/ggml-base.en.bin` and `~/.mockingbird/models/silero_vad.onnx`
+- `~/.mockingbird/models/ggml-large-v3-turbo-q5_0.bin` and `~/.mockingbird/models/silero_vad.onnx`
+  (the integration tests use `ggml-base.en.bin`, which `scripts/install.sh` no
+  longer downloads: fetch it from the same Hugging Face revision if you run them)
 - Ollama running with `qwen3:4b-instruct-2507-q4_K_M` pulled
 
 Override locations with `MOCKINGBIRD_HOME`, `MOCKINGBIRD_LLM_URL`, and

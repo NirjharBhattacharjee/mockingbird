@@ -112,14 +112,28 @@ every captured segment goes through both.
   `whisper-server` dies, the supervisor restarts it — dictation queues or
   degrades rather than silently failing, per the "degrade, don't break"
   principle in [ARCHITECTURE.md §2](./ARCHITECTURE.md#2-core-principles).
-- **Model file:** `large-v3-turbo`, quantized to `Q5_0`. This is the
-  accuracy/latency/size tradeoff point chosen for v1 — swappable per
-  [§7](#7-model-swapping--configuration). Development and the integration
-  tests currently use the much smaller `base.en` (~148 MB); `large-v3-turbo`
-  hasn't been measured on this pipeline yet.
+- **Model file:** `large-v3-turbo`, quantized to `Q5_0` (574 MB), shipped by
+  `scripts/install.sh` and the default in `apps/daemon/src/runtime.ts`. It is
+  multilingual, which is what makes it hold up on accented English where the
+  English-only models drop words; requests pin `language=en` so it doesn't
+  drift to another language.
+- **Measured on an M3 (warm server, 4.5s clip, median of 3 —
+  `bun run bench:models`):** `base.en` 177ms, `small.en` Q5_1 533ms,
+  `medium.en` Q5_0 1508ms, `large-v3-turbo` Q8_0 2142ms, `large-v3-turbo`
+  Q5_0 2248ms. The encoder alone is ~1.1s of that on the GPU, and the
+  Homebrew `whisper-cpp` has no Core ML encoder, which would cut it. Accuracy
+  was chosen over speed here; `MOCKINGBIRD_ASR_MODEL` takes a file name in
+  `models/` or a path, so a slower Mac can drop to `small.en`.
+- The integration tests still use `base.en` (~148 MB), which keeps them
+  quick; it is not what ships.
 
 ## 5. Cleanup / formatting LLM — Qwen3-4B-Instruct
 
+- **When it runs:** only when the transcript needs it. `shouldSkipLlm`
+  (`packages/llm/src/cleanup.ts`) skips cleanup for very short utterances, and
+  for confident transcripts that carry no filler word and no stutter —
+  `formatText` supplies the capital and the end punctuation without a model.
+  Cleanup costs 400-1500ms, which is most of the wait after speaking.
 - **Job:** take the raw ASR transcript plus context (user dictionary,
   frontmost-app profile) and produce the final text — punctuation,
   capitalization, disfluency removal ("um", false starts), per-app style
