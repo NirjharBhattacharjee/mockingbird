@@ -10,8 +10,11 @@ export {
 export {
   applyCorrections,
   buildVocabularyPrompt,
+  correctNames,
   type DictionaryEntry,
   parseDictionary,
+  soundOf,
+  soundsLike,
 } from "./dictionary.ts";
 export {
   isLocalUrl,

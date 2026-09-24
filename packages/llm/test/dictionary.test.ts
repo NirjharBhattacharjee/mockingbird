@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { applyCorrections, buildVocabularyPrompt, parseDictionary } from "../src/index.ts";
+import {
+  applyCorrections,
+  buildVocabularyPrompt,
+  correctNames,
+  parseDictionary,
+} from "../src/index.ts";
 
 describe("parseDictionary", () => {
   test("reads one term per line", () => {
@@ -66,5 +71,60 @@ describe("applyCorrections", () => {
 
   test("leaves text alone without corrections", () => {
     expect(applyCorrections("Hello there.", [{ term: "Ollama" }])).toBe("Hello there.");
+  });
+});
+
+describe("correctNames", () => {
+  const dictionary = parseDictionary(
+    "Nirjhar Bhattacharjee\nXiaoming Zhao\nAishwarya Venkatesan\nCatppuccin\nMockingbird\nSiddharth Mukherjee",
+  );
+
+  test("fixes a name Whisper spelled by ear", () => {
+    // Every one of these came out of whisper-server in this repo's benchmarks.
+    expect(correctNames("I spoke with Nurj Harbada Charjee today.", dictionary)).toBe(
+      "I spoke with Nirjhar Bhattacharjee today.",
+    );
+    expect(correctNames("my name is Nerj Herbata Chargy", dictionary)).toBe(
+      "my name is Nirjhar Bhattacharjee",
+    );
+    expect(correctNames("Aishwarya Venkatasan is here", dictionary)).toBe(
+      "Aishwarya Venkatesan is here",
+    );
+    expect(correctNames("and Zaya Mingjiao replied", dictionary)).toBe("and Xiaoming Zhao replied");
+  });
+
+  test("joins up a name heard as several words", () => {
+    expect(correctNames("Mocking bird is the app", dictionary)).toBe("Mockingbird is the app");
+    // The name is restored; a leftover filler word can survive next to it.
+    expect(correctNames("with cat pucks in theming", dictionary)).toBe(
+      "with Catppuccin in theming",
+    );
+  });
+
+  test("keeps the punctuation that followed the name", () => {
+    expect(correctNames("Hello Nurj Harbada Charjee, how are you?", dictionary)).toBe(
+      "Hello Nirjhar Bhattacharjee, how are you?",
+    );
+  });
+
+  test("doesn't swallow the words around a name", () => {
+    expect(correctNames("and Siddharth Mukherjee today", dictionary)).toBe(
+      "and Siddharth Mukherjee today",
+    );
+  });
+
+  test("leaves ordinary words that merely rhyme alone", () => {
+    for (const sentence of [
+      "The llama and the cat sat on a mat.",
+      "We can categorise the puck later.",
+      "I met Richard yesterday and we ate pasta.",
+      "Send it to Sid and Ash tomorrow.",
+    ]) {
+      expect(correctNames(sentence, dictionary)).toBe(sentence);
+    }
+  });
+
+  test("does nothing without a dictionary", () => {
+    expect(correctNames("Nurj Harbada Charjee", [])).toBe("Nurj Harbada Charjee");
   });
 });

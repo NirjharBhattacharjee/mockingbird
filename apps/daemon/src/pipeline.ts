@@ -6,6 +6,7 @@ import {
   applyCorrections,
   buildCleanupPrompt,
   buildVocabularyPrompt,
+  correctNames,
   type DictionaryEntry,
   formatText,
   type GateOptions,
@@ -88,12 +89,15 @@ export async function runPipeline(
   });
   const asrMs = elapsed(t);
   const dictionary = deps.dictionary ?? [];
+  /** Formatting, then the dictionary: replacements first, then names by sound. */
+  const finish = (text: string) =>
+    correctNames(applyCorrections(formatText(text, style), dictionary), dictionary);
   const common = { ...base, rawText: asr.text, vadMs, asrMs };
 
   if (shouldSkipLlm(asr, deps.gate)) {
     return {
       ...common,
-      finalText: applyCorrections(formatText(asr.text, style), dictionary),
+      finalText: finish(asr.text),
       llmMs: null,
       llmOutcome: "skipped",
       llmModel: null,
@@ -110,7 +114,7 @@ export async function runPipeline(
     // Degrade, don't break: a dead LLM still leaves usable raw dictation.
     return {
       ...common,
-      finalText: applyCorrections(formatText(asr.text, style), dictionary),
+      finalText: finish(asr.text),
       llmMs: elapsed(t),
       llmOutcome: "failed",
       llmError: String(error),
@@ -122,7 +126,7 @@ export async function runPipeline(
 
   return {
     ...common,
-    finalText: applyCorrections(formatText(accepted ? cleaned : asr.text, style), dictionary),
+    finalText: finish(accepted ? cleaned : asr.text),
     llmMs,
     llmOutcome: accepted ? "cleaned" : "rejected",
     llmModel: deps.llm.model,

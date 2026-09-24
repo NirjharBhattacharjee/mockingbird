@@ -124,6 +124,10 @@ every captured segment goes through both.
   Homebrew `whisper-cpp` has no Core ML encoder, which would cut it. Accuracy
   was chosen over speed here; `MOCKINGBIRD_ASR_MODEL` takes a file name in
   `models/` or a path, so a slower Mac can drop to `small.en`.
+- **Full precision is not better.** `ggml-large-v3.bin` (f16, 3.1 GB) wrote
+  "Nirjher" and "Zia Ming Zhao" where Q5_0 (1.08 GB) wrote "Nirjhar
+  Bhattacharjee" and, with the dictionary, "Xiaoming Zhao". Quantization is
+  not what limits name spelling, so Q5_0 stays.
 - **`large-v3` over `large-v3-turbo`, because of names.** Turbo is a distilled
   model with a much smaller decoder, and that is where the knowledge of
   unusual names lives. Measured on synthetic speech naming four people:
@@ -165,6 +169,18 @@ feeds three places (`packages/llm/src/dictionary.ts`):
 | `Nirjhar Bhattacharjee` | Given to Whisper before it listens (`prompt`), and to the cleanup model as a spelling to keep |
 | `Catppuccin (a colour theme)` | Same, with a note for the cleanup model |
 | `cat puck => Catppuccin` | A plain replacement afterwards, for a word Whisper gets wrong the same way every time |
+
+**A term is matched by sound, not spelling** (`correctNames`, `soundOf`).
+Whisper writes an unfamiliar name as it hears it, and never the same way
+twice: "Nurj Harbada Charjee", "Nerj Herbata Chargy". Comparing letters finds
+neither. `soundOf` reduces a word to its consonant skeleton with the
+distinctions that don't survive mishearing folded together — aspirated
+consonants (`bh`→`b`), `c`/`k`/`q`, `sh`/`ch`/`j`/`z`/`x`, `v`/`w` — and spans
+of one to four words are compared against each term. Measured on the
+benchmark transcripts: all three manglings above resolve to the right name,
+while "llama", "categorise the puck", "Richard" and "Sid and Ash" are left
+alone. A word only joins a span if including it improves the match, so
+"and Siddharth Mukherjee" doesn't swallow the "and".
 
 **Reading the words to Whisper is opt-in** (`MOCKINGBIRD_ASR_VOCABULARY=1`),
 because it cuts both ways. Measured on one sentence: with `base`-level models
