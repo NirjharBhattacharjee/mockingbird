@@ -216,6 +216,16 @@ the same words.
   tomorrow"). It needs at least three lines, 60% of them sharing the lead-in,
   and leaves prose and already-bulleted lists untouched. `acceptCleanup` allows a list down to 0.3 of the raw length,
   because "I will get onions" legitimately becomes "- onions".
+- **Sequences.** Steps done in an order ("first boil the water, then add the
+  tea, finally add milk", "number one ... number two", "step one ...") become
+  a numbered list (`1. `, `2. `) rather than bullets, and `looksLikeList`
+  counts ordinals and "next", "after that", "finally" as list markers. A list
+  needs three or more items: with fewer, qwen3 tended to force a sentence
+  into a list by dropping half of it ("ship it, but first run the tests" →
+  "- Run the tests first"), so `acceptCleanup` rejects a list of one or two
+  items and the transcript is typed as a sentence. The prompt also keeps a
+  story about what already happened ("we landed, then took a train") as
+  prose.
 - **When it runs:** only when the transcript needs it. `shouldSkipLlm`
   (`packages/llm/src/cleanup.ts`) skips cleanup for very short utterances, and
   for confident transcripts that carry no filler word and no stutter —

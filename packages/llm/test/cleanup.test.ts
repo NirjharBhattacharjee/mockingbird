@@ -112,6 +112,39 @@ describe("lists", () => {
     expect(looksLikeList("We need milk, bread, rice and onions.")).toBe(true);
   });
 
+  test("a sequence of steps never skips the cleanup model", () => {
+    for (const text of [
+      "To make tea, first boil the water, then add the tea bag, and finally add milk.",
+      "Number one, fix the login bug. Number two, update the docs.",
+      "Step one, unplug it. Step two, wait. Step three, plug it back in.",
+      "Firstly we test it, secondly we ship it, lastly we announce it.",
+    ]) {
+      expect(looksLikeList(text)).toBe(true);
+    }
+  });
+
+  test("a numbered list is accepted and kept line by line", () => {
+    const raw =
+      "To make tea, first boil the water, then put the tea bag in the cup, then pour the water, and finally add milk.";
+    const list =
+      "To make tea:\n1. Boil the water\n2. Put the tea bag in the cup\n3. Pour the water\n4. Add milk";
+    expect(acceptCleanup(raw, list)).toBe(true);
+    expect(formatText(list)).toBe(list);
+  });
+
+  test("a list of fewer than three items falls back to the transcript", () => {
+    // What qwen3 did to a sentence with one "first" in it: half of it went.
+    expect(
+      acceptCleanup(
+        "I think we should ship it, but first let's run the tests.",
+        "Should we ship it?\n\nTests:\n- Run them first",
+      ),
+    ).toBe(false);
+    expect(
+      acceptCleanup("I need to call mom and I need to buy milk.", "Tasks:\n- call mom\n- buy milk"),
+    ).toBe(false);
+  });
+
   test("ordinary speech is not a list", () => {
     expect(looksLikeList("I went to the shop today and it was raining, so I came back.")).toBe(
       false,
@@ -149,6 +182,11 @@ describe("bulletize", () => {
     expect(bulletize(cleaned)).toBe(
       "To do:\n- go to the washroom\n- build this thing\n- eat my breakfast\n- run a marathon tomorrow\n- do something",
     );
+  });
+
+  test("leaves a list the model already numbered", () => {
+    const list = "Steps:\n1. I need to test it\n2. I need to ship it\n3. I need to announce it";
+    expect(bulletize(list)).toBe(list);
   });
 
   test("leaves a list the model already bulleted", () => {
