@@ -128,6 +128,14 @@ every captured segment goes through both.
   reads better ("I just woke up, it's my birthday" where Q5_0 gave "with my
   birthday", "Fixed punctuation" where Q5_0 gave "Exponctuation") and runs
   slightly faster (4843ms vs 5007ms). The 300 MB is worth it.
+- **Too little silence around the speech loses whole passages.** On that same
+  recording, `large-v3-turbo` with 700ms of padding dropped a 20-second
+  stretch from the middle (373 characters instead of 650); at 1500ms it
+  transcribed all of it. Whisper decides per 30-second window whether a
+  stretch is speech, and a tight cut pushes that decision the wrong way.
+  `-nth` (no-speech threshold) and `-sns` made no difference — padding did.
+  `large-v3` (non-turbo) never dropped it at any padding, but takes ~7s to
+  turbo's ~3.8s on a 57s clip, and was no more accurate here.
 - **How the audio is cut matters as much as the model.** On the same
   recording, cutting the silences out of the middle, or trimming tight to the
   speech, produced wrong words and capitals mid-sentence; keeping the
