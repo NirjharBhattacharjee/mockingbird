@@ -4,7 +4,6 @@ export {
   SileroVad,
   type SpeechOptions,
   type SpeechSegment,
-  spliceSpeech,
   trimToSpeech,
   WINDOW_SAMPLES,
 } from "./silero.ts";

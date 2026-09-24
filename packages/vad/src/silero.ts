@@ -101,49 +101,29 @@ export async function detectSpeech(
     }));
 }
 
-/** Merges segments that overlap once padding has been added. */
-function merge(segments: SpeechSegment[]): SpeechSegment[] {
-  const merged: SpeechSegment[] = [];
-  for (const segment of segments) {
-    const last = merged.at(-1);
-    if (last && segment.startSample <= last.endSample) {
-      last.endSample = Math.max(last.endSample, segment.endSample);
-    } else {
-      merged.push({ ...segment });
-    }
-  }
-  return merged;
-}
-
 /**
- * Joins the speech, leaving a short gap where the silences were. Whisper
- * transcribes a long pause as "..." or "[BLANK_AUDIO]", so the pauses don't go
- * to it — but words still need a gap between them, or they run together.
+ * Everything from the first word to the last, plus `padMs` either side —
+ * silences in the middle included. Measured on real speech: cutting the
+ * silences out, or trimming tight to the speech, makes Whisper noticeably
+ * worse (wrong words, capitals mid-sentence), because it reads a sentence
+ * from the rhythm around it as much as from the words. The padding only
+ * keeps silence out of a recording that is *all* silence, where Whisper
+ * invents text.
  */
-export function spliceSpeech(
+export function trimToSpeech(
   audio: PcmAudio,
   segments: SpeechSegment[],
-  { gapMs = 150 }: { gapMs?: number } = {},
+  { padMs = 700 }: { padMs?: number } = {},
 ): PcmAudio {
-  const merged = merge(segments);
-  if (merged.length === 0) return { ...audio, samples: new Int16Array(0) };
-  if (merged.length === 1) return trimToSpeech(audio, merged);
-
-  const gap = Math.round((audio.sampleRate * gapMs) / 1000);
-  const speech = merged.reduce((n, s) => n + (s.endSample - s.startSample), 0);
-  const samples = new Int16Array(speech + gap * (merged.length - 1));
-  let at = 0;
-  for (const [index, segment] of merged.entries()) {
-    if (index > 0) at += gap;
-    samples.set(audio.samples.subarray(segment.startSample, segment.endSample), at);
-    at += segment.endSample - segment.startSample;
-  }
-  return { ...audio, samples };
-}
-
-export function trimToSpeech(audio: PcmAudio, segments: SpeechSegment[]): PcmAudio {
   const first = segments[0];
   const last = segments.at(-1);
   if (!first || !last) return { ...audio, samples: new Int16Array(0) };
-  return { ...audio, samples: audio.samples.slice(first.startSample, last.endSample) };
+  const pad = Math.round((audio.sampleRate * padMs) / 1000);
+  return {
+    ...audio,
+    samples: audio.samples.slice(
+      Math.max(0, first.startSample - pad),
+      Math.min(audio.samples.length, last.endSample + pad),
+    ),
+  };
 }

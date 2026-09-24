@@ -12,7 +12,7 @@ export function requireFile(path: string, what: string, hint = ""): string {
 }
 
 /** Bigger than base.en, and far better on accents and quiet speech (docs/MODELS.md). */
-export const DEFAULT_ASR_MODEL = "ggml-large-v3-turbo-q5_0.bin";
+export const DEFAULT_ASR_MODEL = "ggml-large-v3-turbo-q8_0.bin";
 
 const SETUP_HINT = "\nRun scripts/install.sh to download it (see Install in README.md).";
 

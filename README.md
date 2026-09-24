@@ -38,7 +38,7 @@ cloud, no usage limits. A free, open-source alternative to Wispr Flow
 
 ## 🚀 Install
 
-You need a Mac with Apple Silicon, [Homebrew](https://brew.sh), and about 4 GB
+You need a Mac with Apple Silicon, [Homebrew](https://brew.sh), and about 5 GB
 of free space.
 
 ```sh

@@ -112,7 +112,7 @@ every captured segment goes through both.
   `whisper-server` dies, the supervisor restarts it — dictation queues or
   degrades rather than silently failing, per the "degrade, don't break"
   principle in [ARCHITECTURE.md §2](./ARCHITECTURE.md#2-core-principles).
-- **Model file:** `large-v3-turbo`, quantized to `Q5_0` (574 MB), shipped by
+- **Model file:** `large-v3-turbo`, quantized to `Q8_0` (874 MB), shipped by
   `scripts/install.sh` and the default in `apps/daemon/src/runtime.ts`. It is
   multilingual, which is what makes it hold up on accented English where the
   English-only models drop words; requests pin `language=en` so it doesn't
@@ -124,6 +124,16 @@ every captured segment goes through both.
   Homebrew `whisper-cpp` has no Core ML encoder, which would cut it. Accuracy
   was chosen over speed here; `MOCKINGBIRD_ASR_MODEL` takes a file name in
   `models/` or a path, so a slower Mac can drop to `small.en`.
+- **Q8_0 over Q5_0**, measured on a 57s recording of real speech: Q8_0 both
+  reads better ("I just woke up, it's my birthday" where Q5_0 gave "with my
+  birthday", "Fixed punctuation" where Q5_0 gave "Exponctuation") and runs
+  slightly faster (4843ms vs 5007ms). The 300 MB is worth it.
+- **How the audio is cut matters as much as the model.** On the same
+  recording, cutting the silences out of the middle, or trimming tight to the
+  speech, produced wrong words and capitals mid-sentence; keeping the
+  silences and padding ~1s either side produced clean sentences. `trimToSpeech`
+  does the latter — Whisper reads a sentence from the rhythm around it, not
+  only from the words.
 - The integration tests still use `base.en` (~148 MB), which keeps them
   quick; it is not what ships.
 
