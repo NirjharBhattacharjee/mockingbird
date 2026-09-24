@@ -71,16 +71,24 @@ export function shouldSkipLlm(
   return confidence >= minCleanConfidence && looksClean(text);
 }
 
+/** Past this length, a cleanup that loses a fifth of the words is dropping content. */
+const LONG_TEXT = 120;
+
 /**
- * Rejects LLM output that looks like an answer or a rewrite rather than a cleanup,
- * so the pipeline falls back to the raw transcript.
+ * Rejects LLM output that looks like an answer, a summary, or a rewrite rather
+ * than a cleanup, so the pipeline falls back to the raw transcript. A short
+ * utterance can legitimately lose half its length ("um, yes" → "Yes."), but a
+ * long one coming back much shorter means sentences were dropped — which is
+ * how a long dictation loses words.
  */
 export function acceptCleanup(raw: string, cleaned: string): boolean {
   if (!cleaned || /<\/?transcript>/i.test(cleaned)) return false;
+  FILLER.lastIndex = 0;
   const rawLength = raw.replace(FILLER, "").trim().length;
   if (rawLength === 0) return false;
   const ratio = cleaned.length / rawLength;
-  return ratio >= 0.5 && ratio <= 1.5;
+  const floor = rawLength > LONG_TEXT ? 0.8 : 0.5;
+  return ratio >= floor && ratio <= 1.5;
 }
 
 /** Words a question usually opens with. */

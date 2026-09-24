@@ -80,6 +80,22 @@ describe("buildCleanupPrompt", () => {
   });
 });
 
+describe("acceptCleanup on long text", () => {
+  const long = `${"I went to the shop and bought some bread and milk and then walked home. ".repeat(3)}`;
+
+  test("keeps a cleanup that stays about the same length", () => {
+    expect(acceptCleanup(long, long.replace("and then", "then"))).toBe(true);
+  });
+
+  test("rejects one that dropped sentences", () => {
+    expect(acceptCleanup(long, "I went to the shop and walked home.")).toBe(false);
+  });
+
+  test("a short utterance may still lose half its length", () => {
+    expect(acceptCleanup("um, yes", "Yes.")).toBe(true);
+  });
+});
+
 describe("formatText", () => {
   test("normalizes whitespace", () => {
     expect(formatText("  Hello   world. ")).toBe("Hello world.");

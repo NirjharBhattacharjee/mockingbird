@@ -10,7 +10,7 @@ import {
   type LlmProvider,
   shouldSkipLlm,
 } from "@mockingbird/llm";
-import { type SpeechSegment, trimToSpeech } from "@mockingbird/vad";
+import { type SpeechSegment, spliceSpeech } from "@mockingbird/vad";
 
 export type PipelineDeps = {
   detectSpeech: (audio: PcmAudio) => Promise<SpeechSegment[]>;
@@ -79,7 +79,7 @@ export async function runPipeline(
   }
 
   t = performance.now();
-  const asr = await deps.asr.transcribe(trimToSpeech(heard, segments));
+  const asr = await deps.asr.transcribe(spliceSpeech(heard, segments));
   const asrMs = elapsed(t);
   const common = { ...base, rawText: asr.text, vadMs, asrMs };
 

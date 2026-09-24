@@ -18,7 +18,8 @@
     "type": "bun apps/daemon/src/type.ts",
     "fixtures": "sh scripts/make-fixtures.sh",
     "demo": "bun scripts/render-demo.ts",
-    "bench:models": "bun bench/models.ts"
+    "bench:models": "bun bench/models.ts",
+    "bench:record": "bun bench/record.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",

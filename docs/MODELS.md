@@ -129,6 +129,10 @@ every captured segment goes through both.
 
 ## 5. Cleanup / formatting LLM — Qwen3-4B-Instruct
 
+- **When its output is rejected:** `acceptCleanup` falls back to the raw
+  transcript when the cleaned text is far shorter than what went in (80% for
+  text over 120 characters, 50% below that) or far longer, or when it looks
+  like an answer rather than a rewrite.
 - **When it runs:** only when the transcript needs it. `shouldSkipLlm`
   (`packages/llm/src/cleanup.ts`) skips cleanup for very short utterances, and
   for confident transcripts that carry no filler word and no stutter —

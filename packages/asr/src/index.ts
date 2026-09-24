@@ -3,6 +3,7 @@ export {
   AsrRequestError,
   parseVerboseJson,
   startWhisperServer,
+  stripNonSpeech,
   WhisperServerEngine,
   type WhisperServerProcess,
 } from "./whisper-server.ts";

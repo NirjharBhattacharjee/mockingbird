@@ -13,15 +13,26 @@ export class AsrRequestError extends Error {
   override name = "AsrRequestError";
 }
 
+/**
+ * Sounds rather than words: Whisper writes "..." for a pause it still heard
+ * something in, and bracketed tags like [BLANK_AUDIO] or [MUSIC] for the
+ * rest. Only square-bracket tags are dropped — a dictated "(page 3)" is real
+ * text, and round brackets are left alone.
+ */
+export function stripNonSpeech(text: string): string {
+  return text
+    .replace(/\[[^\]]*\]/g, " ")
+    .replace(/(?:\.\s*){3,}|…/g, " ")
+    .replace(/\s+([,.!?;:])/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function parseVerboseJson(body: VerboseJson): AsrResult {
   const segments = body.segments ?? [];
   // Segments can split a word mid-token ("dict" / "ation"); each segment carries
   // its own leading space when it starts a new word, so join without a separator.
-  const text = segments
-    .map((s) => s.text)
-    .join("")
-    .replace(/\s+/g, " ")
-    .trim();
+  const text = stripNonSpeech(segments.map((s) => s.text).join(""));
 
   const words: AsrWord[] = segments.flatMap((s) =>
     (s.words ?? []).map((w) => ({
