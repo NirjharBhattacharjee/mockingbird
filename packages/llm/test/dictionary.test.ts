@@ -64,6 +64,11 @@ describe("applyCorrections", () => {
     expect(applyCorrections("Hi, I'm Nerj Herbata Chargy.", dictionary)).toBe("Hi, I'm Nirjhar.");
   });
 
+  test("writes a term literally, even with $ in it", () => {
+    const money = parseDictionary("dollar amp => $&\ntwo dollars => $$1");
+    expect(applyCorrections("say dollar amp and two dollars", money)).toBe("say $& and $$1");
+  });
+
   test("ignores case but keeps word boundaries", () => {
     expect(applyCorrections("CAT PUCK is nice", dictionary)).toBe("Catppuccin is nice");
     expect(applyCorrections("the cat pucker", dictionary)).toBe("the cat pucker");

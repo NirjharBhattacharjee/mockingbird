@@ -28,6 +28,46 @@ export const DEFAULT_ASR_MODEL = "ggml-large-v3-q5_0.bin";
 
 const SETUP_HINT = "\nRun scripts/install.sh to download it (see Install in README.md).";
 
+/**
+ * Earlier defaults, best first. An install from before the default changed has
+ * one of these and not the new one; it keeps dictating on it until
+ * scripts/install.sh is run again, rather than not starting at all.
+ */
+const FALLBACK_ASR_MODELS = [
+  "ggml-large-v3-turbo-q8_0.bin",
+  "ggml-large-v3-turbo-q5_0.bin",
+  "ggml-medium.en-q5_0.bin",
+  "ggml-small.en-q5_1.bin",
+  "ggml-base.en.bin",
+];
+
+/**
+ * The Whisper model to load. One named in MOCKINGBIRD_ASR_MODEL has to exist;
+ * without it, the default, or else the best earlier default that's installed.
+ */
+export function findAsrModel(
+  models: string,
+  configured: string | undefined,
+  log: (message: string) => void,
+): string {
+  if (configured) {
+    return requireFile(
+      configured.includes("/") ? configured : join(models, configured),
+      "Whisper model",
+      SETUP_HINT,
+    );
+  }
+  const preferred = join(models, DEFAULT_ASR_MODEL);
+  if (existsSync(preferred)) return preferred;
+  const fallback = FALLBACK_ASR_MODELS.map((name) => join(models, name)).find(existsSync);
+  if (!fallback) return requireFile(preferred, "Whisper model", SETUP_HINT);
+  log(
+    `warning: ${DEFAULT_ASR_MODEL} isn't downloaded, so ${fallback} is used instead.\n` +
+      "Run scripts/install.sh to download it (see Install in README.md).",
+  );
+  return fallback;
+}
+
 export type Engines = {
   deps: PipelineDeps;
   close(): Promise<void>;
@@ -77,12 +117,7 @@ export async function startEngines(log: (message: string) => void): Promise<Engi
   const models = join(home, "models");
   // MOCKINGBIRD_ASR_MODEL takes a path, or a file name inside models/, so a
   // smaller model can be used on a slower Mac without touching the code.
-  const asrModel = env.MOCKINGBIRD_ASR_MODEL ?? DEFAULT_ASR_MODEL;
-  const whisperModel = requireFile(
-    asrModel.includes("/") ? asrModel : join(models, asrModel),
-    "Whisper model",
-    SETUP_HINT,
-  );
+  const whisperModel = findAsrModel(models, env.MOCKINGBIRD_ASR_MODEL, log);
   const vadModel = requireFile(join(models, "silero_vad.onnx"), "Silero VAD model", SETUP_HINT);
   const llmUrl = env.MOCKINGBIRD_LLM_URL ?? "http://127.0.0.1:11434";
   const llm = new OllamaProvider(

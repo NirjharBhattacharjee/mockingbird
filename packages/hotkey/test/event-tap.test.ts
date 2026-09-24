@@ -76,6 +76,7 @@ describe("TapDecoder", () => {
       if (keycode === KEYCODE_ESCAPE || keycode === KEYCODE_FN) continue;
       expect(decoder.decode(EVENT_TYPE_KEY_DOWN, keycode, 0, keycode)).toEqual({
         type: "input",
+        source: "key",
         at: keycode,
       });
       expect(decoder.decode(EVENT_TYPE_KEY_UP, keycode, 0, keycode)).toBeUndefined();
@@ -84,7 +85,11 @@ describe("TapDecoder", () => {
 
   test("a mouse click counts as input", () => {
     const decoder = new TapDecoder();
-    expect(decoder.decode(EVENT_TYPE_LEFT_MOUSE_DOWN, 0, 0, 5)).toEqual({ type: "input", at: 5 });
+    expect(decoder.decode(EVENT_TYPE_LEFT_MOUSE_DOWN, 0, 0, 5)).toEqual({
+      type: "input",
+      source: "click",
+      at: 5,
+    });
   });
 
   test("Fn, the globe key, and mockingbird's own typing aren't input", () => {

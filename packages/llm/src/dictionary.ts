@@ -74,7 +74,8 @@ export function applyCorrections(text: string, entries: DictionaryEntry[]): stri
   let out = text;
   for (const { heard, term } of entries) {
     if (!heard) continue;
-    out = out.replace(new RegExp(`\\b${escapeForRegex(heard)}\\b`, "gi"), term);
+    // A callback, so "$&" or "$1" in a term is written as is, not expanded.
+    out = out.replace(new RegExp(`\\b${escapeForRegex(heard)}\\b`, "gi"), () => term);
   }
   return out;
 }

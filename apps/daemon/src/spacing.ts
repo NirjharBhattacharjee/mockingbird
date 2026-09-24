@@ -10,7 +10,9 @@ export type LastTyped = {
 /**
  * How close to a Fn press or release a key press has to be to count as part
  * of it. A quick Fn tap can reach the event tap as a key press of its own, and
- * which keycode it carries isn't something to rely on.
+ * which keycode it carries isn't something to rely on. Clicks are never
+ * excused this way: Fn doesn't produce one, and a click just before holding Fn
+ * is the usual way to put the cursor somewhere new.
  */
 const FN_WINDOW_MS = 300;
 /** Plenty for the gap between two dictations; older entries are dropped. */
@@ -22,13 +24,18 @@ const MAX_EVENTS = 64;
  * have moved since then.
  */
 export class InputTracker {
-  private inputs: number[] = [];
+  private keys: number[] = [];
+  private clicked = false;
   private fnEvents: number[] = [];
 
   /** A key other than Fn was pressed, or the mouse clicked. */
-  input(at: number): void {
-    this.inputs.push(at);
-    if (this.inputs.length > MAX_EVENTS) this.inputs.shift();
+  input(at: number, source: "key" | "click"): void {
+    if (source === "click") {
+      this.clicked = true;
+      return;
+    }
+    this.keys.push(at);
+    if (this.keys.length > MAX_EVENTS) this.keys.shift();
   }
 
   /** Fn went down or up. */
@@ -39,13 +46,15 @@ export class InputTracker {
 
   /** A dictation was just typed; start counting again. */
   reset(): void {
-    this.inputs = [];
+    this.keys = [];
+    this.clicked = false;
     this.fnEvents = [];
   }
 
   /** Whether anything other than Fn and what comes with it happened since `reset`. */
   hasInput(): boolean {
-    return this.inputs.some(
+    if (this.clicked) return true;
+    return this.keys.some(
       (at) => !this.fnEvents.some((fnAt) => Math.abs(fnAt - at) <= FN_WINDOW_MS),
     );
   }

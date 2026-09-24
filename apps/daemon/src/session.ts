@@ -1,5 +1,11 @@
 import { type CaptureProcess, micInputArgs, peak, startCapture } from "@mockingbird/audio";
-import { charBeforeCaret, type FrontmostApp, frontmostApp, isTerminal } from "@mockingbird/context";
+import {
+  charBeforeCaret,
+  type FrontmostApp,
+  frontmostApp,
+  isTerminal,
+  mayRunCommands,
+} from "@mockingbird/context";
 import { type Cue, cues } from "@mockingbird/cue";
 import { type HotkeyListener, startHotkeyListener } from "@mockingbird/hotkey";
 import { prepareForTyping, type TypeResult, typeText } from "@mockingbird/inject";
@@ -169,8 +175,9 @@ export async function startSession(options: SessionOptions): Promise<Session> {
         result = await typeText(text, {
           prefix,
           // A dictated list is typed as lines, with Shift+Return. Not in a
-          // terminal, where any Return runs the command.
-          lineBreaks: !terminal,
+          // terminal, or an editor with one built in, where any Return can
+          // run a command.
+          lineBreaks: !mayRunCommands(now),
           stillWanted: watch.stillThere,
         });
       } finally {
@@ -280,7 +287,7 @@ export async function startSession(options: SessionOptions): Promise<Session> {
     hotkey = startHotkeyListener({
       onEvent: (event) => {
         if (event.type === "input") {
-          inputs.input(event.at);
+          inputs.input(event.at, event.source);
           return;
         }
         if (event.type === "fn-down" || event.type === "fn-up") inputs.fn(event.at);

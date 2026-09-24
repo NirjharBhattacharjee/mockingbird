@@ -38,9 +38,11 @@ export type TapEvent =
   | { type: "key-down" | "key-up"; keycode: number; at: number }
   /**
    * Some other key was pressed or a mouse button clicked: something that may
-   * have moved the text cursor. Which key, or where, is never passed on.
+   * have moved the text cursor. Which key, or where, is never passed on;
+   * only whether it was a key or a click, since a Fn tap can look like the one
+   * but never the other.
    */
-  | { type: "input"; at: number };
+  | { type: "input"; source: "key" | "click"; at: number };
 
 export type InputMonitoringAccess = "granted" | "denied" | "unknown";
 
@@ -67,7 +69,7 @@ export class TapDecoder {
     at: number,
     userData = 0,
   ): TapEvent | undefined {
-    if (MOUSE_DOWN.has(type)) return { type: "input", at };
+    if (MOUSE_DOWN.has(type)) return { type: "input", source: "click", at };
     if (type === EVENT_FLAGS_CHANGED) {
       if (keycode !== KEYCODE_FN) return undefined;
       const down = (flags & kCGEventFlagMaskSecondaryFn) !== 0;
@@ -82,7 +84,7 @@ export class TapDecoder {
       }
       if (type !== EVENT_KEY_DOWN || userData === TYPED_EVENT_MARK) return undefined;
       if (keycode === KEYCODE_FN || keycode === KEYCODE_GLOBE) return undefined;
-      return { type: "input", at };
+      return { type: "input", source: "key", at };
     }
     return undefined;
   }

@@ -49,7 +49,7 @@ describe("InputTracker", () => {
 
   test("a key press or click counts", () => {
     const inputs = new InputTracker();
-    inputs.input(1_000);
+    inputs.input(1_000, "key");
     expect(inputs.hasInput()).toBe(true);
   });
 
@@ -57,22 +57,30 @@ describe("InputTracker", () => {
     const inputs = new InputTracker();
     // A double-tap: two quick Fn presses, each echoed as a key press.
     for (const at of [1_000, 1_080, 1_200, 1_280]) inputs.fn(at);
-    inputs.input(1_010);
-    inputs.input(1_210);
+    inputs.input(1_010, "key");
+    inputs.input(1_210, "key");
     expect(inputs.hasInput()).toBe(false);
+  });
+
+  test("a click counts even right next to Fn", () => {
+    const inputs = new InputTracker();
+    // Click to move the cursor, then hold Fn straight away.
+    inputs.input(1_000, "click");
+    inputs.fn(1_100);
+    expect(inputs.hasInput()).toBe(true);
   });
 
   test("a key press well away from Fn still counts", () => {
     const inputs = new InputTracker();
     inputs.fn(1_000);
-    inputs.input(1_000);
-    inputs.input(3_000);
+    inputs.input(1_000, "key");
+    inputs.input(3_000, "key");
     expect(inputs.hasInput()).toBe(true);
   });
 
   test("starts over after each dictation", () => {
     const inputs = new InputTracker();
-    inputs.input(1_000);
+    inputs.input(1_000, "key");
     inputs.reset();
     expect(inputs.hasInput()).toBe(false);
   });
