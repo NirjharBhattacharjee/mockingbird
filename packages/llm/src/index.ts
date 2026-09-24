@@ -2,6 +2,7 @@ export {
   type AppStyle,
   acceptCleanup,
   buildCleanupPrompt,
+  bulletize,
   formatText,
   type GateOptions,
   looksClean,

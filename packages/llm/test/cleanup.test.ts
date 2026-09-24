@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   acceptCleanup,
   buildCleanupPrompt,
+  bulletize,
   formatText,
   looksClean,
   looksLikeList,
@@ -135,6 +136,39 @@ describe("lists", () => {
 
   test("a terminal never gets line breaks", () => {
     expect(formatText("groceries:\n- onions", "terminal")).toBe("groceries: - onions");
+  });
+});
+
+describe("bulletize", () => {
+  // What qwen3 actually returned for this dictation: one line per item, but
+  // "I need to" left on every one of them.
+  const cleaned =
+    "I need to go to the washroom.\nI need to build this thing.\nI need to eat my breakfast.\nTomorrow I need to run a marathon.\nThen I need to do something.";
+
+  test("turns repeated lead-ins into bullets", () => {
+    expect(bulletize(cleaned)).toBe(
+      "To do:\n- go to the washroom\n- build this thing\n- eat my breakfast\n- run a marathon tomorrow\n- do something",
+    );
+  });
+
+  test("leaves a list the model already bulleted", () => {
+    const list = "Groceries:\n- onions\n- rice\n- bread";
+    expect(bulletize(list)).toBe(list);
+  });
+
+  test("leaves prose alone, however many lines", () => {
+    for (const text of [
+      "One sentence only.",
+      "I went to the shop.\nIt was raining.\nI made tea.",
+      "I need to go.\nThe weather is nice.\nIt rained all day.",
+    ]) {
+      expect(bulletize(text)).toBe(text);
+    }
+  });
+
+  test("needs at least three items", () => {
+    const two = "I need to go.\nI need to run.";
+    expect(bulletize(two)).toBe(two);
   });
 });
 

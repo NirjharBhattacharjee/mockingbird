@@ -6,6 +6,7 @@ import {
   applyCorrections,
   buildCleanupPrompt,
   buildVocabularyPrompt,
+  bulletize,
   correctNames,
   type DictionaryEntry,
   formatText,
@@ -91,7 +92,13 @@ export async function runPipeline(
   const dictionary = deps.dictionary ?? [];
   /** Formatting, then the dictionary: replacements first, then names by sound. */
   const finish = (text: string) =>
-    correctNames(applyCorrections(formatText(text, style), dictionary), dictionary);
+    correctNames(
+      applyCorrections(
+        formatText(style === "terminal" ? text : bulletize(text), style),
+        dictionary,
+      ),
+      dictionary,
+    );
   const common = { ...base, rawText: asr.text, vadMs, asrMs };
 
   if (shouldSkipLlm(asr, deps.gate)) {
