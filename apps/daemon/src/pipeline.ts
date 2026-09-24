@@ -3,7 +3,9 @@ import { durationMs, normalizeLoudness, type PcmAudio } from "@mockingbird/audio
 import {
   type AppStyle,
   acceptCleanup,
+  applyCorrections,
   buildCleanupPrompt,
+  buildVocabularyPrompt,
   type DictionaryEntry,
   formatText,
   type GateOptions,
@@ -17,6 +19,8 @@ export type PipelineDeps = {
   asr: AsrEngine;
   llm: LlmProvider;
   dictionary?: DictionaryEntry[];
+  /** Give Whisper the dictionary before it listens. Off by default: it can distort other names. */
+  vocabularyHint?: boolean;
   gate?: GateOptions;
 };
 
@@ -79,14 +83,17 @@ export async function runPipeline(
   }
 
   t = performance.now();
-  const asr = await deps.asr.transcribe(trimToSpeech(heard, segments));
+  const asr = await deps.asr.transcribe(trimToSpeech(heard, segments), {
+    vocabulary: deps.vocabularyHint ? buildVocabularyPrompt(deps.dictionary ?? []) : undefined,
+  });
   const asrMs = elapsed(t);
+  const dictionary = deps.dictionary ?? [];
   const common = { ...base, rawText: asr.text, vadMs, asrMs };
 
   if (shouldSkipLlm(asr, deps.gate)) {
     return {
       ...common,
-      finalText: formatText(asr.text, style),
+      finalText: applyCorrections(formatText(asr.text, style), dictionary),
       llmMs: null,
       llmOutcome: "skipped",
       llmModel: null,
@@ -103,7 +110,7 @@ export async function runPipeline(
     // Degrade, don't break: a dead LLM still leaves usable raw dictation.
     return {
       ...common,
-      finalText: formatText(asr.text, style),
+      finalText: applyCorrections(formatText(asr.text, style), dictionary),
       llmMs: elapsed(t),
       llmOutcome: "failed",
       llmError: String(error),
@@ -115,7 +122,7 @@ export async function runPipeline(
 
   return {
     ...common,
-    finalText: formatText(accepted ? cleaned : asr.text, style),
+    finalText: applyCorrections(formatText(accepted ? cleaned : asr.text, style), dictionary),
     llmMs,
     llmOutcome: accepted ? "cleaned" : "rejected",
     llmModel: deps.llm.model,

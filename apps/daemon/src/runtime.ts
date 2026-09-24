@@ -1,8 +1,15 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { startWhisperServer } from "@mockingbird/asr";
-import { isLocalUrl, OllamaProvider, ollamaRunning, startOllamaServer } from "@mockingbird/llm";
+import {
+  type DictionaryEntry,
+  isLocalUrl,
+  OllamaProvider,
+  ollamaRunning,
+  parseDictionary,
+  startOllamaServer,
+} from "@mockingbird/llm";
 import { detectSpeech, SileroVad } from "@mockingbird/vad";
 import type { PipelineDeps } from "./pipeline.ts";
 
@@ -11,8 +18,13 @@ export function requireFile(path: string, what: string, hint = ""): string {
   return path;
 }
 
-/** Bigger than base.en, and far better on accents and quiet speech (docs/MODELS.md). */
-export const DEFAULT_ASR_MODEL = "ggml-large-v3-turbo-q8_0.bin";
+/**
+ * Whisper `large-v3`. Measured against the distilled `large-v3-turbo`: turbo
+ * writes South Asian and East Asian names phonetically ("Nurj Harbada
+ * Charjee"), large-v3 spells them ("Nirjhar Bhattacharjee") with no help.
+ * It costs ~0.5s more on a short dictation (docs/MODELS.md).
+ */
+export const DEFAULT_ASR_MODEL = "ggml-large-v3-q5_0.bin";
 
 const SETUP_HINT = "\nRun scripts/install.sh to download it (see Install in README.md).";
 
@@ -21,10 +33,48 @@ export type Engines = {
   close(): Promise<void>;
 };
 
+const DICTIONARY_TEMPLATE = `# Words mockingbird should get right: names, places, jargon.
+# One per line. Lines starting with # are ignored.
+#
+#   Nirjhar Bhattacharjee          spell it this way
+#   Catppuccin (a colour theme)    with a note for the cleanup model
+#   cat puck => Catppuccin         what it hears => what to write
+#
+# The first two are given to the cleanup model as spellings to keep. The third
+# is a plain replacement, applied to the finished text — the reliable fix for
+# a word that comes out wrong the same way every time.
+#
+# Setting MOCKINGBIRD_ASR_VOCABULARY=1 also reads these words to Whisper
+# before it listens. That can fix a name it never gets right, but it bends
+# names it already spelled correctly, so it is off by default.
+#
+# Takes effect on "mockingbird restart".
+`;
+
+/**
+ * The user's own vocabulary. Whisper spells an unfamiliar name phonetically
+ * however good the model is, so the words that matter to this person have to
+ * be nameable somewhere.
+ */
+export function loadDictionary(home: string): DictionaryEntry[] {
+  const path = join(home, "dictionary.txt");
+  try {
+    if (!existsSync(path)) {
+      writeFileSync(path, DICTIONARY_TEMPLATE, { flag: "wx" });
+      return [];
+    }
+    return parseDictionary(readFileSync(path, "utf8"));
+  } catch {
+    // A dictionary that can't be read costs spelling, not dictation.
+    return [];
+  }
+}
+
 /** Checks the models, loads VAD, starts whisper-server, and checks Ollama. */
 export async function startEngines(log: (message: string) => void): Promise<Engines> {
   const env = process.env;
-  const models = join(env.MOCKINGBIRD_HOME ?? join(homedir(), ".mockingbird"), "models");
+  const home = env.MOCKINGBIRD_HOME ?? join(homedir(), ".mockingbird");
+  const models = join(home, "models");
   // MOCKINGBIRD_ASR_MODEL takes a path, or a file name inside models/, so a
   // smaller model can be used on a slower Mac without touching the code.
   const asrModel = env.MOCKINGBIRD_ASR_MODEL ?? DEFAULT_ASR_MODEL;
@@ -90,7 +140,15 @@ export async function startEngines(log: (message: string) => void): Promise<Engi
     });
     stopWhisper = whisper.stop;
     return {
-      deps: { detectSpeech: (audio) => detectSpeech(vad, audio), asr: whisper.engine, llm },
+      deps: {
+        detectSpeech: (audio) => detectSpeech(vad, audio),
+        asr: whisper.engine,
+        llm,
+        dictionary: loadDictionary(home),
+        // Opt-in: it fixes a name Whisper never gets, at the risk of bending
+        // ones it already spells correctly (packages/llm/src/dictionary.ts).
+        vocabularyHint: env.MOCKINGBIRD_ASR_VOCABULARY === "1",
+      },
       close,
     };
   } catch (error) {

@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import { encodeWav, type PcmAudio } from "@mockingbird/audio";
-import type { AsrEngine, AsrResult, AsrWord } from "./engine.ts";
+import type { AsrEngine, AsrResult, AsrWord, TranscribeOptions } from "./engine.ts";
 
 type VerboseJson = {
   segments?: {
@@ -57,7 +57,7 @@ export class WhisperServerEngine implements AsrEngine {
     readonly model: string,
   ) {}
 
-  async transcribe(audio: PcmAudio): Promise<AsrResult> {
+  async transcribe(audio: PcmAudio, { vocabulary }: TranscribeOptions = {}): Promise<AsrResult> {
     const form = new FormData();
     form.append("file", new Blob([encodeWav(audio)], { type: "audio/wav" }), "segment.wav");
     form.append("response_format", "verbose_json");
@@ -65,6 +65,9 @@ export class WhisperServerEngine implements AsrEngine {
     // large-v3-turbo is multilingual: pinning the language stops it drifting
     // to another one on accented English.
     form.append("language", "en");
+    // Whisper spells a name it doesn't know phonetically ("Nerj Herbata
+    // Chargy"); given the word up front it writes it properly.
+    if (vocabulary) form.append("prompt", vocabulary);
 
     const res = await fetch(`${this.baseUrl}/inference`, { method: "POST", body: form });
     if (!res.ok) throw new AsrRequestError(`whisper-server ${res.status}: ${await res.text()}`);

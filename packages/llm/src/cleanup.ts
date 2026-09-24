@@ -1,8 +1,7 @@
+import type { DictionaryEntry } from "./dictionary.ts";
 import type { CompletionRequest } from "./provider.ts";
 
 export type AppStyle = "default" | "terminal";
-
-export type DictionaryEntry = { term: string; hint?: string };
 
 export function buildCleanupPrompt({
   text,

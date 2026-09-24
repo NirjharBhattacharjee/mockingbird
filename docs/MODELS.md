@@ -32,7 +32,7 @@ models, *where* in the pipeline each one sits, and *how* it's invoked.
 | Model | Role | Runs via | Runs as | Default size class |
 |---|---|---|---|---|
 | **Silero VAD** | Voice activity detection — decide when speech starts/stops in the audio stream | `onnxruntime-node` | native module, in-process | ~1–2 MB (ONNX) |
-| **Whisper `large-v3-turbo`, Q5_0** | Speech-to-text (ASR) — audio → raw transcript | `whisper.cpp` (`whisper-server`) | subprocess, HTTP `:8771` | ~800 MB–1.5 GB quantized |
+| **Whisper `large-v3`, Q5_0** | Speech-to-text (ASR) — audio → raw transcript | `whisper.cpp` (`whisper-server`) | subprocess, HTTP `:8771` | 1.08 GB quantized |
 | **Qwen3-4B-Instruct, Q4** | Cleanup/formatting LLM — raw transcript → cleaned, punctuated, formatted text | Ollama **or** `llama-server` (llama.cpp) | subprocess, HTTP `:8772` | ~2.5–3 GB quantized |
 
 Three models, three distinct jobs, three different runtimes — deliberately
@@ -47,7 +47,7 @@ this size range is best at all three.
 sequenceDiagram
     participant RB as Ring Buffer (PCM)
     participant VAD as Silero VAD\n(in-process)
-    participant ASR as whisper-server\n(large-v3-turbo Q5_0)
+    participant ASR as whisper-server\n(large-v3 Q5_0)
     participant Gate as LLM Gate
     participant LLM as llama-server / Ollama\n(Qwen3-4B-Instruct Q4)
     participant Fmt as Formatter
@@ -112,7 +112,7 @@ every captured segment goes through both.
   `whisper-server` dies, the supervisor restarts it — dictation queues or
   degrades rather than silently failing, per the "degrade, don't break"
   principle in [ARCHITECTURE.md §2](./ARCHITECTURE.md#2-core-principles).
-- **Model file:** `large-v3-turbo`, quantized to `Q8_0` (874 MB), shipped by
+- **Model file:** `large-v3`, quantized to `Q5_0` (1.08 GB), shipped by
   `scripts/install.sh` and the default in `apps/daemon/src/runtime.ts`. It is
   multilingual, which is what makes it hold up on accented English where the
   English-only models drop words; requests pin `language=en` so it doesn't
@@ -124,7 +124,16 @@ every captured segment goes through both.
   Homebrew `whisper-cpp` has no Core ML encoder, which would cut it. Accuracy
   was chosen over speed here; `MOCKINGBIRD_ASR_MODEL` takes a file name in
   `models/` or a path, so a slower Mac can drop to `small.en`.
-- **Q8_0 over Q5_0**, measured on a 57s recording of real speech: Q8_0 both
+- **`large-v3` over `large-v3-turbo`, because of names.** Turbo is a distilled
+  model with a much smaller decoder, and that is where the knowledge of
+  unusual names lives. Measured on synthetic speech naming four people:
+  turbo wrote "Nurj Harbada Charjee" and "Aishwarya Venkatasan"; `large-v3`
+  wrote "Nirjhar Bhattacharjee" and "Aishwarya Venkatesan" with no glossary.
+  Both missed "Xiaoming Zhao", which is what the user dictionary is for. The
+  cost is ~0.5s on a short dictation (2.6s vs 2.1s) and ~3s on a 57s one.
+  A production dictation app cannot spell South Asian and East Asian names
+  phonetically, so the slower model is the right default.
+- **Q8_0 over Q5_0** for turbo, measured on a 57s recording of real speech: Q8_0 both
   reads better ("I just woke up, it's my birthday" where Q5_0 gave "with my
   birthday", "Fixed punctuation" where Q5_0 gave "Exponctuation") and runs
   slightly faster (4843ms vs 5007ms). The 300 MB is worth it.
@@ -144,6 +153,33 @@ every captured segment goes through both.
   only from the words.
 - The integration tests still use `base.en` (~148 MB), which keeps them
   quick; it is not what ships.
+
+### 4a. The user dictionary — `~/.mockingbird/dictionary.txt`
+
+No model spells a name it has never seen; every dictation app relies on being
+told. The file lists the words that matter to this person, one per line, and
+feeds three places (`packages/llm/src/dictionary.ts`):
+
+| Line | What it does |
+|---|---|
+| `Nirjhar Bhattacharjee` | Given to Whisper before it listens (`prompt`), and to the cleanup model as a spelling to keep |
+| `Catppuccin (a colour theme)` | Same, with a note for the cleanup model |
+| `cat puck => Catppuccin` | A plain replacement afterwards, for a word Whisper gets wrong the same way every time |
+
+**Reading the words to Whisper is opt-in** (`MOCKINGBIRD_ASR_VOCABULARY=1`),
+because it cuts both ways. Measured on one sentence: with `base`-level models
+the hint rescued a name entirely ("Nerj Herbata Chargy" → "Nirjhar
+Bhattacharjee"), and on `large-v3` it fixed "Zaya Mingjiao" → "Xiaoming Zhao"
+— but in the same breath it bent two names the model had already spelled
+right, "Bhattacharjee" → "Bhattacharje" and "Aishwarya" → "Aiishwarya". The
+prompt biases the whole decode, not just the word it was given. The
+replacement lines carry no such risk, so they are the default advice. Whisper
+takes at most 224 tokens of prompt, so `buildVocabularyPrompt` stops at 600
+characters. The file
+is created with instructions in it on first run, and read at startup — it
+takes effect on `mockingbird restart`. `docs/DATABASE.md` has a `dictionary`
+table planned; the file is what exists today, and the TUI editor will write
+the same words.
 
 ## 5. Cleanup / formatting LLM — Qwen3-4B-Instruct
 
