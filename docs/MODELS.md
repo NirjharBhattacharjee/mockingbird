@@ -203,6 +203,13 @@ the same words.
   transcript when the cleaned text is far shorter than what went in (80% for
   text over 120 characters, 50% below that) or far longer, or when it looks
   like an answer rather than a rewrite.
+- **Lists.** Speech that enumerates things ("I'll get onions, I'll get
+  bread") is rewritten as a short heading plus one `- ` item per line, with
+  the repeated lead-in dropped. `looksLikeList` keeps such speech from
+  skipping the model, since only the model can do this, and the prompt carries
+  a worked example — without it, qwen3 split the lines but left "I will get"
+  on each. `acceptCleanup` allows a list down to 0.3 of the raw length,
+  because "I will get onions" legitimately becomes "- onions".
 - **When it runs:** only when the transcript needs it. `shouldSkipLlm`
   (`packages/llm/src/cleanup.ts`) skips cleanup for very short utterances, and
   for confident transcripts that carry no filler word and no stutter —

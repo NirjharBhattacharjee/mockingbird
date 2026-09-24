@@ -4,6 +4,7 @@ import {
   buildCleanupPrompt,
   formatText,
   looksClean,
+  looksLikeList,
   shouldSkipLlm,
 } from "../src/index.ts";
 
@@ -93,6 +94,47 @@ describe("acceptCleanup on long text", () => {
 
   test("a short utterance may still lose half its length", () => {
     expect(acceptCleanup("um, yes", "Yes.")).toBe(true);
+  });
+});
+
+describe("lists", () => {
+  test("list-like speech never skips the cleanup model", () => {
+    expect(
+      shouldSkipLlm({
+        text: "I am going for grocery. I will get onions. I will buy toilet paper.",
+        confidence: 0.99,
+      }),
+    ).toBe(false);
+    expect(
+      looksLikeList("I need to fix the bug. I have to call the bank. I also want to run."),
+    ).toBe(true);
+    expect(looksLikeList("We need milk, bread, rice and onions.")).toBe(true);
+  });
+
+  test("ordinary speech is not a list", () => {
+    expect(looksLikeList("I went to the shop today and it was raining, so I came back.")).toBe(
+      false,
+    );
+  });
+
+  test("a cleanup that turns speech into a list may be much shorter", () => {
+    const raw = "I am going for grocery. I will get onions. I will buy toilet paper and rice.";
+    expect(acceptCleanup(raw, "Groceries:\n- onions\n- toilet paper\n- rice")).toBe(true);
+  });
+
+  test("but a list that lost its items is still rejected", () => {
+    const raw = "I am going for grocery. I will get onions. I will buy toilet paper and rice.";
+    expect(acceptCleanup(raw, "Groceries:\n- onions")).toBe(false);
+  });
+
+  test("list lines keep their line breaks and get no full stops", () => {
+    expect(formatText("groceries:\n- onions\n- toilet paper")).toBe(
+      "Groceries:\n- onions\n- toilet paper",
+    );
+  });
+
+  test("a terminal never gets line breaks", () => {
+    expect(formatText("groceries:\n- onions", "terminal")).toBe("groceries: - onions");
   });
 });
 

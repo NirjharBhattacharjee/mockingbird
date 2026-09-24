@@ -5,6 +5,7 @@ export {
   formatText,
   type GateOptions,
   looksClean,
+  looksLikeList,
   shouldSkipLlm,
 } from "./cleanup.ts";
 export {

@@ -97,6 +97,11 @@ It stays off, including after a reboot, until the next `mockingbird start`.
 | `mockingbird fn` | Bind Fn to dictation only, so tapping it stops opening the emoji picker. Changes a system-wide setting, so it's never done for you |
 | `mockingbird fn --undo` | Put back the Fn setting `mockingbird fn` replaced |
 
+Dictate a list — "I'm going for groceries, I'll get onions, toilet paper and
+rice" — and it's typed as a list, one item per line. The line breaks are sent
+as Shift+Return, which chat apps take as a new line rather than "send";
+terminals keep getting a single line.
+
 Dictating after text that's already there adds a space first, so "One." then
 "Two." comes out as "One. Two." It doesn't add one at the start of a line or
 after "(". Terminals are left as they are. Each dictation also starts with a

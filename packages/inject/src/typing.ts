@@ -5,6 +5,8 @@ const APPLICATION_SERVICES =
   "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices";
 
 const kCGHIDEventTap = 0;
+const kCGEventFlagMaskShift = 0x00020000;
+const KEYCODE_RETURN = 36;
 const kCGEventSourceUserData = 42;
 
 /**
@@ -20,28 +22,50 @@ export class TypingError extends Error {
 }
 
 /**
- * Replaces characters that would do something other than insert text: newlines
- * would submit a chat message or run a shell command, control codes can do
- * worse. Tabs become spaces so indentation isn't typed into other fields.
+ * Replaces characters that would do something other than insert text. Control
+ * codes are dropped and tabs become spaces, so indentation isn't typed into
+ * other fields.
+ *
+ * Line breaks become spaces unless `lineBreaks` is set, which a dictated list
+ * needs. They are never typed as a plain Return — see `postLineBreak`.
  */
-export function sanitizeForTyping(text: string): string {
+export function sanitizeForTyping(text: string, { lineBreaks = false } = {}): string {
   let out = "";
   for (const character of text) {
     const code = character.codePointAt(0) ?? 0;
-    // Line breaks and tabs become spaces; other control codes are dropped.
     // Done by code point rather than a regex, because the formatter rewrites
     // escaped control characters in a regex literal into invisible bytes.
-    if (code === 0x0a || code === 0x0d || code === 0x09 || code === 0x0b || code === 0x0c) {
+    const isLineBreak = code === 0x0a || code === 0x0d;
+    if (isLineBreak && lineBreaks) {
+      out += "\n";
+    } else if (isLineBreak || code === 0x09 || code === 0x0b || code === 0x0c) {
       out += " ";
     } else if (code >= 0x20 && code !== 0x7f) {
       out += character;
     }
   }
-  return out.replace(/ {2,}/g, " ").trim();
+  return out
+    .replace(/[^\S\n]{2,}/g, " ")
+    .replace(/ ?\n ?/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
-/** Splits text into pieces small enough to type, never between surrogate pairs. */
+/**
+ * Splits text into pieces small enough to type, never between surrogate pairs.
+ * A line break is its own chunk, because it is posted as a key press rather
+ * than as text.
+ */
 export function chunkForTyping(text: string, maxUnits = MAX_UNITS_PER_EVENT): string[] {
+  const chunks: string[] = [];
+  for (const [index, line] of text.split("\n").entries()) {
+    if (index > 0) chunks.push("\n");
+    chunks.push(...chunkLine(line, maxUnits));
+  }
+  return chunks;
+}
+
+function chunkLine(text: string, maxUnits: number): string[] {
   const chunks: string[] = [];
   let index = 0;
   while (index < text.length) {
@@ -71,6 +95,7 @@ function loadSymbols() {
       returns: FFIType.void,
     },
     CGEventPost: { args: [FFIType.u32, FFIType.ptr], returns: FFIType.void },
+    CGEventSetFlags: { args: [FFIType.ptr, FFIType.u64], returns: FFIType.void },
     CGEventSetIntegerValueField: {
       args: [FFIType.ptr, FFIType.u32, FFIType.i64],
       returns: FFIType.void,
@@ -114,6 +139,12 @@ export type TypeTextOptions = {
    * in the text itself wouldn't survive). Nothing is typed for empty text.
    */
   prefix?: string;
+  /**
+   * Keep line breaks, typed as Shift+Return. Chat apps take that as a new line
+   * rather than "send", and editors as an ordinary newline — but a terminal
+   * runs the command either way, so callers leave this off there.
+   */
+  lineBreaks?: boolean;
 };
 
 /** How much of the sanitized text reached the app. */
@@ -146,8 +177,12 @@ export async function typeChunks(
 }
 
 /** Sanitizes text for typing and puts `prefix` in front, unless nothing is left. */
-export function prepareForTyping(text: string, prefix = ""): string {
-  const clean = sanitizeForTyping(text);
+export function prepareForTyping(
+  text: string,
+  prefix = "",
+  options: { lineBreaks?: boolean } = {},
+) {
+  const clean = sanitizeForTyping(text, options);
   return clean ? prefix + clean : "";
 }
 
@@ -156,7 +191,7 @@ export function prepareForTyping(text: string, prefix = ""): string {
  * clipboard is never touched.
  */
 export async function typeText(text: string, options: TypeTextOptions = {}): Promise<TypeResult> {
-  const clean = prepareForTyping(text, options.prefix);
+  const clean = prepareForTyping(text, options.prefix, { lineBreaks: options.lineBreaks });
   if (!clean) return { typed: 0, total: 0 };
   if (!checkTypingAccess()) {
     throw new TypingError(
@@ -170,6 +205,18 @@ export async function typeText(text: string, options: TypeTextOptions = {}): Pro
     return await typeChunks(
       clean,
       (chunk) => {
+        if (chunk === "\n") {
+          // Shift+Return: a new line in a chat app, not "send".
+          for (const keyDown of [true, false]) {
+            const event = cg.symbols.CGEventCreateKeyboardEvent(null, KEYCODE_RETURN, keyDown);
+            if (!event) throw new TypingError("macOS refused to create a keyboard event");
+            cg.symbols.CGEventSetFlags(event, kCGEventFlagMaskShift);
+            cg.symbols.CGEventSetIntegerValueField(event, kCGEventSourceUserData, TYPED_EVENT_MARK);
+            cg.symbols.CGEventPost(kCGHIDEventTap, event);
+            cf.symbols.CFRelease(event);
+          }
+          return;
+        }
         const units = new Uint16Array(chunk.length);
         for (let i = 0; i < chunk.length; i++) units[i] = chunk.charCodeAt(i);
 

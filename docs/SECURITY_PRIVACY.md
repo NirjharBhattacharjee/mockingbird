@@ -158,9 +158,14 @@ lives in `packages/inject/src/typing.ts`. As implemented today it:
 - types text as Unicode key events, so the **clipboard is never read or
   written** — nothing of yours is clobbered, and dictation doesn't end up in
   clipboard-history tools;
-- **removes line breaks before typing** (they become spaces), so dictated text
-  can't press Return for you: it can't send a half-finished message or run a
-  command in a terminal;
+- **never presses Return.** A dictated list is typed with line breaks, but
+  each one is posted as **Shift+Return**, which chat apps (Slack, WhatsApp,
+  Discord, Gmail) treat as a new line rather than "send". In a terminal, where
+  any Return runs the command, line breaks are still flattened to spaces
+  (`apps/daemon/src/session.ts` passes `lineBreaks` only for a non-terminal
+  app). So dictation still cannot send a half-finished message or run a
+  command;
+- strips every other control character, so nothing else can act as a key;
 - strips other control codes, which could otherwise do stranger things to a
   terminal;
 - types only what the pipeline produced, into whichever app you had in front;

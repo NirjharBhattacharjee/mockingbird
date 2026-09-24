@@ -166,7 +166,13 @@ export async function startSession(options: SessionOptions): Promise<Session> {
       const watch = watchFocus(now);
       let result: TypeResult;
       try {
-        result = await typeText(text, { prefix, stillWanted: watch.stillThere });
+        result = await typeText(text, {
+          prefix,
+          // A dictated list is typed as lines, with Shift+Return. Not in a
+          // terminal, where any Return runs the command.
+          lineBreaks: !terminal,
+          stillWanted: watch.stillThere,
+        });
       } finally {
         watch.stop();
       }
