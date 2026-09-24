@@ -141,10 +141,18 @@ security-sensitive file in the repo. As implemented today, that file:
 
 - creates the tap with `kCGEventTapOptionListenOnly`, so events are observed
   and never modified or swallowed;
-- **discards every keystroke except Fn and Esc inside the tap callback**, so
-  no other keycode is ever passed on, stored, or logged — the filter is three
-  lines in one function, and deliberately easy to verify;
-- never records typed characters, only key identity and timing.
+- **drops the keycode of every key except Fn and Esc inside the tap
+  callback**, so no other key's identity is ever passed on, stored, or
+  logged: the filter is one function (`TapDecoder.decode`), deliberately easy
+  to verify;
+- reduces every other key press and every mouse click to a bare "input
+  happened" with a timestamp and whether it was a key or a click, and no key,
+  character, or position. A key press within 300ms of Fn is taken as part of
+  the Fn tap; a click never is. The only
+  use is deciding whether the text cursor may have moved since the last
+  dictation (see below). Fn, the 🌐 key, and the key events mockingbird types
+  itself (marked with `TYPED_EVENT_MARK`) don't count;
+- never records typed characters, only Fn/Esc identity and timing.
 
 Typing into other apps (Accessibility) is the mirror image of that risk, and
 lives in `packages/inject/src/typing.ts`. As implemented today it:
@@ -152,9 +160,18 @@ lives in `packages/inject/src/typing.ts`. As implemented today it:
 - types text as Unicode key events, so the **clipboard is never read or
   written** — nothing of yours is clobbered, and dictation doesn't end up in
   clipboard-history tools;
-- **removes line breaks before typing** (they become spaces), so dictated text
-  can't press Return for you: it can't send a half-finished message or run a
-  command in a terminal;
+- **never presses Return.** A dictated list is typed with line breaks, but
+  each one is posted as **Shift+Return**, which chat apps (Slack, WhatsApp,
+  Discord, Gmail) treat as a new line rather than "send". In a terminal, where
+  any Return runs the command, line breaks are still flattened to spaces, and
+  so are they in an editor with a terminal built in (VS Code, Cursor, Zed,
+  JetBrains IDEs), since which pane has focus can't be seen
+  (`apps/daemon/src/session.ts` passes `lineBreaks` only when
+  `mayRunCommands` in `packages/context` says no). So dictation cannot send a
+  half-finished message or run a command in any app on that list; a terminal
+  it doesn't know, or one running in a browser tab, still takes Shift+Return
+  as Return;
+- strips every other control character, so nothing else can act as a key;
 - strips other control codes, which could otherwise do stranger things to a
   terminal;
 - types only what the pipeline produced, into whichever app you had in front;
@@ -169,9 +186,12 @@ lives in `packages/inject/src/typing.ts`. As implemented today it:
 - where that character can't be read (Chrome pages, Google Docs, Electron
   apps), falls back to the last character of **its own** previous dictation
   into the same app, held in memory only, and only if no key was pressed and
-  no mouse button clicked since. It learns that from
-  `CGEventSourceSecondsSinceLastEventType`: a count of seconds, with no key,
-  position, or app attached, which needs no permission;
+  no mouse button clicked since. It learns that from its own Fn-key tap,
+  which passes on only that some input happened, when, and whether it was a
+  key or a click (above). macOS's
+  own idle clock (`CGEventSourceSecondsSinceLastEventType`) was tried first
+  and dropped: with it, double-tap dictations never got their space, which
+  points to it counting a quick Fn tap as a key press;
 - **stops mid-text when focus leaves the app you dictated into**: typing asks a
   guard before every chunk, and `apps/daemon/src/session.ts` answers it by
   polling the frontmost app throughout. So a long dictation — hundreds of key

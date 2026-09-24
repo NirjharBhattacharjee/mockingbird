@@ -8,3 +8,6 @@ dist/
 
 # Screen recordings attached to bug reports: large, and not worth versioning.
 issues/*.mov
+
+# Recordings of a real voice, for measuring transcription. Never committed.
+bench/voice/

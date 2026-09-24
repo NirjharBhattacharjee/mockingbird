@@ -1,9 +1,13 @@
 import type { AsrEngine } from "@mockingbird/asr";
-import { durationMs, type PcmAudio } from "@mockingbird/audio";
+import { durationMs, normalizeLoudness, type PcmAudio } from "@mockingbird/audio";
 import {
   type AppStyle,
   acceptCleanup,
+  applyCorrections,
   buildCleanupPrompt,
+  buildVocabularyPrompt,
+  bulletize,
+  correctNames,
   type DictionaryEntry,
   formatText,
   type GateOptions,
@@ -17,6 +21,8 @@ export type PipelineDeps = {
   asr: AsrEngine;
   llm: LlmProvider;
   dictionary?: DictionaryEntry[];
+  /** Give Whisper the dictionary before it listens. Off by default: it can distort other names. */
+  vocabularyHint?: boolean;
   gate?: GateOptions;
 };
 
@@ -56,8 +62,12 @@ export async function runPipeline(
 ): Promise<PipelineResult> {
   const base = { durationMs: durationMs(audio), asrModel: deps.asr.model };
 
+  // A quiet voice is missed by both the VAD and Whisper, so the level is
+  // brought up before either sees it.
+  const heard = normalizeLoudness(audio);
+
   let t = performance.now();
-  const segments = await deps.detectSpeech(audio);
+  const segments = await deps.detectSpeech(heard);
   const vadMs = elapsed(t);
 
   // Whisper hallucinates text ("Thank you.") on silence, so never send it any.
@@ -75,14 +85,26 @@ export async function runPipeline(
   }
 
   t = performance.now();
-  const asr = await deps.asr.transcribe(trimToSpeech(audio, segments));
+  const asr = await deps.asr.transcribe(trimToSpeech(heard, segments), {
+    vocabulary: deps.vocabularyHint ? buildVocabularyPrompt(deps.dictionary ?? []) : undefined,
+  });
   const asrMs = elapsed(t);
+  const dictionary = deps.dictionary ?? [];
+  /** Formatting, then the dictionary: replacements first, then names by sound. */
+  const finish = (text: string) =>
+    correctNames(
+      applyCorrections(
+        formatText(style === "terminal" ? text : bulletize(text), style),
+        dictionary,
+      ),
+      dictionary,
+    );
   const common = { ...base, rawText: asr.text, vadMs, asrMs };
 
   if (shouldSkipLlm(asr, deps.gate)) {
     return {
       ...common,
-      finalText: formatText(asr.text, style),
+      finalText: finish(asr.text),
       llmMs: null,
       llmOutcome: "skipped",
       llmModel: null,
@@ -99,7 +121,7 @@ export async function runPipeline(
     // Degrade, don't break: a dead LLM still leaves usable raw dictation.
     return {
       ...common,
-      finalText: formatText(asr.text, style),
+      finalText: finish(asr.text),
       llmMs: elapsed(t),
       llmOutcome: "failed",
       llmError: String(error),
@@ -111,7 +133,7 @@ export async function runPipeline(
 
   return {
     ...common,
-    finalText: formatText(accepted ? cleaned : asr.text, style),
+    finalText: finish(accepted ? cleaned : asr.text),
     llmMs,
     llmOutcome: accepted ? "cleaned" : "rejected",
     llmModel: deps.llm.model,

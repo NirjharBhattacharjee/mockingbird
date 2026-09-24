@@ -1,4 +1,5 @@
 import { dlopen, FFIType, JSCallback, ptr } from "bun:ffi";
+import { TYPED_EVENT_MARK } from "@mockingbird/inject";
 
 const CORE_FOUNDATION = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation";
 const APPLICATION_SERVICES =
@@ -10,38 +11,65 @@ const kCGHeadInsertEventTap = 0;
 /** Listen-only: events are observed, never modified or swallowed. */
 const kCGEventTapOptionListenOnly = 1;
 const kCGKeyboardEventKeycode = 9;
+const kCGEventSourceUserData = 42;
 const kCGEventFlagMaskSecondaryFn = 0x800000;
 const kCFStringEncodingUTF8 = 0x08000100;
 const kIOHIDRequestTypeListenEvent = 1;
 
+const EVENT_LEFT_MOUSE_DOWN = 1;
+const EVENT_RIGHT_MOUSE_DOWN = 3;
 const EVENT_KEY_DOWN = 10;
 const EVENT_KEY_UP = 11;
 const EVENT_FLAGS_CHANGED = 12;
-const EVENT_MASK = (1n << 10n) | (1n << 11n) | (1n << 12n);
+const EVENT_OTHER_MOUSE_DOWN = 25;
+const MOUSE_DOWN = new Set([EVENT_LEFT_MOUSE_DOWN, EVENT_RIGHT_MOUSE_DOWN, EVENT_OTHER_MOUSE_DOWN]);
+const EVENT_MASK = [EVENT_KEY_DOWN, EVENT_KEY_UP, EVENT_FLAGS_CHANGED, ...MOUSE_DOWN].reduce(
+  (mask, type) => mask | (1n << BigInt(type)),
+  0n,
+);
 
 export const KEYCODE_FN = 63;
+/** The 🌐 key on newer Apple keyboards, which a quick Fn tap can also produce. */
+export const KEYCODE_GLOBE = 179;
 export const KEYCODE_ESCAPE = 53;
 
 export type TapEvent =
   | { type: "fn-down" | "fn-up"; at: number }
-  | { type: "key-down" | "key-up"; keycode: number; at: number };
+  | { type: "key-down" | "key-up"; keycode: number; at: number }
+  /**
+   * Some other key was pressed or a mouse button clicked: something that may
+   * have moved the text cursor. Which key, or where, is never passed on;
+   * only whether it was a key or a click, since a Fn tap can look like the one
+   * but never the other.
+   */
+  | { type: "input"; source: "key" | "click"; at: number };
 
 export type InputMonitoringAccess = "granted" | "denied" | "unknown";
 
 export const EVENT_TYPE_KEY_DOWN = EVENT_KEY_DOWN;
 export const EVENT_TYPE_KEY_UP = EVENT_KEY_UP;
 export const EVENT_TYPE_FLAGS_CHANGED = EVENT_FLAGS_CHANGED;
+export const EVENT_TYPE_LEFT_MOUSE_DOWN = EVENT_LEFT_MOUSE_DOWN;
 
 /**
- * Decides which raw macOS events become hotkey events. Every key except Fn and
- * Esc is dropped here, so nothing else is ever passed on, stored, or logged
- * (docs/SECURITY_PRIVACY.md §4). Kept separate from the FFI callback so it can
- * be tested.
+ * Decides which raw macOS events become hotkey events. Fn and Esc are passed
+ * on; every other key press and mouse click becomes a bare `input` with its
+ * keycode and position dropped here, so which key was pressed is never passed
+ * on, stored, or logged (docs/SECURITY_PRIVACY.md §4). Fn, 🌐, and the key
+ * events mockingbird types itself don't count as input. Kept separate from the
+ * FFI callback so it can be tested.
  */
 export class TapDecoder {
   private fnDown = false;
 
-  decode(type: number, keycode: number, flags: number, at: number): TapEvent | undefined {
+  decode(
+    type: number,
+    keycode: number,
+    flags: number,
+    at: number,
+    userData = 0,
+  ): TapEvent | undefined {
+    if (MOUSE_DOWN.has(type)) return { type: "input", source: "click", at };
     if (type === EVENT_FLAGS_CHANGED) {
       if (keycode !== KEYCODE_FN) return undefined;
       const down = (flags & kCGEventFlagMaskSecondaryFn) !== 0;
@@ -51,8 +79,12 @@ export class TapDecoder {
       return { type: down ? "fn-down" : "fn-up", at };
     }
     if (type === EVENT_KEY_DOWN || type === EVENT_KEY_UP) {
-      if (keycode !== KEYCODE_ESCAPE) return undefined;
-      return { type: type === EVENT_KEY_DOWN ? "key-down" : "key-up", keycode, at };
+      if (keycode === KEYCODE_ESCAPE) {
+        return { type: type === EVENT_KEY_DOWN ? "key-down" : "key-up", keycode, at };
+      }
+      if (type !== EVENT_KEY_DOWN || userData === TYPED_EVENT_MARK) return undefined;
+      if (keycode === KEYCODE_FN || keycode === KEYCODE_GLOBE) return undefined;
+      return { type: "input", source: "key", at };
     }
     return undefined;
   }
@@ -117,8 +149,8 @@ export type EventTap = {
 };
 
 /**
- * Creates a listen-only keyboard tap that reports the Fn key and Esc, and
- * nothing else. The caller drives it with poll(), which blocks the current
+ * Creates a listen-only keyboard and mouse tap that reports the Fn key, Esc,
+ * and that some other input happened, without which. The caller drives it with poll(), which blocks the current
  * thread — run it on a worker, not the main thread.
  */
 export function createEventTap(onEvent: (event: TapEvent) => void): EventTap {
@@ -132,7 +164,10 @@ export function createEventTap(onEvent: (event: TapEvent) => void): EventTap {
         cg.symbols.CGEventGetIntegerValueField(event as never, kCGKeyboardEventKeycode),
       );
       const flags = Number(cg.symbols.CGEventGetFlags(event as never));
-      const decoded = decoder.decode(type, keycode, flags, Date.now());
+      const userData = Number(
+        cg.symbols.CGEventGetIntegerValueField(event as never, kCGEventSourceUserData),
+      );
+      const decoded = decoder.decode(type, keycode, flags, Date.now(), userData);
       if (decoded) onEvent(decoded);
       return event;
     },

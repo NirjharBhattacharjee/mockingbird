@@ -1,4 +1,4 @@
-import { dlopen, FFIType, type Pointer, ptr } from "bun:ffi";
+import { dlopen, FFIType, ptr } from "bun:ffi";
 
 const CORE_FOUNDATION = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation";
 const APPLICATION_SERVICES =
@@ -10,32 +10,40 @@ const kAXErrorSuccess = 0;
 /** Seconds an app gets to answer, so a hung one can't hold up typing. */
 const MESSAGING_TIMEOUT_S = 0.25;
 
+/**
+ * CoreFoundation objects are handled as `u64` (a bigint), never `ptr`. Short
+ * strings like the one character asked for here come back as tagged pointers,
+ * with the top bit set: turning one into a JS number rounds it, and handing
+ * the rounded value back to CoreFoundation crashes the process.
+ */
+const REF = FFIType.u64;
+
 function loadSymbols() {
   const cf = dlopen(CORE_FOUNDATION, {
-    CFRelease: { args: [FFIType.ptr], returns: FFIType.void },
+    CFRelease: { args: [REF], returns: FFIType.void },
     CFStringCreateWithCString: {
       args: [FFIType.ptr, FFIType.ptr, FFIType.u32],
-      returns: FFIType.ptr,
+      returns: REF,
     },
-    CFGetTypeID: { args: [FFIType.ptr], returns: FFIType.u64_fast },
+    CFGetTypeID: { args: [REF], returns: FFIType.u64_fast },
     CFStringGetTypeID: { args: [], returns: FFIType.u64_fast },
-    CFStringGetLength: { args: [FFIType.ptr], returns: FFIType.i64_fast },
-    CFStringGetCharacterAtIndex: { args: [FFIType.ptr, FFIType.i64], returns: FFIType.u16 },
+    CFStringGetLength: { args: [REF], returns: FFIType.i64_fast },
+    CFStringGetCharacterAtIndex: { args: [REF, FFIType.i64], returns: FFIType.u16 },
   });
   const ax = dlopen(APPLICATION_SERVICES, {
     AXIsProcessTrusted: { args: [], returns: FFIType.bool },
-    AXUIElementCreateSystemWide: { args: [], returns: FFIType.ptr },
-    AXUIElementSetMessagingTimeout: { args: [FFIType.ptr, FFIType.f32], returns: FFIType.i32 },
+    AXUIElementCreateSystemWide: { args: [], returns: REF },
+    AXUIElementSetMessagingTimeout: { args: [REF, FFIType.f32], returns: FFIType.i32 },
     AXUIElementCopyAttributeValue: {
-      args: [FFIType.ptr, FFIType.ptr, FFIType.ptr],
+      args: [REF, REF, FFIType.ptr],
       returns: FFIType.i32,
     },
     AXUIElementCopyParameterizedAttributeValue: {
-      args: [FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.ptr],
+      args: [REF, REF, REF, FFIType.ptr],
       returns: FFIType.i32,
     },
-    AXValueCreate: { args: [FFIType.u32, FFIType.ptr], returns: FFIType.ptr },
-    AXValueGetValue: { args: [FFIType.ptr, FFIType.u32, FFIType.ptr], returns: FFIType.bool },
+    AXValueCreate: { args: [FFIType.u32, FFIType.ptr], returns: REF },
+    AXValueGetValue: { args: [REF, FFIType.u32, FFIType.ptr], returns: FFIType.bool },
   });
   return { cf, ax };
 }
@@ -56,13 +64,13 @@ export function charBeforeCaret(): string | undefined {
     return undefined;
   }
   const { cf, ax } = symbols;
-  const owned: Pointer[] = [];
-  /** Remembers a pointer to release at the end; null for a missing one. */
-  const own = (ref: Pointer | bigint | null): Pointer | null => {
-    const pointer = (typeof ref === "bigint" ? Number(ref) : ref) as Pointer | null;
-    if (!pointer) return null;
-    owned.push(pointer);
-    return pointer;
+  const owned: bigint[] = [];
+  /** Remembers a reference to release at the end; null for a missing one. */
+  const own = (ref: bigint | number | null): bigint | null => {
+    if (ref === null || ref === 0 || ref === 0n) return null;
+    const handle = BigInt(ref);
+    owned.push(handle);
+    return handle;
   };
   const cfString = (text: string) =>
     own(
@@ -73,7 +81,7 @@ export function charBeforeCaret(): string | undefined {
       ),
     );
   /** Copies an attribute into `owned`; null when the app didn't give one. */
-  const copy = (element: Pointer, attribute: string, parameter?: Pointer): Pointer | null => {
+  const copy = (element: bigint, attribute: string, parameter?: bigint): bigint | null => {
     const name = cfString(attribute);
     if (!name) return null;
     const out = new BigUint64Array(1);

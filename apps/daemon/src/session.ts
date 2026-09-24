@@ -4,8 +4,7 @@ import {
   type FrontmostApp,
   frontmostApp,
   isTerminal,
-  needsLeadingSpace,
-  secondsSinceInput,
+  mayRunCommands,
 } from "@mockingbird/context";
 import { type Cue, cues } from "@mockingbird/cue";
 import { type HotkeyListener, startHotkeyListener } from "@mockingbird/hotkey";
@@ -16,7 +15,7 @@ import { ListenController } from "./listen-controller.ts";
 import { describeTimings, type PipelineResult, runPipeline } from "./pipeline.ts";
 import { Recorder, type Recording } from "./recorder.ts";
 import { startEngines } from "./runtime.ts";
-import { charBefore, describeSpacing, type LastTyped, lastInputAt } from "./spacing.ts";
+import { decideSpacing, InputTracker, type LastTyped } from "./spacing.ts";
 import { Supervisor } from "./supervisor.ts";
 
 /** Whether the text reached the app, and why not when it didn't. */
@@ -135,6 +134,10 @@ export async function startSession(options: SessionOptions): Promise<Session> {
 
   /** Where the last dictation ended, for apps that can't say what's before the cursor. */
   let lastTyped: LastTyped | undefined;
+  /** Key presses and clicks since then, from the Fn key's event tap. */
+  const inputs = new InputTracker();
+  /** Whether those are being watched: it needs the Fn key's event tap. */
+  let watchingInput = false;
 
   const deliver = async (text: string, target: FrontmostApp | undefined): Promise<Delivery> => {
     if (!typingAllowed) return { typed: false, reason: "typing isn't allowed" };
@@ -155,31 +158,35 @@ export async function startSession(options: SessionOptions): Promise<Session> {
       // Terminals are left alone: their text is the scrollback, not a field.
       const terminal = isTerminal(now);
       const read = terminal ? undefined : charBeforeCaret();
-      const before = terminal
-        ? undefined
-        : charBefore({
+      const decision = terminal
+        ? { space: false, why: "terminals are left alone" }
+        : decideSpacing({
             read,
             last: lastTyped,
             bundleId: now.bundleId,
-            now: Date.now(),
-            idleSeconds: secondsSinceInput(),
+            inputSince: watchingInput ? inputs.hasInput() : undefined,
           });
-      const prefix = needsLeadingSpace(before) ? " " : "";
-      const spacing = terminal ? "no space (terminal)" : describeSpacing(read, before);
+      const prefix = decision.space ? " " : "";
+      const spacing = `${decision.space ? "space added" : "no space"}: ${decision.why}`;
       lastTyped = undefined;
       const watch = watchFocus(now);
       let result: TypeResult;
       try {
-        result = await typeText(text, { prefix, stillWanted: watch.stillThere });
+        result = await typeText(text, {
+          prefix,
+          // A dictated list is typed as lines, with Shift+Return. Not in a
+          // terminal, or an editor with one built in, where any Return can
+          // run a command.
+          lineBreaks: !mayRunCommands(now),
+          stillWanted: watch.stillThere,
+        });
       } finally {
         watch.stop();
       }
       if (result.typed >= result.total) {
         const lastChar = prepareForTyping(text).slice(-1);
-        const idle = secondsSinceInput();
-        if (lastChar && idle !== undefined) {
-          lastTyped = { bundleId: now.bundleId, inputAt: lastInputAt(Date.now(), idle), lastChar };
-        }
+        if (lastChar) lastTyped = { bundleId: now.bundleId, lastChar };
+        inputs.reset();
         return { typed: true, spacing };
       }
       return {
@@ -214,6 +221,7 @@ export async function startSession(options: SessionOptions): Promise<Session> {
 
     if (!delivery.typed && result.finalText) cue("error");
     onResult?.(result, delivery);
+    if (delivery.typed) notify(delivery.spacing);
     if (truncated) notify("the recording hit the 2-minute limit, so the end was cut off");
     if (result.llmOutcome === "failed") notify(`cleanup failed: ${result.llmError}`);
     notify(describeTimings(result));
@@ -278,6 +286,11 @@ export async function startSession(options: SessionOptions): Promise<Session> {
   if (hotkeyAllowed) {
     hotkey = startHotkeyListener({
       onEvent: (event) => {
+        if (event.type === "input") {
+          inputs.input(event.at, event.source);
+          return;
+        }
+        if (event.type === "fn-down" || event.type === "fn-up") inputs.fn(event.at);
         const action = fsm.handle(event);
         if (action === "start") controller.startRecording();
         else if (action === "stop") controller.stopRecording();
@@ -289,6 +302,7 @@ export async function startSession(options: SessionOptions): Promise<Session> {
     });
     try {
       await hotkey.ready;
+      watchingInput = true;
     } catch (error) {
       notify(`Fn key unavailable: ${error instanceof Error ? error.message : String(error)}`);
       await hotkey.stop();

@@ -101,9 +101,32 @@ export async function detectSpeech(
     }));
 }
 
-export function trimToSpeech(audio: PcmAudio, segments: SpeechSegment[]): PcmAudio {
+/**
+ * Everything from the first word to the last, plus `padMs` either side —
+ * silences in the middle included. Measured on real speech: cutting the
+ * silences out, or trimming tight to the speech, makes Whisper noticeably
+ * worse (wrong words, capitals mid-sentence), because it reads a sentence
+ * from the rhythm around it as much as from the words.
+ *
+ * Measured on a 57s recording: with 700ms of padding, `large-v3-turbo`
+ * dropped a 20s passage from the middle of it; with 1500ms it transcribed
+ * the lot. Whisper decides per 30s window whether a stretch is speech, and
+ * too little room around the words pushes that decision the wrong way.
+ */
+export function trimToSpeech(
+  audio: PcmAudio,
+  segments: SpeechSegment[],
+  { padMs = 1500 }: { padMs?: number } = {},
+): PcmAudio {
   const first = segments[0];
   const last = segments.at(-1);
   if (!first || !last) return { ...audio, samples: new Int16Array(0) };
-  return { ...audio, samples: audio.samples.slice(first.startSample, last.endSample) };
+  const pad = Math.round((audio.sampleRate * padMs) / 1000);
+  return {
+    ...audio,
+    samples: audio.samples.slice(
+      Math.max(0, first.startSample - pad),
+      Math.min(audio.samples.length, last.endSample + pad),
+    ),
+  };
 }

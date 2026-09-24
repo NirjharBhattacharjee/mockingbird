@@ -40,3 +40,34 @@ const TERMINAL_BUNDLE_IDS = new Set([
 export function isTerminal(app: FrontmostApp | undefined): boolean {
   return app !== undefined && TERMINAL_BUNDLE_IDS.has(app.bundleId);
 }
+
+/**
+ * Editors with a terminal built in. Which pane has focus can't be seen from
+ * outside, so the whole app is treated as one that may run what's typed.
+ */
+const TERMINAL_HOST_BUNDLE_IDS = new Set([
+  "com.microsoft.VSCode",
+  "com.microsoft.VSCodeInsiders",
+  "com.vscodium",
+  "com.todesktop.230313mzl4w4u92", // Cursor
+  "com.exafunction.windsurf",
+  "dev.zed.Zed",
+  "dev.zed.Zed-Preview",
+  "com.panic.Nova",
+]);
+
+/**
+ * Whether a Return typed into this app might run a command: a terminal, or an
+ * editor that hosts one. A dictated list's line breaks are flattened to spaces
+ * there, since a terminal takes Shift+Return as Return.
+ */
+export function mayRunCommands(app: FrontmostApp | undefined): boolean {
+  if (app === undefined) return true;
+  return (
+    isTerminal(app) ||
+    TERMINAL_HOST_BUNDLE_IDS.has(app.bundleId) ||
+    // Every JetBrains IDE has a terminal tool window.
+    app.bundleId.startsWith("com.jetbrains.") ||
+    app.bundleId.startsWith("com.google.android.studio")
+  );
+}

@@ -4,6 +4,7 @@ export {
   prepareForTyping,
   requestTypingAccess,
   sanitizeForTyping,
+  TYPED_EVENT_MARK,
   type TypeResult,
   type TypeTextOptions,
   TypingError,

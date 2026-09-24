@@ -32,7 +32,7 @@ models, *where* in the pipeline each one sits, and *how* it's invoked.
 | Model | Role | Runs via | Runs as | Default size class |
 |---|---|---|---|---|
 | **Silero VAD** | Voice activity detection — decide when speech starts/stops in the audio stream | `onnxruntime-node` | native module, in-process | ~1–2 MB (ONNX) |
-| **Whisper `large-v3-turbo`, Q5_0** | Speech-to-text (ASR) — audio → raw transcript | `whisper.cpp` (`whisper-server`) | subprocess, HTTP `:8771` | ~800 MB–1.5 GB quantized |
+| **Whisper `large-v3`, Q5_0** | Speech-to-text (ASR) — audio → raw transcript | `whisper.cpp` (`whisper-server`) | subprocess, HTTP `:8771` | 1.08 GB quantized |
 | **Qwen3-4B-Instruct, Q4** | Cleanup/formatting LLM — raw transcript → cleaned, punctuated, formatted text | Ollama **or** `llama-server` (llama.cpp) | subprocess, HTTP `:8772` | ~2.5–3 GB quantized |
 
 Three models, three distinct jobs, three different runtimes — deliberately
@@ -47,7 +47,7 @@ this size range is best at all three.
 sequenceDiagram
     participant RB as Ring Buffer (PCM)
     participant VAD as Silero VAD\n(in-process)
-    participant ASR as whisper-server\n(large-v3-turbo Q5_0)
+    participant ASR as whisper-server\n(large-v3 Q5_0)
     participant Gate as LLM Gate
     participant LLM as llama-server / Ollama\n(Qwen3-4B-Instruct Q4)
     participant Fmt as Formatter
@@ -112,14 +112,125 @@ every captured segment goes through both.
   `whisper-server` dies, the supervisor restarts it — dictation queues or
   degrades rather than silently failing, per the "degrade, don't break"
   principle in [ARCHITECTURE.md §2](./ARCHITECTURE.md#2-core-principles).
-- **Model file:** `large-v3-turbo`, quantized to `Q5_0`. This is the
-  accuracy/latency/size tradeoff point chosen for v1 — swappable per
-  [§7](#7-model-swapping--configuration). Development and the integration
-  tests currently use the much smaller `base.en` (~148 MB); `large-v3-turbo`
-  hasn't been measured on this pipeline yet.
+- **Model file:** `large-v3`, quantized to `Q5_0` (1.08 GB), shipped by
+  `scripts/install.sh` and the default in `apps/daemon/src/runtime.ts`. It is
+  multilingual, which is what makes it hold up on accented English where the
+  English-only models drop words; requests pin `language=en` so it doesn't
+  drift to another language.
+- **Measured on an M3 (warm server, 4.5s clip, median of 3 —
+  `bun run bench:models`):** `base.en` 177ms, `small.en` Q5_1 533ms,
+  `medium.en` Q5_0 1508ms, `large-v3-turbo` Q8_0 2142ms, `large-v3-turbo`
+  Q5_0 2248ms. The encoder alone is ~1.1s of that on the GPU, and the
+  Homebrew `whisper-cpp` has no Core ML encoder, which would cut it. Accuracy
+  was chosen over speed here; `MOCKINGBIRD_ASR_MODEL` takes a file name in
+  `models/` or a path, so a slower Mac can drop to `small.en`.
+- **Full precision is not better.** `ggml-large-v3.bin` (f16, 3.1 GB) wrote
+  "Nirjher" and "Zia Ming Zhao" where Q5_0 (1.08 GB) wrote "Nirjhar
+  Bhattacharjee" and, with the dictionary, "Xiaoming Zhao". Quantization is
+  not what limits name spelling, so Q5_0 stays.
+- **`large-v3` over `large-v3-turbo`, because of names.** Turbo is a distilled
+  model with a much smaller decoder, and that is where the knowledge of
+  unusual names lives. Measured on synthetic speech naming four people:
+  turbo wrote "Nurj Harbada Charjee" and "Aishwarya Venkatasan"; `large-v3`
+  wrote "Nirjhar Bhattacharjee" and "Aishwarya Venkatesan" with no glossary.
+  Both missed "Xiaoming Zhao", which is what the user dictionary is for. The
+  cost is ~0.5s on a short dictation (2.6s vs 2.1s) and ~3s on a 57s one.
+  A production dictation app cannot spell South Asian and East Asian names
+  phonetically, so the slower model is the right default.
+- **Q8_0 over Q5_0** for turbo, measured on a 57s recording of real speech: Q8_0 both
+  reads better ("I just woke up, it's my birthday" where Q5_0 gave "with my
+  birthday", "Fixed punctuation" where Q5_0 gave "Exponctuation") and runs
+  slightly faster (4843ms vs 5007ms). The 300 MB is worth it.
+- **Too little silence around the speech loses whole passages.** On that same
+  recording, `large-v3-turbo` with 700ms of padding dropped a 20-second
+  stretch from the middle (373 characters instead of 650); at 1500ms it
+  transcribed all of it. Whisper decides per 30-second window whether a
+  stretch is speech, and a tight cut pushes that decision the wrong way.
+  `-nth` (no-speech threshold) and `-sns` made no difference — padding did.
+  `large-v3` (non-turbo) never dropped it at any padding, but takes ~7s to
+  turbo's ~3.8s on a 57s clip, and was no more accurate here.
+- **How the audio is cut matters as much as the model.** On the same
+  recording, cutting the silences out of the middle, or trimming tight to the
+  speech, produced wrong words and capitals mid-sentence; keeping the
+  silences and padding ~1s either side produced clean sentences. `trimToSpeech`
+  does the latter — Whisper reads a sentence from the rhythm around it, not
+  only from the words.
+- The integration tests still use `base.en` (~148 MB), which keeps them
+  quick; it is not what ships.
+
+### 4a. The user dictionary — `~/.mockingbird/dictionary.txt`
+
+No model spells a name it has never seen; every dictation app relies on being
+told. The file lists the words that matter to this person, one per line, and
+feeds three places (`packages/llm/src/dictionary.ts`):
+
+| Line | What it does |
+|---|---|
+| `Nirjhar Bhattacharjee` | Given to Whisper before it listens (`prompt`), and to the cleanup model as a spelling to keep |
+| `Catppuccin (a colour theme)` | Same, with a note for the cleanup model |
+| `cat puck => Catppuccin` | A plain replacement afterwards, for a word Whisper gets wrong the same way every time |
+
+**A term is matched by sound, not spelling** (`correctNames`, `soundOf`).
+Whisper writes an unfamiliar name as it hears it, and never the same way
+twice: "Nurj Harbada Charjee", "Nerj Herbata Chargy". Comparing letters finds
+neither. `soundOf` reduces a word to its consonant skeleton with the
+distinctions that don't survive mishearing folded together — aspirated
+consonants (`bh`→`b`), `c`/`k`/`q`, `sh`/`ch`/`j`/`z`/`x`, `v`/`w` — and spans
+of one to four words are compared against each term. Measured on the
+benchmark transcripts: all three manglings above resolve to the right name,
+while "llama", "categorise the puck", "Richard" and "Sid and Ash" are left
+alone. A word only joins a span if including it improves the match, so
+"and Siddharth Mukherjee" doesn't swallow the "and".
+
+**Reading the words to Whisper is opt-in** (`MOCKINGBIRD_ASR_VOCABULARY=1`),
+because it cuts both ways. Measured on one sentence: with `base`-level models
+the hint rescued a name entirely ("Nerj Herbata Chargy" → "Nirjhar
+Bhattacharjee"), and on `large-v3` it fixed "Zaya Mingjiao" → "Xiaoming Zhao"
+— but in the same breath it bent two names the model had already spelled
+right, "Bhattacharjee" → "Bhattacharje" and "Aishwarya" → "Aiishwarya". The
+prompt biases the whole decode, not just the word it was given. The
+replacement lines carry no such risk, so they are the default advice. Whisper
+takes at most 224 tokens of prompt, so `buildVocabularyPrompt` stops at 600
+characters. The file
+is created with instructions in it on first run, and read at startup — it
+takes effect on `mockingbird restart`. `docs/DATABASE.md` has a `dictionary`
+table planned; the file is what exists today, and the TUI editor will write
+the same words.
 
 ## 5. Cleanup / formatting LLM — Qwen3-4B-Instruct
 
+- **When its output is rejected:** `acceptCleanup` falls back to the raw
+  transcript when the cleaned text is far shorter than what went in (80% for
+  text over 120 characters, 50% below that) or far longer, or when it looks
+  like an answer rather than a rewrite.
+- **Lists.** Speech that enumerates things ("I'll get onions, I'll get
+  bread") is rewritten as a short heading plus one `- ` item per line, with
+  the repeated lead-in dropped. `looksLikeList` keeps such speech from
+  skipping the model, since only the model can do this, and the prompt carries
+  two worked examples — with one grocery example only, qwen3 handled "I will
+  get onions" but left "I need to" on every line of a list of tasks.
+  `bulletize` is the backstop for that failure: when the model returns one
+  line per item but repeats the same lead-in ("I need to", "I will"), it
+  strips the lead-in and bullets the lines itself, moving a time word to the
+  end of its item ("Tomorrow I need to run a marathon" → "- run a marathon
+  tomorrow"). It needs at least three lines, 60% of them sharing the lead-in,
+  and leaves prose and already-bulleted lists untouched. `acceptCleanup` allows a list down to 0.3 of the raw length,
+  because "I will get onions" legitimately becomes "- onions".
+- **Sequences.** Steps done in an order ("first boil the water, then add the
+  tea, finally add milk", "number one ... number two", "step one ...") become
+  a numbered list (`1. `, `2. `) rather than bullets, and `looksLikeList`
+  counts ordinals and "next", "after that", "finally" as list markers. A list
+  needs three or more items: with fewer, qwen3 tended to force a sentence
+  into a list by dropping half of it ("ship it, but first run the tests" →
+  "- Run the tests first"), so `acceptCleanup` rejects a list of one or two
+  items and the transcript is typed as a sentence. The prompt also keeps a
+  story about what already happened ("we landed, then took a train") as
+  prose.
+- **When it runs:** only when the transcript needs it. `shouldSkipLlm`
+  (`packages/llm/src/cleanup.ts`) skips cleanup for very short utterances, and
+  for confident transcripts that carry no filler word and no stutter —
+  `formatText` supplies the capital and the end punctuation without a model.
+  Cleanup costs 400-1500ms, which is most of the wait after speaking.
 - **Job:** take the raw ASR transcript plus context (user dictionary,
   frontmost-app profile) and produce the final text — punctuation,
   capitalization, disfluency removal ("um", false starts), per-app style

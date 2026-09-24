@@ -85,7 +85,7 @@ describe("runPipeline", () => {
     const result = await runPipeline(
       { audio },
       deps({
-        asr: fakeAsr({ text: "this should still come through fine", confidence: 0.9 }),
+        asr: fakeAsr({ text: "this should still come through fine", confidence: 0.6 }),
         llm: fakeLlm(new Error("connection refused")),
       }),
     );
@@ -98,7 +98,7 @@ describe("runPipeline", () => {
     const result = await runPipeline(
       { audio },
       deps({
-        asr: fakeAsr({ text: "what is the capital of france", confidence: 0.9 }),
+        asr: fakeAsr({ text: "what is the capital of france", confidence: 0.6 }),
         llm: fakeLlm("Paris."),
       }),
     );

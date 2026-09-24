@@ -8,7 +8,7 @@ option, permissions, troubleshooting, and privacy. After it, the
 
 ## Quick start
 
-You need a Mac with Apple Silicon, [Homebrew](https://brew.sh), and about 3 GB of
+You need a Mac with Apple Silicon, [Homebrew](https://brew.sh), and about 6 GB of
 free space.
 
 **1. Install everything**
@@ -36,12 +36,12 @@ bun install
 
 # Models
 mkdir -p ~/.mockingbird/models
-curl -fL -o ~/.mockingbird/models/ggml-base.en.bin \
-  https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base.en.bin
+curl -fL -o ~/.mockingbird/models/ggml-large-v3-q5_0.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-large-v3-q5_0.bin
 curl -fL -o ~/.mockingbird/models/silero_vad.onnx \
   https://github.com/snakers4/silero-vad/raw/v6.2.2/src/silero_vad/data/silero_vad.onnx
 (cd ~/.mockingbird/models && shasum -a 256 -c) <<'SUMS'
-a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002  ggml-base.en.bin
+d75795ecff3f83b5faa89d1900604ad8c780abd5739fae406de19f23ecd98ad1  ggml-large-v3-q5_0.bin
 1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3  silero_vad.onnx
 SUMS
 
@@ -96,6 +96,11 @@ It stays off, including after a reboot, until the next `mockingbird start`.
 | `mockingbird status` | Whether it's running, and what it can see |
 | `mockingbird fn` | Bind Fn to dictation only, so tapping it stops opening the emoji picker. Changes a system-wide setting, so it's never done for you |
 | `mockingbird fn --undo` | Put back the Fn setting `mockingbird fn` replaced |
+
+Dictate a list — "I'm going for groceries, I'll get onions, toilet paper and
+rice" — and it's typed as a list, one item per line. The line breaks are sent
+as Shift+Return, which chat apps take as a new line rather than "send";
+terminals keep getting a single line.
 
 Dictating after text that's already there adds a space first, so "One." then
 "Two." comes out as "One. Two." It doesn't add one at the start of a line or
@@ -242,6 +247,8 @@ Environment variables:
 | Variable | Default |
 |---|---|
 | `MOCKINGBIRD_HOME` (where `models/` is) | `~/.mockingbird` |
+| `MOCKINGBIRD_ASR_MODEL` (a file in `models/`, or a path) | `ggml-large-v3-q5_0.bin` |
+| `MOCKINGBIRD_ASR_VOCABULARY` (read `dictionary.txt` to Whisper; can distort other names) | off |
 | `MOCKINGBIRD_ASR_PORT` | `8771` |
 | `MOCKINGBIRD_LLM_URL` | `http://127.0.0.1:11434` |
 | `MOCKINGBIRD_LLM_MODEL` | `qwen3:4b-instruct-2507-q4_K_M` |

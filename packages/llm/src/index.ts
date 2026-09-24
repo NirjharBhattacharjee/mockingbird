@@ -2,11 +2,22 @@ export {
   type AppStyle,
   acceptCleanup,
   buildCleanupPrompt,
-  type DictionaryEntry,
+  bulletize,
   formatText,
   type GateOptions,
+  looksClean,
+  looksLikeList,
   shouldSkipLlm,
 } from "./cleanup.ts";
+export {
+  applyCorrections,
+  buildVocabularyPrompt,
+  correctNames,
+  type DictionaryEntry,
+  parseDictionary,
+  soundOf,
+  soundsLike,
+} from "./dictionary.ts";
 export {
   isLocalUrl,
   OllamaProvider,

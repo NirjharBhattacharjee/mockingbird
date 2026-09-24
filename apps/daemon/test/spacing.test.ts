@@ -1,62 +1,87 @@
 import { describe, expect, test } from "bun:test";
-import { charBefore, describeSpacing, type LastTyped } from "../src/spacing.ts";
+import { decideSpacing, InputTracker, type LastTyped } from "../src/spacing.ts";
 
-const last: LastTyped = { bundleId: "com.google.Chrome", inputAt: 10_000, lastChar: "." };
-const base = { last, bundleId: "com.google.Chrome", now: 15_000 };
+const last: LastTyped = { bundleId: "com.google.Chrome", lastChar: "." };
+const base = { last, bundleId: "com.google.Chrome", inputSince: false };
 
-describe("charBefore", () => {
-  test("a character the app reports wins", () => {
-    expect(charBefore({ ...base, read: "\n", idleSeconds: 60 })).toBe("\n");
+describe("decideSpacing", () => {
+  test("a character the app shows decides", () => {
+    expect(decideSpacing({ ...base, read: "a" }).space).toBe(true);
+    expect(decideSpacing({ ...base, read: "\n" }).space).toBe(false);
+    expect(decideSpacing({ ...base, read: "(" }).space).toBe(false);
+  });
+
+  test("follows the last dictation where the app doesn't show its text", () => {
+    const decision = decideSpacing({ ...base, read: undefined });
+    expect(decision.space).toBe(true);
+    expect(decision.why).toContain("follows the last dictation");
   });
 
   test("an empty field right after our own dictation is a hidden input box", () => {
-    expect(charBefore({ ...base, read: "", idleSeconds: 5 })).toBe(".");
+    expect(decideSpacing({ ...base, read: "" }).space).toBe(true);
   });
 
-  test("an empty field is believed once a key was pressed or clicked since", () => {
-    expect(charBefore({ ...base, read: "", idleSeconds: 2 })).toBe("");
+  test("no space once a key was pressed or the mouse clicked since", () => {
+    const decision = decideSpacing({ ...base, read: undefined, inputSince: true });
+    expect(decision.space).toBe(false);
+    expect(decision.why).toContain("a key was pressed");
   });
 
-  test("falls back to the last dictation when nothing was typed or clicked since", () => {
-    expect(charBefore({ ...base, read: undefined, idleSeconds: 5 })).toBe(".");
+  test("no space in a different app, or without an earlier dictation", () => {
+    expect(decideSpacing({ ...base, bundleId: "com.apple.Notes", read: undefined })).toMatchObject({
+      space: false,
+      why: expect.stringContaining("another app"),
+    });
+    expect(decideSpacing({ ...base, last: undefined, read: undefined }).space).toBe(false);
   });
 
-  test("allows for the two clocks disagreeing by a few milliseconds", () => {
-    expect(charBefore({ ...base, read: undefined, idleSeconds: 4.97 })).toBe(".");
-  });
-
-  test("unknown after a click just after the dictation finished", () => {
-    expect(charBefore({ ...base, read: undefined, idleSeconds: 4.9 })).toBeUndefined();
-    expect(charBefore({ ...base, read: "", idleSeconds: 4.9 })).toBe("");
-  });
-
-  test("unknown once a key was pressed or the mouse clicked since", () => {
-    expect(charBefore({ ...base, read: undefined, idleSeconds: 2 })).toBeUndefined();
-  });
-
-  test("unknown in a different app", () => {
-    expect(
-      charBefore({ ...base, bundleId: "com.apple.Notes", read: undefined, idleSeconds: 60 }),
-    ).toBeUndefined();
-  });
-
-  test("unknown without a previous dictation, or without idle time", () => {
-    expect(
-      charBefore({ ...base, last: undefined, read: undefined, idleSeconds: 60 }),
-    ).toBeUndefined();
-    expect(charBefore({ ...base, read: undefined, idleSeconds: undefined })).toBeUndefined();
+  test("no guessing when key presses aren't watched", () => {
+    const decision = decideSpacing({ ...base, read: undefined, inputSince: undefined });
+    expect(decision.space).toBe(false);
+    expect(decision.why).toContain("Fn listener");
   });
 });
 
-describe("describeSpacing", () => {
-  test("says where a space came from", () => {
-    expect(describeSpacing(".", ".")).toContain("the app showed");
-    expect(describeSpacing(undefined, ".")).toContain("last dictation");
-    expect(describeSpacing("", ".")).toContain("last dictation");
+describe("InputTracker", () => {
+  test("nothing since the last dictation", () => {
+    expect(new InputTracker().hasInput()).toBe(false);
   });
 
-  test("says why there's no space", () => {
-    expect(describeSpacing(undefined, undefined)).toContain("doesn't show");
-    expect(describeSpacing("\n", "\n")).toContain("start of a line");
+  test("a key press or click counts", () => {
+    const inputs = new InputTracker();
+    inputs.input(1_000, "key");
+    expect(inputs.hasInput()).toBe(true);
+  });
+
+  test("a key press that comes with a Fn tap doesn't count, whatever it is", () => {
+    const inputs = new InputTracker();
+    // A double-tap: two quick Fn presses, each echoed as a key press.
+    for (const at of [1_000, 1_080, 1_200, 1_280]) inputs.fn(at);
+    inputs.input(1_010, "key");
+    inputs.input(1_210, "key");
+    expect(inputs.hasInput()).toBe(false);
+  });
+
+  test("a click counts even right next to Fn", () => {
+    const inputs = new InputTracker();
+    // Click to move the cursor, then hold Fn straight away.
+    inputs.input(1_000, "click");
+    inputs.fn(1_100);
+    expect(inputs.hasInput()).toBe(true);
+  });
+
+  test("a key press well away from Fn still counts", () => {
+    const inputs = new InputTracker();
+    inputs.fn(1_000);
+    inputs.input(1_000, "key");
+    inputs.input(3_000, "key");
+    expect(inputs.hasInput()).toBe(true);
+  });
+
+  test("starts over after each dictation", () => {
+    const inputs = new InputTracker();
+    inputs.input(1_000, "key");
+    inputs.reset();
+    expect(inputs.hasInput()).toBe(false);
   });
 });
