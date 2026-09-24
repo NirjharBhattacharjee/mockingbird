@@ -7,6 +7,8 @@ const APPLICATION_SERVICES =
 const kCGHIDEventTap = 0;
 const kCGEventFlagMaskShift = 0x00020000;
 const KEYCODE_RETURN = 36;
+const KEYCODE_SHIFT = 56;
+const EVENT_FLAGS_CHANGED = 12;
 const kCGEventSourceUserData = 42;
 
 /**
@@ -96,6 +98,7 @@ function loadSymbols() {
     },
     CGEventPost: { args: [FFIType.u32, FFIType.ptr], returns: FFIType.void },
     CGEventSetFlags: { args: [FFIType.ptr, FFIType.u64], returns: FFIType.void },
+    CGEventSetType: { args: [FFIType.ptr, FFIType.u32], returns: FFIType.void },
     CGEventSetIntegerValueField: {
       args: [FFIType.ptr, FFIType.u32, FFIType.i64],
       returns: FFIType.void,
@@ -206,15 +209,23 @@ export async function typeText(text: string, options: TypeTextOptions = {}): Pro
       clean,
       (chunk) => {
         if (chunk === "\n") {
-          // Shift+Return: a new line in a chat app, not "send".
-          for (const keyDown of [true, false]) {
-            const event = cg.symbols.CGEventCreateKeyboardEvent(null, KEYCODE_RETURN, keyDown);
+          // Shift+Return: a new line in a chat app, not "send". The Shift is
+          // pressed and released for real around it — Chrome and Electron apps
+          // track the modifier themselves and ignore a Return that merely
+          // carries the flag.
+          const post = (keycode: number, keyDown: boolean, type?: number) => {
+            const event = cg.symbols.CGEventCreateKeyboardEvent(null, keycode, keyDown);
             if (!event) throw new TypingError("macOS refused to create a keyboard event");
-            cg.symbols.CGEventSetFlags(event, kCGEventFlagMaskShift);
+            if (type !== undefined) cg.symbols.CGEventSetType(event, type);
+            cg.symbols.CGEventSetFlags(event, keyDown ? kCGEventFlagMaskShift : 0);
             cg.symbols.CGEventSetIntegerValueField(event, kCGEventSourceUserData, TYPED_EVENT_MARK);
             cg.symbols.CGEventPost(kCGHIDEventTap, event);
             cf.symbols.CFRelease(event);
-          }
+          };
+          post(KEYCODE_SHIFT, true, EVENT_FLAGS_CHANGED);
+          post(KEYCODE_RETURN, true);
+          post(KEYCODE_RETURN, false);
+          post(KEYCODE_SHIFT, false, EVENT_FLAGS_CHANGED);
           return;
         }
         const units = new Uint16Array(chunk.length);
