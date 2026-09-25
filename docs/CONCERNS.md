@@ -1,1 +1,0 @@
-- how are we making sure that the VAD - ASR - LLM - Output is fast and instant?
