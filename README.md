@@ -257,11 +257,3 @@ should also read [AGENTS.md](AGENTS.md). Security issues go through
 ## 📄 License
 
 [MIT](LICENSE). Use it, change it, share it.
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/catppuccin/catppuccin/main/assets/footers/gray0_ctp_on_line.svg?sanitize=true" alt="">
-</p>
-
-<p align="center">
-  Theme colors from <a href="https://github.com/catppuccin/catppuccin">Catppuccin</a>.
-</p>
