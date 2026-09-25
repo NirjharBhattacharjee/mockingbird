@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import { encodeWav, type PcmAudio } from "@mockingbird/audio";
-import type { AsrEngine, AsrResult, AsrWord } from "./engine.ts";
+import type { AsrEngine, AsrResult, AsrWord, TranscribeOptions } from "./engine.ts";
 
 type VerboseJson = {
   segments?: {
@@ -13,15 +13,26 @@ export class AsrRequestError extends Error {
   override name = "AsrRequestError";
 }
 
+/**
+ * Sounds rather than words: Whisper writes "..." for a pause it still heard
+ * something in, and bracketed tags like [BLANK_AUDIO] or [MUSIC] for the
+ * rest. Only square-bracket tags are dropped — a dictated "(page 3)" is real
+ * text, and round brackets are left alone.
+ */
+export function stripNonSpeech(text: string): string {
+  return text
+    .replace(/\[[^\]]*\]/g, " ")
+    .replace(/(?:\.\s*){3,}|…/g, " ")
+    .replace(/\s+([,.!?;:])/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function parseVerboseJson(body: VerboseJson): AsrResult {
   const segments = body.segments ?? [];
   // Segments can split a word mid-token ("dict" / "ation"); each segment carries
   // its own leading space when it starts a new word, so join without a separator.
-  const text = segments
-    .map((s) => s.text)
-    .join("")
-    .replace(/\s+/g, " ")
-    .trim();
+  const text = stripNonSpeech(segments.map((s) => s.text).join(""));
 
   const words: AsrWord[] = segments.flatMap((s) =>
     (s.words ?? []).map((w) => ({
@@ -46,11 +57,17 @@ export class WhisperServerEngine implements AsrEngine {
     readonly model: string,
   ) {}
 
-  async transcribe(audio: PcmAudio): Promise<AsrResult> {
+  async transcribe(audio: PcmAudio, { vocabulary }: TranscribeOptions = {}): Promise<AsrResult> {
     const form = new FormData();
     form.append("file", new Blob([encodeWav(audio)], { type: "audio/wav" }), "segment.wav");
     form.append("response_format", "verbose_json");
     form.append("temperature", "0");
+    // large-v3-turbo is multilingual: pinning the language stops it drifting
+    // to another one on accented English.
+    form.append("language", "en");
+    // Whisper spells a name it doesn't know phonetically ("Nerj Herbata
+    // Chargy"); given the word up front it writes it properly.
+    if (vocabulary) form.append("prompt", vocabulary);
 
     const res = await fetch(`${this.baseUrl}/inference`, { method: "POST", body: form });
     if (!res.ok) throw new AsrRequestError(`whisper-server ${res.status}: ${await res.text()}`);

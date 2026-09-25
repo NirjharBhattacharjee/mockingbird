@@ -15,6 +15,7 @@ Options:
 
 Environment:
   MOCKINGBIRD_HOME       default ~/.mockingbird (models are read from its models/)
+  MOCKINGBIRD_ASR_MODEL  Whisper model file (default ggml-large-v3-q5_0.bin)
   MOCKINGBIRD_ASR_PORT   default 8771
   MOCKINGBIRD_LLM_URL    default http://127.0.0.1:11434
   MOCKINGBIRD_LLM_MODEL  default qwen3:4b-instruct-2507-q4_K_M`;
@@ -23,10 +24,10 @@ class UsageError extends Error {}
 
 const log = (message: string) => console.error(message);
 
-function parse() {
+function parse(argv: string[]) {
   try {
     return parseArgs({
-      args: Bun.argv.slice(2),
+      args: argv,
       options: {
         terminal: { type: "boolean" },
         json: { type: "boolean" },
@@ -39,8 +40,8 @@ function parse() {
   }
 }
 
-async function main(): Promise<number> {
-  const { values, positionals } = parse();
+export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> {
+  const { values, positionals } = parse(argv);
   if (values.help) {
     console.log(USAGE);
     return 0;
@@ -76,14 +77,16 @@ async function main(): Promise<number> {
   }
 }
 
-main().then(
-  (code) => process.exit(code),
-  (error) => {
-    if (error instanceof UsageError) {
-      log(`error: ${error.message}\n\n${USAGE}`);
-      process.exit(2);
-    }
-    log(`error: ${error instanceof Error ? error.message : String(error)}`);
-    process.exit(1);
-  },
-);
+if (import.meta.main) {
+  main().then(
+    (code) => process.exit(code),
+    (error) => {
+      if (error instanceof UsageError) {
+        log(`error: ${error.message}\n\n${USAGE}`);
+        process.exit(2);
+      }
+      log(`error: ${error instanceof Error ? error.message : String(error)}`);
+      process.exit(1);
+    },
+  );
+}

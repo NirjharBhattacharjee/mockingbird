@@ -127,7 +127,7 @@ about what each one actually means:
 | Permission | Why it's needed | What it *also* grants |
 |---|---|---|
 | **Microphone** | Capture audio for dictation | Nothing beyond mic access — the narrowest of the three |
-| **Accessibility** | Type dictated text into the focused app (`CGEventPost`) | Broad UI automation: the ability to synthesize any input into any app |
+| **Accessibility** | Type dictated text into the focused app (`CGEventPost`), and read the one character before the cursor there, to decide on a space | Broad UI automation: the ability to synthesize any input into any app |
 | **Input Monitoring** | Global hotkey detection (CoreGraphics event tap via `bun:ffi`) | **System-wide keystroke observation** — the same class of access a keylogger needs |
 | macOS grants storage (which apps hold which TCC grants) | — | Lives in Apple's TCC database, **not** ours — see [state ownership map, ARCHITECTURE.md §8](./ARCHITECTURE.md#8-state-ownership-map) |
 
@@ -141,10 +141,18 @@ security-sensitive file in the repo. As implemented today, that file:
 
 - creates the tap with `kCGEventTapOptionListenOnly`, so events are observed
   and never modified or swallowed;
-- **discards every keystroke except Fn and Esc inside the tap callback**, so
-  no other keycode is ever passed on, stored, or logged — the filter is three
-  lines in one function, and deliberately easy to verify;
-- never records typed characters, only key identity and timing.
+- **drops the keycode of every key except Fn and Esc inside the tap
+  callback**, so no other key's identity is ever passed on, stored, or
+  logged: the filter is one function (`TapDecoder.decode`), deliberately easy
+  to verify;
+- reduces every other key press and every mouse click to a bare "input
+  happened" with a timestamp and whether it was a key or a click, and no key,
+  character, or position. A key press within 300ms of Fn is taken as part of
+  the Fn tap; a click never is. The only
+  use is deciding whether the text cursor may have moved since the last
+  dictation (see below). Fn, the 🌐 key, and the key events mockingbird types
+  itself (marked with `TYPED_EVENT_MARK`) don't count;
+- never records typed characters, only Fn/Esc identity and timing.
 
 Typing into other apps (Accessibility) is the mirror image of that risk, and
 lives in `packages/inject/src/typing.ts`. As implemented today it:
@@ -152,13 +160,43 @@ lives in `packages/inject/src/typing.ts`. As implemented today it:
 - types text as Unicode key events, so the **clipboard is never read or
   written** — nothing of yours is clobbered, and dictation doesn't end up in
   clipboard-history tools;
-- **removes line breaks before typing** (they become spaces), so dictated text
-  can't press Return for you: it can't send a half-finished message or run a
-  command in a terminal;
+- **never presses Return.** A dictated list is typed with line breaks, but
+  each one is posted as **Shift+Return**, which chat apps (Slack, WhatsApp,
+  Discord, Gmail) treat as a new line rather than "send". In a terminal, where
+  any Return runs the command, line breaks are still flattened to spaces, and
+  so are they in an editor with a terminal built in (VS Code, Cursor, Zed,
+  JetBrains IDEs), since which pane has focus can't be seen
+  (`apps/daemon/src/session.ts` passes `lineBreaks` only when
+  `mayRunCommands` in `packages/context` says no). So dictation cannot send a
+  half-finished message or run a command in any app on that list; a terminal
+  it doesn't know, or one running in a browser tab, still takes Shift+Return
+  as Return;
+- strips every other control character, so nothing else can act as a key;
 - strips other control codes, which could otherwise do stranger things to a
   terminal;
 - types only what the pipeline produced, into whichever app you had in front;
-  it never reads what's already in that app.
+- reads **one character** of what's already in that app: the one just before
+  the cursor (or before the selection), so a new sentence gets a space after
+  the last one. `packages/context/src/caret.ts` asks for exactly that range
+  through Accessibility (`AXStringForRange`, length 1), never the field's
+  whole value. The character decides one space and is dropped; it's never
+  logged, stored, or sent to the models, and `mockingbird type --check` reports
+  only whether it could be read. Terminals are skipped, and so is any field
+  that doesn't answer within 250ms;
+- where that character can't be read (Chrome pages, Google Docs, Electron
+  apps), falls back to the last character of **its own** previous dictation
+  into the same app, held in memory only, and only if no key was pressed and
+  no mouse button clicked since. It learns that from its own Fn-key tap,
+  which passes on only that some input happened, when, and whether it was a
+  key or a click (above). macOS's
+  own idle clock (`CGEventSourceSecondsSinceLastEventType`) was tried first
+  and dropped: with it, double-tap dictations never got their space, which
+  points to it counting a quick Fn tap as a key press;
+- **stops mid-text when focus leaves the app you dictated into**: typing asks a
+  guard before every chunk, and `apps/daemon/src/session.ts` answers it by
+  polling the frontmost app throughout. So a long dictation — hundreds of key
+  events, with pauses — can't follow you into a chat window or a password
+  field. What didn't get through is reported as undelivered, never as typed.
 
 Both grants are checked before use (`CGPreflightPostEventAccess`,
 `IOHIDCheckAccess`) rather than assumed, and mockingbird degrades to printing
@@ -168,6 +206,47 @@ Because these grants are broad, macOS's own permission prompts are the
 user's real control surface — mockingbird should never try to work around a
 denied grant (e.g. no fallback keylogging technique if Input Monitoring is
 refused; dictation should simply not function until granted).
+
+### The grants land on different programs depending on how you run it
+
+TCC records a grant against the **responsible process**, not the file that
+called the API. For a command run from a terminal, responsibility resolves up
+to the terminal app — which is why `mockingbird listen` uses Ghostty's or
+Terminal's grants. Under launchd there is no such parent, so the agent's own
+executable becomes responsible.
+
+`mockingbird start` therefore does not run the agent as `bun`. It installs
+**`~/.mockingbird/bin/mockingbird`** — a copy of the Bun binary, re-signed
+ad-hoc under the identifier `mockingbird` — and points the LaunchAgent at
+that. The grants land on it, and three things follow:
+
+- **`bun` itself needs no permission.** Had the agent run as
+  `/opt/homebrew/bin/bun`, Accessibility and Input Monitoring on that binary
+  would extend to *every* bun script for which bun is the responsible process:
+  each one able to synthesize input into any app and observe every keystroke,
+  with no way to scope the grant to mockingbird or revoke it for one script
+  alone. A separately-named copy is a separate TCC client, so that does not
+  happen. Anyone upgrading from an earlier build should remove `bun` from both
+  Privacy lists.
+- **The grants survive upgrades and edits.** TCC keys an unbundled client by
+  resolved path plus, absent a signing identity, its cdhash. Our copy changes
+  on neither `brew upgrade bun` (it is ours, not Homebrew's) nor a `git pull`
+  (it is the runtime, not our TypeScript). `mockingbird start` re-copies only
+  when the installed bun has actually changed, and says so, because that is
+  the one moment the grants need redoing.
+- **The checkout becomes security-critical.** The binary executes
+  `apps/daemon/src/agent.ts` from wherever mockingbird was installed, and it
+  holds Accessibility. Anyone who can write to that directory, or to
+  `~/.mockingbird/bin/`, can type into any app as you and watch your
+  keystrokes. `bin/` is created `0700` and the plist `0600`, but the checkout
+  is on the user's own filesystem and this is worth stating plainly rather
+  than implying `0700` settles it.
+
+Compiling a genuine single binary (ARCHITECTURE §11) would be cleaner still,
+and was tried: `bun build --compile` embeds the `onnxruntime-node` addon but
+not the `libonnxruntime.1.dylib` it links against, so VAD fails to load at
+runtime. It also re-signs on every build, which would drop the grants each
+time. Both are tracked in [§9](#9-hardening-roadmap).
 
 ## 5. At-rest storage & retention
 
@@ -203,6 +282,14 @@ refused; dictation should simply not function until granted).
   implemented: log stage timings, error codes, and model names freely; never
   log `raw_text`/`final_text` content at any log level above an explicitly
   opt-in "verbose debug" mode that warns the user before enabling it.
+- **As implemented, the background agent's log holds no transcript.**
+  `mockingbird start` points launchd's `StandardOutPath`/`StandardErrorPath`
+  at `~/.mockingbird/logs/agent.log` (directory `0700`, plist `0600`). It
+  records start-up, engine and permission state, errors, and the *character
+  count* of each utterance with where it was delivered — never the words. The
+  opt-in escape hatch named above is `MOCKINGBIRD_LOG_TEXT=1`, which adds the
+  text and is off by default. The agent truncates the file at 1 MB on start,
+  because launchd appends to it forever and never rotates it.
 
 ## 6. Process & trust boundaries
 
@@ -251,6 +338,14 @@ flowchart LR
   the `curl -fsSL install.sh | sh` path is only as trustworthy as the
   install script verifying that checksum *before* execution — this must be
   a hard requirement of that script, not an afterthought.
+- **The current source installer** (`scripts/install.sh`, run from `main`
+  before any release exists) trusts GitHub and this repo, the same way
+  `git clone` does: it clones `main`, so pinning the script alone would add
+  nothing, and a checksum published in this repo can't catch a compromise of
+  this repo. Everything it fetches from elsewhere is verified: tools come from
+  Homebrew (sha256 per formula) and the models are pinned and sha256-checked.
+  Once releases exist, the one-line install should move to a tagged release
+  and verify `checksums.txt` as above.
 - **Bundled third-party binaries** (ffmpeg, whisper-server) ship inside the
   release archive. Their provenance (which upstream build, which commit,
   which signature if any) should be recorded in the release process so a
@@ -314,32 +409,41 @@ of them are mitigated by "no network calls":
 Rough priority order, highest-impact first — none of this is scheduled yet,
 this is a "if solving one of these, start here" list:
 
-1. **Encrypt `data.db` at rest**, or at minimum document and default to
+1. **Ship a genuinely compiled, stably-signed binary.** Two blockers, both
+   measured: `bun build --compile` doesn't carry `libonnxruntime.1.dylib`
+   alongside the embedded addon, and an ad-hoc signature changes on every
+   build, dropping the TCC grants. A self-signed certificate held in the
+   keychain fixes the second (the designated requirement keys on the
+   certificate, not the cdhash); the first needs the dylib shipped beside the
+   binary or VAD moved off `onnxruntime-node`. Until then the re-signed copy
+   in [§4](#4-macos-permissions-tcc) carries the grants, and the checkout it
+   runs is part of the trusted computing base.
+2. **Encrypt `data.db` at rest**, or at minimum document and default to
    `0600`/`0700` permissions on `~/.mockingbird` and its contents at setup
    time, and evaluate SQLCipher or app-level column encryption for
    `raw_text`/`final_text`.
-2. **Ship a real delete/export story** before v1 GA: `mockingbird history
+3. **Ship a real delete/export story** before v1 GA: `mockingbird history
    clear`, per-utterance delete from the TUI, and a documented retention
    policy (even if the policy is "kept forever unless you delete it" — say
    so explicitly in-product, not just in this doc).
-3. **CI network-isolation smoke test** that fails the build if the compiled
+4. **CI network-isolation smoke test** that fails the build if the compiled
    daemon makes any non-loopback connection during a scripted dictation run
    — turns [§3](#3-network-policy) from a claim into an enforced gate,
    mirroring how `ci.yml` already gates typecheck/lint/tests per
    [ARCHITECTURE.md §14](./ARCHITECTURE.md#14-cicd-pipeline).
-4. **Logging policy enforced in code review**: no transcript content above
+5. **Logging policy enforced in code review**: no transcript content above
    opt-in verbose-debug logging, checked as part of the review checklist for
    any PR touching `packages/asr`, `packages/llm`, or the daemon's logger.
-5. **Checksum/signature verification on downloaded model weights**, before
+6. **Checksum/signature verification on downloaded model weights**, before
    they're loaded by native parsers.
-6. **Loopback-service authentication** for `whisper-server`/`llama-server`
+7. **Loopback-service authentication** for `whisper-server`/`llama-server`
    (shared secret or move to Unix sockets) to close the "any local process
    can query them" gap in [§1](#1-threat-model--what-this-defends-against-and-what-it-doesnt).
-7. **Backup-tool exclusion guidance** (e.g. a documented Time Machine
+8. **Backup-tool exclusion guidance** (e.g. a documented Time Machine
    exclusion, or a `com.apple.metadata:com_apple_backup_excludeItem`
    extended attribute set at setup time) if `data.db` is to stay
    unencrypted.
-8. **GitHub's private vulnerability reporting**, enabled via the repo's
+9. **GitHub's private vulnerability reporting**, enabled via the repo's
    Security settings so `SECURITY.md`'s reporting flow is backed by
    Advisories rather than a plain email thread — see
    [§10](#10-reporting-a-vulnerability).

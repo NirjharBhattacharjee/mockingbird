@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseVerboseJson } from "../src/index.ts";
+import { parseVerboseJson, stripNonSpeech } from "../src/index.ts";
 
 describe("parseVerboseJson", () => {
   test("joins segments that split a word without inserting a space", () => {
@@ -37,5 +37,27 @@ describe("parseVerboseJson", () => {
 
   test("empty response yields empty text and zero confidence", () => {
     expect(parseVerboseJson({})).toEqual({ text: "", confidence: 0, words: [] });
+  });
+});
+
+describe("stripNonSpeech", () => {
+  test("drops the dots Whisper writes for a pause", () => {
+    expect(stripNonSpeech("But... I think so.")).toBe("But I think so.");
+    expect(stripNonSpeech("Wait. . . really?")).toBe("Wait really?");
+    expect(stripNonSpeech("So… anyway.")).toBe("So anyway.");
+  });
+
+  test("drops bracketed sounds", () => {
+    expect(stripNonSpeech("[BLANK_AUDIO]")).toBe("");
+    expect(stripNonSpeech("Hello [MUSIC] there.")).toBe("Hello there.");
+  });
+
+  test("keeps round brackets, which can be dictated", () => {
+    expect(stripNonSpeech("See the docs (page 3).")).toBe("See the docs (page 3).");
+  });
+
+  test("keeps ordinary sentences and their full stops", () => {
+    expect(stripNonSpeech("One. Two. Three.")).toBe("One. Two. Three.");
+    expect(stripNonSpeech("  Hello   world. ")).toBe("Hello world.");
   });
 });

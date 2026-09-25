@@ -1,31 +1,17 @@
 import { parseArgs } from "node:util";
-import {
-  type CaptureProcess,
-  listAudioDevices,
-  micInputArgs,
-  peak,
-  startCapture,
-} from "@mockingbird/audio";
-import { type FrontmostApp, frontmostApp, isTerminal } from "@mockingbird/context";
-import {
-  checkInputMonitoring,
-  type HotkeyListener,
-  startHotkeyListener,
-} from "@mockingbird/hotkey";
-import { checkTypingAccess, typeText } from "@mockingbird/inject";
-import { HotkeyFsm } from "./hotkey-fsm.ts";
-import { ListenController } from "./listen-controller.ts";
-import { describeTimings, runPipeline } from "./pipeline.ts";
-import type { Recording } from "./recorder.ts";
-import { Recorder } from "./recorder.ts";
-import { startEngines } from "./runtime.ts";
-import { Supervisor } from "./supervisor.ts";
+import { listAudioDevices } from "@mockingbird/audio";
+import { frontmostApp } from "@mockingbird/context";
+import { checkInputMonitoring, requestInputMonitoring } from "@mockingbird/hotkey";
+import { checkTypingAccess, requestTypingAccess } from "@mockingbird/inject";
+import { askForPermissions, type Permission, permissionHelp } from "./permissions.ts";
+import type { PipelineResult } from "./pipeline.ts";
+import { type Delivery, inputArgsFor, startSession } from "./session.ts";
 
-const USAGE = `Usage: bun run listen [--device <number|name>] [--terminal] [--json]
-       bun run listen --list-devices
+const USAGE = `Usage: mockingbird listen [--device <number|name>] [--terminal] [--json]
+       mockingbird listen --list-devices
 
 Listens to your microphone and types what you say into whatever app is in
-front, and prints it here too.
+front. The text is printed here only when it couldn't be typed.
 
 Keys:
   Fn (hold)        record while held, anywhere on the Mac
@@ -44,10 +30,12 @@ Options:
                    (default: the input selected in System Settings → Sound)
   --list-devices   list microphones and exit
   --terminal       format for a terminal (no trailing period)
+  --cues           play a sound when recording starts and stops
+                   (on by default for the background agent, off here)
   --json           print each result as JSON
   -h, --help       show this help
 
-Environment: the same variables as \`bun run transcribe --help\`, plus
+Environment: the same variables as \`mockingbird transcribe --help\`, plus
   MOCKINGBIRD_MIC_INPUT  ffmpeg input arguments to use instead of the
                          microphone, for testing (e.g. "-re -i clip.wav")`;
 
@@ -56,16 +44,42 @@ class UsageError extends Error {}
 const log = (message: string) => console.error(message);
 const clearLine = () => process.stderr.write("\r\x1b[2K");
 
-function parse() {
+export type Echo = {
+  /** A line for stderr, explaining why the text is here rather than in an app. */
+  note?: string;
+  /** What to print on stdout, if anything. */
+  text?: string;
+};
+
+/**
+ * What the terminal should show. Typing into the app is the point, so text is
+ * printed only when it didn't get there — otherwise every dictation would
+ * appear twice.
+ */
+export function echoFor(
+  result: PipelineResult,
+  delivery: Delivery,
+  options: { json?: boolean; typingWanted: boolean },
+): Echo {
+  if (options.json) return { text: JSON.stringify({ ...result, typed: delivery.typed }, null, 2) };
+  if (delivery.typed) return {};
+  if (!result.finalText) return { note: "no speech detected" };
+  // With --no-type, printing is what was asked for; nothing failed.
+  if (!options.typingWanted) return { text: result.finalText };
+  return { note: `not typed: ${delivery.reason}. Here it is:`, text: result.finalText };
+}
+
+function parse(argv: string[]) {
   try {
     return parseArgs({
-      args: Bun.argv.slice(2),
+      args: argv,
       options: {
         device: { type: "string" },
         "list-devices": { type: "boolean" },
         "no-hotkey": { type: "boolean" },
         "no-type": { type: "boolean" },
         terminal: { type: "boolean" },
+        cues: { type: "boolean" },
         json: { type: "boolean" },
         help: { type: "boolean", short: "h" },
       },
@@ -86,198 +100,94 @@ async function printDevices(): Promise<number> {
   return 0;
 }
 
-async function main(): Promise<number> {
-  const { values } = parse();
+export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> {
+  const { values } = parse(argv);
   if (values.help) {
     console.log(USAGE);
     return 0;
   }
   if (values["list-devices"]) return printDevices();
   if (!process.stdin.isTTY) {
-    throw new UsageError("listen needs an interactive terminal to read key presses");
+    throw new UsageError(
+      "listen needs an interactive terminal to read key presses.\n" +
+        "To run it in the background instead, use `mockingbird start`.",
+    );
   }
 
   const typingWanted = !values["no-type"];
   const typingAllowed = typingWanted && checkTypingAccess();
-  if (typingWanted && !typingAllowed) {
-    log(
-      "typing into apps is off: enable Accessibility for this terminal in System Settings →\n" +
-        "Privacy & Security → Accessibility, then quit and reopen it. Text is printed here meanwhile.",
-    );
-  }
-  /** Looks up the app that was in front when the recording started. */
-  let targetLookup: Promise<FrontmostApp | undefined> = Promise.resolve(undefined);
-
-  const inputArgs = process.env.MOCKINGBIRD_MIC_INPUT
-    ? process.env.MOCKINGBIRD_MIC_INPUT.split(/\s+/).filter(Boolean)
-    : micInputArgs(values.device);
-
-  const engines = await startEngines(log);
-
-  const transcribe = async ({ audio, truncated }: Recording) => {
-    const target = await targetLookup;
-    if (peak(audio.samples) === 0) {
-      clearLine();
-      log(
-        "the recording was completely silent. If macOS didn't ask for microphone access, turn it on\n" +
-          "for your terminal in System Settings → Privacy & Security → Microphone, then restart listen.",
-      );
-      return;
-    }
-    // Terminals get command-friendly text: no trailing period.
-    const style = values.terminal || isTerminal(target) ? "terminal" : "default";
-    const result = await runPipeline({ audio, style }, engines.deps);
-    clearLine();
-    if (values.json) console.log(JSON.stringify(result, null, 2));
-    else if (result.finalText) console.log(result.finalText);
-    else log("no speech detected");
-    if (truncated) log("the recording hit the 2-minute limit, so the end was cut off");
-    if (result.llmOutcome === "failed") log(`cleanup failed: ${result.llmError}`);
-
-    if (typingAllowed && result.finalText) {
-      try {
-        // Transcription takes a while; if the user switched apps meanwhile, the text
-        // would land somewhere they didn't dictate it for, so only print it.
-        const now = await frontmostApp();
-        if (!target || !now || now.bundleId !== target.bundleId) {
-          log(
-            `not typing it: the app in front changed since you started speaking` +
-              ` (${target?.name ?? "unknown"} → ${now?.name ?? "unknown"})`,
-          );
-        } else {
-          await typeText(result.finalText);
-        }
-      } catch (error) {
-        log(`couldn't type it: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
-    if (!values.json) log(describeTimings(result));
-  };
-
   const hotkeyWanted = !values["no-hotkey"];
   const hotkeyAllowed = hotkeyWanted && checkInputMonitoring() === "granted";
-  const controller = new ListenController(
-    new Recorder(),
-    transcribe,
-    (error) => {
-      clearLine();
-      log(`error: ${error instanceof Error ? error.message : String(error)}`);
-    },
-    hotkeyAllowed
-      ? { start: "hold Fn to talk (or Enter) · q: quit", stop: "release Fn · Esc: cancel" }
-      : { start: "Enter: start speaking · q: quit", stop: "Enter: stop · Esc: cancel" },
-    () => {
-      targetLookup = frontmostApp().catch(() => undefined);
-    },
-  );
-
-  const fsm = new HotkeyFsm();
-  let hotkey: HotkeyListener | undefined;
-  if (hotkeyAllowed) {
-    hotkey = startHotkeyListener({
-      onEvent: (event) => {
-        const action = fsm.handle(event);
-        if (action === "start") controller.startRecording();
-        else if (action === "stop") controller.stopRecording();
-        else if (action === "cancel") controller.cancelRecording();
-      },
-      onError: (error) => {
-        clearLine();
-        log(`Fn key unavailable: ${error.message}`);
-      },
+  const missing: Permission[] = [];
+  if (hotkeyWanted && !hotkeyAllowed) missing.push("input-monitoring");
+  if (typingWanted && !typingAllowed) missing.push("accessibility");
+  const [first, ...rest] = missing;
+  if (first) {
+    // The terminal is in front until System Settings opens, and it's the app
+    // macOS grants these to, so look it up before asking.
+    const app = (await frontmostApp().catch(() => undefined))?.name;
+    // Asked before the engines start, so System Settings is up while they load.
+    askForPermissions([first, ...rest], {
+      "input-monitoring": requestInputMonitoring,
+      accessibility: requestTypingAccess,
     });
-    try {
-      await hotkey.ready;
-    } catch (error) {
-      clearLine();
-      log(`Fn key unavailable: ${error instanceof Error ? error.message : String(error)}`);
-      await hotkey.stop();
-      hotkey = undefined;
-    }
-  } else if (hotkeyWanted) {
-    log(
-      "Fn key off: enable Input Monitoring for this terminal in System Settings →\n" +
-        "Privacy & Security → Input Monitoring, then quit and reopen it. Enter still works.",
-    );
+    log(permissionHelp([first, ...rest], app));
   }
 
-  let finish: (code: number) => void = () => {};
-  const finished = new Promise<number>((resolve) => {
-    finish = resolve;
+  const session = await startSession({
+    inputArgs: inputArgsFor(values.device),
+    terminalStyle: values.terminal,
+    typingAllowed,
+    hotkeyAllowed,
+    // Off by default here: the status line already shows what's happening.
+    cues: values.cues,
+    log,
+    beforeMessage: clearLine,
+    onResult: (result, delivery) => {
+      const echo = echoFor(result, delivery, { json: values.json, typingWanted });
+      if (echo.note) log(echo.note);
+      if (echo.text !== undefined) console.log(echo.text);
+    },
   });
-
-  let capture: CaptureProcess | undefined;
-  let lastDetail: string | undefined;
-  const supervisor = new Supervisor(
-    () => {
-      capture = startCapture({ inputArgs, onSamples: (s) => controller.onSamples(s) });
-      return capture;
-    },
-    {
-      onEvent: (event) => {
-        if (event.type === "exited") {
-          clearLine();
-          const detail = capture?.stderrTail() ?? "";
-          // ffmpeg prefixes lines with object addresses that change every run.
-          const key = detail.replace(/0x[0-9a-f]+/gi, "");
-          const message = `microphone stopped (ffmpeg exited with ${event.code})`;
-          log(detail && key !== lastDetail ? `${message}:\n${detail}` : message);
-          lastDetail = key;
-        } else if (event.type === "restarting") {
-          log(`restarting the microphone in ${event.delayMs}ms...`);
-        } else if (event.type === "gave-up") {
-          log(
-            "giving up on the microphone. Check the device with `bun run listen --list-devices`\n" +
-              "and that your terminal has microphone access in System Settings.",
-          );
-          finish(1);
-        }
-      },
-    },
-  );
 
   const onKey = (data: Buffer) => {
     const keys = data.toString();
     // Arrow keys and other escape sequences arrive as one chunk; only a lone ESC cancels.
     if (keys.length > 1 && keys.startsWith("\x1b")) return;
     for (const key of keys) {
-      if (controller.key(key) === "quit") finish(0);
+      if (session.controller.key(key) === "quit") session.end(0);
     }
   };
 
   const ticker = setInterval(() => {
-    fsm.tick(Date.now());
-    process.stderr.write(`\r\x1b[2K${controller.status()}`);
+    process.stderr.write(`\r\x1b[2K${session.controller.status()}`);
   }, 100);
   process.stdin.setRawMode(true);
   process.stdin.on("data", onKey);
   process.stdin.resume();
-  process.once("SIGTERM", () => finish(143));
-  supervisor.start();
+  process.once("SIGTERM", () => session.end(143));
 
-  const code = await finished;
+  const code = await session.ended;
 
   clearInterval(ticker);
   process.stdin.off("data", onKey);
   process.stdin.setRawMode(false);
   process.stdin.pause();
   clearLine();
-  if (controller.busy) log("finishing the current transcription...");
-  await controller.settled();
-  await hotkey?.stop();
-  await supervisor.stop();
-  await engines.close();
+  await session.close();
   return code;
 }
 
-main().then(
-  (code) => process.exit(code),
-  (error) => {
-    if (error instanceof UsageError) {
-      log(`error: ${error.message}\n\n${USAGE}`);
-      process.exit(2);
-    }
-    log(`error: ${error instanceof Error ? error.message : String(error)}`);
-    process.exit(1);
-  },
-);
+if (import.meta.main) {
+  main().then(
+    (code) => process.exit(code),
+    (error) => {
+      if (error instanceof UsageError) {
+        log(`error: ${error.message}\n\n${USAGE}`);
+        process.exit(2);
+      }
+      log(`error: ${error instanceof Error ? error.message : String(error)}`);
+      process.exit(1);
+    },
+  );
+}

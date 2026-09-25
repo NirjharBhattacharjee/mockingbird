@@ -9,8 +9,13 @@ export type AsrResult = {
   words: AsrWord[];
 };
 
+export type TranscribeOptions = {
+  /** Words to expect, so unusual names aren't spelled phonetically. */
+  vocabulary?: string;
+};
+
 export interface AsrEngine {
   readonly model: string;
-  transcribe(audio: PcmAudio): Promise<AsrResult>;
+  transcribe(audio: PcmAudio, options?: TranscribeOptions): Promise<AsrResult>;
   health(): Promise<boolean>;
 }

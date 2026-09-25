@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/demo.gif" alt="Illustration: holding Fn in a chat app, speaking, and letting go types the cleaned-up sentence into the message box, while bun run listen shows its status" width="100%">
+  <img src="docs/assets/demo.gif" alt="Illustration: running mockingbird start once, after which the terminal is no longer needed; then holding Fn in a chat app, speaking, and letting go types the cleaned-up sentence into the message box" width="100%">
 </p>
 
 <p align="center">
@@ -31,229 +31,59 @@ cloud, no usage limits. A free, open-source alternative to Wispr Flow
 ([why](docs/PHILOSOPHY.md)).
 
 > [!NOTE]
-> **Early days.** Hold `Fn` anywhere, speak, and the text is typed into
-> whatever app you're in. History, custom vocabulary and the dashboard are
+> **Early days.** `mockingbird start` once, then hold `Fn` anywhere, speak,
+> and the text is typed into whatever app you're in — no terminal open, and it
+> comes back at every login. History, custom vocabulary and the dashboard are
 > still to come.
 
-## 🚀 Quick start
+## 🚀 Install
 
-You need a Mac with Apple Silicon, [Homebrew](https://brew.sh), and about 3 GB of
-free space.
-
-**1. Install the tools**
+You need a Mac with Apple Silicon, [Homebrew](https://brew.sh), and about 6 GB
+of free space.
 
 ```sh
-curl -fsSL https://bun.sh/install | bash
-brew install whisper-cpp ollama ffmpeg
+curl -fsSL https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/scripts/install.sh | bash
 ```
 
-Then open a new terminal window.
+It's safe to run again. Prefer to do it by hand? See
+[manual install](docs/README.md#manual-install).
 
-**2. Get mockingbird**
+## 🎤 Use it
 
 ```sh
-git clone https://github.com/NirjharBhattacharjee/mockingbird.git
-cd mockingbird
-bun install
+mockingbird start
 ```
 
-**3. Download the models**
+Click into any app, hold **Fn**, speak, and let go. Your words are typed where
+the cursor is. It keeps running in the background and comes back at every
+login.
 
-```sh
-mkdir -p ~/.mockingbird/models
-curl -L -o ~/.mockingbird/models/ggml-base.en.bin \
-  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
-curl -L -o ~/.mockingbird/models/silero_vad.onnx \
-  https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx
-```
+The first time, macOS asks for three permissions (Input Monitoring,
+Accessibility, Microphone). Grant them to **mockingbird**, then run
+`mockingbird restart`. `mockingbird status` shows what's still missing.
 
-**4. Start Ollama** in a second terminal window and leave it open
-
-```sh
-ollama serve
-```
-
-Back in the first window, download the cleanup model (once):
-
-```sh
-ollama pull qwen3:4b-instruct-2507-q4_K_M
-```
-
-**5. Talk to it**
-
-```sh
-bun run listen
-```
-
-Leave it running, click into any app (Slack, Notes, a browser), then hold
-**Fn**, speak, and let go: your words are typed where your cursor is. (Enter
-works too, for this terminal.) The first time, click **Allow** when macOS asks
-for the microphone, and see [Usage](#-usage) for the two permissions `Fn` and
-typing need.
-
-## 🎤 Usage
-
-### `bun run listen`: talk live
-
-| Key | Does |
-|---|---|
-| **Fn** (hold) | Record while held, from any app |
-| **Fn** (double-tap) | Record hands-free until you press **Fn** again |
-| **Enter** / **Space** | Start or stop recording (this terminal only) |
-| **Esc** | Cancel the recording |
-| **q** | Quit |
-
-Whatever you say is typed into the app in front (Slack, your editor, a
-browser) and printed here too. Use `--no-type` to only print it.
-
-**Two permissions are needed**, both in System Settings → Privacy & Security:
-
-| Permission | For |
-|---|---|
-| **Input Monitoring** | noticing the `Fn` key |
-| **Accessibility** | typing into other apps |
-
-Switch on the app you run `bun run listen` from (Terminal, Ghostty, iTerm, VS
-Code…) in both. If it isn't in the list, click **+** and add it from
-Applications. Then **quit that app completely and reopen it**: press **Cmd+Q**
-until its Dock icon has no dot under it. Closing its windows isn't enough;
-macOS only applies the new permissions when the app restarts.
-
-Without them, Enter still records and the text is printed here.
-
-<details>
-<summary>Fn still not working?</summary>
-
-- **`listen` says "Fn key off".** The app you ran it from doesn't have Input
-  Monitoring yet, or hasn't been fully quit and reopened since you allowed it.
-  Each terminal app needs its own permission: allowing VS Code doesn't cover
-  Ghostty.
-- **Holding Fn opens emoji or Apple's dictation.** In System Settings →
-  Keyboard, set **Press 🌐 key to** to **Do Nothing**.
-- **Text is typed twice.** `bun run listen` is running in two windows. Quit
-  one with `q`.
-
-</details>
-
-To check typing on its own:
-
-```sh
-bun run type --check          # is typing allowed? which app is in front?
-bun run type "hello there"    # waits 3s, then types into the app you click
-```
-
-Using the wrong microphone? List them and pick one:
-
-```sh
-bun run listen --list-devices
-bun run listen --device 2
-```
-
-### `bun run transcribe`: turn a recording into text
-
-```sh
-bun run transcribe ~/Desktop/memo.mp3
-bun run transcribe ~/Desktop/memo.mp3 | pbcopy   # copy the text
-```
-
-Works with mp3, m4a, wav, and anything else ffmpeg can open. Tip: type
-`bun run transcribe `, then drag the file into the terminal.
-
-<details>
-<summary>More options</summary>
-
-Both commands accept:
-
-| Option | Does |
-|---|---|
-| `--terminal` | No period at the end (for pasting commands) |
-| `--json` | Show everything: raw and cleaned text, timings |
-| `--help` | Show help |
-
-Environment variables:
-
-| Variable | Default |
-|---|---|
-| `MOCKINGBIRD_HOME` (where `models/` is) | `~/.mockingbird` |
-| `MOCKINGBIRD_ASR_PORT` | `8771` |
-| `MOCKINGBIRD_LLM_URL` | `http://127.0.0.1:11434` |
-| `MOCKINGBIRD_LLM_MODEL` | `qwen3:4b-instruct-2507-q4_K_M` |
-
-</details>
-
-## 🩹 Troubleshooting
-
-| Problem | Fix |
-|---|---|
-| `Script not found` | Run it from inside the `mockingbird` folder. |
-| `permission denied` on a file | Put `bun run transcribe ` in front of the file path. |
-| `recording was completely silent` or stuck on `waiting for the microphone` | Allow your terminal in **System Settings → Privacy & Security → Microphone**, then restart the terminal. |
-| The level bars don't move | Wrong microphone. Use `--list-devices` and `--device`. |
-| `Fn key off` or `Fn` does nothing | Allow your terminal in **System Settings → Privacy & Security → Input Monitoring**, then quit it with Cmd+Q and reopen. |
-| Text prints but isn't typed into the app | Allow your terminal in **Accessibility** (same settings page), quit with Cmd+Q, reopen. Check with `bun run type --check`. |
-| `Ollama isn't running` | Run `ollama serve` in another window. You still get text, just not cleaned up. |
-| `Whisper model not found` | Redo step 3. |
-| `command not found: bun` | Open a new terminal window. |
-
-The first run pauses for about 15 seconds while macOS prepares the GPU. After
-that it's quick.
-
-## 🗺️ Roadmap
-
-| | |
-|---|---|
-| ✅ | Speech to text, cleanup (removes "um", fixes punctuation) |
-| ✅ | Live microphone with `bun run listen` |
-| ✅ | Transcribe recordings with `bun run transcribe` |
-| ✅ | Hold `Fn` to talk, double-tap for hands-free |
-| ✅ | Types into any app: Slack, editors, browsers, terminals |
-| 🔲 | History and custom vocabulary |
-| 🔲 | Terminal dashboard (Catppuccin themed) |
-| 🔲 | `brew install mockingbird` |
-
-## 🔒 Privacy
-
-- Your audio and text never leave your Mac.
-- mockingbird makes no internet requests. The only downloads are the ones you
-  run in the quick start.
-- Nothing is saved to disk. Live audio is kept in memory only (the last 30
-  seconds). While `listen` runs, macOS shows the orange microphone dot.
-- Typing uses key events, not the clipboard, so yours is never touched. Line
-  breaks are removed first, so dictation can't send a message or run a command
-  by itself.
-
-More: [docs/SECURITY_PRIVACY.md](docs/SECURITY_PRIVACY.md)
-
-## 🛠️ Development
+## ⌨️ Commands
 
 | Command | Does |
 |---|---|
-| `bun test` | Unit tests |
-| `bun run test:integration` | All tests, using the real models |
-| `bun run typecheck` | Type-check |
-| `bun run lint` / `bun run format` | Check / fix style |
-| `bun run type --check` | Check typing permission and the app in front |
-| `bun run demo` | Redraw the GIF above (needs `brew install librsvg`) |
+| `mockingbird start` | Run in the background, now and at every login |
+| `mockingbird stop` | Stop, and stay stopped across reboots |
+| `mockingbird restart` | Restart (do this after granting a permission) |
+| `mockingbird status` | Whether it's running, and which permissions it has |
+| `mockingbird listen` | Dictate live in a terminal, with a level meter |
+| `mockingbird transcribe <file>` | Turn a recording (mp3, m4a, wav…) into text |
+| `mockingbird type --check` | Check typing permission and the app in front |
 
-Code lives in `apps/daemon` (the commands) and `packages/` (audio, voice
-detection, speech-to-text, cleanup). The agent skills are a submodule in
-`agent-skills/`; see [AGENTS.md](AGENTS.md).
+| Key | Does |
+|---|---|
+| **Fn** (hold) | Record while held |
+| **Fn** (double-tap) | Record hands-free until you press **Fn** again |
 
-## 📚 Docs
+A rising **tink** means it's recording, a falling **pop** means it's
+transcribing, and a low **basso** means it couldn't type the text.
 
-[Philosophy](docs/PHILOSOPHY.md) ·
-[Architecture](docs/ARCHITECTURE.md) ·
-[Models](docs/MODELS.md) ·
-[Security & privacy](docs/SECURITY_PRIVACY.md) ·
-[Database](docs/DATABASE.md) ·
-[Terminal UI](docs/TUI.md)
+Something not working? See [troubleshooting](docs/README.md#troubleshooting).
 
-## 💜 Contributing
-
-Everyone is welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md). AI agents
-should also read [AGENTS.md](AGENTS.md). Security issues go through
-[SECURITY.md](SECURITY.md), not public issues.
-
-## 📄 License
+## 📚 More
 
 [MIT](LICENSE). Use it, change it, share it.

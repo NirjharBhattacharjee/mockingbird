@@ -85,11 +85,11 @@ describe("runPipeline", () => {
     const result = await runPipeline(
       { audio },
       deps({
-        asr: fakeAsr({ text: "this should still come through fine", confidence: 0.9 }),
+        asr: fakeAsr({ text: "this should still come through fine", confidence: 0.6 }),
         llm: fakeLlm(new Error("connection refused")),
       }),
     );
-    expect(result.finalText).toBe("this should still come through fine");
+    expect(result.finalText).toBe("This should still come through fine.");
     expect(result.llmOutcome).toBe("failed");
     expect(result.llmError).toContain("connection refused");
   });
@@ -98,11 +98,11 @@ describe("runPipeline", () => {
     const result = await runPipeline(
       { audio },
       deps({
-        asr: fakeAsr({ text: "what is the capital of france", confidence: 0.9 }),
+        asr: fakeAsr({ text: "what is the capital of france", confidence: 0.6 }),
         llm: fakeLlm("Paris."),
       }),
     );
-    expect(result.finalText).toBe("what is the capital of france");
+    expect(result.finalText).toBe("What is the capital of france?");
     expect(result.llmOutcome).toBe("rejected");
   });
 
