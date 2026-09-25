@@ -86,15 +86,4 @@ Something not working? See [troubleshooting](docs/README.md#troubleshooting).
 
 ## 📚 More
 
-The [user guide](docs/README.md) covers every option, permissions in detail,
-troubleshooting, privacy, the roadmap, and development. Contributions are
-welcome: start with [CONTRIBUTING.md](CONTRIBUTING.md).
-[MIT](LICENSE) licensed.
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/catppuccin/catppuccin/main/assets/footers/gray0_ctp_on_line.svg?sanitize=true" alt="">
-</p>
-
-<p align="center">
-  Theme colors from <a href="https://github.com/catppuccin/catppuccin">Catppuccin</a>.
-</p>
+[MIT](LICENSE). Use it, change it, share it.
