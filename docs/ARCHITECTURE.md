@@ -722,6 +722,12 @@ actual decision before or during v1, not an assumption:
   `--device <n|name>` override it per run. Not yet decided: persisting the
   choice in `settings`, and following the system default when it changes
   while mockingbird is running (today that needs a restart).
+- **End-to-end latency target.** Each stage is timed (`vadMs`, `asrMs`,
+  `llmMs`) and the changelog above records what those numbers were at each
+  change, but nothing sets how long the whole release-to-typed-text path
+  may take, per stage or in total, or fails a change that makes it slower.
+  Needs a number and a check, ideally in the `bench/` harness from
+  [§14](#14-cicd-pipeline).
 - **Uninstall story.** What `brew uninstall` leaves behind in `~/.mockingbird/`
   (models, history, logs) and whether/how to offer full cleanup.
 
