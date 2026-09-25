@@ -1,8 +1,8 @@
-<h3 align="center">
-  <img src="https://raw.githubusercontent.com/catppuccin/catppuccin/main/assets/misc/transparent.png" height="30" width="0px"/>
-  🐦 mockingbird
-  <img src="https://raw.githubusercontent.com/catppuccin/catppuccin/main/assets/misc/transparent.png" height="30" width="0px"/>
-</h3>
+<p align="center">
+  <img src="docs/assets/logo.png" height="120" alt="mockingbird logo">
+</p>
+
+<h3 align="center">mockingbird</h3>
 
 <p align="center">
   Local voice dictation for macOS. Free forever, and your voice never leaves your Mac.
