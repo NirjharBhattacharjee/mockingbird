@@ -112,8 +112,9 @@ every captured segment goes through both.
   `whisper-server` dies, the supervisor restarts it — dictation queues or
   degrades rather than silently failing, per the "degrade, don't break"
   principle in [ARCHITECTURE.md §2](./ARCHITECTURE.md#2-core-principles).
-- **Model file:** `large-v3`, quantized to `Q5_0` (1.08 GB), shipped by
-  `scripts/install.sh` and the default in `apps/daemon/src/runtime.ts`. It is
+- **Model file:** `large-v3`, quantized to `Q5_0` (1.08 GB), downloaded by
+  `mockingbird models pull` (`apps/daemon/src/models.ts`) and the default in
+  `apps/daemon/src/runtime.ts`. It is
   multilingual, which is what makes it hold up on accented English where the
   English-only models drop words; requests pin `language=en` so it doesn't
   drift to another language.
@@ -282,7 +283,7 @@ everything else in this file). Tracked as undecided, not silently assumed.
 ## 8. Acquisition, storage & integrity
 
 - Model weights are **never bundled** in the release archive — too large.
-  They're fetched on demand via `mockingbird models pull <name>`, the
+  They're fetched on demand via `mockingbird models pull`, the
   **one and only** network call anywhere in the system, and always
   user-triggered and URL-transparent (see
   [SECURITY_PRIVACY.md §3](./SECURITY_PRIVACY.md#3-network-policy)).

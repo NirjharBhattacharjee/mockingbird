@@ -18,10 +18,26 @@ curl -fsSL https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/ma
 ```
 
 This installs Bun, whisper-cpp, Ollama and ffmpeg with Homebrew, clones
-mockingbird into `~/mockingbird`, downloads the models (checking each against
-its sha256), and the cleanup model.
+mockingbird into `~/mockingbird` at the latest release, and runs
+`mockingbird models pull` for the models (checking each against its sha256)
+and the cleanup model.
 It skips anything you already have, so it's safe to run again.
 [Read the script](../scripts/install.sh) first if you like.
+
+Or install it with Homebrew instead:
+
+```sh
+brew install nirjharbhattacharjee/mockingbird/mockingbird
+mockingbird models pull
+```
+
+### Updating
+
+mockingbird never checks for updates itself: that would be a network call it
+doesn't make. To update, run the install command again. It moves
+`~/mockingbird` to the latest release, refuses if you've edited files there,
+and restarts mockingbird if it's running. With Homebrew, `brew upgrade
+mockingbird`, then `mockingbird restart`.
 
 ### Manual install
 
@@ -34,19 +50,9 @@ git clone https://github.com/NirjharBhattacharjee/mockingbird.git
 cd mockingbird
 bun install
 
-# Models
-mkdir -p ~/.mockingbird/models
-curl -fL -o ~/.mockingbird/models/ggml-large-v3-q5_0.bin \
-  https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-large-v3-q5_0.bin
-curl -fL -o ~/.mockingbird/models/silero_vad.onnx \
-  https://github.com/snakers4/silero-vad/raw/v6.2.2/src/silero_vad/data/silero_vad.onnx
-(cd ~/.mockingbird/models && shasum -a 256 -c) <<'SUMS'
-d75795ecff3f83b5faa89d1900604ad8c780abd5739fae406de19f23ecd98ad1  ggml-large-v3-q5_0.bin
-1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3  silero_vad.onnx
-SUMS
-
-# Cleanup model (Ollama must be running for this: `ollama serve` in another window)
-ollama pull qwen3:4b-instruct-2507-q4_K_M
+# Models: Whisper and the VAD (pinned, sha256-checked; see
+# apps/daemon/src/models.ts), then the cleanup model through Ollama
+bun apps/daemon/src/cli.ts models pull
 
 # The `mockingbird` command — a shim, not a compiled binary, because macOS
 # records the Fn and typing permissions against the binary that asks for them,
@@ -287,7 +293,7 @@ that it's quick.
 | ✅ | Types into any app: Slack, editors, browsers, terminals |
 | 🔲 | History and custom vocabulary |
 | 🔲 | Terminal dashboard (Catppuccin themed) |
-| 🔲 | `brew install mockingbird` |
+| ✅ | Homebrew: `brew install nirjharbhattacharjee/mockingbird/mockingbird` |
 
 ## Privacy
 

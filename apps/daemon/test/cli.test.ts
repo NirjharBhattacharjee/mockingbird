@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, realpathSync } from "node:fs";
 import type { Launchctl } from "../src/agent/launchctl.ts";
-import { agentVerdict, bunPath, main, stop } from "../src/cli.ts";
+import { agentEntry, agentVerdict, bunPath, main, stop } from "../src/cli.ts";
 
 /** Runs the router with stdout captured, so help text doesn't pollute the run. */
 async function run(argv: string[]): Promise<{ code: number; out: string }> {
@@ -21,7 +21,16 @@ describe("mockingbird", () => {
   test("lists its commands with no arguments", async () => {
     const { code, out } = await run([]);
     expect(code).toBe(0);
-    for (const command of ["start", "stop", "restart", "status", "listen", "transcribe", "type"]) {
+    for (const command of [
+      "start",
+      "stop",
+      "restart",
+      "status",
+      "listen",
+      "transcribe",
+      "type",
+      "models pull",
+    ]) {
       expect(out).toContain(command);
     }
   });
@@ -158,4 +167,27 @@ describe("agentVerdict", () => {
   test("survives a log that doesn't exist yet", async () => {
     expect(await agentVerdict("/tmp/mockingbird-nope.log", 0, 300)).toBeUndefined();
   });
+});
+
+describe("agentEntry", () => {
+  test("the folder this file runs from, for a clone", () => {
+    expect(agentEntry(undefined, "/Users/me/mockingbird/apps/daemon/src")).toBe(
+      "/Users/me/mockingbird/apps/daemon/src/agent.ts",
+    );
+  });
+
+  test("MOCKINGBIRD_ROOT, so a Homebrew agent survives brew upgrade", () => {
+    // Bun reports the versioned Cellar folder as `here`; the plist must not name it.
+    expect(
+      agentEntry(
+        "/opt/homebrew/opt/mockingbird/libexec",
+        "/opt/homebrew/Cellar/mockingbird/0.1.0/libexec/apps/daemon/src",
+      ),
+    ).toBe("/opt/homebrew/opt/mockingbird/libexec/apps/daemon/src/agent.ts");
+  });
+});
+
+test("models takes only pull", async () => {
+  await expect(main(["models"])).rejects.toThrow("mockingbird models pull");
+  await expect(main(["models", "list"])).rejects.toThrow("mockingbird models pull");
 });

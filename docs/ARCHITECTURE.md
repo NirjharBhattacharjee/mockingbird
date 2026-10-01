@@ -37,6 +37,7 @@ it is not a design doc that gets abandoned once code exists.
 | 2026-09-24 | Dictated lists. Speech that enumerates things is typed as a heading plus `- ` lines: `looksLikeList` stops the gate skipping such speech, the cleanup prompt carries a worked example (without it qwen3 kept "I will get" on every line), `formatText` preserves the lines and leaves items without full stops, and `acceptCleanup` allows a list down to 0.3 of the raw length. Typing keeps line breaks only when the caller asks (`lineBreaks`), and posts each as **Shift+Return** — a new line in chat apps, never "send". Terminals still get spaces, so the §3 rule that dictation can never submit a message or run a command holds (SECURITY_PRIVACY.md, §6, §10). |
 | 2026-09-24 | Lists, continued: with a single grocery example in the prompt, qwen3 left "I need to" on every line of a dictated task list. The prompt now carries a task example and a rule to keep each item's own detail, and `bulletize` (`packages/llm`) is the deterministic backstop — repeated lead-ins are stripped and the lines bulleted without a second round trip, with a time word moved onto the end of its item (§6, MODELS.md). |
 | 2026-09-24 | Lists cover sequences too: ordered steps ("first ... then ... finally", "number one ...") become a numbered `1.` list, unordered things stay `- ` bullets, and a list of fewer than three items falls back to the sentence. A line break is typed as a real Shift press around Return rather than a Return carrying the Shift flag, so apps that track the modifier themselves see Shift+Return too. |
+| 2026-10-01 | Releases. `release.yml` publishes a GitHub Release for each `v*.*.*` tag on `main`: the checks again, then a `git archive` source tarball and its sha256, then a PR bumping the Homebrew formula in `NirjharBhattacharjee/homebrew-mockingbird` (needs the `TAP_TOKEN` secret). Re-running `scripts/install.sh` now updates: it moves `~/mockingbird` to the newest tag (refusing if the clone has local edits) and restarts a running agent. Model downloads moved from `install.sh` into `mockingbird models pull` (`apps/daemon/src/models.ts`). Under Homebrew the shim sets `MOCKINGBIRD_ROOT` to the unversioned `opt` path, because Bun resolves symlinks in `import.meta.url` and the launch agent would otherwise name a Cellar folder that `brew upgrade` deletes (§12, §14, §16). |
 
 
 ---
@@ -407,7 +408,7 @@ verifiable, not just promised.
   onboarding.
 - **No account, no login, no license server.**
 - **The only network activity in the entire system is model download**,
-  which is user-triggered (`mockingbird models pull <name>`), shows exactly
+  which is user-triggered (`mockingbird models pull`), shows exactly
   what URL it's fetching from (Hugging Face / ggml model repos), and never
   happens silently in the background.
 - **Audio never leaves the ring buffer** unless the hotkey fires a capture.
@@ -518,7 +519,7 @@ flowchart TB
     REL --> ASSET2["mockingbird-darwin-x64.tar.gz"]
     REL --> CHECKSUMS["checksums.txt (sha256)"]
 
-    ASSET1 --> HOMEBREW["Homebrew tap:\nnirjhar/homebrew-mockingbird\n(formula auto-bumped by CI)"]
+    ASSET1 --> HOMEBREW["Homebrew tap:\nNirjharBhattacharjee/homebrew-mockingbird\n(formula auto-bumped by CI)"]
     ASSET1 --> CURL["curl -fsSL install.sh | sh\n(downloads + verifies checksum)"]
     ASSET1 --> MANUAL["Manual download\nfrom GitHub Releases page"]
     SRC2["Source checkout"] --> BUNRUN["bun install && bun run build\n(contributors / unsupported platforms)"]
@@ -529,11 +530,30 @@ flowchart TB
     BUNRUN --> USER
 ```
 
-Primary channel for v1 is a **Homebrew tap** (`brew install nirjhar/mockingbird/mockingbird`)
-since the target user is a developer on macOS. A `curl | sh` installer is the
-fallback for anyone without Homebrew. Building from source via `bun install`
-is always supported and is how contributors and unsupported architectures
-run it.
+Primary channel for v1 is a **Homebrew tap**
+(`brew install nirjharbhattacharjee/mockingbird/mockingbird`) since the target
+user is a developer on macOS. A `curl | sh` installer is the fallback for
+anyone without Homebrew. Building from source via `bun install` is always
+supported and is how contributors and unsupported architectures run it.
+
+**Today, before a compiled binary exists**, both channels ship source, not the
+archives in the diagram:
+
+- **Homebrew:** the formula downloads the release's source tarball, checks
+  its sha256, runs `bun install --production` into `libexec`, and writes a
+  `mockingbird` shim. It depends on Homebrew's `bun`, `ffmpeg`, `ollama` and
+  `whisper.cpp`. The shim sets `MOCKINGBIRD_ROOT` to the `opt` path so the
+  launch agent survives `brew upgrade`. Models aren't part of the install:
+  the caveats point at `mockingbird models pull`.
+- **`install.sh`:** clones the repo and checks out the newest release tag, or
+  follows `main` while no tag exists.
+
+**Updating is always something the user runs**, never something mockingbird
+does: re-running the install command, or `brew upgrade`. Either one brings
+the code up to the latest release, and the agent keeps running the old code
+until it restarts (`install.sh` restarts it; after `brew upgrade` the user
+runs `mockingbird restart`). mockingbird itself never checks for a new
+version, which keeps [§9](#9-everything-is-local) intact.
 
 ## 13. Is Docker needed?
 
@@ -622,7 +642,21 @@ flowchart TB
 6. A `bun build --compile` smoke test on a macOS runner — catches bundling
    breakage before release day.
 
-**`release.yml`** (runs on `v*.*.*` tag push):
+**`release.yml`** (runs on `v*.*.*` tag push). What it does today:
+
+1. Refuse a tag that isn't on `main`.
+2. Rerun install, typecheck, lint and unit tests on the tagged commit.
+3. Pack the source with `git archive` into `mockingbird-<version>.tar.gz`
+   and write its sha256 to `checksums.txt`.
+4. Create the GitHub Release with both files and notes generated from the
+   merged PRs.
+5. Open a PR on `NirjharBhattacharjee/homebrew-mockingbird` setting the
+   formula's `url` and `sha256` to the new tarball. The workflow's own token
+   can't write to another repo, so this needs a `TAP_TOKEN` secret (a
+   fine-grained token with contents and pull-request write access to the
+   tap); without it the step warns and the release still ships.
+
+Once the compiled binary exists, it grows into the full version:
 
 1. Build the compiled binaries for each macOS target in a matrix.
 2. Bundle the platform-appropriate ffmpeg/whisper-server binaries alongside.
@@ -700,9 +734,10 @@ actual decision before or during v1, not an assumption:
   our own identifier, so the Privacy lists name mockingbird and `bun` itself
   stays unprivileged. What that copy costs is in SECURITY_PRIVACY §4; a truly
   compiled binary is still blocked on `onnxruntime-node`.
-- **Auto-update.** Self-update command that checks GitHub Releases — must
-  stay opt-in / explicit-confirm, never a silent background check, to hold
-  the [§9](#9-everything-is-local) guarantee.
+- ~~**Auto-update.**~~ Settled 2026-10-01: there is no self-update command.
+  Updating is re-running the install command or `brew upgrade`, both run by
+  the user and neither part of mockingbird, so the app's only network call
+  stays `mockingbird models pull` ([§12](#12-deployment--distribution)).
 - **Diagnostics / bug reports.** An explicit `mockingbird diagnostics export`
   command bundling logs + config (never audio, never transcripts, unless the
   user opts in per-export) for attaching to a GitHub issue by hand — no

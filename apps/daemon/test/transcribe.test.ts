@@ -42,11 +42,11 @@ describe("transcribe CLI", () => {
     expect(stderr).toContain("Audio file not found");
   });
 
-  test("missing models point at the README", async () => {
+  test("missing models point at `mockingbird models pull`", async () => {
     const { stderr, code } = await run([hello], { MOCKINGBIRD_HOME: "/nonexistent/home" });
     expect(code).toBe(1);
     expect(stderr).toContain("Whisper model not found");
-    expect(stderr).toContain("README.md");
+    expect(stderr).toContain("mockingbird models pull");
   });
 });
 
