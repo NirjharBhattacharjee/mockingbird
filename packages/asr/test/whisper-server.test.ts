@@ -146,6 +146,17 @@ exit 3
     expect(performance.now() - started).toBeLessThan(3_000);
   });
 
+  test("a --help that closes its output but keeps running isn't left behind", async () => {
+    // Its output is complete, so its flags count; the process itself is stopped.
+    const server = fakeServer(
+      'echo "  -nlp, --no-language-probabilities"; exec >&- 2>&-; sleep 10',
+    );
+    await expect(start(server.binary)).rejects.toThrow("exited with 3");
+    expect(server.args()).toContain("-nlp");
+    const running = Bun.spawnSync(["pgrep", "-f", server.binary]).stdout.toString().trim();
+    expect(running).toBe("");
+  });
+
   test("flags printed before a --help hangs aren't used", async () => {
     // Only a --help that finishes is trusted: a partial one falls back to no
     // extra flags, same as one that printed nothing.

@@ -129,6 +129,9 @@ async function helpOf(binary: string, timeoutMs: number): Promise<string> {
     return await Promise.race([read, timedOut]);
   } finally {
     clearTimeout(timer);
+    // One that closed its output but kept running would otherwise be left
+    // behind on every start.
+    if (proc.exitCode === null) proc.kill("SIGKILL");
   }
 }
 
