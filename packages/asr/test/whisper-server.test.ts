@@ -124,7 +124,9 @@ exit 3
   });
 
   test("a --help that hangs doesn't hold up the start", async () => {
-    const server = fakeServer("  -nlp, --no-language-probabilities", 30);
+    // The shell's `sleep` keeps --help's output open even after the shell is
+    // killed, which is what a stuck binary's own children would do.
+    const server = fakeServer("  -nlp, --no-language-probabilities", 10);
     const started = performance.now();
     await expect(start(server.binary, 200)).rejects.toThrow("exited with 3");
     expect(performance.now() - started).toBeLessThan(3_000);

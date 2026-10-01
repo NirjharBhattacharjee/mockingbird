@@ -101,7 +101,7 @@ export function speedFlags(help: string): string[] {
   return help.includes("--no-language-probabilities") ? ["-nlp"] : [];
 }
 
-/** The binary's `--help`, or as much of it as arrived within `timeoutMs`. */
+/** The binary's `--help`, or "" if it isn't all there within `timeoutMs`. */
 async function helpOf(binary: string, timeoutMs: number): Promise<string> {
   let proc: Bun.Subprocess<"ignore", "pipe", "pipe">;
   try {
@@ -109,18 +109,22 @@ async function helpOf(binary: string, timeoutMs: number): Promise<string> {
   } catch {
     return "";
   }
+  const read = Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()])
+    .then(([out, err]) => out + err)
+    .catch(() => "");
   // A --help that never returns mustn't hold up startup: readyTimeoutMs only
-  // starts counting once the server itself is launched.
-  const timer = setTimeout(() => proc.kill(), timeoutMs);
+  // starts counting once the server itself is launched. Racing the read, not
+  // waiting for it after the kill, because anything the binary started can
+  // keep its output open after it's gone.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<string>((resolve) => {
+    timer = setTimeout(() => {
+      proc.kill();
+      resolve("");
+    }, timeoutMs);
+  });
   try {
-    const [out, err] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-    ]);
-    await proc.exited;
-    return out + err;
-  } catch {
-    return "";
+    return await Promise.race([read, timedOut]);
   } finally {
     clearTimeout(timer);
   }
