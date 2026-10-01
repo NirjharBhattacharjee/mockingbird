@@ -89,6 +89,32 @@ export type WhisperServerProcess = {
   stop(): Promise<void>;
 };
 
+/**
+ * Flags this whisper-server understands that make it faster, read from its
+ * `--help`. Older versions lack them, and an unknown flag stops the server
+ * from starting at all, so each is only passed when it's listed.
+ */
+export function speedFlags(help: string): string[] {
+  // verbose_json otherwise runs the encoder a second time just to report how
+  // sure it is of the language, which is pinned anyway: ~1.2s per dictation
+  // with large-v3 on an M3, for a field we never read.
+  return help.includes("--no-language-probabilities") ? ["-nlp"] : [];
+}
+
+async function helpOf(binary: string): Promise<string> {
+  try {
+    const proc = Bun.spawn([binary, "--help"], { stdout: "pipe", stderr: "pipe" });
+    const [out, err] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    await proc.exited;
+    return out + err;
+  } catch {
+    return "";
+  }
+}
+
 export async function startWhisperServer({
   binary = "whisper-server",
   modelPath,
@@ -100,7 +126,9 @@ export async function startWhisperServer({
   port: number;
   readyTimeoutMs?: number;
 }): Promise<WhisperServerProcess> {
-  const proc = Bun.spawn([binary, "-m", modelPath, "--host", "127.0.0.1", "--port", String(port)], {
+  const flags = speedFlags(await helpOf(binary));
+  const args = ["-m", modelPath, "--host", "127.0.0.1", "--port", String(port), ...flags];
+  const proc = Bun.spawn([binary, ...args], {
     stdout: "ignore",
     stderr: "pipe",
   });

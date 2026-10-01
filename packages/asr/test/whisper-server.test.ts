@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseVerboseJson, stripNonSpeech } from "../src/index.ts";
+import { parseVerboseJson, speedFlags, stripNonSpeech } from "../src/index.ts";
 
 describe("parseVerboseJson", () => {
   test("joins segments that split a word without inserting a space", () => {
@@ -59,5 +59,20 @@ describe("stripNonSpeech", () => {
   test("keeps ordinary sentences and their full stops", () => {
     expect(stripNonSpeech("One. Two. Three.")).toBe("One. Two. Three.");
     expect(stripNonSpeech("  Hello   world. ")).toBe("Hello world.");
+  });
+});
+
+describe("speedFlags", () => {
+  test("skips the language pass when this whisper-server can", () => {
+    expect(
+      speedFlags(
+        "  -nlp,      --no-language-probabilities [false  ] exclude language probabilities",
+      ),
+    ).toEqual(["-nlp"]);
+  });
+
+  test("passes nothing to a version that doesn't know the flag", () => {
+    expect(speedFlags("usage: whisper-server [options]\n  -t N, --threads N")).toEqual([]);
+    expect(speedFlags("")).toEqual([]);
   });
 });
