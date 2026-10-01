@@ -13,6 +13,7 @@ const result = (finalText: string): PipelineResult => ({
   llmOutcome: "cleaned",
   asrModel: "base.en",
   llmModel: "qwen3",
+  livePieces: 0,
 });
 
 const typed: Delivery = { typed: true, spacing: "no space (terminal)" };

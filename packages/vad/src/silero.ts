@@ -57,11 +57,19 @@ export type SpeechOptions = {
   speechPadMs?: number;
 };
 
+/** Audio kept either side of each speech segment by default. */
+export const SPEECH_PAD_MS = 300;
+
 export async function detectSpeech(
   vad: SileroVad,
   audio: PcmAudio,
   // 300ms padding matches the capture pre-roll; less clips soft word onsets like "um".
-  { threshold = 0.5, minSilenceMs = 300, minSpeechMs = 150, speechPadMs = 300 }: SpeechOptions = {},
+  {
+    threshold = 0.5,
+    minSilenceMs = 300,
+    minSpeechMs = 150,
+    speechPadMs = SPEECH_PAD_MS,
+  }: SpeechOptions = {},
 ): Promise<SpeechSegment[]> {
   if (audio.sampleRate !== SAMPLE_RATE) {
     throw new RangeError(`Silero VAD needs ${SAMPLE_RATE} Hz audio, got ${audio.sampleRate}`);
@@ -118,15 +126,25 @@ export function trimToSpeech(
   segments: SpeechSegment[],
   { padMs = 1500 }: { padMs?: number } = {},
 ): PcmAudio {
-  const first = segments[0];
-  const last = segments.at(-1);
-  if (!first || !last) return { ...audio, samples: new Int16Array(0) };
-  const pad = Math.round((audio.sampleRate * padMs) / 1000);
+  const bounds = speechBounds(audio, segments, { padMs });
   return {
     ...audio,
-    samples: audio.samples.slice(
-      Math.max(0, first.startSample - pad),
-      Math.min(audio.samples.length, last.endSample + pad),
-    ),
+    samples: bounds ? audio.samples.slice(bounds.start, bounds.end) : new Int16Array(0),
+  };
+}
+
+/** The samples `trimToSpeech` keeps, or undefined when there's no speech. */
+export function speechBounds(
+  audio: PcmAudio,
+  segments: SpeechSegment[],
+  { padMs = 1500 }: { padMs?: number } = {},
+): { start: number; end: number } | undefined {
+  const first = segments[0];
+  const last = segments.at(-1);
+  if (!first || !last) return undefined;
+  const pad = Math.round((audio.sampleRate * padMs) / 1000);
+  return {
+    start: Math.max(0, first.startSample - pad),
+    end: Math.min(audio.samples.length, last.endSample + pad),
   };
 }

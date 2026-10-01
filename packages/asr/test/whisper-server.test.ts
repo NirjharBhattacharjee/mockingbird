@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseVerboseJson, stripNonSpeech } from "../src/index.ts";
+import { joinResults, parseVerboseJson, speedFlags, stripNonSpeech } from "../src/index.ts";
 
 describe("parseVerboseJson", () => {
   test("joins segments that split a word without inserting a space", () => {
@@ -59,5 +59,59 @@ describe("stripNonSpeech", () => {
   test("keeps ordinary sentences and their full stops", () => {
     expect(stripNonSpeech("One. Two. Three.")).toBe("One. Two. Three.");
     expect(stripNonSpeech("  Hello   world. ")).toBe("Hello world.");
+  });
+});
+
+describe("joinResults", () => {
+  const word = (w: string, probability: number) => ({ word: w, startMs: 0, endMs: 0, probability });
+
+  test("joins the pieces of one dictation with a space", () => {
+    const result = joinResults([
+      { text: "My day has been good.", confidence: 0.9, words: [word(" good", 0.9)] },
+      { text: "I just woke up.", confidence: 0.5, words: [word(" up", 0.5)] },
+    ]);
+    expect(result.text).toBe("My day has been good. I just woke up.");
+    expect(result.confidence).toBeCloseTo(0.7);
+    expect(result.words).toHaveLength(2);
+  });
+
+  test("skips pieces where nothing was said", () => {
+    const result = joinResults([
+      { text: "Hello.", confidence: 0.8, words: [word(" Hello", 0.8)] },
+      { text: "", confidence: 0, words: [] },
+    ]);
+    expect(result.text).toBe("Hello.");
+  });
+
+  test("a single piece passes through as it is", () => {
+    const one = { text: "Yes please.", confidence: 0.97, words: [] };
+    expect(joinResults([one])).toBe(one);
+  });
+
+  test("pieces without words average their confidence by length", () => {
+    const result = joinResults([
+      { text: "aaaa", confidence: 1, words: [] },
+      { text: "bb", confidence: 0.4, words: [] },
+    ]);
+    expect(result.confidence).toBeCloseTo(0.8);
+  });
+
+  test("nothing at all is an empty result", () => {
+    expect(joinResults([])).toEqual({ text: "", confidence: 0, words: [] });
+  });
+});
+
+describe("speedFlags", () => {
+  test("skips the language pass when this whisper-server can", () => {
+    expect(
+      speedFlags(
+        "  -nlp,      --no-language-probabilities [false  ] exclude language probabilities",
+      ),
+    ).toEqual(["-nlp"]);
+  });
+
+  test("passes nothing to a version that doesn't know the flag", () => {
+    expect(speedFlags("usage: whisper-server [options]\n  -t N, --threads N")).toEqual([]);
+    expect(speedFlags("")).toEqual([]);
   });
 });

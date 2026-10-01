@@ -42,6 +42,18 @@ export class Recorder {
     return this.session ? Math.round((this.session.samples / this.sampleRate) * 1000) : 0;
   }
 
+  /** Samples in the recording so far, pre-roll included. */
+  get recordedSamples(): number {
+    return this.session?.samples ?? 0;
+  }
+
+  /** A copy of the recording so far, without stopping it. */
+  snapshot(): PcmAudio | undefined {
+    const session = this.session;
+    if (!session) return undefined;
+    return { sampleRate: this.sampleRate, samples: concatSamples(session.chunks) };
+  }
+
   push(samples: Int16Array): void {
     this.ring.write(samples);
     const session = this.session;

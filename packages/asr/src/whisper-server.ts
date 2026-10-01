@@ -42,13 +42,31 @@ export function parseVerboseJson(body: VerboseJson): AsrResult {
       probability: w.probability,
     })),
   );
+  return { text, confidence: confidenceOf(words), words };
+}
+
+/** Mean probability of the spoken words. */
+function confidenceOf(words: AsrWord[]): number {
   // Punctuation tokens score low even when the speech was heard clearly.
   const spoken = words.filter((w) => /[\p{L}\p{N}]/u.test(w.word));
-  const confidence = spoken.length
-    ? spoken.reduce((sum, w) => sum + w.probability, 0) / spoken.length
-    : 0;
+  return spoken.length ? spoken.reduce((sum, w) => sum + w.probability, 0) / spoken.length : 0;
+}
 
-  return { text, confidence, words };
+/**
+ * One result from consecutive pieces of the same dictation. Word times stay
+ * relative to their own piece; nothing downstream reads them across pieces.
+ */
+export function joinResults(results: AsrResult[]): AsrResult {
+  const said = results.filter((r) => r.text);
+  const [only] = said;
+  if (said.length <= 1) return only ?? { text: "", confidence: 0, words: [] };
+  const words = said.flatMap((r) => r.words);
+  // Without words, each piece's own confidence, weighted by how much it said.
+  const chars = said.reduce((sum, r) => sum + r.text.length, 0);
+  const confidence = words.length
+    ? confidenceOf(words)
+    : said.reduce((sum, r) => sum + r.confidence * r.text.length, 0) / chars;
+  return { text: said.map((r) => r.text).join(" "), confidence, words };
 }
 
 export class WhisperServerEngine implements AsrEngine {
@@ -57,7 +75,10 @@ export class WhisperServerEngine implements AsrEngine {
     readonly model: string,
   ) {}
 
-  async transcribe(audio: PcmAudio, { vocabulary }: TranscribeOptions = {}): Promise<AsrResult> {
+  async transcribe(
+    audio: PcmAudio,
+    { vocabulary, context }: TranscribeOptions = {},
+  ): Promise<AsrResult> {
     const form = new FormData();
     form.append("file", new Blob([encodeWav(audio)], { type: "audio/wav" }), "segment.wav");
     form.append("response_format", "verbose_json");
@@ -67,7 +88,8 @@ export class WhisperServerEngine implements AsrEngine {
     form.append("language", "en");
     // Whisper spells a name it doesn't know phonetically ("Nerj Herbata
     // Chargy"); given the word up front it writes it properly.
-    if (vocabulary) form.append("prompt", vocabulary);
+    const prompt = [vocabulary, context].filter(Boolean).join(" ");
+    if (prompt) form.append("prompt", prompt);
 
     const res = await fetch(`${this.baseUrl}/inference`, { method: "POST", body: form });
     if (!res.ok) throw new AsrRequestError(`whisper-server ${res.status}: ${await res.text()}`);
@@ -89,6 +111,32 @@ export type WhisperServerProcess = {
   stop(): Promise<void>;
 };
 
+/**
+ * Flags this whisper-server understands that make it faster, read from its
+ * `--help`. Older versions lack them, and an unknown flag stops the server
+ * from starting at all, so each is only passed when it's listed.
+ */
+export function speedFlags(help: string): string[] {
+  // verbose_json otherwise runs the encoder a second time just to report how
+  // sure it is of the language, which is pinned anyway: ~1.2s per dictation
+  // with large-v3 on an M3, for a field we never read.
+  return help.includes("--no-language-probabilities") ? ["-nlp"] : [];
+}
+
+async function helpOf(binary: string): Promise<string> {
+  try {
+    const proc = Bun.spawn([binary, "--help"], { stdout: "pipe", stderr: "pipe" });
+    const [out, err] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    await proc.exited;
+    return out + err;
+  } catch {
+    return "";
+  }
+}
+
 export async function startWhisperServer({
   binary = "whisper-server",
   modelPath,
@@ -100,7 +148,9 @@ export async function startWhisperServer({
   port: number;
   readyTimeoutMs?: number;
 }): Promise<WhisperServerProcess> {
-  const proc = Bun.spawn([binary, "-m", modelPath, "--host", "127.0.0.1", "--port", String(port)], {
+  const flags = speedFlags(await helpOf(binary));
+  const args = ["-m", modelPath, "--host", "127.0.0.1", "--port", String(port), ...flags];
+  const proc = Bun.spawn([binary, ...args], {
     stdout: "ignore",
     stderr: "pipe",
   });

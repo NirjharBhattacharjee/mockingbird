@@ -9,9 +9,10 @@ import {
 import { type Cue, cues } from "@mockingbird/cue";
 import { type HotkeyListener, startHotkeyListener } from "@mockingbird/hotkey";
 import { prepareForTyping, type TypeResult, typeText } from "@mockingbird/inject";
-import type { AppStyle } from "@mockingbird/llm";
+import { type AppStyle, buildVocabularyPrompt } from "@mockingbird/llm";
 import { HotkeyFsm } from "./hotkey-fsm.ts";
 import { ListenController } from "./listen-controller.ts";
+import { LiveTranscriber } from "./live-transcriber.ts";
 import { describeTimings, type PipelineResult, runPipeline } from "./pipeline.ts";
 import { Recorder, type Recording } from "./recorder.ts";
 import { startEngines } from "./runtime.ts";
@@ -201,6 +202,10 @@ export async function startSession(options: SessionOptions): Promise<Session> {
     }
   };
 
+  const recorder = new Recorder();
+  /** The current recording's, while there is one. */
+  let live: LiveTranscriber | undefined;
+
   const transcribe = async ({ audio, truncated }: Recording) => {
     const target = await targetLookup;
     if (peak(audio.samples) === 0) {
@@ -212,7 +217,9 @@ export async function startSession(options: SessionOptions): Promise<Session> {
     }
     // Terminals get command-friendly text: no trailing period.
     const style: AppStyle = options.terminalStyle || isTerminal(target) ? "terminal" : "default";
-    const result = await runPipeline({ audio, style }, engines.deps);
+    const pieces = live?.finish();
+    live = undefined;
+    const result = await runPipeline({ audio, style, live: pieces }, engines.deps);
     options.beforeMessage?.();
 
     const delivery: Delivery = result.finalText
@@ -228,7 +235,7 @@ export async function startSession(options: SessionOptions): Promise<Session> {
   };
 
   const controller = new ListenController(
-    new Recorder(),
+    recorder,
     transcribe,
     (error) => {
       cue("error");
@@ -239,6 +246,13 @@ export async function startSession(options: SessionOptions): Promise<Session> {
       : { start: "Enter: start speaking · q: quit", stop: "Enter: stop · Esc: cancel" },
     () => {
       targetLookup = frontmostApp().catch(() => undefined);
+      // A long dictation is transcribed while it's spoken (live-transcriber.ts).
+      const { deps } = engines;
+      live = new LiveTranscriber({
+        detectSpeech: deps.detectSpeech,
+        asr: deps.asr,
+        vocabulary: deps.vocabularyHint ? buildVocabularyPrompt(deps.dictionary ?? []) : undefined,
+      });
       // Warms the model while the user is still speaking, so the cleanup that
       // follows doesn't pay a cold load. Failure just means a slower cleanup.
       void engines.deps.llm.load?.().catch(() => {});
@@ -320,6 +334,7 @@ export async function startSession(options: SessionOptions): Promise<Session> {
         onSamples: (s) => {
           if (!heardSound && peak(s) > 0) heardSound = true;
           controller.onSamples(s);
+          if (recorder.recording) live?.update(recorder.recordedSamples, () => recorder.snapshot());
         },
       });
       return capture;
