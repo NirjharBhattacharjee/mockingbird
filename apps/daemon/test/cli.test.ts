@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import type { Launchctl } from "../src/agent/launchctl.ts";
 import { agentEntry, agentVerdict, bunPath, main, stop } from "../src/cli.ts";
 
@@ -96,10 +98,15 @@ describe("stop", () => {
 describe("bunPath", () => {
   test("prefers the stable symlink over the versioned binary it points at", () => {
     // brew upgrade deletes the Cellar path; /opt/homebrew/bin/bun survives it.
-    const exec = "/opt/homebrew/Cellar/bun/1.4.2/bin/bun";
-    expect(bunPath(exec, () => "/opt/homebrew/bin/bun")).toBe(
-      realpathSync("/opt/homebrew/bin/bun") === realpathSync(exec) ? "/opt/homebrew/bin/bun" : exec,
-    );
+    // Built in a temp folder, since a CI runner has no Homebrew bun.
+    const root = mkdtempSync(join(tmpdir(), "mockingbird-bun-"));
+    const exec = join(root, "Cellar", "bun", "1.4.2", "bin", "bun");
+    const link = join(root, "bin", "bun");
+    mkdirSync(dirname(exec), { recursive: true });
+    mkdirSync(dirname(link), { recursive: true });
+    writeFileSync(exec, "");
+    symlinkSync(exec, link);
+    expect(bunPath(exec, () => link)).toBe(link);
   });
 
   test("keeps the running binary when no bun is on PATH", () => {
