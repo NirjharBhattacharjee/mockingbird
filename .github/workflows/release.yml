@@ -84,5 +84,7 @@ jobs:
           sed -i -E "s|^  url \".*\"|  url \"$url\"|; s|^  sha256 \".*\"|  sha256 \"$SHA256\"|" Formula/mockingbird.rb
           git commit -am "mockingbird $VERSION"
           git push -u origin "mockingbird-$VERSION"
-          gh pr create --repo "$tap" --title "mockingbird $VERSION" \
+          # --repo makes gh ignore the local checkout, so it can't infer the branch.
+          gh pr create --repo "$tap" --base main --head "mockingbird-$VERSION" \
+            --title "mockingbird $VERSION" \
             --body "Release notes: https://github.com/$GITHUB_REPOSITORY/releases/tag/v$VERSION"
