@@ -115,11 +115,13 @@ async function helpOf(binary: string, timeoutMs: number): Promise<string> {
   // A --help that never returns mustn't hold up startup: readyTimeoutMs only
   // starts counting once the server itself is launched. Racing the read, not
   // waiting for it after the kill, because anything the binary started can
-  // keep its output open after it's gone.
+  // keep its output open after it's gone. Whatever it printed before the
+  // timeout is dropped too: a partial --help can't be trusted to pick flags.
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timedOut = new Promise<string>((resolve) => {
     timer = setTimeout(() => {
-      proc.kill();
+      // SIGKILL, so a binary that ignores SIGTERM isn't left running.
+      proc.kill("SIGKILL");
       resolve("");
     }, timeoutMs);
   });
@@ -127,6 +129,9 @@ async function helpOf(binary: string, timeoutMs: number): Promise<string> {
     return await Promise.race([read, timedOut]);
   } finally {
     clearTimeout(timer);
+    // One that closed its output but kept running would otherwise be left
+    // behind on every start.
+    if (proc.exitCode === null) proc.kill("SIGKILL");
   }
 }
 

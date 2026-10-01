@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { afterAll, describe, expect, test } from "bun:test";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseVerboseJson, speedFlags, startWhisperServer, stripNonSpeech } from "../src/index.ts";
@@ -81,19 +81,25 @@ describe("speedFlags", () => {
 });
 
 describe("startWhisperServer flags", () => {
+  const dirs: string[] = [];
+  afterAll(() => {
+    for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+  });
+
   /**
-   * A stand-in whisper-server: answers --help with `help` (after `helpDelay`
-   * seconds), and otherwise records its arguments and exits, which
-   * startWhisperServer reports as a failed start.
+   * A stand-in whisper-server: answers --help by running `onHelp` (shell),
+   * and otherwise records its arguments and exits, which startWhisperServer
+   * reports as a failed start.
    */
-  function fakeServer(help: string, helpDelay = 0) {
+  function fakeServer(onHelp: string) {
     const dir = mkdtempSync(join(tmpdir(), "mockingbird-whisper-"));
+    dirs.push(dir);
     const args = join(dir, "args");
     const binary = join(dir, "whisper-server");
     writeFileSync(
       binary,
       `#!/bin/sh
-if [ "$1" = "--help" ]; then sleep ${helpDelay}; echo "${help}"; exit 0; fi
+if [ "$1" = "--help" ]; then ${onHelp}; exit 0; fi
 echo "$@" > "${args}"
 exit 3
 `,
@@ -112,13 +118,13 @@ exit 3
     });
 
   test("starts with -nlp when this whisper-server has it", async () => {
-    const server = fakeServer("  -nlp, --no-language-probabilities");
+    const server = fakeServer('echo "  -nlp, --no-language-probabilities"');
     await expect(start(server.binary)).rejects.toThrow("exited with 3");
     expect(server.args().trim().split(" ")).toContain("-nlp");
   });
 
   test("starts without it when it doesn't", async () => {
-    const server = fakeServer("  -t N, --threads N");
+    const server = fakeServer('echo "  -t N, --threads N"');
     await expect(start(server.binary)).rejects.toThrow("exited with 3");
     expect(server.args()).not.toContain("-nlp");
   });
@@ -126,10 +132,36 @@ exit 3
   test("a --help that hangs doesn't hold up the start", async () => {
     // The shell's `sleep` keeps --help's output open even after the shell is
     // killed, which is what a stuck binary's own children would do.
-    const server = fakeServer("  -nlp, --no-language-probabilities", 10);
+    const server = fakeServer('sleep 10; echo "  -nlp, --no-language-probabilities"');
     const started = performance.now();
     await expect(start(server.binary, 200)).rejects.toThrow("exited with 3");
     expect(performance.now() - started).toBeLessThan(3_000);
+    expect(server.args()).not.toContain("-nlp");
+  });
+
+  test("a --help that ignores SIGTERM doesn't hold up the start", async () => {
+    const server = fakeServer("trap '' TERM; sleep 10");
+    const started = performance.now();
+    await expect(start(server.binary, 200)).rejects.toThrow("exited with 3");
+    expect(performance.now() - started).toBeLessThan(3_000);
+  });
+
+  test("a --help that closes its output but keeps running isn't left behind", async () => {
+    // Its output is complete, so its flags count; the process itself is stopped.
+    const server = fakeServer(
+      'echo "  -nlp, --no-language-probabilities"; exec >&- 2>&-; sleep 10',
+    );
+    await expect(start(server.binary)).rejects.toThrow("exited with 3");
+    expect(server.args()).toContain("-nlp");
+    const running = Bun.spawnSync(["pgrep", "-f", server.binary]).stdout.toString().trim();
+    expect(running).toBe("");
+  });
+
+  test("flags printed before a --help hangs aren't used", async () => {
+    // Only a --help that finishes is trusted: a partial one falls back to no
+    // extra flags, same as one that printed nothing.
+    const server = fakeServer('echo "  -nlp, --no-language-probabilities"; sleep 10');
+    await expect(start(server.binary, 200)).rejects.toThrow("exited with 3");
     expect(server.args()).not.toContain("-nlp");
   });
 });
