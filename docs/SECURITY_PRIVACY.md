@@ -340,7 +340,7 @@ flowchart LR
   a hard requirement of that script, not an afterthought.
 - **The current source installer** (`scripts/install.sh`) trusts GitHub and
   this repo, the same way `git clone` does: it checks out the newest release
-  tag (or `main` before any release exists), so pinning the script alone
+  tag on `main` (or `main` before any release exists), so pinning the script alone
   would add nothing, and a checksum published in this repo can't catch a
   compromise of this repo. Everything it fetches from elsewhere is verified:
   tools come from Homebrew (sha256 per formula) and the models are pinned and

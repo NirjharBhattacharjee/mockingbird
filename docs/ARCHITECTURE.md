@@ -545,8 +545,9 @@ archives in the diagram:
   `whisper.cpp`. The shim sets `MOCKINGBIRD_ROOT` to the `opt` path so the
   launch agent survives `brew upgrade`. Models aren't part of the install:
   the caveats point at `mockingbird models pull`.
-- **`install.sh`:** clones the repo and checks out the newest release tag, or
-  follows `main` while no tag exists.
+- **`install.sh`:** clones the repo and checks out the newest release tag
+  on `main` (a tag pushed on another branch never went through
+  `release.yml`, so it's skipped), or follows `main` while no tag exists.
 
 **Updating is always something the user runs**, never something mockingbird
 does: re-running the install command, or `brew upgrade`. Either one brings

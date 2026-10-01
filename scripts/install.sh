@@ -53,7 +53,16 @@ main() {
       fail "$d has local changes, so it wasn't updated. Commit or discard them, then run this again."
     fi
     git -C "$d" fetch --quiet --tags origin
-    tag="$(git -C "$d" tag --list 'v*' --sort=-v:refname | head -n 1)"
+    # Only tags on main: the release workflow refuses any other, so a tag
+    # pushed on a branch was never released or checked.
+    tag=""
+    local t
+    for t in $(git -C "$d" tag --list 'v*.*.*' --sort=-v:refname); do
+      if git -C "$d" merge-base --is-ancestor "$t^{commit}" origin/main 2>/dev/null; then
+        tag="$t"
+        break
+      fi
+    done
     if [ -n "$tag" ]; then
       git -C "$d" -c advice.detachedHead=false checkout --quiet "$tag"
     else

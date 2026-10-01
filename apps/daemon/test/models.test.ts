@@ -88,10 +88,30 @@ describe("pullModels", () => {
           pulled.push(model);
           return 0;
         },
+        which: () => "/opt/homebrew/bin/ollama",
         log: () => {},
       });
       expect(code).toBe(0);
       expect(pulled).toEqual(["tiny:latest"]);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("a running Ollama still needs the ollama command, which does the pull", async () => {
+    const logged: string[] = [];
+    const server = Bun.serve({ port: 0, fetch: () => new Response("{}") });
+    try {
+      const code = await pullModels({
+        home: tempDir(),
+        llmUrl: `http://127.0.0.1:${server.port}`,
+        files: [],
+        ollamaPull: async () => 0,
+        which: () => null,
+        log: (m) => logged.push(m),
+      });
+      expect(code).toBe(1);
+      expect(logged.at(-1)).toContain("brew install ollama");
     } finally {
       server.stop(true);
     }

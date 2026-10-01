@@ -79,6 +79,8 @@ export type PullDeps = PullFileDeps & {
   llmModel?: string;
   /** Pulls the cleanup model into a running Ollama. Returns the exit code. */
   ollamaPull?: (model: string, url: string) => Promise<number>;
+  /** Finds a command on the PATH; `Bun.which` unless a test supplies one. */
+  which?: (command: string) => string | null;
   /** Injected in tests; the pinned list otherwise. */
   files?: ModelFile[];
   modelsDir?: string;
@@ -112,17 +114,19 @@ export async function pullModels(deps: PullDeps = {}): Promise<number> {
   }
 
   log(`pulling the cleanup model ${llmModel} through Ollama at ${llmUrl}`);
+  const running = await ollamaRunning(llmUrl);
+  // Only start a server on this Mac: anything else would put Ollama on the network.
+  if (!running && !isLocalUrl(llmUrl)) {
+    log(`No Ollama answers at ${llmUrl}. Start it there, then run this again.`);
+    return 1;
+  }
+  // Needed even for a server elsewhere: the pull runs the local ollama CLI.
+  if ((deps.which ?? Bun.which)("ollama") === null) {
+    log("Ollama isn't installed. Install it with `brew install ollama`, then run this again.");
+    return 1;
+  }
   let stop: (() => Promise<void>) | undefined;
-  if (!(await ollamaRunning(llmUrl))) {
-    // Only start a server on this Mac: anything else would put Ollama on the network.
-    if (!isLocalUrl(llmUrl)) {
-      log(`No Ollama answers at ${llmUrl}. Start it there, then run this again.`);
-      return 1;
-    }
-    if (Bun.which("ollama") === null) {
-      log("Ollama isn't installed. Install it with `brew install ollama`, then run this again.");
-      return 1;
-    }
+  if (!running) {
     stop = (await startOllamaServer({ baseUrl: llmUrl })).stop;
   }
   try {

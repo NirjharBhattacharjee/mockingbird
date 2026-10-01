@@ -18,7 +18,7 @@ jobs:
       version: ${{ steps.pack.outputs.version }}
       sha256: ${{ steps.pack.outputs.sha256 }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
       - name: The tag must be on main
@@ -27,7 +27,7 @@ jobs:
             echo "::error::$GITHUB_REF_NAME isn't on main. Releases are only cut from main."
             exit 1
           }
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
@@ -49,9 +49,12 @@ jobs:
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
+          # Through the environment, not spliced into the script: the version
+          # comes from the tag name, which anyone who can push a tag picks.
+          VERSION: ${{ steps.pack.outputs.version }}
         run: |
           gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes \
-            "mockingbird-${{ steps.pack.outputs.version }}.tar.gz" checksums.txt
+            "mockingbird-$VERSION.tar.gz" checksums.txt
 
   homebrew:
     needs: release
