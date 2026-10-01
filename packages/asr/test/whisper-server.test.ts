@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { parseVerboseJson, speedFlags, stripNonSpeech } from "../src/index.ts";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { parseVerboseJson, speedFlags, startWhisperServer, stripNonSpeech } from "../src/index.ts";
 
 describe("parseVerboseJson", () => {
   test("joins segments that split a word without inserting a space", () => {
@@ -74,5 +77,57 @@ describe("speedFlags", () => {
   test("passes nothing to a version that doesn't know the flag", () => {
     expect(speedFlags("usage: whisper-server [options]\n  -t N, --threads N")).toEqual([]);
     expect(speedFlags("")).toEqual([]);
+  });
+});
+
+describe("startWhisperServer flags", () => {
+  /**
+   * A stand-in whisper-server: answers --help with `help` (after `helpDelay`
+   * seconds), and otherwise records its arguments and exits, which
+   * startWhisperServer reports as a failed start.
+   */
+  function fakeServer(help: string, helpDelay = 0) {
+    const dir = mkdtempSync(join(tmpdir(), "mockingbird-whisper-"));
+    const args = join(dir, "args");
+    const binary = join(dir, "whisper-server");
+    writeFileSync(
+      binary,
+      `#!/bin/sh
+if [ "$1" = "--help" ]; then sleep ${helpDelay}; echo "${help}"; exit 0; fi
+echo "$@" > "${args}"
+exit 3
+`,
+    );
+    chmodSync(binary, 0o755);
+    return { binary, args: () => readFileSync(args, "utf8") };
+  }
+
+  const start = (binary: string, helpTimeoutMs?: number) =>
+    startWhisperServer({
+      binary,
+      modelPath: "/m.bin",
+      port: 1,
+      readyTimeoutMs: 5_000,
+      helpTimeoutMs,
+    });
+
+  test("starts with -nlp when this whisper-server has it", async () => {
+    const server = fakeServer("  -nlp, --no-language-probabilities");
+    await expect(start(server.binary)).rejects.toThrow("exited with 3");
+    expect(server.args().trim().split(" ")).toContain("-nlp");
+  });
+
+  test("starts without it when it doesn't", async () => {
+    const server = fakeServer("  -t N, --threads N");
+    await expect(start(server.binary)).rejects.toThrow("exited with 3");
+    expect(server.args()).not.toContain("-nlp");
+  });
+
+  test("a --help that hangs doesn't hold up the start", async () => {
+    const server = fakeServer("  -nlp, --no-language-probabilities", 30);
+    const started = performance.now();
+    await expect(start(server.binary, 200)).rejects.toThrow("exited with 3");
+    expect(performance.now() - started).toBeLessThan(3_000);
+    expect(server.args()).not.toContain("-nlp");
   });
 });
