@@ -101,9 +101,18 @@ export function speedFlags(help: string): string[] {
   return help.includes("--no-language-probabilities") ? ["-nlp"] : [];
 }
 
-async function helpOf(binary: string): Promise<string> {
+/** The binary's `--help`, or as much of it as arrived within `timeoutMs`. */
+async function helpOf(binary: string, timeoutMs: number): Promise<string> {
+  let proc: Bun.Subprocess<"ignore", "pipe", "pipe">;
   try {
-    const proc = Bun.spawn([binary, "--help"], { stdout: "pipe", stderr: "pipe" });
+    proc = Bun.spawn([binary, "--help"], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+  } catch {
+    return "";
+  }
+  // A --help that never returns mustn't hold up startup: readyTimeoutMs only
+  // starts counting once the server itself is launched.
+  const timer = setTimeout(() => proc.kill(), timeoutMs);
+  try {
     const [out, err] = await Promise.all([
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
@@ -112,6 +121,8 @@ async function helpOf(binary: string): Promise<string> {
     return out + err;
   } catch {
     return "";
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -120,13 +131,16 @@ export async function startWhisperServer({
   modelPath,
   port,
   readyTimeoutMs = 30_000,
+  helpTimeoutMs = 5_000,
 }: {
   binary?: string;
   modelPath: string;
   port: number;
   readyTimeoutMs?: number;
+  /** How long to wait for `--help`, read to pick the flags. */
+  helpTimeoutMs?: number;
 }): Promise<WhisperServerProcess> {
-  const flags = speedFlags(await helpOf(binary));
+  const flags = speedFlags(await helpOf(binary, helpTimeoutMs));
   const args = ["-m", modelPath, "--host", "127.0.0.1", "--port", String(port), ...flags];
   const proc = Bun.spawn([binary, ...args], {
     stdout: "ignore",
