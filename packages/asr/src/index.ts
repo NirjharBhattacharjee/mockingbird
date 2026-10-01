@@ -2,6 +2,7 @@ export type { AsrEngine, AsrResult, AsrWord, TranscribeOptions } from "./engine.
 export {
   AsrRequestError,
   parseVerboseJson,
+  speedFlags,
   startWhisperServer,
   stripNonSpeech,
   WhisperServerEngine,

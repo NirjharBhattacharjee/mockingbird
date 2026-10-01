@@ -106,7 +106,10 @@ every captured segment goes through both.
 - **How it's invoked:** `whisper-server`, a supervised child process running
   `whisper.cpp`, listening on `127.0.0.1:8771`. The daemon `POST`s the
   segment as a WAV upload to `/inference` (`response_format=verbose_json`)
-  and gets back `{text, confidence, words}`. First start on a machine takes
+  and gets back `{text, confidence, words}`. It starts with `-nlp` when the
+  installed version has it: without that, every `verbose_json` request runs
+  the encoder a second time just to report a language probability, which
+  costs ~1.2s per dictation with `large-v3` on an M3. First start on a machine takes
   ~15s while Metal compiles its shaders (cached afterwards), which is why it
   runs as a long-lived child rather than per dictation. If
   `whisper-server` dies, the supervisor restarts it — dictation queues or
