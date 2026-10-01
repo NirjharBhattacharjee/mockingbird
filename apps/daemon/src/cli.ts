@@ -26,6 +26,7 @@ import {
   restoreMessage,
 } from "./fn-key.ts";
 import { main as listenMain } from "./listen.ts";
+import { pullModels } from "./models.ts";
 import { openPermissionPane, paneFor } from "./permissions.ts";
 import { main as transcribeMain } from "./transcribe.ts";
 import { main as typeMain } from "./type.ts";
@@ -42,6 +43,8 @@ Commands:
   status       whether it's running, and what it can see
   fn           bind Fn to dictation only, so macOS stops opening the picker
                (\`mockingbird fn --undo\` puts back the previous setting)
+  models pull  download the speech and cleanup models (the only command
+               that uses the network)
   listen       run in this terminal instead, with a live status line
   transcribe   turn a recording into text
   type         check typing permission, or type some text
@@ -95,8 +98,21 @@ export function bunPath(exec = process.execPath, which = (n: string) => Bun.whic
   }
 }
 
+/**
+ * The agent's entry point, as launchd should name it. Bun resolves symlinks in
+ * `import.meta.url`, so under Homebrew that is the versioned Cellar folder,
+ * which `brew upgrade` deletes. The Homebrew shim sets MOCKINGBIRD_ROOT to the
+ * unversioned `opt` path instead, which always points at the current version.
+ */
+export function agentEntry(
+  root = process.env.MOCKINGBIRD_ROOT,
+  here = dirname(Bun.fileURLToPath(import.meta.url)),
+): string {
+  return root ? join(root, "apps", "daemon", "src", "agent.ts") : join(here, "agent.ts");
+}
+
 function agentProgram(runner: string): string[] {
-  return [runner, join(dirname(Bun.fileURLToPath(import.meta.url)), "agent.ts")];
+  return [runner, agentEntry()];
 }
 
 async function lint(plistPath: string): Promise<void> {
@@ -312,6 +328,11 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
       return status();
     case "fn":
       return fn(rest);
+    case "models":
+      if (rest.length !== 1 || rest[0] !== "pull") {
+        throw new UsageError("the only `mockingbird models` command is `mockingbird models pull`");
+      }
+      return pullModels();
     case "listen":
       return listenMain(rest);
     case "transcribe":

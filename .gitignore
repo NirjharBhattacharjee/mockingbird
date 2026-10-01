@@ -11,3 +11,6 @@ issues/*.mov
 
 # Recordings of a real voice, for measuring transcription. Never committed.
 bench/voice/
+
+# Left behind by `bun build --compile`
+.*.bun-build

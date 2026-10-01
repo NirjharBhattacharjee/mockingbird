@@ -101,7 +101,7 @@ mechanical guarantee, per [ARCHITECTURE.md §9](./ARCHITECTURE.md#9-everything-i
 - **No account, login, or license server** — nothing to phone home to in the
   first place.
 - **The only network call in the entire system is model download**
-  (`mockingbird models pull <name>`), and it must always: be user-triggered,
+  (`mockingbird models pull`), and it must always: be user-triggered,
   print the exact URL being fetched (Hugging Face / ggml repos), and never
   run silently in the background (this rules out silent auto-update checks
   too — see [§16 of ARCHITECTURE.md](./ARCHITECTURE.md#16-known-gaps--scope-not-yet-decided)).
@@ -338,14 +338,19 @@ flowchart LR
   the `curl -fsSL install.sh | sh` path is only as trustworthy as the
   install script verifying that checksum *before* execution — this must be
   a hard requirement of that script, not an afterthought.
-- **The current source installer** (`scripts/install.sh`, run from `main`
-  before any release exists) trusts GitHub and this repo, the same way
-  `git clone` does: it clones `main`, so pinning the script alone would add
-  nothing, and a checksum published in this repo can't catch a compromise of
-  this repo. Everything it fetches from elsewhere is verified: tools come from
-  Homebrew (sha256 per formula) and the models are pinned and sha256-checked.
-  Once releases exist, the one-line install should move to a tagged release
-  and verify `checksums.txt` as above.
+- **The current source installer** (`scripts/install.sh`) trusts GitHub and
+  this repo, the same way `git clone` does: it checks out the newest release
+  tag on `main` (or `main` before any release exists), so pinning the script alone
+  would add nothing, and a checksum published in this repo can't catch a
+  compromise of this repo. Everything it fetches from elsewhere is verified:
+  tools come from Homebrew (sha256 per formula) and the models are pinned and
+  sha256-checked (`apps/daemon/src/models.ts`). Re-running it is also how a
+  user updates, and it refuses to overwrite a clone with local edits.
+- **The Homebrew formula** (in `NirjharBhattacharjee/homebrew-mockingbird`)
+  pins each release's source tarball by sha256. CI opens the PR that bumps
+  it; a person merges it, so a release reaches `brew upgrade` only after
+  review. `bun install` inside the formula fetches npm dependencies, checked
+  against `bun.lock` (`--frozen-lockfile`).
 - **Bundled third-party binaries** (ffmpeg, whisper-server) ship inside the
   release archive. Their provenance (which upstream build, which commit,
   which signature if any) should be recorded in the release process so a

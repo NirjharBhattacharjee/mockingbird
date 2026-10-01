@@ -48,6 +48,19 @@ curl -fsSL https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/ma
 It's safe to run again. Prefer to do it by hand? See
 [manual install](docs/README.md#manual-install).
 
+Or with Homebrew:
+
+```sh
+brew install nirjharbhattacharjee/mockingbird/mockingbird
+mockingbird models pull
+```
+
+### Updating
+
+Run the same install command again, or `brew upgrade mockingbird` if you used
+Homebrew. Either way you get the latest release, and mockingbird never checks
+for updates on its own. After `brew upgrade`, run `mockingbird restart`.
+
 ## 🎤 Use it
 
 ```sh

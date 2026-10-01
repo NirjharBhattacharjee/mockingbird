@@ -26,11 +26,13 @@ describe("findAsrModel", () => {
     expect(findAsrModel(models, undefined, (m) => logged.push(m))).toBe(
       join(models, "ggml-base.en.bin"),
     );
-    expect(logged[0]).toContain("install.sh");
+    expect(logged[0]).toContain("mockingbird models pull");
   });
 
   test("no model at all still fails with the setup hint", () => {
-    expect(() => findAsrModel(modelsWith(), undefined, () => {})).toThrow("install.sh");
+    expect(() => findAsrModel(modelsWith(), undefined, () => {})).toThrow(
+      "mockingbird models pull",
+    );
   });
 
   test("a model asked for by name has to exist", () => {
