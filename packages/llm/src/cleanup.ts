@@ -73,22 +73,19 @@ export function looksLikeList(text: string): boolean {
 }
 
 /** Words in an item of a spoken list; past this, it's a clause, not a thing. */
-const MAX_ITEM_WORDS = 3;
-
-/** Words that start a thing rather than an action: "a passport", "my camera". */
-const DETERMINER =
-  /^(?:a|an|the|some|my|your|our|his|her|their|this|that|these|those|two|three|four|five|\d+)\b/i;
+const MAX_ITEM_WORDS = 4;
 
 /**
- * Three or more things joined by commas and a final "and"/"or".
+ * Three or more things joined by commas and a final "and"/"or": "a charger,
+ * a passport and a jacket", "eggs, toilet paper and rice". People rarely say
+ * the comma before "and", so one comma is enough. The items between commas
+ * have to be short, which keeps out clauses like "we landed in Tokyo, then
+ * we took a train and...". The last item can run on.
  *
- * With two or more commas ("onions, toilet paper, rice and bread") it's a
- * list, however long the items. With one ("a charger, a passport and a
- * jacket"), which is how people usually say a list, the item between the
- * comma and "and" has to look like a thing: one word, or a few starting with
- * "a", "the", "my" and the like. That keeps out clauses ("we landed in
- * Tokyo, then we took a train and...") and actions ("I went to the store,
- * bought milk and came home"). The last item can run on.
+ * Words alone can't tell "bought milk" (an action) from "toilet paper" (a
+ * thing), so this errs towards sending speech to the model: a missed list is
+ * typed as a sentence, while a false alarm only costs one model call, and the
+ * prompt keeps a sentence a sentence (evals/cleanup checks both).
  */
 function enumerates(sentence: string): boolean {
   const last = sentence.match(/^(.*,[^,]*?)\s(?:and|or)\s+\S/i);
@@ -98,10 +95,7 @@ function enumerates(sentence: string): boolean {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
-  if (middle.length >= 2) return true;
-  const item = middle[0] ?? "";
-  const words = item.split(/\s+/).length;
-  return words === 1 || (words <= MAX_ITEM_WORDS && DETERMINER.test(item));
+  return middle.length > 0 && middle.every((item) => item.split(/\s+/).length <= MAX_ITEM_WORDS);
 }
 
 /**

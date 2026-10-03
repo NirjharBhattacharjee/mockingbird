@@ -189,6 +189,24 @@
     - { type: javascript, value: file://asserts.cjs:keepsWords }
   metadata: { set: dev }
 
+- description: short actions joined by commas stay a sentence
+  vars:
+    transcript: "I went to the store, bought milk and came home."
+    keep: went store bought milk came home
+  assert:
+    - { type: javascript, value: file://asserts.cjs:isProse }
+    - { type: javascript, value: file://asserts.cjs:keepsWords }
+  metadata: { set: dev }
+
+- description: a run of short clauses stays a sentence
+  vars:
+    transcript: "After lunch, the lights flickered, the whole system restarted and we lost our work."
+    keep: after lunch lights flickered whole system restarted lost our work
+  assert:
+    - { type: javascript, value: file://asserts.cjs:isProse }
+    - { type: javascript, value: file://asserts.cjs:keepsWords }
+  metadata: { set: dev }
+
 - description: an opinion with several points stays a sentence
   vars:
     transcript: "I think the new onboarding is clearer, faster and honestly a lot friendlier."
@@ -258,5 +276,11 @@
     - { type: javascript, value: file://asserts.cjs:keepsWords }
     # A paragraph stays a paragraph: no line per sentence.
     - { type: javascript, value: file://asserts.cjs:isProse }
+    # 75 words take ~3.3s on an M3 on their own, old prompt or new, and up to
+    # ~4s depending on what ran just before, so this case replaces the default
+    # 4s ceiling with its own (and so restates the not-empty check).
+    - { type: latency, threshold: 5000, metric: speed }
+    - { type: javascript, value: "output.trim().length > 0", metric: not-empty }
     - { type: javascript, value: file://asserts.cjs:notAnswered }
+  options: { disableDefaultAsserts: true }
   metadata: { set: dev }
