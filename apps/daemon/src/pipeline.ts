@@ -1,4 +1,4 @@
-import type { AsrEngine } from "@mockingbird/asr";
+import type { AsrEngine, AsrResult } from "@mockingbird/asr";
 import { durationMs, normalizeLoudness, type PcmAudio } from "@mockingbird/audio";
 import {
   type AppStyle,
@@ -89,6 +89,26 @@ export async function runPipeline(
     vocabulary: deps.vocabularyHint ? buildVocabularyPrompt(deps.dictionary ?? []) : undefined,
   });
   const asrMs = elapsed(t);
+  return { ...base, rawText: asr.text, vadMs, asrMs, ...(await cleanUp(asr, deps, style)) };
+}
+
+export type CleanupDeps = Pick<PipelineDeps, "llm" | "dictionary" | "gate">;
+
+export type CleanupResult = Pick<
+  PipelineResult,
+  "finalText" | "llmMs" | "llmOutcome" | "llmError" | "llmModel"
+>;
+
+/**
+ * Everything after Whisper: the gate, the cleanup model, the checks on what
+ * it returned, formatting and the dictionary. Exported so the eval suite
+ * (evals/cleanup) scores exactly what the app types.
+ */
+export async function cleanUp(
+  asr: Pick<AsrResult, "text" | "confidence">,
+  deps: CleanupDeps,
+  style: AppStyle = "default",
+): Promise<CleanupResult> {
   const dictionary = deps.dictionary ?? [];
   /** Formatting, then the dictionary: replacements first, then names by sound. */
   const finish = (text: string) =>
@@ -99,19 +119,12 @@ export async function runPipeline(
       ),
       dictionary,
     );
-  const common = { ...base, rawText: asr.text, vadMs, asrMs };
 
   if (shouldSkipLlm(asr, deps.gate)) {
-    return {
-      ...common,
-      finalText: finish(asr.text),
-      llmMs: null,
-      llmOutcome: "skipped",
-      llmModel: null,
-    };
+    return { finalText: finish(asr.text), llmMs: null, llmOutcome: "skipped", llmModel: null };
   }
 
-  t = performance.now();
+  const t = performance.now();
   let cleaned: string;
   try {
     cleaned = await deps.llm.complete(
@@ -120,7 +133,6 @@ export async function runPipeline(
   } catch (error) {
     // Degrade, don't break: a dead LLM still leaves usable raw dictation.
     return {
-      ...common,
       finalText: finish(asr.text),
       llmMs: elapsed(t),
       llmOutcome: "failed",
@@ -130,9 +142,7 @@ export async function runPipeline(
   }
   const llmMs = elapsed(t);
   const accepted = acceptCleanup(asr.text, cleaned);
-
   return {
-    ...common,
     finalText: finish(accepted ? cleaned : asr.text),
     llmMs,
     llmOutcome: accepted ? "cleaned" : "rejected",

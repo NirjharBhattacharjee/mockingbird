@@ -1,0 +1,45 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+#
+# Does mockingbird's cleanup step turn what Whisper wrote into what the user
+# meant, fast enough? Run with `bun run eval:cleanup`, never `promptfoo eval`
+# directly: the runner starts the local server this calls, and switches off
+# promptfoo's telemetry and sharing (evals/cleanup/run.ts).
+description: mockingbird dictation cleanup
+
+# The transcript is the prompt; the server builds the real cleanup prompt
+# around it with buildCleanupPrompt, exactly as the app does.
+prompts:
+  - "{{transcript}}"
+
+providers:
+  - id: http
+    label: mockingbird-cleanup
+    config:
+      url: "http://127.0.0.1:{{env.MOCKINGBIRD_EVAL_PORT}}/"
+      method: POST
+      headers:
+        Content-Type: application/json
+      body:
+        transcript: "{{prompt}}"
+        style: "{{style}}"
+        confidence: "{{confidence}}"
+      transformResponse: json.output
+
+defaultTest:
+  vars:
+    style: default
+    # A typical Whisper confidence; cases set their own where it matters.
+    confidence: 0.85
+  assert:
+    - type: javascript
+      value: "output.trim().length > 0"
+      metric: not-empty
+    # Cleanup takes ~0.5-2s warm on an M3; 4s means something regressed.
+    - type: latency
+      threshold: 4000
+      metric: speed
+
+tests:
+  - file://tests/dev.yaml
+  - file://tests/holdout.yaml
+
