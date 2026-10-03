@@ -17,3 +17,5 @@ bench/voice/
 
 # Built by `go build` in apps/cli
 apps/cli/mockingbird
+# Synthetic clips bench/corpus.ts generates with `say`.
+bench/corpus/
