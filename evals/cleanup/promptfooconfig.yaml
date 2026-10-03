@@ -39,6 +39,11 @@ defaultTest:
       threshold: 4000
       metric: speed
 
+# One case at a time, like real dictation: in parallel, cases queue behind
+# each other on the one local model and the latency checks measure the queue.
+evaluateOptions:
+  maxConcurrency: 1
+
 tests:
   - file://tests/dev.yaml
   - file://tests/holdout.yaml
