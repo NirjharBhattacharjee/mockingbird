@@ -34,6 +34,16 @@ jobs:
       - run: bun run typecheck
       - run: bun run lint
       - run: bun test
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: apps/cli/go.mod
+          cache-dependency-path: apps/cli/go.sum
+      # The `mockingbird` command. Apple Silicon only, like the installer.
+      - name: Build the command
+        working-directory: apps/cli
+        run: |
+          go test ./...
+          go build -trimpath -ldflags "-s -w -X main.release=$GITHUB_REF_NAME" -o ../../mockingbird-darwin-arm64 .
       # Our own tarball rather than GitHub's generated one, so the sha256 the
       # Homebrew formula pins is one we made and published.
       - name: Pack the source
@@ -42,8 +52,8 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           archive="mockingbird-$version.tar.gz"
           git archive --format=tar.gz --prefix="mockingbird-$version/" -o "$archive" "$GITHUB_REF_NAME"
+          shasum -a 256 "$archive" mockingbird-darwin-arm64 > checksums.txt
           sha="$(shasum -a 256 "$archive" | cut -d' ' -f1)"
-          echo "$sha  $archive" > checksums.txt
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "sha256=$sha" >> "$GITHUB_OUTPUT"
       - name: Publish the release
@@ -54,7 +64,7 @@ jobs:
           VERSION: ${{ steps.pack.outputs.version }}
         run: |
           gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes \
-            "mockingbird-$VERSION.tar.gz" checksums.txt
+            "mockingbird-$VERSION.tar.gz" mockingbird-darwin-arm64 checksums.txt
 
   homebrew:
     needs: release

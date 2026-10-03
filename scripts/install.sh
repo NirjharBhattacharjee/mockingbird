@@ -72,6 +72,28 @@ main() {
   }
   version() { git -C "$1" describe --tags --always 2>/dev/null || echo unknown; }
 
+  # The Go command for the release a clone is on, from that release's assets
+  # and checked against its checksums.txt. A clone that isn't on a release
+  # tag builds it instead, if Go is installed.
+  get_cli() {
+    local d="$1" out="$2" tag tmp
+    local asset="mockingbird-darwin-arm64"
+    tag="$(git -C "$d" describe --tags --exact-match 2>/dev/null)" || tag=""
+    if [ -n "$tag" ]; then
+      local url="https://github.com/NirjharBhattacharjee/mockingbird/releases/download/$tag"
+      tmp="$(mktemp -d)"
+      if curl -fsL -o "$tmp/$asset" "$url/$asset" &&
+        curl -fsL -o "$tmp/checksums.txt" "$url/checksums.txt" &&
+        (cd "$tmp" && grep " $asset\$" checksums.txt | shasum -a 256 -c - >/dev/null); then
+        chmod +x "$tmp/$asset"
+        mv "$tmp/$asset" "$out"
+      fi
+      rm -rf "$tmp"
+      [ -x "$out" ] && return 0
+    fi
+    command -v go >/dev/null 2>&1 && [ -d "$d/apps/cli" ] && (cd "$d/apps/cli" && go build -o "$out" .)
+  }
+
   step "2/4 Code"
   local dir
   local here
@@ -111,18 +133,31 @@ main() {
   (cd "$dir" && bun apps/daemon/src/cli.ts models pull)
 
   step "4/4 Command"
-  # A shim rather than a compiled binary: macOS records the Fn and typing
-  # permissions against the binary that asks for them, and rebuilding a
-  # compiled one changes its signature, which silently drops those grants.
+  # The command is the Go binary from apps/cli, for the release this clone is
+  # on. It holds no macOS permissions. The agent's runner in ~/.mockingbird/bin
+  # does, so replacing the command on an update drops no Fn or typing grant.
+  # Without a binary, the shim runs the engine's TypeScript CLI, as before.
   local bin_dir="$HOME/.local/bin"
   local shim="$bin_dir/mockingbird"
-  local bun_bin
+  local cli="$dir/apps/cli/mockingbird"
+  local bun_bin run
   bun_bin="$(command -v bun)"
+  rm -f "$cli"
+  get_cli "$dir" "$cli" || true
+  if [ -x "$cli" ]; then
+    run="exec \"$cli\""
+    skip "installed the mockingbird command ($("$cli" --version))"
+  else
+    run="exec \"$bun_bin\" \"$dir/apps/daemon/src/cli.ts\""
+    skip "no prebuilt command for this version; using the TypeScript one"
+  fi
   mkdir -p "$bin_dir"
   cat > "$shim" <<SHIM
 #!/bin/sh
 # Written by scripts/install.sh. Re-run it after moving the clone.
-exec "$bun_bin" "$dir/apps/daemon/src/cli.ts" "\$@"
+# The Go command finds bun on the PATH.
+export PATH="$(dirname "$bun_bin"):\$PATH"
+$run "\$@"
 SHIM
   chmod +x "$shim"
   skip "installed $shim"

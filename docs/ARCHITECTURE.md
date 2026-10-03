@@ -44,6 +44,7 @@ it is not a design doc that gets abandoned once code exists.
 | 2026-10-03 | The cleanup prompt moves to `packages/llm/prompts/cleanup.md`, assembled per dictation: the rules always, the list section only when `looksLikeList` says so, terminal and dictionary sections when they apply. The rules now say to keep the speaker's words (collapse "I I", don't delete it; don't reword; keep a paragraph one paragraph). `looksLikeList` now counts "a, b and c" with one comma, since that's how people say a list. Eval, one case at a time on an M3: dev 22/28 to 28/28, held-out 11/11 to 11/11. A list dictation right after a non-list one costs about 0.5s more than before, because Ollama has to process the list section afresh (MODELS.md §5). |
 | 2026-10-03 | First Go code in `apps/cli`: the `mockingbird` binary, on Bubble Tea v2. `mockingbird start` plays the website's launch animation, the pixel bird and wordmark from TUI.md §5, while the engine's own `start` runs underneath. The status line shows the engine's latest line, and when it's done the binary prints the engine's output and exits with its code. Every other command, and `start` when output isn't a terminal, `exec`s `bun apps/daemon/src/cli.ts`, so they behave exactly as before. The binary finds the engine through `MOCKINGBIRD_ROOT`, or by walking up from its own path. CI gains a `cli` job running `gofmt`, `go vet` and `go test -race`. `install.sh` and the Homebrew formula don't build it yet, so the installed shim still runs the TypeScript CLI (§3, §11, §14). |
 
+| 2026-10-03 | Users get the Go `mockingbird` command. `release.yml` tests and builds `apps/cli` into `mockingbird-darwin-arm64`, with the tag built in for `--version`, and publishes it with its sha256 in `checksums.txt`. `install.sh` downloads it for the release it checks out, checks the sha256, keeps it at `apps/cli/mockingbird` in the clone, and writes a shim that runs it with bun's folder on the PATH. A clone that isn't on a release builds it with `go` if that's installed. Without either, or for a release from before the Go command, the shim runs the TypeScript CLI as before. The Homebrew formula builds it from source with `go` as a build-only dependency. The binary holds no macOS permissions, so replacing it on an update drops no grant (§12, §14, README.md). |
 
 ---
 
@@ -560,18 +561,24 @@ user is a developer on macOS. A `curl | sh` installer is the fallback for
 anyone without Homebrew. Building from source via `bun install` is always
 supported and is how contributors and unsupported architectures run it.
 
-**Today, before a compiled binary exists**, both channels ship source, not the
-archives in the diagram:
+**Today** both channels ship the engine as source, not the archives in the
+diagram. Only the `mockingbird` command is compiled:
 
 - **Homebrew:** the formula downloads the release's source tarball, checks
   its sha256, runs `bun install --production` into `libexec`, and writes a
   `mockingbird` shim. It depends on Homebrew's `bun`, `ffmpeg`, `ollama` and
   `whisper.cpp`. The shim sets `MOCKINGBIRD_ROOT` to the `opt` path so the
-  launch agent survives `brew upgrade`. Models aren't part of the install:
-  the caveats point at `mockingbird models pull`.
+  launch agent survives `brew upgrade`. For a release that has `apps/cli`,
+  it builds the Go command with Homebrew's `go`, a build-only dependency,
+  and the shim runs that. Models aren't part of the install: the caveats
+  point at `mockingbird models pull`.
 - **`install.sh`:** clones the repo and checks out the newest release tag
   on `main` (a tag pushed on another branch never went through
   `release.yml`, so it's skipped), or follows `main` while no tag exists.
+  It then downloads that release's `mockingbird-darwin-arm64`, checks it
+  against `checksums.txt`, and writes a shim that runs it. A clone that
+  isn't on a release builds the command with `go`, if installed. Failing
+  both, the shim runs the TypeScript CLI directly.
 
 **Updating is always something the user runs**, never something mockingbird
 does: re-running the install command, or `brew upgrade`. Either one brings
@@ -671,11 +678,13 @@ flowchart TB
 
 1. Refuse a tag that isn't on `main`.
 2. Rerun install, typecheck, lint and unit tests on the tagged commit.
-3. Pack the source with `git archive` into `mockingbird-<version>.tar.gz`
-   and write its sha256 to `checksums.txt`.
-4. Create the GitHub Release with both files and notes generated from the
-   merged PRs.
-5. Open a PR on `NirjharBhattacharjee/homebrew-mockingbird` setting the
+3. Test `apps/cli` and build it into `mockingbird-darwin-arm64`, with the
+   tag built in for `mockingbird --version`.
+4. Pack the source with `git archive` into `mockingbird-<version>.tar.gz`
+   and write its sha256 and the binary's to `checksums.txt`.
+5. Create the GitHub Release with the three files and notes generated from
+   the merged PRs.
+6. Open a PR on `NirjharBhattacharjee/homebrew-mockingbird` setting the
    formula's `url` and `sha256` to the new tarball. The workflow's own token
    can't write to another repo, so this needs a `TAP_TOKEN` secret (a
    fine-grained token with contents and pull-request write access to the
