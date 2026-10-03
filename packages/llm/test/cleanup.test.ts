@@ -151,6 +151,31 @@ describe("lists", () => {
     );
   });
 
+  test("three things with one comma are a list, the way people say them", () => {
+    for (const text of [
+      "Pack a charger, a passport and a jacket.",
+      "For the logo we could go with teal, lavender or a dark blue.",
+      "Grab eggs, flour and some butter on the way home.",
+      "Pack a sleeping bag, a comfortable warm jacket, a bottle and snacks.",
+      "Grab eggs, toilet paper and rice.",
+    ]) {
+      expect(looksLikeList(text)).toBe(true);
+    }
+  });
+
+  test("a comma and an 'and' around long clauses is not a list", () => {
+    for (const text of [
+      "We landed in Tokyo, then we took a train to Kyoto and then we checked into the hotel.",
+      "Thanks so much for your help yesterday, it really saved me a lot of time and stress.",
+      "When the tests finished running late last night, the whole team went home and slept.",
+      "Grab some milk and bread on the way home.",
+      // An Oxford comma before "and" isn't a second item.
+      "I added an idempotency key, wrote a test that sends the same event twice, and now it only charges once.",
+    ]) {
+      expect(looksLikeList(text)).toBe(false);
+    }
+  });
+
   test("a cleanup that turns speech into a list may be much shorter", () => {
     const raw = "I am going for grocery. I will get onions. I will buy toilet paper and rice.";
     expect(acceptCleanup(raw, "Groceries:\n- onions\n- toilet paper\n- rice")).toBe(true);
@@ -260,5 +285,41 @@ describe("looksClean", () => {
   test("a word that merely contains a filler isn't filler", () => {
     expect(looksClean("The album is out.")).toBe(true);
     expect(looksClean("Humming along.")).toBe(true);
+  });
+});
+
+describe("buildCleanupPrompt sections (prompts/cleanup.md)", () => {
+  const listRules = "write it as a list";
+
+  test("an ordinary sentence gets the rules, without the list section", () => {
+    const { system, user } = buildCleanupPrompt({ text: "Um, move the meeting to Thursday." });
+    expect(system).toContain("You clean up dictated speech.");
+    expect(system).not.toContain(listRules);
+    expect(user).toBe("<transcript>Um, move the meeting to Thursday.</transcript>");
+  });
+
+  test("speech that looks like a list also gets the list section", () => {
+    const { system } = buildCleanupPrompt({ text: "Pack a charger, a passport and a jacket." });
+    expect(system).toContain(listRules);
+  });
+
+  test("terminal text gets the terminal section and never the list one", () => {
+    const { system } = buildCleanupPrompt({
+      text: "install ffmpeg, whisper and ollama",
+      style: "terminal",
+    });
+    expect(system).toContain("Never use line breaks");
+    expect(system).not.toContain(listRules);
+  });
+
+  test("dictionary terms fill in the dictionary section", () => {
+    const { system } = buildCleanupPrompt({
+      text: "ask Nirjhar",
+      dictionary: [{ term: "Nirjhar Bhattacharjee", hint: "a name" }],
+    });
+    expect(system).toContain(
+      "Spell these terms exactly like this when they appear: Nirjhar Bhattacharjee (a name).",
+    );
+    expect(system).not.toContain("{terms}");
   });
 });

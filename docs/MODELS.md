@@ -230,6 +230,16 @@ the same words.
   items and the transcript is typed as a sentence. The prompt also keeps a
   story about what already happened ("we landed, then took a train") as
   prose.
+- **The prompt** is `packages/llm/prompts/cleanup.md`, in sections that
+  `buildCleanupPrompt` assembles per dictation. `## Rules` always goes in.
+  `## Lists` goes in only when `looksLikeList` says so, because with the list
+  rules in every prompt qwen3 turned plain sentences into lists ("Meeting:\n-
+  Thursday", which `acceptCleanup` then rejected, leaving the fillers in).
+  `## Terminal` and `## Dictionary` are added when they apply. Change it
+  against `bun run eval:cleanup` and the held-out set. One cost to know. Ollama
+  reuses the processed start of a prompt between calls, so a list dictation
+  that follows a non-list one processes the list section afresh, about
+  0.5s more than a list after a list.
 - **When it runs:** only when the transcript needs it. `shouldSkipLlm`
   (`packages/llm/src/cleanup.ts`) skips cleanup for very short utterances, and
   for confident transcripts that carry no filler word and no stutter —
