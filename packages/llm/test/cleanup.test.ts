@@ -156,6 +156,8 @@ describe("lists", () => {
       "Pack a charger, a passport and a jacket.",
       "For the logo we could go with teal, lavender or a dark blue.",
       "Grab eggs, flour and some butter on the way home.",
+      // Two or more commas still count, however long the items.
+      "Pack a sleeping bag, a comfortable warm jacket, a bottle and snacks.",
     ]) {
       expect(looksLikeList(text)).toBe(true);
     }
@@ -167,6 +169,10 @@ describe("lists", () => {
       "Thanks so much for your help yesterday, it really saved me a lot of time and stress.",
       "When the tests finished running late last night, the whole team went home and slept.",
       "Grab some milk and bread on the way home.",
+      // Short, but an action, not a thing.
+      "I went to the store, bought milk and came home.",
+      // An Oxford comma before "and" isn't a second item.
+      "I added an idempotency key, wrote a test that sends the same event twice, and now it only charges once.",
     ]) {
       expect(looksLikeList(text)).toBe(false);
     }

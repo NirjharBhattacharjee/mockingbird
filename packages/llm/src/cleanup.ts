@@ -75,19 +75,33 @@ export function looksLikeList(text: string): boolean {
 /** Words in an item of a spoken list; past this, it's a clause, not a thing. */
 const MAX_ITEM_WORDS = 3;
 
+/** Words that start a thing rather than an action: "a passport", "my camera". */
+const DETERMINER =
+  /^(?:a|an|the|some|my|your|our|his|her|their|this|that|these|those|two|three|four|five|\d+)\b/i;
+
 /**
- * "a charger, a passport and a jacket", "teal, lavender or a dark blue":
- * three or more things joined by commas and a final "and"/"or". People
- * rarely say the comma before "and", so one comma is enough. The items
- * between the commas have to be short: that keeps out clauses like "we
- * landed in Tokyo, then we took a train and..." The last item can run on
- * ("and some butter on the way home").
+ * Three or more things joined by commas and a final "and"/"or".
+ *
+ * With two or more commas ("onions, toilet paper, rice and bread") it's a
+ * list, however long the items. With one ("a charger, a passport and a
+ * jacket"), which is how people usually say a list, the item between the
+ * comma and "and" has to look like a thing: one word, or a few starting with
+ * "a", "the", "my" and the like. That keeps out clauses ("we landed in
+ * Tokyo, then we took a train and...") and actions ("I went to the store,
+ * bought milk and came home"). The last item can run on.
  */
 function enumerates(sentence: string): boolean {
   const last = sentence.match(/^(.*,[^,]*?)\s(?:and|or)\s+\S/i);
   if (!last?.[1]) return false;
-  const [, ...middle] = last[1].split(",");
-  return middle.every((item) => item.trim().split(/\s+/).length <= MAX_ITEM_WORDS);
+  // An Oxford comma ("a passport, and a jacket") leaves an empty item.
+  const [, ...middle] = last[1]
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (middle.length >= 2) return true;
+  const item = middle[0] ?? "";
+  const words = item.split(/\s+/).length;
+  return words === 1 || (words <= MAX_ITEM_WORDS && DETERMINER.test(item));
 }
 
 /**
