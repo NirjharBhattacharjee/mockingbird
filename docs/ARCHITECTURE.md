@@ -39,6 +39,7 @@ it is not a design doc that gets abandoned once code exists.
 | 2026-09-24 | Lists cover sequences too: ordered steps ("first ... then ... finally", "number one ...") become a numbered `1.` list, unordered things stay `- ` bullets, and a list of fewer than three items falls back to the sentence. A line break is typed as a real Shift press around Return rather than a Return carrying the Shift flag, so apps that track the modifier themselves see Shift+Return too. |
 | 2026-10-01 | Releases. `release.yml` publishes a GitHub Release for each `v*.*.*` tag on `main`: the checks again, then a `git archive` source tarball and its sha256, then a PR bumping the Homebrew formula in `NirjharBhattacharjee/homebrew-mockingbird` (needs the `TAP_TOKEN` secret). Re-running `scripts/install.sh` now updates: it moves `~/mockingbird` to the newest tag (refusing if the clone has local edits) and restarts a running agent. Model downloads moved from `install.sh` into `mockingbird models pull` (`apps/daemon/src/models.ts`). Under Homebrew the shim sets `MOCKINGBIRD_ROOT` to the unversioned `opt` path, because Bun resolves symlinks in `import.meta.url` and the launch agent would otherwise name a Cellar folder that `brew upgrade` deletes (§12, §14, §16). |
 | 2026-10-01 | whisper-server runs with `-nlp` (`speedFlags` in `packages/asr`, only when its `--help` lists the flag, since an unknown flag stops it starting). Without it, each `verbose_json` request ran the encoder twice, the second time only to report a language probability: measured with `large-v3` on an M3, a 0.9s clip went from 2626ms to 1379ms and a 4.5s clip from 2928ms to 1778ms, with identical transcripts. Also measured and not shipped: a smaller encoder window (`audio_ctx`) breaks `large-v3` outright (empty or looping output), and `large-v3-turbo`, though ~0.6s faster again, drops all punctuation on a 57s dictation. |
+| 2026-10-03 | The `mockingbird` command and terminal UI move to **Go with Bubble Tea**, in `apps/cli` only. The dictation engine (daemon and `packages/*`) stays TypeScript on Bun, and Swift, Objective-C and Rust stay out. The Go command talks to the engine through its commands and the IPC socket, never its code or `data.db`, and needs no macOS permissions of its own, which stay with the engine's runner binary. Replaces the planned OpenTUI dashboard, which had not been built (§2, §3, §10, §15, TUI.md). |
 
 
 ---
@@ -84,13 +85,16 @@ but not built in v1 — see [§16](#16-known-gaps--scope-not-yet-decided).
 These are constraints, not preferences. Any proposed change should be checked
 against this list.
 
-1. **100% TypeScript, authored by us.** Every file we write and maintain is
-   `.ts`, running on Bun. Third-party binaries we depend on (ffmpeg, an ASR
-   server, an LLM server) are consumed as subprocesses or prebuilt native
-   modules — never hand-written by us in another language. See [§3](#3-technology-stack)
-   for the exact boundary.
-2. **No Electron, no Swift, no native GUI toolkit.** Bun is the only runtime.
-   Feedback is audio cues + a terminal UI (OpenTUI), not a windowed app.
+1. **Two languages, each with one job.** The dictation engine (the daemon
+   and every `packages/*`) is TypeScript on Bun. The `mockingbird` command
+   users type, and its terminal UI, is Go with Bubble Tea, in `apps/cli`
+   only. Go never appears in the engine, and the engine never depends on
+   the Go command. It runs, and is tested, without it. Third-party binaries
+   we depend on, like ffmpeg, the ASR server and the LLM server, run as
+   subprocesses or prebuilt native modules. We never hand-write them in
+   another language. See [§3](#3-technology-stack) for the exact boundary.
+2. **No Electron, no Swift, no native GUI toolkit.** Feedback is audio cues
+   and a Bubble Tea terminal UI, not a windowed app.
 3. **Local-first, no exceptions.** No network call happens as part of normal
    operation. The only network activity in the entire system is an explicit,
    user-initiated model download. See [§9](#9-everything-is-local).
@@ -106,7 +110,8 @@ against this list.
 
 | Concern | Technology | Version (verified) | Runs as |
 |---|---|---|---|
-| Language / runtime | TypeScript on **Bun** | Bun ≥ 1.2 | our process |
+| Language / runtime (engine) | TypeScript on **Bun** | Bun ≥ 1.2 | our process |
+| Language (command + TUI) | **Go**, in `apps/cli` only | Go ≥ 1.23 | our process, a single compiled binary |
 | Package manager / workspaces | Bun workspaces | — | — |
 | Microphone capture, audio file decoding | `ffmpeg` (avfoundation on macOS) | system binary | subprocess, piped stdout |
 | Global hotkey | **`bun:ffi` → CoreGraphics event tap** (`uiohook-napi` crashes Bun, see §16) | — | FFI in a worker thread |
@@ -116,7 +121,7 @@ against this list.
 | Text injection | **`bun:ffi` → `CGEventKeyboardSetUnicodeString` + `CGEventPost`** | — | FFI, in-process |
 | Frontmost app | `lsappinfo` (needs no TCC grant, unlike System Events) | system binary | subprocess |
 | Persistent storage | **`bun:sqlite`** (built into Bun) + `sqlite-vec` extension | bundled with Bun | in-process, embedded |
-| Terminal UI | `@opentui/react` | 0.5.11 | separate Bun process |
+| Terminal UI | **Bubble Tea** + Lip Gloss (Charm, MIT), Catppuccin palette | — | the Go `mockingbird` binary |
 | Validation / IPC contract | `zod` + hand-written protocol types | — | shared package |
 | Testing | `bun test` | built-in | — |
 | Release versioning | Changesets | — | — |
@@ -124,8 +129,19 @@ against this list.
 **The rule that resolves "is X allowed":** if we call it via `fetch()`,
 `Bun.spawn()`, or install it as a prebuilt N-API module, it's fine regardless
 of what language it's written in internally — we never read or compile its
-source. If we would need to write a `.swift`, `.mm`, `.go`, or `.rs` file
-ourselves to make it work, it's out, full stop, for v1.
+source. Go we write ourselves is allowed in `apps/cli` and nowhere else. If
+we would need to write a `.swift`, `.mm`, or `.rs` file ourselves to make it
+work, it's out, full stop, for v1.
+
+**Why Go for the command.** Decided 2026-10-03. The command is the first
+thing a user installs and sees. A Go binary starts instantly and ships as
+one file, with no runtime to install before it can run. Bubble Tea and
+Lip Gloss cover the launch animation and the screens in TUI.md. The command
+needs none of the macOS permissions the engine holds. Those stay with the
+engine's runner binary, `~/.mockingbird/bin/mockingbird`, so rebuilding the
+command never drops a user's Fn or typing grant. The engine stays
+TypeScript. It works, it's tested headlessly, and a rewrite would gain
+nothing.
 
 Ollama being written in Go is not a stack violation for the same reason
 Postgres being written in C isn't one for a Node web app: it's a server we
@@ -169,7 +185,7 @@ flowchart TB
             LLM["llama-server / ollama\n:8772"]
         end
 
-        subgraph TUIProc["mockingbird-tui (Bun + OpenTUI)"]
+        subgraph TUIProc["mockingbird (Go + Bubble Tea)"]
             TUI["Dashboard, history,\ndictionary editor,\nlatency view"]
         end
 
@@ -190,7 +206,7 @@ flowchart TB
 ```
 
 Two processes are ours to run at all times: **mockingbirdd** (the daemon —
-always on, owns all state) and, optionally, **mockingbird-tui** (attaches and
+always on, owns all state) and, optionally, the **`mockingbird`** command's TUI (Go; attaches and
 detaches freely, holds no source of truth). Three more are supervised
 children the daemon manages: **ffmpeg**, **whisper-server**, **llama-server**.
 
@@ -446,7 +462,7 @@ mockingbird/
 │   │       ├── listen.ts        `bun run listen` CLI (keyboard push-to-talk)
 │   │       ├── listen-controller.ts
 │   │       └── main.ts
-│   └── tui/                     mockingbird-tui — OpenTUI client, IPC only
+│   └── cli/                     `mockingbird` — Go + Bubble Tea command and TUI
 ├── packages/
 │   ├── protocol/                shared IPC types + zod schemas
 │   ├── audio/                   ring buffer, ffmpeg capture + file decoding, per-OS args
@@ -491,7 +507,7 @@ flowchart LR
         BIN1
         FF["ffmpeg (static)"]
         WS["whisper-server (prebuilt)"]
-        TUIBIN["mockingbird-tui\n(compiled separately)"]
+        TUIBIN["mockingbird\n(Go command + TUI)"]
     end
 
     Archive -->|first run| SETUP["mockingbird setup\n→ TCC permission prompts\n→ creates ~/.mockingbird/"]
@@ -505,8 +521,9 @@ needed on every run. What's **downloaded separately, on demand**: model
 weights (hundreds of MB to a few GB) — too large to bundle, and the user
 should get to choose which ASR/LLM size fits their machine.
 
-`mockingbird-tui` is compiled as its own binary from `apps/tui`, since it's a
-genuinely separate process the user may or may not run.
+The `mockingbird` command is compiled from `apps/cli` (Go) as its own
+binary and runs as its own process. The user runs it to install, start or
+look at mockingbird, and dictation works without it.
 
 ## 12. Deployment / distribution
 
@@ -698,8 +715,8 @@ has a fixed line to improve past:
 - Per-app formatting rules (at least Terminal vs. everything-else).
 - User dictionary (manually edited).
 - SQLite-backed history with full-text search, exposed via the TUI.
-- OpenTUI dashboard: live state, latency waterfall, history browser,
-  dictionary editor.
+- Bubble Tea dashboard (Go, `apps/cli`): live state, latency waterfall,
+  history browser, dictionary editor.
 - Homebrew + curl installer distribution.
 - No GUI app, no menubar icon, no floating HUD — audio cues + TUI only.
 

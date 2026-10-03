@@ -130,13 +130,14 @@ rely on a maintainer catching what CI would have caught.
 
 These are enforced, not stylistic suggestions:
 
-- **TypeScript on Bun, no exceptions.** Per
+- **TypeScript for the engine, Go for the command.** Per
   [ARCHITECTURE.md §2](./docs/ARCHITECTURE.md#2-core-principles), point 1:
-  every file we write is `.ts`. Third-party binaries are consumed as
-  subprocesses or prebuilt native modules, never hand-written by us in
-  another language.
+  the daemon and every `packages/*` are `.ts` on Bun; the `mockingbird`
+  command and its terminal UI in `apps/cli` are Go. No other language we
+  write. Third-party binaries are consumed as subprocesses or prebuilt
+  native modules.
 - **No Electron, no Swift, no native GUI toolkit.** Point 2 of the same
-  section. Feedback is audio cues + the OpenTUI terminal UI.
+  section. Feedback is audio cues + the Bubble Tea terminal UI.
 - **Respect package boundaries:**
   `packages/*` never imports from `apps/*`
   ([ARCHITECTURE.md §10](./docs/ARCHITECTURE.md#10-repository-layout)).
@@ -153,7 +154,7 @@ These are enforced, not stylistic suggestions:
 - **New dependencies must clear the stack rule** in
   [ARCHITECTURE.md §3](./docs/ARCHITECTURE.md#3-technology-stack): consumed
   via `fetch()`, `Bun.spawn()`, or a prebuilt N-API module — never a
-  `.swift`/`.mm`/`.go`/`.rs` file we'd have to write or compile ourselves.
+  `.swift`/`.mm`/`.rs` file we'd have to write or compile ourselves.
 - **No dependency, default, or code path that violates
   [PHILOSOPHY.md §3](./docs/PHILOSOPHY.md#3-non-negotiables)** — no
   telemetry by default, no required account, no cloud call for core
