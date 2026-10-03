@@ -12,7 +12,6 @@
  * `npx promptfoo view`, which also runs locally.
  */
 import { join } from "node:path";
-import { DEFAULT_LLM_MODEL } from "../../apps/daemon/src/runtime.ts";
 import { llm, startCleanupServer } from "./server.ts";
 
 const PROMPTFOO = "promptfoo@0.123.1";
@@ -20,7 +19,7 @@ const port = Number(process.env.MOCKINGBIRD_EVAL_PORT ?? 8798);
 const dir = import.meta.dir;
 
 const server = startCleanupServer(port);
-console.error(`warming ${DEFAULT_LLM_MODEL}...`);
+console.error(`warming ${llm.model}...`);
 await llm.load?.();
 
 const proc = Bun.spawn(

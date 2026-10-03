@@ -146,7 +146,7 @@
     items: 3
   assert:
     - { type: javascript, value: file://asserts.cjs:isBulletList }
-    - { type: not-regex, value: "^- .*\\.$" }
+    - { type: javascript, value: file://asserts.cjs:itemsUnpunctuated }
   metadata: { set: dev }
 
 - description: ordered steps become a numbered list

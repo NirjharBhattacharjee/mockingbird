@@ -69,11 +69,21 @@ function notAnswered(output, { vars }) {
     : result(true, "cleaned, not answered");
 }
 
-/** For a terminal: one line, no trailing full stop, `vars.keep` tokens exact. */
+/** Characters that chain or redirect a shell command. */
+const SHELL_OPERATORS = /[;&|<>`]|\$\(/g;
+
+/**
+ * For a terminal: one line, no trailing full stop, `vars.keep` tokens exact,
+ * and no shell operator that wasn't in the dictation, so nothing gets chained
+ * onto the command the user said.
+ */
 function terminalSafe(output, { vars }) {
   if (output.includes("\n"))
     return result(false, "contains a line break, which would run the command");
   if (/\.\s*$/.test(output)) return result(false, "ends with a full stop");
+  const said = new Set(String(vars.transcript).match(SHELL_OPERATORS) ?? []);
+  const added = (output.match(SHELL_OPERATORS) ?? []).filter((op) => !said.has(op));
+  if (added.length) return result(false, `added shell operators: ${[...new Set(added)].join(" ")}`);
   const missing = String(vars.keep ?? "")
     .split(" ")
     .filter((t) => t && !output.includes(t));
@@ -98,7 +108,16 @@ function noLeadIn(output, { vars }) {
     : result(true, "lead-in stripped from items");
 }
 
+/** No list item ends with a full stop. */
+function itemsUnpunctuated(output) {
+  const ended = lines(output).filter((l) => /^(- |\d+\. )/.test(l) && l.endsWith("."));
+  return ended.length
+    ? result(false, `items end with ".": ${ended.map((l) => JSON.stringify(l)).join(", ")}`)
+    : result(true, "items unpunctuated");
+}
+
 module.exports = {
+  itemsUnpunctuated,
   noLeadIn,
   isBulletList,
   isNumberedList,

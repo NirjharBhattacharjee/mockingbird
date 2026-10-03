@@ -18,7 +18,12 @@ export type CleanupRequest = {
 };
 
 const llmUrl = process.env.MOCKINGBIRD_LLM_URL ?? "http://127.0.0.1:11434";
-export const llm = new OllamaProvider(llmUrl, DEFAULT_LLM_MODEL, 120_000);
+// The model the app would run: MOCKINGBIRD_LLM_MODEL, as in runtime.ts.
+export const llm = new OllamaProvider(
+  llmUrl,
+  process.env.MOCKINGBIRD_LLM_MODEL ?? DEFAULT_LLM_MODEL,
+  120_000,
+);
 
 export function startCleanupServer(port: number) {
   return Bun.serve({
