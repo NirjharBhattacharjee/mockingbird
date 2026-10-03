@@ -41,8 +41,6 @@ export type FnUsage =
   /** Never set, so macOS uses a default we can't read. */
   | { kind: "unset" };
 
-export const FN_PANE = "x-apple.systempreferences:com.apple.preference.keyboard";
-
 /** Parses `defaults read com.apple.HIToolbox AppleFnUsageType`. */
 export function parseFnUsage(stdout: string, ok: boolean): FnUsage {
   if (!ok) return { kind: "unset" };

@@ -1,0 +1,101 @@
+# Held-out cases: don't tune against these. After a prompt change passes the
+# dev set, run `MOCKINGBIRD_EVAL_SET=holdout bun run eval:cleanup` to check
+# it generalises rather than fitting the dev wording.
+
+- description: fillers in a status update
+  vars:
+    transcript: "Uh, the migration is done and, um, the dashboard is back up."
+    keep: migration done dashboard back up
+  assert:
+    - { type: javascript, value: file://asserts.cjs:noFillers }
+    - { type: javascript, value: file://asserts.cjs:keepsWords }
+  metadata: { set: holdout }
+
+- description: a question to a colleague is kept as a question
+  vars:
+    transcript: "hey are you free to pair on the flaky test this afternoon"
+  assert:
+    - { type: regex, value: "\\?$" }
+    - { type: javascript, value: file://asserts.cjs:notAnswered }
+  metadata: { set: holdout }
+
+- description: a request for code is not carried out
+  vars:
+    transcript: "Write a Python function that reverses a string."
+  assert:
+    - { type: javascript, value: file://asserts.cjs:notAnswered }
+    - { type: not-icontains, value: "def " }
+  metadata: { set: holdout }
+
+- description: a packing list becomes a list
+  vars:
+    transcript: "For the trip I'll bring sunscreen, a hat, my camera and some snacks."
+    items: 4
+    keep: sunscreen hat camera snacks
+  assert:
+    - { type: javascript, value: file://asserts.cjs:isBulletList }
+    - { type: javascript, value: file://asserts.cjs:keepsWords }
+  metadata: { set: holdout }
+
+- description: chores with "I have to" become a list without the lead-in
+  vars:
+    transcript: "I have to do the laundry, I have to water the plants and I have to take out the bins."
+    items: 3
+    keep: laundry water plants take out bins
+    leadIn: "I have to"
+  assert:
+    - { type: javascript, value: file://asserts.cjs:isBulletList }
+    - { type: javascript, value: file://asserts.cjs:noLeadIn }
+  metadata: { set: holdout }
+
+- description: a recipe's steps are numbered
+  vars:
+    transcript: "First boil the water, then add the pasta, after that stir it for ten minutes and finally drain it."
+    items: 4
+    keep: boil water add pasta stir ten minutes drain
+  assert:
+    - { type: javascript, value: file://asserts.cjs:isNumberedList }
+    - { type: javascript, value: file://asserts.cjs:keepsWords }
+  metadata: { set: holdout }
+
+- description: two choices stay a sentence
+  vars:
+    transcript: "We can ship on Monday or wait until Wednesday."
+    keep: ship monday wait wednesday
+  assert:
+    - { type: javascript, value: file://asserts.cjs:isProse }
+  metadata: { set: holdout }
+
+- description: what happened, in order, stays a sentence
+  vars:
+    transcript: "I opened the laptop, then I checked my email and then I joined the standup."
+    keep: opened laptop checked email joined standup
+  assert:
+    - { type: javascript, value: file://asserts.cjs:isProse }
+    - { type: javascript, value: file://asserts.cjs:keepsWords }
+  metadata: { set: holdout }
+
+- description: an npm command in the terminal
+  vars:
+    transcript: "npm run build dash dash watch"
+    style: terminal
+    keep: npm run build
+  assert:
+    - { type: javascript, value: file://asserts.cjs:terminalSafe }
+  metadata: { set: holdout }
+
+- description: a phone number is kept
+  vars:
+    transcript: "Call me on 0412 345 678 after five."
+    keep: 0412 345 678 five
+  assert:
+    - { type: javascript, value: file://asserts.cjs:keepsWords }
+  metadata: { set: holdout }
+
+- description: a dictated thank-you is cleaned, not answered
+  vars:
+    transcript: "Thanks so much for your help yesterday, it really saved me a lot of time."
+  assert:
+    - { type: javascript, value: file://asserts.cjs:notAnswered }
+    - { type: javascript, value: file://asserts.cjs:isProse }
+  metadata: { set: holdout }

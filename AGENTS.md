@@ -154,10 +154,12 @@ the local setup the integration tests need.
 | Unit tests | `bun test` | yes |
 | Integration tests (real VAD, whisper-server, Ollama) | `bun run test:integration` | no — run locally for any change to `packages/{vad,asr,llm}` or the pipeline |
 | Build smoke test | `bun build --compile` | not yet — no daemon entry point |
+| Cleanup eval (promptfoo, local Ollama) | `bun run eval:cleanup`, then `MOCKINGBIRD_EVAL_SET=holdout bun run eval:cleanup` | no — run locally for any change to the cleanup prompt, the gate, or the cleanup model |
 
 Integration tests are the evidence for pipeline work: they print each
 utterance's `vadMs`/`asrMs`/`llmMs`, which is the before/after number a PR
-should quote.
+should quote. For cleanup changes, the evidence is the eval's pass count on
+the dev and held-out sets, before and after.
 
 ## Environment quick reference
 

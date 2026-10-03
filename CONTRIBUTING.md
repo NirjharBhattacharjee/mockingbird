@@ -189,6 +189,7 @@ These are the checks a PR must pass
 | Unit tests, all packages | `bun test` | yes |
 | Integration tests, incl. fixture WAV → VAD → ASR → LLM → text | `bun run test:integration` | not yet — needs local models |
 | Build smoke test (macOS runner) | `bun build --compile` | not yet — no entry point to compile |
+| Cleanup eval: what the cleanup model makes of dictation | `bun run eval:cleanup` | no — needs local Ollama |
 
 `bun run test:integration` needs, locally:
 
@@ -201,6 +202,17 @@ These are the checks a PR must pass
 Override locations with `MOCKINGBIRD_HOME`, `MOCKINGBIRD_LLM_URL`, and
 `MOCKINGBIRD_LLM_MODEL`. Run the integration tests for any change that
 touches `packages/{vad,asr,llm}` or the pipeline.
+
+`bun run eval:cleanup` scores the cleanup step (`cleanUp` in
+`apps/daemon/src/pipeline.ts`, the code the app runs) against the cases in
+`evals/cleanup/tests/` with [promptfoo](https://promptfoo.dev). It needs
+Node and the same Ollama model. promptfoo is a dev-only tool that `npx`
+fetches from npm the first time. It never ships to users. The runner
+switches off its telemetry, update check, sharing and remote test
+generation, and every check is plain code, so no dictation leaves your
+machine. Tune a prompt against the `dev` set, then confirm it on the
+held-out set (`MOCKINGBIRD_EVAL_SET=holdout`). Cases are made up. Keep real
+dictations out of git.
 
 Run whichever of these apply to your change locally before opening a PR.
 A PR that only "probably passes CI" is not ready for review — run it first.
