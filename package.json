@@ -20,7 +20,8 @@
     "demo": "bun scripts/render-demo.ts",
     "bench:models": "bun bench/models.ts",
     "bench:record": "bun bench/record.ts",
-    "eval:cleanup": "bun evals/cleanup/run.ts"
+    "eval:cleanup": "bun evals/cleanup/run.ts",
+    "bench:cleanup": "bun bench/cleanup-models.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",
