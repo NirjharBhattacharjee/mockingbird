@@ -1,9 +1,9 @@
 # mockingbird — terminal UI
 
-> **Status:** v1 design, pre-code — elaborates the `mockingbird-tui`
+> **Status:** v1 design, pre-code — elaborates the terminal UI of the `mockingbird` command
 > component named in
 > [ARCHITECTURE.md §4](./ARCHITECTURE.md#4-system-architecture) and scoped
-> in [ARCHITECTURE.md §15](./ARCHITECTURE.md#15-v1-scope) ("OpenTUI
+> in [ARCHITECTURE.md §15](./ARCHITECTURE.md#15-v1-scope) ("Bubble Tea
 > dashboard: live state, latency waterfall, history browser, dictionary
 > editor"). This doc covers the theme and the screen/feature breakdown that
 > section only names in passing.
@@ -12,9 +12,9 @@
 
 mockingbird has **no GUI app, no menubar icon, no floating HUD** — per
 [ARCHITECTURE.md §2](./ARCHITECTURE.md#2-core-principles), point 2, feedback
-during dictation itself is audio cues only. The TUI (`mockingbird-tui`,
-built on `@opentui/react`) is the *only* visual surface in the entire
-system: a dashboard, a searchable history browser, a dictionary editor, and
+during dictation itself is audio cues only. The TUI is part of the
+`mockingbird` command, written in Go with Bubble Tea and Lip Gloss in
+`apps/cli`. It is the *only* visual part of the entire system: a dashboard, a searchable history browser, a dictionary editor, and
 a latency waterfall — nothing more, nothing that requires a window manager.
 
 ## Table of contents
@@ -35,7 +35,7 @@ a latency waterfall — nothing more, nothing that requires a window manager.
 
 Per the [state ownership map](./ARCHITECTURE.md#8-state-ownership-map) and
 [system architecture diagram](./ARCHITECTURE.md#4-system-architecture): the
-TUI is a **separate, optional Bun process** that attaches to the daemon over
+TUI is part of the **Go `mockingbird` command**, a separate, optional process that attaches to the daemon over
 a Unix socket (NDJSON protocol) for live state, and reads `data.db`
 **directly, read-only**, for history/dictionary browsing (WAL mode makes
 this safe concurrently with the daemon writing — see
@@ -92,8 +92,8 @@ flavor without per-flavor special-casing.
   vs. a manual `settings` entry — see
   [DATABASE.md §8](./DATABASE.md#8-settings)) gets resolved; not decided yet.
 - **Light terminal users get Latte.** Whether this is auto-detected (some
-  terminals expose background luminance; OpenTUI's own capability here is
-  unconfirmed) or a manual toggle is one of the open decisions in
+  terminals expose background luminance; Lip Gloss can query it with
+  `HasDarkBackground`) or a manual toggle is one of the open decisions in
   [§9](#9-open-design-decisions).
 - **Macchiato/Frappé** are available as explicit user choices even though
   neither is the default — no reason to hide them if `settings` already
@@ -239,7 +239,7 @@ added beyond what's already scoped there:
 
 ## 6. Navigation model
 
-Not finalized — proposed defaults, consistent with typical `@opentui/react`
+Not finalized — proposed defaults, consistent with typical Bubble Tea
 terminal-app conventions, to be confirmed once the TUI is actually built:
 
 - `Tab` / `Shift+Tab` or number keys (`1`–`4`) to switch screens.

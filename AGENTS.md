@@ -8,7 +8,7 @@
 > **Read [docs/PHILOSOPHY.md](./docs/PHILOSOPHY.md) and
 > [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) first**, plus
 > [docs/DATABASE.md](./docs/DATABASE.md) for any change touching `data.db`
-> and [docs/TUI.md](./docs/TUI.md) for any change touching `apps/tui` — this
+> and [docs/TUI.md](./docs/TUI.md) for any change touching `apps/cli` — this
 > file condenses all four into checklist form; it doesn't replace them.
 
 ## Workflow
@@ -25,8 +25,8 @@
    capture, *when* the LLM Gate skips cleanup, *when* to inject. Don't let
    platform-specific logic leak out of `asr`/`inject`/`context`/`audio`
    into orchestration code, and don't let `packages/*` import from `apps/*`
-   — that boundary is load-bearing, not a style preference. `apps/tui`
-   fits the same split from the other side: it's a pure read-only client
+   — that boundary is load-bearing, not a style preference. `apps/cli`
+   (Go) fits the same split from the other side: it's a pure read-only client
    over the daemon's IPC socket and direct (read-only) SQLite queries — see
    [DATABASE.md §1](./docs/DATABASE.md#1-design-goals-for-this-schema) and
    [TUI.md §1](./docs/TUI.md#1-what-the-tui-is-structurally). It never opens
@@ -35,7 +35,7 @@
    over IPC, same as any other write path.
 3. **Prove — `/evidence-driven-testing`.** For pipeline/daemon code (no
    GUI yet), evidence means measured numbers: WER and per-stage latency
-   from `bench/`, not screenshots. Once `apps/tui` exists, evidence for a
+   from `bench/`, not screenshots. Once `apps/cli` exists, evidence for a
    TUI change means a recording (or scripted capture) showing the actual
    screen named in [TUI.md §5](./docs/TUI.md#5-screens--what-each-one-controls)
    — Dashboard, History browser, Dictionary editor, or Latency waterfall —
@@ -81,11 +81,14 @@ greploop have something to check a "fix" against.
 
 **Technical** — from [ARCHITECTURE.md §2](./docs/ARCHITECTURE.md#2-core-principles):
 
-- 100% TypeScript on Bun. Third-party binaries are consumed as subprocesses
-  or prebuilt native modules — never a `.swift`/`.mm`/`.go`/`.rs` file we
-  write or compile ourselves.
-- No Electron, no native GUI toolkit — feedback is audio cues + the OpenTUI
-  terminal UI only.
+- Two languages, each in its own place. The dictation engine (`apps/daemon`
+  and every `packages/*`) is TypeScript on Bun. The user-facing command and
+  terminal UI (`apps/cli`) is Go, with Bubble Tea. Go lives nowhere else,
+  and never a `.swift`/`.mm`/`.rs` file we write or compile ourselves.
+  Third-party binaries are consumed as subprocesses or prebuilt native
+  modules.
+- No Electron, no native GUI toolkit — feedback is audio cues + the Bubble
+  Tea terminal UI only.
 - `packages/*` never imports from `apps/*`.
 - The pipeline (VAD → ASR → LLM → format) must run and be testable with
   zero OS integration — a change that breaks headless testability is a
@@ -93,7 +96,7 @@ greploop have something to check a "fix" against.
 - A dependency dying degrades functionality; it never crashes dictation
   outright ("degrade, don't break").
 - **The daemon is the only writer to `data.db`.** No other process —
-  `apps/tui` included — opens a write transaction against it directly; see
+  `apps/cli` included — opens a write transaction against it directly; see
   [DATABASE.md §1](./docs/DATABASE.md#1-design-goals-for-this-schema) and
   the code-structure mapping in [§Workflow](#workflow), step 2.
 - Any PR changing architecture, data handling, a model, or the TUI must
@@ -164,7 +167,7 @@ should quote.
 - Data dir: `~/.mockingbird/` — `data.db` (schema:
   [DATABASE.md](./docs/DATABASE.md)), `models/`, `bin/`, `logs/`, socket,
   PID file.
-- TUI: `@opentui/react`, Catppuccin theme (Mocha default) — full palette,
+- TUI: Go + Bubble Tea/Lip Gloss in `apps/cli`, Catppuccin theme (Mocha default) — full palette,
   semantic color mapping, and screen breakdown in
   [TUI.md](./docs/TUI.md). Verify any hardcoded hex value there against the
   canonical Catppuccin palette before shipping a theme file.
