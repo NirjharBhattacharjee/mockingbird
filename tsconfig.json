@@ -13,5 +13,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["apps/*/src", "apps/*/test", "packages/*/src", "packages/*/test", "evals"]
+  "include": ["apps/*/src", "apps/*/test", "packages/*/src", "packages/*/test", "evals", "bench"]
 }
