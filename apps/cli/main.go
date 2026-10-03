@@ -47,9 +47,16 @@ func run(args []string) int {
 	return fail(syscall.Exec(bun, argv, os.Environ()))
 }
 
-// version is what `go build` stamped in: the module version and, built from
-// a git checkout, the commit.
+// release is the tag, which release.yml builds in with
+// -ldflags "-X main.release=v1.2.3".
+var release string
+
+// version is the release tag or, for any other build, what `go build`
+// stamped in: the module version and the commit.
 func version() string {
+	if release != "" {
+		return release
+	}
 	info, ok := debug.ReadBuildInfo()
 	if !ok {
 		return "unknown"

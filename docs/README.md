@@ -43,7 +43,7 @@ mockingbird`, then `mockingbird restart`.
 
 ```sh
 # Tools
-brew install bun whisper-cpp ollama ffmpeg
+brew install bun whisper-cpp ollama ffmpeg go
 
 # Code
 git clone https://github.com/NirjharBhattacharjee/mockingbird.git
@@ -54,19 +54,24 @@ bun install
 # apps/daemon/src/models.ts), then the cleanup model through Ollama
 bun apps/daemon/src/cli.ts models pull
 
-# The `mockingbird` command — a shim, not a compiled binary, because macOS
-# records the Fn and typing permissions against the binary that asks for them,
-# and rebuilding a compiled one silently drops those grants.
+# The `mockingbird` command, in Go. It holds no macOS
+# permissions itself, so rebuilding it never drops a Fn or typing grant.
+(cd apps/cli && go build -o mockingbird .)
 mkdir -p ~/.local/bin
-printf '#!/bin/sh\nexec "%s" "%s/apps/daemon/src/cli.ts" "$@"\n' \
-  "$(command -v bun)" "$PWD" > ~/.local/bin/mockingbird
-chmod +x ~/.local/bin/mockingbird
+ln -sf "$PWD/apps/cli/mockingbird" ~/.local/bin/mockingbird
+
+# Or, without Go, a shim that runs the TypeScript CLI (no launch animation).
+# Remove the link first, or the shim is written through it over the binary:
+# rm -f ~/.local/bin/mockingbird
+# printf '#!/bin/sh\nexec "%s" "%s/apps/daemon/src/cli.ts" "$@"\n' \
+#   "$(command -v bun)" "$PWD" > ~/.local/bin/mockingbird
+# chmod +x ~/.local/bin/mockingbird
 
 # If ~/.local/bin isn't on your PATH yet, add it to your shell profile:
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Re-run the shim step if you ever move the clone: it points at this directory.
+Re-run the command step if you ever move the clone: it points at this directory.
 
 **2. Turn it on**
 
