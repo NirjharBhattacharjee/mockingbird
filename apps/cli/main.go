@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime/debug"
 	"syscall"
@@ -30,8 +31,7 @@ func run(args []string) int {
 	}
 	exe, _ := os.Executable()
 	exe, _ = filepath.EvalSymlinks(exe)
-	cwd, _ := os.Getwd()
-	root := findRoot(os.Getenv("MOCKINGBIRD_ROOT"), filepath.Dir(exe), cwd)
+	root := findRoot(os.Getenv("MOCKINGBIRD_ROOT"), filepath.Dir(exe))
 	if root == "" {
 		return fail(errors.New("can't find the engine; set MOCKINGBIRD_ROOT to the mockingbird checkout"))
 	}
@@ -68,29 +68,26 @@ func fail(err error) int {
 	return 1
 }
 
-// findRoot returns the first directory, from each start upwards, that holds
-// the engine. A set MOCKINGBIRD_ROOT must be the root itself; its parents
-// aren't searched.
-func findRoot(env string, starts ...string) string {
+// findRoot returns the directory holding the engine: MOCKINGBIRD_ROOT itself,
+// or the nearest one above the binary. Never the working directory, so
+// running from inside someone else's checkout can't run their code.
+func findRoot(env, dir string) string {
 	if env != "" {
 		if isFile(filepath.Join(env, engineCLI)) {
 			return env
 		}
 		return ""
 	}
-	for _, dir := range starts {
-		for dir != "" {
-			if isFile(filepath.Join(dir, engineCLI)) {
-				return dir
-			}
-			parent := filepath.Dir(dir)
-			if parent == dir {
-				break
-			}
-			dir = parent
+	for {
+		if isFile(filepath.Join(dir, engineCLI)) {
+			return dir
 		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
 	}
-	return ""
 }
 
 func isFile(path string) bool {
@@ -123,6 +120,17 @@ func startWithSplash(argv []string) int {
 	}
 	_ = w.Close() // the engine has its own copy; closing ours lets EOF arrive
 
+	// Bubble Tea quits on SIGTERM as if the user skipped the animation, so
+	// pass signals on and let the engine decide, as it would without us.
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	defer signal.Stop(sigs)
+	go func() {
+		for s := range sigs {
+			_ = cmd.Process.Signal(s)
+		}
+	}()
+
 	p := tea.NewProgram(newSplash(time.Now()))
 	var lines []string // read only after done is closed
 	done := make(chan struct{})
@@ -143,6 +151,9 @@ func startWithSplash(argv []string) int {
 	<-done
 	for _, l := range lines {
 		fmt.Fprintln(os.Stderr, l)
+	}
+	if ws, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+		return 128 + int(ws.Signal())
 	}
 	return cmd.ProcessState.ExitCode()
 }

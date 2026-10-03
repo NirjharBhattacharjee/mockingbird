@@ -299,7 +299,8 @@ func (m splash) elapsed() float64 { return m.now.Sub(m.start).Seconds() }
 func (m splash) View() tea.View { return tea.NewView(m.render()) }
 
 func (m splash) render() string {
-	if m.cols == 0 {
+	// Nothing until the size is known, or while it's resized too small.
+	if m.cols < minCols || m.rows < minRows {
 		return ""
 	}
 	t := m.elapsed()

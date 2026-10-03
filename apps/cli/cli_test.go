@@ -27,20 +27,16 @@ func TestFindRoot(t *testing.T) {
 	elsewhere := t.TempDir()
 
 	tests := []struct {
-		name   string
-		env    string
-		starts []string
-		want   string
+		name, env, dir, want string
 	}{
-		{"env names the root", root, []string{elsewhere}, root},
-		{"env is wrong, and wins anyway", elsewhere, []string{nested}, ""},
-		{"walks up from the binary", "", []string{nested}, root},
-		{"tries each start in turn", "", []string{elsewhere, nested}, root},
-		{"nothing found", "", []string{elsewhere}, ""},
+		{"env names the root", root, elsewhere, root},
+		{"env is wrong, and wins anyway", elsewhere, nested, ""},
+		{"walks up from the binary", "", nested, root},
+		{"nothing found", "", elsewhere, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := findRoot(tt.env, tt.starts...); got != tt.want {
+			if got := findRoot(tt.env, tt.dir); got != tt.want {
 				t.Errorf("findRoot = %q, want %q", got, tt.want)
 			}
 		})
@@ -72,7 +68,8 @@ var escapes = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 // leaves pieces of old frames behind.
 func TestEveryFrameFits(t *testing.T) {
 	start := time.Unix(0, 0)
-	for _, size := range [][2]int{{minCols, minRows}, {80, 24}, {100, 30}, {200, 60}} {
+	// 4x30 and 80x5: resized below the minimum after the animation started.
+	for _, size := range [][2]int{{4, 30}, {80, 5}, {minCols, minRows}, {80, 24}, {100, 30}, {200, 60}} {
 		for _, at := range []float64{0, 0.3, 0.9, 1.4, 3.3, 10} {
 			for _, finished := range []bool{false, true} {
 				m := newSplash(start)
