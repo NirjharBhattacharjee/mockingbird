@@ -154,7 +154,8 @@ These are enforced, not stylistic suggestions:
 - **New dependencies must clear the stack rule** in
   [ARCHITECTURE.md §3](./docs/ARCHITECTURE.md#3-technology-stack): consumed
   via `fetch()`, `Bun.spawn()`, or a prebuilt N-API module — never a
-  `.swift`/`.mm`/`.rs` file we'd have to write or compile ourselves.
+  `.swift`/`.mm`/`.rs` file we'd have to write or compile ourselves. In
+  `apps/cli`, Go modules are added the usual way, through its `go.mod`.
 - **No dependency, default, or code path that violates
   [PHILOSOPHY.md §3](./docs/PHILOSOPHY.md#3-non-negotiables)** — no
   telemetry by default, no required account, no cloud call for core
