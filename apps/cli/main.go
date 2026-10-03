@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/debug"
 	"syscall"
 	"time"
 
@@ -23,6 +24,10 @@ const engineCLI = "apps/daemon/src/cli.ts"
 func main() { os.Exit(run(os.Args[1:])) }
 
 func run(args []string) int {
+	if len(args) == 1 && args[0] == "--version" {
+		fmt.Println("mockingbird", version())
+		return 0
+	}
 	exe, _ := os.Executable()
 	exe, _ = filepath.EvalSymlinks(exe)
 	cwd, _ := os.Getwd()
@@ -40,6 +45,22 @@ func run(args []string) int {
 	}
 	// Replace this process, so the engine gets the terminal, signals and exit code.
 	return fail(syscall.Exec(bun, argv, os.Environ()))
+}
+
+// version is what `go build` stamped in: the module version and, built from
+// a git checkout, the commit.
+func version() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "unknown"
+	}
+	v := info.Main.Version
+	for _, s := range info.Settings {
+		if s.Key == "vcs.revision" && len(s.Value) >= 7 {
+			v += " " + s.Value[:7]
+		}
+	}
+	return v
 }
 
 func fail(err error) int {
