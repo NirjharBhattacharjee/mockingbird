@@ -42,6 +42,7 @@ it is not a design doc that gets abandoned once code exists.
 | 2026-10-03 | The `mockingbird` command and terminal UI move to **Go with Bubble Tea**, in `apps/cli` only. The dictation engine (daemon and `packages/*`) stays TypeScript on Bun, and Swift, Objective-C and Rust stay out. The Go command talks to the engine through its commands and the IPC socket, never its code, reads `data.db` read-only and never writes it, and needs no macOS permissions of its own, which stay with the engine's runner binary. Replaces the planned OpenTUI dashboard, which had not been built (§2, §3, §10, §15, TUI.md). |
 | 2026-10-03 | Cleanup eval loop. `bun run eval:cleanup` runs promptfoo against the cleanup step (`cleanUp`, now split out of `runPipeline` so the app and the eval share it), served to promptfoo on localhost, with local Ollama only and promptfoo's telemetry and sharing off. 28 dev and 11 held-out cases, made up, with deterministic checks. Baseline with `qwen3:4b-instruct-2507-q4_K_M` on an M3: dev 22/28, held-out 11/11. The dev failures are real: fillers left in, "I think" dropped from a stutter, "the deploy" reworded to "Deployment", two comma-separated lists the gate never sent to the model, and a paragraph split into one line per sentence in 5.4s (§6, §14). |
 | 2026-10-03 | The cleanup prompt moves to `packages/llm/prompts/cleanup.md`, assembled per dictation: the rules always, the list section only when `looksLikeList` says so, terminal and dictionary sections when they apply. The rules now say to keep the speaker's words (collapse "I I", don't delete it; don't reword; keep a paragraph one paragraph). `looksLikeList` now counts "a, b and c" with one comma, since that's how people say a list. Eval, one case at a time on an M3: dev 22/28 to 28/28, held-out 11/11 to 11/11. A list dictation right after a non-list one costs about 0.5s more than before, because Ollama has to process the list section afresh (MODELS.md §5). |
+| 2026-10-03 | First Go code in `apps/cli`: the `mockingbird` binary, on Bubble Tea v2. `mockingbird start` plays the website's launch animation, the pixel bird and wordmark from TUI.md §5, while the engine's own `start` runs underneath. The status line shows the engine's latest line, and when it's done the binary prints the engine's output and exits with its code. Every other command, and `start` when output isn't a terminal, `exec`s `bun apps/daemon/src/cli.ts`, so they behave exactly as before. The binary finds the engine through `MOCKINGBIRD_ROOT`, or by walking up from its own path. CI gains a `cli` job running `gofmt`, `go vet` and `go test -race`. `install.sh` and the Homebrew formula don't build it yet, so the installed shim still runs the TypeScript CLI (§3, §11, §14). |
 
 
 ---
@@ -113,7 +114,7 @@ against this list.
 | Concern | Technology | Version (verified) | Runs as |
 |---|---|---|---|
 | Language / runtime (engine) | TypeScript on **Bun** | Bun ≥ 1.2 | our process |
-| Language (command + TUI) | **Go**, in `apps/cli` only | Go ≥ 1.23 | our process, a single compiled binary |
+| Language (command + TUI) | **Go**, in `apps/cli` only | Go ≥ 1.26 | our process, a single compiled binary |
 | Package manager / workspaces | Bun workspaces | — | — |
 | Microphone capture, audio file decoding | `ffmpeg` (avfoundation on macOS) | system binary | subprocess, piped stdout |
 | Global hotkey | **`bun:ffi` → CoreGraphics event tap** (`uiohook-napi` crashes Bun, see §16) | — | FFI in a worker thread |
@@ -123,7 +124,7 @@ against this list.
 | Text injection | **`bun:ffi` → `CGEventKeyboardSetUnicodeString` + `CGEventPost`** | — | FFI, in-process |
 | Frontmost app | `lsappinfo` (needs no TCC grant, unlike System Events) | system binary | subprocess |
 | Persistent storage | **`bun:sqlite`** (built into Bun) + `sqlite-vec` extension | bundled with Bun | in-process, embedded |
-| Terminal UI | **Bubble Tea** + Lip Gloss (Charm, MIT), Catppuccin palette | — | the Go `mockingbird` binary |
+| Terminal UI | **Bubble Tea** v2 + Lip Gloss (Charm, MIT), Catppuccin palette | Bubble Tea v2.0.10 | the Go `mockingbird` binary |
 | Validation / IPC contract | `zod` + hand-written protocol types | — | shared package |
 | Testing | `bun test` | built-in | — |
 | Release versioning | Changesets | — | — |
@@ -525,7 +526,10 @@ should get to choose which ASR/LLM size fits their machine.
 
 The `mockingbird` command is compiled from `apps/cli` (Go) as its own
 binary and runs as its own process. The user runs it to install, start or
-look at mockingbird, and dictation works without it.
+look at mockingbird, and dictation works without it. For now it hands every
+command to the engine's TypeScript CLI (`exec bun apps/daemon/src/cli.ts`),
+which it finds through `MOCKINGBIRD_ROOT` or by walking up from its own
+path, and adds only the launch animation around `start`.
 
 ## 12. Deployment / distribution
 
