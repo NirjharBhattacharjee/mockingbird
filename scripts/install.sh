@@ -152,6 +152,9 @@ main() {
     skip "no prebuilt command for this version; using the TypeScript one"
   fi
   mkdir -p "$bin_dir"
+  # A link left by a manual install would otherwise carry this write into
+  # the binary it points at, and the shim would exec itself.
+  rm -f "$shim"
   cat > "$shim" <<SHIM
 #!/bin/sh
 # Written by scripts/install.sh. Re-run it after moving the clone.
