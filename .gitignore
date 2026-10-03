@@ -14,3 +14,6 @@ bench/voice/
 
 # Left behind by `bun build --compile`
 .*.bun-build
+
+# Built by `go build` in apps/cli
+apps/cli/mockingbird

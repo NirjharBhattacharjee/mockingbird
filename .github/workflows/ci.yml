@@ -21,3 +21,18 @@ jobs:
       # Integration tests (MOCKINGBIRD_INTEGRATION=1) need whisper-server, Ollama and
       # downloaded models; they run locally via `bun run test:integration` for now.
       - run: bun test
+
+  cli:
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: apps/cli
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/cli/go.mod
+          cache-dependency-path: apps/cli/go.sum
+      - run: test -z "$(gofmt -l .)"
+      - run: go vet ./...
+      - run: go test -race ./...

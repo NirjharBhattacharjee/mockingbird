@@ -179,7 +179,7 @@ These are enforced, not stylistic suggestions:
 
 These are the checks a PR must pass
 (see [ARCHITECTURE.md §14](./docs/ARCHITECTURE.md#14-cicd-pipeline)).
-`ci.yml` currently runs the first four on every push and PR:
+`ci.yml` currently runs the first four, and the Go checks, on every push and PR:
 
 | Check | Command | In CI |
 |---|---|---|
@@ -189,6 +189,7 @@ These are the checks a PR must pass
 | Unit tests, all packages | `bun test` | yes |
 | Integration tests, incl. fixture WAV → VAD → ASR → LLM → text | `bun run test:integration` | not yet — needs local models |
 | Build smoke test (macOS runner) | `bun build --compile` | not yet — no entry point to compile |
+| Go command: format, vet, tests | `cd apps/cli && gofmt -l . && go vet ./... && go test -race ./...` | yes |
 | Cleanup eval: what the cleanup model makes of dictation | `bun run eval:cleanup` | no — needs local Ollama |
 
 `bun run test:integration` needs, locally:

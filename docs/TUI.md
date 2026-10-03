@@ -1,14 +1,15 @@
 # mockingbird — terminal UI
 
-> **Status:** v1 design, pre-code — elaborates the terminal UI of the `mockingbird` command
-> component named in
+> **Status:** v1 design. The launch animation in [§5](#5-screens--what-each-one-controls)
+> is built and the four screens aren't yet. Elaborates the terminal UI of the
+> `mockingbird` command, the component named in
 > [ARCHITECTURE.md §4](./ARCHITECTURE.md#4-system-architecture) and scoped
 > in [ARCHITECTURE.md §15](./ARCHITECTURE.md#15-v1-scope) ("Bubble Tea
 > dashboard: live state, latency waterfall, history browser, dictionary
 > editor"). This doc covers the theme and the screen/feature breakdown that
 > section only names in passing.
 > **Owner:** bhattacharjeenirjhar26@gmail.com
-> **Last updated:** 2026-09-16
+> **Last updated:** 2026-10-03
 
 mockingbird has **no GUI app, no menubar icon, no floating HUD** — per
 [ARCHITECTURE.md §2](./ARCHITECTURE.md#2-core-principles), point 2, feedback
@@ -183,6 +184,25 @@ flowchart LR
 Four screens, matching
 [ARCHITECTURE.md §15](./ARCHITECTURE.md#15-v1-scope) exactly — nothing
 added beyond what's already scoped there:
+
+### Launch animation (built)
+- Plays when `mockingbird start` runs in a terminal, for as long as the
+  engine's `start` takes and never less than 1.6s. It redraws the website's
+  hero in half blocks. The pixel bird and the `mockingbird` wordmark pop in
+  pixel by pixel, background pixels twinkle, one letter scrambles every couple
+  of seconds, a plume leaves the beak, and a voice-level skyline rolls along
+  the bottom. Below the art sit the tagline and a status line showing the
+  engine's latest output.
+- When it ends, the still wordmark and tagline stay in the scrollback,
+  followed by everything the engine printed.
+- The bird needs 25 rows. Shorter terminals get the wordmark alone. Below
+  60×12, or when output isn't a terminal, `start` runs with no animation.
+- `q`, `Esc`, `Enter` or `Ctrl+C` skips it. Skipping stops the animation
+  only. The engine's `start` still finishes, and its output is printed.
+- The bird uses the Catppuccin Mocha tokens `mauve`, `teal`, `sky`,
+  `lavender` and `blue`. The wordmark is a `sky` gradient and the tagline is
+  `yellow`. They're written as 24-bit escapes, and Bubble Tea downsamples them
+  for terminals with fewer colors and drops them under `NO_COLOR`.
 
 ### Dashboard (default view)
 - **Live hotkey FSM state** ([ARCHITECTURE.md §5](./ARCHITECTURE.md#5-the-hotkey-state-machine)),
