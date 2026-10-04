@@ -99,3 +99,50 @@
     - { type: javascript, value: file://asserts.cjs:notAnswered }
     - { type: javascript, value: file://asserts.cjs:isProse }
   metadata: { set: holdout }
+
+- description: '"sorry" corrects the time'
+  vars:
+    transcript: "Meet me at the cafe at five, sorry, at six."
+    keep: meet me at the cafe at six
+  assert:
+    - { type: javascript, value: file://asserts.cjs:keepsWords }
+    - { type: not-icontains, value: five }
+  metadata: { set: holdout }
+
+- description: '"start by, next, lastly" steps lose their lead-ins'
+  vars:
+    transcript: "Start by cloning the repo, next install the packages and lastly run the dev server."
+    items: 3
+    leadIn: "start by|next|lastly"
+  assert:
+    - { type: javascript, value: file://asserts.cjs:isNumberedList }
+    - { type: javascript, value: file://asserts.cjs:noLeadIn }
+  metadata: { set: holdout }
+
+- description: a request to summarize is not carried out
+  vars:
+    transcript: "Summarize the last email for me."
+    keep: summarize the last email
+  assert:
+    - { type: javascript, value: file://asserts.cjs:notAnswered }
+    - { type: javascript, value: file://asserts.cjs:keepsWords }
+  metadata: { set: holdout }
+
+- description: an environment variable keeps its spelling
+  vars:
+    transcript: "set NODE_ENV to production in the dot env file"
+    keep: production
+  assert:
+    - { type: contains, value: NODE_ENV }
+    - { type: javascript, value: file://asserts.cjs:keepsWords }
+  metadata: { set: holdout }
+
+- description: a spoken short flag in the terminal
+  vars:
+    transcript: "docker ps dash a"
+    style: terminal
+    keep: docker ps
+  assert:
+    - { type: javascript, value: file://asserts.cjs:terminalSafe }
+    - { type: regex, value: "^docker ps -a$" }
+  metadata: { set: holdout }

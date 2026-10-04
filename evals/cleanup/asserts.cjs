@@ -92,17 +92,22 @@ function terminalSafe(output, { vars }) {
     : result(true, "terminal-safe");
 }
 
-/** No list item still starts with the repeated lead-in in `vars.leadIn` ("I need to"). */
+/**
+ * No list item still starts with a lead-in from `vars.leadIn`, which may list
+ * several separated by "|" ("first|then|finally").
+ */
 function noLeadIn(output, { vars }) {
-  const leadIn = String(vars.leadIn).toLowerCase();
-  const kept = lines(output).filter(
-    (l) =>
-      /^(- |\d+\. )/.test(l) &&
-      l
-        .replace(/^(- |\d+\. )/, "")
-        .toLowerCase()
-        .startsWith(leadIn),
-  );
+  const leadIns = String(vars.leadIn).toLowerCase().split("|");
+  const kept = lines(output).filter((l) => {
+    const item = l.match(/^(?:- |\d+\. )(.*)/)?.[1].toLowerCase();
+    // "First, open the app" still starts with its lead-in; "firsthand" doesn't.
+    return (
+      item !== undefined &&
+      leadIns.some(
+        (lead) => item.startsWith(lead) && !/^[\p{L}\p{N}]/u.test(item.slice(lead.length)),
+      )
+    );
+  });
   return kept.length
     ? result(false, `lead-in kept on: ${kept.map((l) => JSON.stringify(l)).join(", ")}`)
     : result(true, "lead-in stripped from items");

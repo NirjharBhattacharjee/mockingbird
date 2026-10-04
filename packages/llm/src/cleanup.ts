@@ -52,6 +52,11 @@ export type GateOptions = {
 const FILLER = /\b(um+|uh+|erm|hmm+|you know|i mean|sort of|kind of)\b[,.]?/gi;
 /** A word said twice in a row: "I I think", "the the file". */
 const STUTTER = /\b([\p{L}']+)\s+\1\b/giu;
+/** A self-correction: "on Tuesday, no wait, on Wednesday". The cues are the prompt's, after a comma. */
+const CORRECTION =
+  /,\s*(?:no,? wait|wait|sorry|actually|make that|i meant|or rather|scratch that)\b/i;
+/** A symbol said as a word: "docker ps dash a". */
+const SPOKEN_SYMBOL = /\b(?:dash|slash|underscore)\b/i;
 
 /** A line that is an item in a list: "- onions", "2. Wait thirty seconds". */
 const LIST_ITEM = /^(?:[-*\u2022]|\d+[.)])\s/;
@@ -120,7 +125,8 @@ export function shouldSkipLlm(
   // Provisional: tuned on synthetic speech only; retune on the bench/ corpus.
   { maxWords = 4, minConfidence = 0.7, minCleanConfidence = 0.8 }: GateOptions = {},
 ): boolean {
-  if (looksLikeList(text)) return false;
+  // Only the model can resolve these, however short or confident the transcript.
+  if (looksLikeList(text) || CORRECTION.test(text) || SPOKEN_SYMBOL.test(text)) return false;
   const words = text.split(/\s+/).filter(Boolean).length;
   if (words <= maxWords && confidence >= minConfidence) return true;
   return confidence >= minCleanConfidence && looksClean(text);

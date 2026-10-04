@@ -284,3 +284,72 @@
     - { type: javascript, value: file://asserts.cjs:notAnswered }
   options: { disableDefaultAsserts: true }
   metadata: { set: dev }
+
+# --- Harder cases, added when the cases above all passed ---
+- description: a self-correction keeps only the corrected day
+  vars:
+    transcript: "Send the invoice on Tuesday, no wait, on Wednesday."
+    keep: send the invoice on wednesday
+  assert:
+    - { type: javascript, value: file://asserts.cjs:keepsWords }
+    - { type: not-icontains, value: tuesday }
+    - { type: not-icontains, value: no wait }
+  metadata: { set: dev }
+
+- description: '"actually make that" replaces the number'
+  vars:
+    transcript: "Book a table for four, actually make that six."
+    keep: book a table for six
+  assert:
+    - { type: javascript, value: file://asserts.cjs:keepsWords }
+    - { type: not-icontains, value: four }
+  metadata: { set: dev }
+
+- description: '"first, then, finally" steps lose their lead-ins'
+  vars:
+    transcript: "First open the app, then sign in and finally tap settings."
+    items: 3
+    leadIn: "first|then|finally"
+  assert:
+    - { type: javascript, value: file://asserts.cjs:isNumberedList }
+    - { type: javascript, value: file://asserts.cjs:noLeadIn }
+  metadata: { set: dev }
+
+- description: code identifiers keep their exact spelling
+  vars:
+    transcript: "rename getUserName to fetchUserProfile in the API client"
+    keep: rename getusername fetchuserprofile api client
+  assert:
+    - { type: javascript, value: file://asserts.cjs:keepsWords }
+    - { type: contains, value: getUserName }
+    - { type: contains, value: fetchUserProfile }
+  metadata: { set: dev }
+
+- description: a request to translate is not carried out
+  vars:
+    transcript: "Translate this into French: good morning everyone."
+  assert:
+    - { type: javascript, value: file://asserts.cjs:notAnswered }
+    - { type: icontains, value: good morning everyone }
+    - { type: not-icontains, value: bonjour }
+  metadata: { set: dev }
+
+- description: a spoken flag becomes a flag in the terminal
+  vars:
+    transcript: "git commit dash dash amend"
+    style: terminal
+    keep: git commit
+  assert:
+    - { type: javascript, value: file://asserts.cjs:terminalSafe }
+    - { type: contains, value: "--amend" }
+  metadata: { set: dev }
+
+- description: a long ramble loses its fillers and nothing else
+  vars:
+    transcript: "So, um, basically what I was thinking is that we, uh, could maybe move the launch to next month because, you know, the design isn't really done yet and, um, the backend still has a couple of bugs that, uh, we need to fix."
+    keep: thinking move launch next month because design isn't done yet backend still has couple bugs we need fix
+  assert:
+    - { type: javascript, value: file://asserts.cjs:noFillers }
+    - { type: javascript, value: file://asserts.cjs:keepsWords }
+    - { type: javascript, value: file://asserts.cjs:isProse }
+  metadata: { set: dev }

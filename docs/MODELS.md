@@ -238,11 +238,28 @@ the same words.
   `## Terminal` and `## Dictionary` are added when they apply. Change it
   against `bun run eval:cleanup` and the held-out set. One cost to know. Ollama
   reuses the processed start of a prompt between calls, so a list dictation
-  that follows a non-list one processes the list section afresh, about
-  0.5s more than a list after a list.
+  that follows a non-list one processes the list section afresh: 650-850ms
+  more than a list after a list on an M3, where a cached prompt costs ~30ms
+  and writing the answer ~30ms a token. Three ways around it each lost eval
+  cases, so none shipped (2026-10-04): the list section in every prompt
+  (dev 35/37), the varying sections moved into the user message so the
+  system prompt never changes (35/37, and stories became lists), and a
+  shorter list section (36/37, held-out 15/16, for only 59 fewer tokens).
+- **Self-corrections:** "send it on Tuesday, no wait, on Wednesday" is typed
+  as "send it on Wednesday". The rules name the cues ("no wait", "sorry",
+  "make that", "I meant") with two worked examples; without them qwen3 left
+  the sentence as said. "actually" isn't on the list. When it was, the model
+  also deleted it from "it actually works now". `acceptCleanup` holds a
+  correction to the usual floor of half the transcript, so a very short one
+  ("a table for four, actually make that six" → "a table for six") falls back
+  to the transcript. A lower floor for corrections was tried and dropped: four
+  versions of it each let some wrong cleanup through (a dropped ending, a
+  reversed meaning) or rejected a right one.
 - **When it runs:** only when the transcript needs it. `shouldSkipLlm`
   (`packages/llm/src/cleanup.ts`) skips cleanup for very short utterances, and
-  for confident transcripts that carry no filler word and no stutter —
+  for confident transcripts that carry no filler word and no stutter, unless
+  the speaker corrected themselves after a comma (", no wait", ", sorry",
+  ", actually") or spoke a symbol ("dash a", "slash") —
   `formatText` supplies the capital and the end punctuation without a model.
   Cleanup costs 400-1500ms, which is most of the wait after speaking.
 - **Job:** take the raw ASR transcript plus context (user dictionary,
