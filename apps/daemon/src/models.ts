@@ -98,7 +98,7 @@ const runOllamaPull = async (model: string, url: string): Promise<number> => {
 
 /**
  * The only network call mockingbird makes (ARCHITECTURE.md §9): the Whisper
- * and VAD models, then the cleanup model through Ollama. It runs when the
+ * and VAD models, and the cleanup model through Ollama. It runs when the
  * user asks for it and says where each download comes from.
  */
 export async function pullModels(deps: PullDeps = {}): Promise<number> {
@@ -107,12 +107,34 @@ export async function pullModels(deps: PullDeps = {}): Promise<number> {
   const home = deps.home ?? env.MOCKINGBIRD_HOME ?? join(homedir(), ".mockingbird");
   const llmUrl = deps.llmUrl ?? env.MOCKINGBIRD_LLM_URL ?? "http://127.0.0.1:11434";
   const llmModel = deps.llmModel ?? env.MOCKINGBIRD_LLM_MODEL ?? DEFAULT_LLM_MODEL;
-
   const modelsDir = deps.modelsDir ?? join(home, "models");
-  for (const model of deps.files ?? MODEL_FILES) {
-    await pullFile(model, modelsDir, { fetch: deps.fetch, log });
-  }
 
+  // The files and the cleanup model come from different servers, so they
+  // download side by side: the wait is the longest one, not the sum. Both
+  // finish before anything is reported, so a failure never leaves the other
+  // half-written or an Ollama we started still running.
+  const files = (async () => {
+    for (const model of deps.files ?? MODEL_FILES) {
+      await pullFile(model, modelsDir, { fetch: deps.fetch, log });
+    }
+  })();
+  const [pulled, code] = await Promise.allSettled([
+    files,
+    pullCleanupModel(llmUrl, llmModel, deps, log),
+  ]);
+  if (pulled.status === "rejected") throw pulled.reason;
+  if (code.status === "rejected") throw code.reason;
+  if (code.value !== 0) return code.value;
+  log("All models are downloaded.");
+  return 0;
+}
+
+async function pullCleanupModel(
+  llmUrl: string,
+  llmModel: string,
+  deps: PullDeps,
+  log: (message: string) => void,
+): Promise<number> {
   log(`pulling the cleanup model ${llmModel} through Ollama at ${llmUrl}`);
   const running = await ollamaRunning(llmUrl);
   // Only start a server on this Mac: anything else would put Ollama on the network.
@@ -138,6 +160,5 @@ export async function pullModels(deps: PullDeps = {}): Promise<number> {
   } finally {
     await stop?.();
   }
-  log("All models are downloaded.");
   return 0;
 }

@@ -46,6 +46,7 @@ it is not a design doc that gets abandoned once code exists.
 | 2026-10-03 | Model comparison. `bench:models` now scores every Whisper model on 64 synthetic clips (8 voices, 3 of them Indian English) for word error, names, memory and size, and `bench:cleanup` runs the cleanup eval per Ollama model. Neither default changes: `large-v3` Q5_0 (3.2% word error, 17/32 names) and `qwen3:4b-instruct-2507-q4_K_M` (30/30, 11/11) are the most accurate, and every faster or smaller model loses accuracy. Full tables in MODELS.md §7a. |
 
 | 2026-10-03 | Users get the Go `mockingbird` command. `release.yml` tests and builds `apps/cli` into `mockingbird-darwin-arm64`, with the tag built in for `--version`, and publishes it with its sha256 in `checksums.txt`. `install.sh` downloads it for the release it checks out, checks the sha256, keeps it at `apps/cli/mockingbird` in the clone, and writes a shim that runs it with bun's folder on the PATH. A clone that isn't on a release builds it with `go` if that's installed. Without either, or for a release from before the Go command, the shim runs the TypeScript CLI as before. The Homebrew formula builds it from source with `go` as a build-only dependency. The binary holds no macOS permissions, so replacing it on an update drops no grant (§12, §14, README.md). |
+| 2026-10-04 | Installs run in parallel and quietly. `mockingbird models pull` downloads the Whisper and VAD files while Ollama pulls the cleanup model, since they come from different servers, so the wait is the longer of the two rather than the sum; it still waits for both before reporting a failure. `install.sh` installs whatever tools are missing in one `brew install`, clones or updates the code at the same time, then runs `bun install`, then the model pull and the command download together. Each step's output goes to `~/.mockingbird/logs/install.log`; the terminal shows one line per step and a ticking clock, and on a failure the end of the log. Writing the installer in Go was considered and not done: the time is in Homebrew and the downloads, which a Go installer would wait on just the same (§12). |
 
 ---
 
@@ -577,7 +578,10 @@ diagram. Only the `mockingbird` command is compiled:
   on `main` (a tag pushed on another branch never went through
   `release.yml`, so it's skipped), or follows `main` while no tag exists.
   It then downloads that release's `mockingbird-darwin-arm64`, checks it
-  against `checksums.txt`, and writes a shim that runs it. A clone that
+  against `checksums.txt`, and writes a shim that runs it. Steps that don't
+  depend on each other run together (tools with code, models with the
+  command), and their output goes to `~/.mockingbird/logs/install.log`
+  rather than the terminal. A clone that
   isn't on a release builds the command with `go`, if installed. Failing
   both, the shim runs the TypeScript CLI directly.
 
