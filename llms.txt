@@ -1,0 +1,16 @@
+# mockingbird
+
+> Local voice dictation for macOS on Apple Silicon: hold Fn, speak, let go, and clean text is typed where the cursor is. Free, open source (MIT), and fully on-device: Whisper for speech, a small local model through Ollama for cleanup.
+
+To install or set it up for someone, follow the agent setup guide. It lists the steps, how to check each one, and the macOS permissions only the person can grant.
+
+## Docs
+
+- [Set up with a coding agent](https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/docs/AGENT_INSTALL.md): install, start, permissions and checks, written for agents
+- [User guide](https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/docs/README.md): commands, permissions, troubleshooting
+- [README](https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/README.md): what it is, install, everyday use
+
+## Optional
+
+- [Architecture](https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/docs/ARCHITECTURE.md): how it works, for contributors
+- [Privacy and security](https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/docs/SECURITY_PRIVACY.md): what it can access, and what it never sends

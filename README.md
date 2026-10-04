@@ -55,6 +55,20 @@ brew install nirjharbhattacharjee/mockingbird/mockingbird
 mockingbird models pull
 ```
 
+### With a coding agent
+
+Claude Code, Codex, Cursor or any agent that runs shell commands can set it up
+for you. Paste this:
+
+```text
+Set up mockingbird on this Mac by following
+https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/docs/AGENT_INSTALL.md
+```
+
+It runs the installer, starts mockingbird, and tells you which permissions to
+switch on. That part is always yours: macOS won't let any program grant them
+to itself.
+
 ### Updating
 
 Run the same install command again, or `brew upgrade mockingbird` if you used
