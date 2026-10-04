@@ -75,11 +75,13 @@ function watchFocus(target: FrontmostApp): FocusWatch {
 
 /**
  * What came between `piece` and the text typed before it. Typing trims each
- * piece, so this goes in as its prefix: a line break where lines are allowed,
- * otherwise a space.
+ * piece, so this goes in as its prefix: the line breaks where lines are
+ * allowed, otherwise a space.
  */
-function separator(piece: string, lineBreaks: boolean): string {
-  if (/^\s*\n/.test(piece) && lineBreaks) return "\n";
+export function separator(piece: string, lineBreaks: boolean): string {
+  const lines = (piece.match(/^\s*/)?.[0] ?? "").split("\n").length - 1;
+  // Typing keeps at most one blank line, so this does too.
+  if (lines > 0 && lineBreaks) return "\n".repeat(Math.min(lines, 2));
   return /^\s/.test(piece) ? " " : "";
 }
 

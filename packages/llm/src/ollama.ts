@@ -41,15 +41,26 @@ export class OllamaProvider implements LlmProvider {
     // One JSON object per line, and a network chunk can end mid-line.
     const decoder = new TextDecoder();
     let pending = "";
+    let done = false;
+    const read = (line: string) => {
+      const reply = JSON.parse(line) as {
+        message?: { content?: string };
+        error?: string;
+        done?: boolean;
+      };
+      if (reply.error) throw new LlmRequestError(`ollama: ${reply.error}`);
+      done ||= reply.done === true;
+      return reply.message?.content ?? "";
+    };
     for await (const chunk of res.body) {
       const lines = (pending + decoder.decode(chunk, { stream: true })).split("\n");
       pending = lines.pop() ?? "";
-      for (const line of lines.filter((l) => l.trim())) {
-        const reply = JSON.parse(line) as { message?: { content?: string }; error?: string };
-        if (reply.error) throw new LlmRequestError(`ollama: ${reply.error}`);
-        if (reply.message?.content) yield reply.message.content;
-      }
+      for (const line of lines.filter((l) => l.trim())) yield read(line);
     }
+    if (pending.trim()) yield read(pending);
+    // A connection cut mid-reply ends the stream without Ollama's last record;
+    // that's a failure, not a short cleanup.
+    if (!done) throw new LlmRequestError("ollama: the reply ended before the model finished");
   }
 
   async health(): Promise<boolean> {

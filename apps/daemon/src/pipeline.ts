@@ -121,8 +121,11 @@ export type CleanupResult = Pick<
  * the words `verifiedPrefix` lets through, formatted, the moment they are
  * written. The rest follows once the cleanup is done and checked. If the
  * check rejects it after some has gone out, the transcript carries on from
- * where the typed words left off, so nothing the user said is lost and
- * nothing typed has to be taken back. A list's heading is the model's word,
+ * where the typed words left off, so nothing typed has to be taken back and
+ * the rest of what the user said still arrives. Words the model left out of
+ * the typed part stay out; `verifiedPrefix` allows at most five in a row.
+ * Typing also pauses where a dictionary term would change a word, so what's
+ * typed is always the model's text, lined up with the transcript. A list's heading is the model's word,
  * not the user's, so a list is typed whole; in the rare case the model writes
  * one item per line with no markers and `bulletize` makes the list, the first
  * line will have gone out already and the rest follows as a sentence.
@@ -163,7 +166,11 @@ export async function cleanUp(
       const held = holdBack(dictionary);
       for await (const piece of deps.llm.stream(prompt)) {
         cleaned += piece;
-        await send(dropLastWords(correct(formatPartial(verifiedPrefix(asr.text, cleaned))), held));
+        // Typed as the model wrote it, and only as far as the dictionary
+        // leaves it alone, so `rawRemainder` can line it up with the transcript.
+        const verified = formatPartial(verifiedPrefix(asr.text, cleaned));
+        const ready = dropLastWords(verified, held);
+        if (correct(verified).startsWith(ready)) await send(ready);
       }
       cleaned = cleaned.trim();
     } else {

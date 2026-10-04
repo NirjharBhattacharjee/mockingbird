@@ -181,7 +181,8 @@ lives in `packages/inject/src/typing.ts`. As implemented today it:
   model adds stops it there, and the rest waits for the whole cleanup and
   `acceptCleanup`, as before. Text already typed is never deleted again: if
   the cleanup is then rejected, your transcript carries on from where the
-  typed words stopped. A terminal never gets text early;
+  typed words stopped. Words the model left out of the typed part, at most
+  five in a row, stay out. A terminal never gets text early;
 - reads **one character** of what's already in that app: the one just before
   the cursor (or before the selection), so a new sentence gets a space after
   the last one. `packages/context/src/caret.ts` asks for exactly that range

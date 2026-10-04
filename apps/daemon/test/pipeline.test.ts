@@ -191,6 +191,29 @@ describe("runPipeline with onText", () => {
     );
   });
 
+  test("typing waits where the dictionary changes a word, and the final text has it", async () => {
+    const pieces: string[] = [];
+    const result = await runPipeline(
+      { audio },
+      deps({
+        asr: fakeAsr({
+          text: "um please send the file to cat puck in today before lunch",
+          confidence: 0.6,
+        }),
+        llm: streamingLlm("Please send the file to cat puck in today before lunch."),
+        dictionary: [{ term: "Catppuccin" }],
+      }),
+      async (piece) => {
+        pieces.push(piece);
+      },
+    );
+    expect(pieces.join("")).toBe(result.finalText);
+    expect(result.finalText).toBe("Please send the file to Catppuccin today before lunch.");
+    // The words before the name went out early, a word at a time; and since
+    // the pieces join into the final text, nothing typed changed afterwards.
+    expect(pieces.slice(0, 2)).toEqual(["Please", " send"]);
+  });
+
   test("a terminal gets the whole, checked text in one piece", async () => {
     const { pieces } = await run(
       "git status and then git push",
