@@ -63,22 +63,25 @@ First download the installer, and check this command succeeds. If it prints
 `curl: (...)`, nothing was installed: check the network and try again.
 
 ```sh
-rm -f /tmp/mockingbird-install.out
-curl -fsSL https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/scripts/install.sh -o /tmp/mockingbird-install.sh
+mkdir -p ~/.mockingbird && rm -f ~/.mockingbird/install.out
+curl -fsSL https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/scripts/install.sh -o ~/.mockingbird/install.sh
 ```
+
+It goes in the person's own folder rather than `/tmp`, where another account
+on the Mac could swap the file before it runs.
 
 Then run it in the background, so a time limit on your commands can't cut it
 off. This returns at once:
 
 ```sh
-nohup bash -c 'bash /tmp/mockingbird-install.sh; echo "exit=$?"' > /tmp/mockingbird-install.out 2>&1 &
+nohup bash -c 'bash ~/.mockingbird/install.sh; echo "exit=$?"' > ~/.mockingbird/install.out 2>&1 &
 ```
 
 Check on it every 30 to 60 seconds (wait between checks with your tool's own
 wait or `sleep 30`):
 
 ```sh
-tail -n 8 /tmp/mockingbird-install.out
+tail -n 8 ~/.mockingbird/install.out
 ```
 
 It has finished when the last line is `exit=` and a number. Before that it's
@@ -90,7 +93,7 @@ still working, even if a step has failed: it waits for every step to end.
   `~/.mockingbird/logs/install-<step>.log`. See
   [If something fails](#if-something-fails), then run step 2 again: finished
   steps are skipped.
-- Run `grep -A1 'note:' /tmp/mockingbird-install.out`. If it says
+- Run `grep -A1 'note:' ~/.mockingbird/install.out`. If it says
   `~/.local/bin` isn't on the PATH, tell the person.
   They should add the `export PATH=...` line it shows to their shell profile,
   or you can, if they say so. The steps below use the full path either way.
@@ -113,7 +116,10 @@ it restarts mockingbird and reports again. It ends with one of:
 
 ## 4. Permissions **(person)**
 
-Tell the person, keeping only the bullets for the permissions `start` named:
+Tell the person, keeping only the bullets for the permissions `start` named.
+If `start` also printed `couldn't rename the agent for System Settings`, the
+program is listed as **bun** instead of **mockingbird**: say **bun** in the
+message.
 
 > In **System Settings → Privacy & Security**:
 > - **Input Monitoring**: turn on **mockingbird**. If it isn't in the list,
@@ -135,9 +141,14 @@ when mockingbird starts, and `start` restarts it and reports what it now has.
 (`status` suggests `mockingbird restart` for this. That works too, but only
 `start` reports back.) If it still names a permission, go through this step
 once more with just that one. If it's still missing after that, stop and tell
-the person which one. For the microphone, a Mac with no microphone connected,
-or with input muted in **System Settings → Sound → Input**, always reports it
-missing.
+the person which one.
+
+The microphone check is different: mockingbird listens for a moment at
+startup and reports it missing if it heard pure silence. That's usually the
+permission, but a muted input or no microphone at all looks the same. If the
+person says **mockingbird** is already on in the Microphone list, don't ask
+again. Ask them to check **System Settings → Sound → Input** instead: a
+microphone is selected, and its level moves when they speak.
 
 ## 5. Check it
 
@@ -151,8 +162,9 @@ grep "checks: Fn" ~/.mockingbird/logs/agent.log | tail -n 1
 - The log line is what the background program can do. Its time must be
   after the `start` you ran last; if it isn't, wait 10 seconds and look
   again. It must read `checks: Fn ok, typing ok, microphone ok`. `Fn MISSING` is Input
-  Monitoring, `typing MISSING` is Accessibility, and `microphone SILENT` is
-  Microphone: back to step 4 for that one.
+  Monitoring and `typing MISSING` is Accessibility: back to step 4 for that
+  one. `microphone SILENT` means it heard only silence, which is the
+  Microphone permission or the input itself; step 4 says how to tell.
 - Ignore `status`'s `this terminal:` line. It's about your shell's
   permissions, which mockingbird doesn't use.
 - If `start` or `status` printed a line starting `If tapping Fn opens the
