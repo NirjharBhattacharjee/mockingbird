@@ -31,19 +31,28 @@ main() {
   fi
   command -v brew >/dev/null 2>&1 || fail "Homebrew is needed first: see https://brew.sh, then run this again."
 
-
-  # Everything a step prints goes here, not to the terminal. On a failure the
-  # end of it is shown, since that's where the reason is.
+  # Everything a step prints goes to its own log, not the terminal: steps run
+  # side by side, and one shared log could push a failed step's reason out of
+  # view. On a failure the end of that step's log is shown.
   local log_dir="${MOCKINGBIRD_HOME:-$HOME/.mockingbird}/logs"
   mkdir -p "$log_dir"
-  local log="$log_dir/install.log"
-  : >"$log"
-  quietly() { "$@" >>"$log" 2>&1 </dev/null; }
+  rm -f "$log_dir"/install-*.log
+  local STEP
+  quietly() { "$@" >>"$log_dir/install-$STEP.log" 2>&1 </dev/null; }
   done_() { printf '    \033[1;32m✓\033[0m %s\n' "$1"; }
+  report() {
+    local name
+    for name in "$@"; do
+      printf '\n\033[1;31merror:\033[0m %s failed. The end of %s:\n\n' "$name" "$log_dir/install-$name.log" >&2
+      tail -n 20 "$log_dir/install-$name.log" >&2
+    done
+    exit 1
+  }
 
-  # Waits for the steps running in the background, with a clock ticking so a
-  # long download doesn't look stuck, then checks each one's exit status.
-  # Arguments are name/pid pairs.
+  # Waits for every step running in the background, with a clock ticking so a
+  # long download doesn't look stuck. All of them finish before any failure is
+  # reported, so nothing is left writing files behind a retry. Arguments are
+  # name/pid pairs.
   await() {
     local start=$SECONDS
     if [ -t 1 ]; then
@@ -53,14 +62,14 @@ main() {
       done
       printf '\r\033[K'
     fi
+    local failed=()
     while [ $# -gt 0 ]; do
-      if ! wait "$2"; then
-        printf '\n\033[1;31merror:\033[0m %s failed. The end of %s:\n\n' "$1" "$log" >&2
-        tail -n 20 "$log" >&2
-        exit 1
-      fi
+      wait "$2" || failed+=("$1")
       shift 2
     done
+    if [ ${#failed[@]} -gt 0 ]; then
+      report "${failed[@]}"
+    fi
   }
 
   # Moves a clone to the newest release tag, or to the latest main while there
@@ -152,16 +161,16 @@ main() {
     if [ -z "$before" ]; then
       quietly git clone "$repo_url" "$dir"
     fi
-    to_latest "$dir"
+    quietly to_latest "$dir"
   }
 
-  printf '\n\033[1;35m==>\033[0m \033[1mInstalling mockingbird\033[0m (details in %s)\n' "$log"
+  printf '\n\033[1;35m==>\033[0m \033[1mInstalling mockingbird\033[0m (details in %s)\n' "$log_dir/install-*.log"
 
   # The tools and the code don't need each other, so they come down together.
   WORKING="tools and code"
-  tools &
+  (STEP=tools && tools) &
   local tools_pid=$!
-  get_code &
+  (STEP=code && get_code) &
   local code_pid=$!
   await tools "$tools_pid" code "$code_pid"
   done_ "tools: Bun, whisper-cpp, Ollama, ffmpeg"
@@ -176,7 +185,7 @@ main() {
   fi
 
   WORKING="dependencies"
-  (cd "$dir" && quietly bun install $lockfile) &
+  (STEP=dependencies && cd "$dir" && quietly bun install $lockfile) &
   await dependencies $!
   done_ "dependencies"
 
@@ -186,9 +195,9 @@ main() {
   local cli="$dir/apps/cli/mockingbird"
   rm -f "$cli"
   WORKING="models and command"
-  (cd "$dir" && quietly bun apps/daemon/src/cli.ts models pull) &
+  (STEP=models && cd "$dir" && quietly bun apps/daemon/src/cli.ts models pull) &
   local models_pid=$!
-  (quietly get_cli "$dir" "$cli" || true) &
+  (STEP=command && quietly get_cli "$dir" "$cli" || true) &
   local cli_pid=$!
   await models "$models_pid" command "$cli_pid"
   done_ "models"
@@ -228,7 +237,8 @@ SHIM
   # An agent that's running is still on the old code, so restart it. One that
   # was stopped stays stopped.
   if launchctl print "gui/$(id -u)/com.mockingbird.agent" 2>/dev/null | grep -q 'state = running'; then
-    quietly "$shim" restart
+    STEP=restart
+    quietly "$shim" restart || report restart
     done_ "restarted the running agent"
     printf '\n\033[1;32mAll set.\033[0m mockingbird is running %s.\n\n' "$(version "$dir")"
     return

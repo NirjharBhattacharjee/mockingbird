@@ -154,6 +154,29 @@ describe("pullModels", () => {
     }
   });
 
+  test("when both fail, the Ollama error is logged and the download error thrown", async () => {
+    const logged: string[] = [];
+    const server = Bun.serve({ port: 0, fetch: () => new Response("{}") });
+    try {
+      await expect(
+        pullModels({
+          home: tempDir(),
+          llmUrl: `http://127.0.0.1:${server.port}`,
+          files: [modelOf("weights")],
+          fetch: serving("", 404).get,
+          ollamaPull: async () => {
+            throw new Error("ollama exploded");
+          },
+          which: () => "/opt/homebrew/bin/ollama",
+          log: (m) => logged.push(m),
+        }),
+      ).rejects.toThrow("HTTP 404");
+      expect(logged.at(-1)).toContain("ollama exploded");
+    } finally {
+      server.stop(true);
+    }
+  });
+
   test("a running Ollama still needs the ollama command, which does the pull", async () => {
     const logged: string[] = [];
     const server = Bun.serve({ port: 0, fetch: () => new Response("{}") });

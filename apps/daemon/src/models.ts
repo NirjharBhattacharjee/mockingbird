@@ -122,7 +122,11 @@ export async function pullModels(deps: PullDeps = {}): Promise<number> {
     files,
     pullCleanupModel(llmUrl, llmModel, deps, log),
   ]);
-  if (pulled.status === "rejected") throw pulled.reason;
+  if (pulled.status === "rejected") {
+    // Both failed: say why Ollama did too, since only one can be thrown.
+    if (code.status === "rejected") log(`and the cleanup model failed: ${code.reason}`);
+    throw pulled.reason;
+  }
   if (code.status === "rejected") throw code.reason;
   if (code.value !== 0) return code.value;
   log("All models are downloaded.");
