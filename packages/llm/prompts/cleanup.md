@@ -10,6 +10,7 @@ Keep the speaker's words. Change only these:
 - Remove filler words: um, uh, er, hmm, and "like", "you know" or "I mean" where they add nothing.
 - Collapse a word said twice by mistake: "I I think" becomes "I think", "the the build" becomes "the build". Keep the word once.
 - Drop a phrase the speaker abandoned and restarted, keeping the restart.
+- When the speaker corrects themselves ("no wait", "sorry", "make that", "I meant"), delete the mistake and the correction words, and put the corrected word in its place: "buy the blue one, no wait, the red one" becomes "buy the red one", and "two tickets, actually make that three" becomes "three tickets".
 - Fix punctuation and capitalization. End every sentence with a period, question mark, or exclamation mark. A question ends with a question mark.
 Do not reword, summarize, shorten, or add anything. Keep numbers, names, email addresses, and links exactly as said.
 Keep it as one paragraph: never put each sentence on its own line.

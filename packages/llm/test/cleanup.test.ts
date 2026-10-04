@@ -32,6 +32,20 @@ describe("shouldSkipLlm", () => {
     );
   });
 
+  test("does not skip a spoken correction or symbol, however short or confident", () => {
+    for (const text of [
+      "Book a table for four, actually make that six.",
+      "Meet me at five, sorry, at six.",
+      "Send it Tuesday, no wait, Wednesday.",
+      "docker ps dash a",
+      "Book a table for four, make that six.",
+      "Send it Tuesday, I meant Wednesday.",
+    ])
+      expect(shouldSkipLlm({ text, confidence: 0.99 })).toBe(false);
+    expect(shouldSkipLlm({ text: "I'm sorry I missed it.", confidence: 0.99 })).toBe(true);
+    expect(shouldSkipLlm({ text: "It actually works now.", confidence: 0.99 })).toBe(true);
+  });
+
   test("does not skip a clean-looking utterance Whisper wasn't sure about", () => {
     expect(
       shouldSkipLlm({ text: "Let's move the meeting to Thursday morning.", confidence: 0.6 }),
@@ -49,6 +63,18 @@ describe("shouldSkipLlm", () => {
 });
 
 describe("acceptCleanup", () => {
+  test("holds a correction to the usual length floor", () => {
+    // Half its length or more is accepted; a very short one falls back to the transcript.
+    expect(
+      acceptCleanup(
+        "Send the invoice on Tuesday, no wait, on Wednesday.",
+        "Send the invoice on Wednesday.",
+      ),
+    ).toBe(true);
+    expect(
+      acceptCleanup("Book a table for four, actually make that six.", "Book a table for six."),
+    ).toBe(false);
+  });
   const raw = "Umm, so hello world, this is a test of the Mockingbird dictation pipeline.";
   test("accepts a filler-removal cleanup", () => {
     expect(
