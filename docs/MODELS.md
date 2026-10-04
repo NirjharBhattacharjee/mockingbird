@@ -306,16 +306,17 @@ enough.
 macOS voices, three of them Indian English. Synthetic voices are easier than
 a real one, so the error rates are optimistic; compare the rows, not the
 absolute numbers. "Names" counts names spelled exactly, with no dictionary.
+Word error is summed over the corpus (total edits over total words).
 
 | Model | Disk | Ready | Memory | Median | p90 | WER | WER en_IN | Names |
 |---|---|---|---|---|---|---|---|---|
-| large-v3-q5_0 | 1081 MB | 1.3 s | 1400 MB | 1592 ms | 1638 ms | 6.0% | 8.7% | 12/32 |
-| large-v3-turbo-q8_0 | 874 MB | 0.8 s | 953 MB | 1124 ms | 1154 ms | 7.5% | 9.6% | 9/32 |
-| large-v3-turbo-q5_0 | 574 MB | 0.5 s | 631 MB | 1170 ms | 1196 ms | 7.4% | 9.3% | 10/32 |
-| medium.en-q5_0 | 539 MB | 0.9 s | 754 MB | 836 ms | 863 ms | 8.8% | 10.7% | 9/32 |
-| small.en-q5_1 | 190 MB | 0.4 s | 381 MB | 294 ms | 310 ms | 8.2% | 10.9% | 8/32 |
-| base.en | 148 MB | 0.3 s | 240 MB | 104 ms | 113 ms | 12.1% | 13.5% | 3/32 |
-| large-v3 | 3095 MB | 2.6 s | 3307 MB | 1685 ms | 1761 ms | 6.0% | 9.1% | 12/32 |
+| large-v3-q5_0 | 1081 MB | 1.1 s | 1437 MB | 1547 ms | 1589 ms | 3.2% | 3.6% | 17/32 |
+| large-v3-turbo-q8_0 | 874 MB | 0.7 s | 960 MB | 1099 ms | 1116 ms | 4.0% | 4.3% | 13/32 |
+| large-v3-turbo-q5_0 | 574 MB | 0.5 s | 773 MB | 1146 ms | 1160 ms | 4.2% | 4.3% | 13/32 |
+| medium.en-q5_0 | 539 MB | 0.7 s | 807 MB | 814 ms | 850 ms | 4.3% | 4.7% | 14/32 |
+| small.en-q5_1 | 190 MB | 0.5 s | 456 MB | 290 ms | 304 ms | 5.9% | 6.5% | 8/32 |
+| base.en | 148 MB | 0.3 s | 322 MB | 103 ms | 109 ms | 8.5% | 7.5% | 5/32 |
+| large-v3 | 3095 MB | 2.1 s | 3351 MB | 1620 ms | 1721 ms | 3.2% | 3.9% | 17/32 |
 
 **Cleanup models,** `bun run bench:cleanup <models>`: the eval's pass count
 (evals/cleanup) on the dev and held-out sets, and the time of each model
@@ -338,8 +339,8 @@ quantisation of it does better: the full-precision `large-v3` is three times
 the size for the same accuracy. `qwen3:4b-instruct-2507-q4_K_M` passes every
 eval case, and every smaller model fails two to four held-out cases. If a
 lighter setup is ever offered for small Macs, this is the cost.
-`large-v3-turbo` Q5_0 is half the disk and memory and ~0.4s faster for ~1.4
-points more word error; `qwen2.5:1.5b` is about twice as fast per call and
+`large-v3-turbo` Q5_0 is half the disk and ~0.4s faster for ~1 point more
+word error and 4 fewer names right; `qwen2.5:1.5b` is about twice as fast per call and
 2.5 GB smaller, but fails 3 of 11 held-out cases.
 
 Re-run both when a new model comes out. `bench:cleanup` needs the models

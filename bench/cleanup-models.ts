@@ -22,9 +22,15 @@ async function evalSet(model: string, set: string) {
     cwd: repo,
     env: { ...process.env, MOCKINGBIRD_LLM_MODEL: model, MOCKINGBIRD_EVAL_SET: set },
     stdout: "ignore",
-    stderr: "ignore",
+    stderr: "pipe",
   });
+  // promptfoo exits non-zero when cases fail, which is a result, not an error;
+  // no results file means the eval itself didn't run.
   await proc.exited;
+  if (!(await Bun.file(file).exists())) {
+    const stderr = (await new Response(proc.stderr).text()).trim().split("\n").slice(-5).join("\n");
+    throw new Error(`the ${set} eval for ${model} didn't run:\n${stderr}`);
+  }
   const results: Result[] = (await Bun.file(file).json()).results.results;
   return {
     passed: results.filter((r) => r.success).length,

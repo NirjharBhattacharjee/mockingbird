@@ -5,7 +5,7 @@
  * rates here are optimistic; the comparison between models is what counts.
  * Real recordings with a hand-checked transcript belong in bench/voice/.
  */
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 export type Sentence = { text: string; names: string[] };
@@ -53,13 +53,26 @@ export function corpus(): Clip[] {
   const clips: Clip[] = [];
   for (const voice of VOICES) {
     SENTENCES.forEach((sentence, i) => {
-      const wav = join(DIR, `${voice.name}-${i + 1}.wav`);
+      // Named after the text too, so editing a sentence makes a new clip
+      // rather than scoring the old audio against the new words.
+      const wav = join(DIR, `${voice.name}-${i + 1}-${Bun.hash(sentence.text).toString(36)}.wav`);
       if (!existsSync(wav)) {
         const aiff = wav.replace(/\.wav$/, ".aiff");
+        const tmp = wav.replace(/\.wav$/, ".part.wav");
         const say = Bun.spawnSync(["say", "-v", voice.name, "-o", aiff, sentence.text]);
         if (say.exitCode !== 0) throw new Error(`say -v ${voice.name} failed: ${say.stderr}`);
-        Bun.spawnSync(["afconvert", "-f", "WAVE", "-d", "LEI16@16000", "-c", "1", aiff, wav]);
-        Bun.spawnSync(["rm", "-f", aiff]);
+        const convert = Bun.spawnSync([
+          ..."afconvert -f WAVE -d LEI16@16000 -c 1".split(" "),
+          aiff,
+          tmp,
+        ]);
+        rmSync(aiff, { force: true });
+        if (convert.exitCode !== 0) {
+          rmSync(tmp, { force: true });
+          throw new Error(`afconvert failed for ${wav}: ${convert.stderr}`);
+        }
+        // Renamed into place only once complete, so a half-written clip is never reused.
+        renameSync(tmp, wav);
       }
       clips.push({ wav, voice, sentence });
     });
@@ -69,8 +82,16 @@ export function corpus(): Clip[] {
 
 const words = (text: string) => text.toLowerCase().match(/[\p{L}\p{N}']+/gu) ?? [];
 
-/** Word error rate: word-level edit distance over the reference length. */
-export function wer(reference: string, hypothesis: string): number {
+/**
+ * Word-level edits (substitutions, insertions, deletions) between a reference
+ * and a hypothesis, and the reference's length. Sum both over a corpus for
+ * its word error rate: averaging per-sentence rates would weight short
+ * sentences more.
+ */
+export function wordErrors(
+  reference: string,
+  hypothesis: string,
+): { edits: number; words: number } {
   const r = words(reference);
   const h = words(hypothesis);
   let row = Array.from({ length: h.length + 1 }, (_, j) => j);
@@ -85,7 +106,7 @@ export function wer(reference: string, hypothesis: string): number {
     }
     row = next;
   }
-  return (row[h.length] ?? 0) / Math.max(1, r.length);
+  return { edits: row[h.length] ?? 0, words: r.length };
 }
 
 /** The value at fraction `p` (0.5 is the median) of `ns`. */

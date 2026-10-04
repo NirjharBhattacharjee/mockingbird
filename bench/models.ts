@@ -15,7 +15,7 @@ import { basename, join } from "node:path";
 // bench/ isn't a workspace, so the packages are imported by path.
 import { startWhisperServer } from "../packages/asr/src/index.ts";
 import { normalizeLoudness, readWavFile } from "../packages/audio/src/index.ts";
-import { corpus, pct, wer } from "./corpus.ts";
+import { corpus, pct, wordErrors } from "./corpus.ts";
 
 const PORT = Number(process.env.MOCKINGBIRD_BENCH_PORT ?? 8794);
 const models = join(process.env.MOCKINGBIRD_HOME ?? join(homedir(), ".mockingbird"), "models");
@@ -31,8 +31,6 @@ const clips = corpus();
 const audio = await Promise.all(
   clips.map(async (c) => normalizeLoudness(await readWavFile(c.wav))),
 );
-
-const mean = (ns: number[]) => ns.reduce((a, b) => a + b, 0) / Math.max(1, ns.length);
 
 /** Resident memory of the whisper-server on our port, in MB. */
 function serverMb(): number {
@@ -66,33 +64,44 @@ for (const modelPath of files) {
     continue;
   }
   const readyS = (performance.now() - started) / 1000;
-  const first = audio[0];
-  if (first) await whisper.engine.transcribe(first); // warm
-
   const times: number[] = [];
-  const errors: number[] = [];
-  const errorsIn: number[] = [];
+  const all = { edits: 0, words: 0 };
+  const indian = { edits: 0, words: 0 };
   let names = 0;
   let namesRight = 0;
-  for (const [i, clip] of clips.entries()) {
-    const pcm = audio[i];
-    if (!pcm) continue;
-    const t = performance.now();
-    const { text } = await whisper.engine.transcribe(pcm);
-    times.push(performance.now() - t);
-    const e = wer(clip.sentence.text, text);
-    errors.push(e);
-    if (clip.voice.accent === "en_IN") errorsIn.push(e);
-    for (const name of clip.sentence.names) {
-      names++;
-      if (text.includes(name)) namesRight++;
+  let memory = 0;
+  try {
+    const first = audio[0];
+    if (first) await whisper.engine.transcribe(first); // warm
+    for (const [i, clip] of clips.entries()) {
+      const pcm = audio[i];
+      if (!pcm) continue;
+      const t = performance.now();
+      const { text } = await whisper.engine.transcribe(pcm);
+      times.push(performance.now() - t);
+      const e = wordErrors(clip.sentence.text, text);
+      for (const total of clip.voice.accent === "en_IN" ? [all, indian] : [all]) {
+        total.edits += e.edits;
+        total.words += e.words;
+      }
+      for (const name of clip.sentence.names) {
+        names++;
+        if (text.includes(name)) namesRight++;
+      }
     }
+    memory = serverMb();
+  } catch (error) {
+    console.log(
+      `| ${basename(modelPath)} | failed: ${error instanceof Error ? error.message : error} |`,
+    );
+    continue;
+  } finally {
+    // Always, so one failing model doesn't leave a server on the port for the next.
+    await whisper.stop();
   }
-  const memory = serverMb();
-  await whisper.stop();
   const ms = (n: number) => `${Math.round(n)} ms`;
   const percent = (n: number) => `${(n * 100).toFixed(1)}%`;
   console.log(
-    `| ${basename(modelPath, ".bin").replace(/^ggml-/, "")} | ${Math.round(statSync(modelPath).size / 1e6)} MB | ${readyS.toFixed(1)} s | ${memory} MB | ${ms(pct(times, 0.5))} | ${ms(pct(times, 0.9))} | ${percent(mean(errors))} | ${percent(mean(errorsIn))} | ${namesRight}/${names} |`,
+    `| ${basename(modelPath, ".bin").replace(/^ggml-/, "")} | ${Math.round(statSync(modelPath).size / 1e6)} MB | ${readyS.toFixed(1)} s | ${memory} MB | ${ms(pct(times, 0.5))} | ${ms(pct(times, 0.9))} | ${percent(all.edits / all.words)} | ${percent(indian.edits / indian.words)} | ${namesRight}/${names} |`,
   );
 }
