@@ -25,11 +25,12 @@ async function evalSet(model: string, set: string) {
     stderr: "pipe",
   });
   // promptfoo exits non-zero when cases fail, which is a result, not an error;
-  // no results file means the eval itself didn't run.
-  await proc.exited;
+  // no results file means the eval itself didn't run. stderr is read while it
+  // runs: left unread, a full pipe would block the eval and hang this loop.
+  const [stderr] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
   if (!(await Bun.file(file).exists())) {
-    const stderr = (await new Response(proc.stderr).text()).trim().split("\n").slice(-5).join("\n");
-    throw new Error(`the ${set} eval for ${model} didn't run:\n${stderr}`);
+    const tail = stderr.trim().split("\n").slice(-5).join("\n");
+    throw new Error(`the ${set} eval for ${model} didn't run:\n${tail}`);
   }
   const results: Result[] = (await Bun.file(file).json()).results.results;
   return {
