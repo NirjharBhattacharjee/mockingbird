@@ -8,7 +8,7 @@ import {
 } from "@mockingbird/context";
 import { type Cue, cues } from "@mockingbird/cue";
 import { type HotkeyListener, startHotkeyListener } from "@mockingbird/hotkey";
-import { prepareForTyping, type TypeResult, typeText } from "@mockingbird/inject";
+import { prepareForTyping, typeText } from "@mockingbird/inject";
 import type { AppStyle } from "@mockingbird/llm";
 import { HotkeyFsm } from "./hotkey-fsm.ts";
 import { ListenController } from "./listen-controller.ts";
@@ -71,6 +71,16 @@ function watchFocus(target: FrontmostApp): FocusWatch {
       watching = false;
     },
   };
+}
+
+/**
+ * What came between `piece` and the text typed before it. Typing trims each
+ * piece, so this goes in as its prefix: a line break where lines are allowed,
+ * otherwise a space.
+ */
+function separator(piece: string, lineBreaks: boolean): string {
+  if (/^\s*\n/.test(piece) && lineBreaks) return "\n";
+  return /^\s/.test(piece) ? " " : "";
 }
 
 export type SessionOptions = {
@@ -139,19 +149,31 @@ export async function startSession(options: SessionOptions): Promise<Session> {
   /** Whether those are being watched: it needs the Fn key's event tap. */
   let watchingInput = false;
 
-  const deliver = async (text: string, target: FrontmostApp | undefined): Promise<Delivery> => {
-    if (!typingAllowed) return { typed: false, reason: "typing isn't allowed" };
-    try {
+  /**
+   * Types one dictation into `target`, piece by piece as the pipeline hands
+   * the pieces over. The checks run before the first piece; after a failure
+   * the rest is dropped, and `done` says why.
+   */
+  const typeInto = (target: FrontmostApp | undefined) => {
+    let failed: string | undefined;
+    let open:
+      | { now: FrontmostApp; watch: FocusWatch; spacing: string; lineBreaks: boolean }
+      | undefined;
+    let lastChar = "";
+
+    const start = async (): Promise<string | undefined> => {
+      if (!typingAllowed) {
+        failed = "typing isn't allowed";
+        return;
+      }
       // Transcription takes a while; if the user switched apps meanwhile, the
       // text would land somewhere they didn't dictate it for.
       const now = await frontmostApp();
       if (!target || !now || now.bundleId !== target.bundleId) {
-        return {
-          typed: false,
-          reason:
-            `the app in front changed since you started speaking` +
-            ` (${target?.name ?? "unknown"} → ${now?.name ?? "unknown"})`,
-        };
+        failed =
+          `the app in front changed since you started speaking` +
+          ` (${target?.name ?? "unknown"} → ${now?.name ?? "unknown"})`;
+        return;
       }
       // A second sentence shouldn't run into the first. Checked now rather
       // than when recording started, so anything typed meanwhile counts.
@@ -166,39 +188,52 @@ export async function startSession(options: SessionOptions): Promise<Session> {
             bundleId: now.bundleId,
             inputSince: watchingInput ? inputs.hasInput() : undefined,
           });
-      const prefix = decision.space ? " " : "";
-      const spacing = `${decision.space ? "space added" : "no space"}: ${decision.why}`;
       lastTyped = undefined;
-      const watch = watchFocus(now);
-      let result: TypeResult;
-      try {
-        result = await typeText(text, {
-          prefix,
-          // A dictated list is typed as lines, with Shift+Return. Not in a
-          // terminal, or an editor with one built in, where any Return can
-          // run a command.
-          lineBreaks: !mayRunCommands(now),
-          stillWanted: watch.stillThere,
-        });
-      } finally {
-        watch.stop();
-      }
-      if (result.typed >= result.total) {
-        const lastChar = prepareForTyping(text).slice(-1);
-        if (lastChar) lastTyped = { bundleId: now.bundleId, lastChar };
-        inputs.reset();
-        return { typed: true, spacing };
-      }
-      return {
-        typed: false,
-        reason:
-          `the app in front changed while the text was being typed` +
-          ` (${now.name} → ${watch.movedTo()?.name ?? "unknown"}), so only` +
-          ` ${result.typed} of its ${result.total} characters went in`,
+      open = {
+        now,
+        watch: watchFocus(now),
+        spacing: `${decision.space ? "space added" : "no space"}: ${decision.why}`,
+        // A dictated list is typed as lines, with Shift+Return. Not in a
+        // terminal, or an editor with one built in, where any Return can
+        // run a command.
+        lineBreaks: !mayRunCommands(now),
       };
-    } catch (error) {
-      return { typed: false, reason: error instanceof Error ? error.message : String(error) };
-    }
+      return decision.space ? " " : "";
+    };
+
+    const write = async (piece: string) => {
+      if (failed) return;
+      try {
+        const prefix = open ? separator(piece, open.lineBreaks) : await start();
+        if (!open || prefix === undefined) return;
+        const result = await typeText(piece, {
+          prefix,
+          lineBreaks: open.lineBreaks,
+          stillWanted: open.watch.stillThere,
+        });
+        if (result.typed < result.total) {
+          failed =
+            `the app in front changed while the text was being typed` +
+            ` (${open.now.name} → ${open.watch.movedTo()?.name ?? "unknown"}), so only` +
+            ` part of it went in`;
+          return;
+        }
+        lastChar = prepareForTyping(piece).slice(-1) || lastChar;
+      } catch (error) {
+        failed = error instanceof Error ? error.message : String(error);
+      }
+    };
+
+    const done = (): Delivery => {
+      open?.watch.stop();
+      if (failed) return { typed: false, reason: failed };
+      if (!open) return { typed: false, reason: "no speech detected" };
+      if (lastChar) lastTyped = { bundleId: open.now.bundleId, lastChar };
+      inputs.reset();
+      return { typed: true, spacing: open.spacing };
+    };
+
+    return { write, done };
   };
 
   const transcribe = async ({ audio, truncated }: Recording) => {
@@ -212,12 +247,11 @@ export async function startSession(options: SessionOptions): Promise<Session> {
     }
     // Terminals get command-friendly text: no trailing period.
     const style: AppStyle = options.terminalStyle || isTerminal(target) ? "terminal" : "default";
-    const result = await runPipeline({ audio, style }, engines.deps);
+    // Typed as it's cleaned up, so the first words appear before the last are written.
+    const typing = typeInto(target);
+    const result = await runPipeline({ audio, style }, engines.deps, typing.write);
     options.beforeMessage?.();
-
-    const delivery: Delivery = result.finalText
-      ? await deliver(result.finalText, target)
-      : { typed: false, reason: "no speech detected" };
+    const delivery = typing.done();
 
     if (!delivery.typed && result.finalText) cue("error");
     onResult?.(result, delivery);

@@ -7,13 +7,21 @@ export class OllamaProvider implements LlmProvider {
     private readonly timeoutMs = 10_000,
   ) {}
 
-  async complete({ system, user }: CompletionRequest): Promise<string> {
+  async complete(req: CompletionRequest): Promise<string> {
+    let out = "";
+    for await (const piece of this.stream(req)) out += piece;
+    return out.trim();
+  }
+
+  /** The completion as the model writes it, a few characters at a time. */
+  async *stream({ system, user }: CompletionRequest): AsyncGenerator<string> {
     const res = await fetch(`${this.baseUrl}/api/chat`, {
       method: "POST",
+      // Covers reading the reply too, so a model that stalls mid-answer still times out.
       signal: AbortSignal.timeout(this.timeoutMs),
       body: JSON.stringify({
         model: this.model,
-        stream: false,
+        stream: true,
         // Unloading between dictations would cost a ~15s cold load on the next one.
         keep_alive: "30m",
         options: {
@@ -28,9 +36,20 @@ export class OllamaProvider implements LlmProvider {
         ],
       }),
     });
-    if (!res.ok) throw new LlmRequestError(`ollama ${res.status}: ${await res.text()}`);
-    const body = (await res.json()) as { message?: { content?: string } };
-    return body.message?.content?.trim() ?? "";
+    if (!res.ok || !res.body)
+      throw new LlmRequestError(`ollama ${res.status}: ${await res.text()}`);
+    // One JSON object per line, and a network chunk can end mid-line.
+    const decoder = new TextDecoder();
+    let pending = "";
+    for await (const chunk of res.body) {
+      const lines = (pending + decoder.decode(chunk, { stream: true })).split("\n");
+      pending = lines.pop() ?? "";
+      for (const line of lines.filter((l) => l.trim())) {
+        const reply = JSON.parse(line) as { message?: { content?: string }; error?: string };
+        if (reply.error) throw new LlmRequestError(`ollama: ${reply.error}`);
+        if (reply.message?.content) yield reply.message.content;
+      }
+    }
   }
 
   async health(): Promise<boolean> {

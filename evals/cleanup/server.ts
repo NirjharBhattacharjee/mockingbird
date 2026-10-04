@@ -32,12 +32,28 @@ export function startCleanupServer(port: number) {
     async fetch(req) {
       if (req.method !== "POST") return new Response("POST a CleanupRequest", { status: 405 });
       const body = (await req.json()) as CleanupRequest;
+      // Streamed like the app types it, timing when the first words would appear.
+      const started = performance.now();
+      let typed = "";
+      let firstTextMs: number | undefined;
       const result = await cleanUp(
         { text: body.transcript, confidence: Number(body.confidence ?? 0.9) },
         { llm, dictionary: body.dictionary },
         body.style === "terminal" ? "terminal" : "default",
+        async (piece) => {
+          firstTextMs ??= Math.round(performance.now() - started);
+          typed += piece;
+        },
       );
-      return Response.json({ output: result.finalText, ...result });
+      if (typed !== result.finalText) {
+        return new Response(
+          `typed ${JSON.stringify(typed)}, not ${JSON.stringify(result.finalText)}`,
+          {
+            status: 500,
+          },
+        );
+      }
+      return Response.json({ output: result.finalText, firstTextMs, ...result });
     },
   });
 }

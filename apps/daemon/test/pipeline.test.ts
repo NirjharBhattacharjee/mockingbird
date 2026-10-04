@@ -114,3 +114,101 @@ describe("runPipeline", () => {
     expect(result.finalText).toBe("git status");
   });
 });
+
+/** An LLM that writes its reply a few characters at a time, then optionally fails. */
+function streamingLlm(reply: string, failAfter?: number): LlmProvider & { streamed: number } {
+  return {
+    model: "fake-llm",
+    streamed: 0,
+    async complete() {
+      return reply;
+    },
+    async *stream() {
+      for (let i = 0; i < reply.length; i += 3) {
+        if (failAfter !== undefined && i >= failAfter) throw new Error("connection reset");
+        this.streamed = i + 3;
+        yield reply.slice(i, i + 3);
+      }
+    },
+    health: async () => true,
+  };
+}
+
+describe("runPipeline with onText", () => {
+  async function run(text: string, llm: LlmProvider, style: "default" | "terminal" = "default") {
+    const pieces: { piece: string; streamed: number }[] = [];
+    const result = await runPipeline(
+      { audio, style },
+      deps({ asr: fakeAsr({ text, confidence: 0.6 }), llm }),
+      async (piece) => {
+        pieces.push({ piece, streamed: (llm as { streamed?: number }).streamed ?? 0 });
+      },
+    );
+    return { result, pieces };
+  }
+
+  test("types words while the model is still writing, and the pieces make the final text", async () => {
+    const llm = streamingLlm("So I think we should move the meeting to Thursday.");
+    const { result, pieces } = await run(
+      "um so I think we should uh move the meeting to Thursday",
+      llm,
+    );
+    expect(pieces.map((p) => p.piece).join("")).toBe(result.finalText);
+    expect(result.finalText).toBe("So I think we should move the meeting to Thursday.");
+    expect(result.llmOutcome).toBe("cleaned");
+    // The first words went out long before the model finished.
+    expect(pieces[0]?.streamed).toBeLessThan(20);
+    expect(pieces.length).toBeGreaterThan(3);
+  });
+
+  test("an answer is never typed early, and is still rejected", async () => {
+    const { result, pieces } = await run("what is the capital of france", streamingLlm("Paris."));
+    expect(pieces.map((p) => p.piece)).toEqual(["What is the capital of france?"]);
+    expect(result.llmOutcome).toBe("rejected");
+  });
+
+  test("a cleanup rejected after it began carries on with the transcript", async () => {
+    // Drops the second half: too short to accept, but its start was the user's words.
+    const raw = "so I wanted to say that the release is ready and we can ship it on Monday";
+    const { result, pieces } = await run(raw, streamingLlm("So I wanted to say that the release"));
+    expect(result.llmOutcome).toBe("rejected");
+    expect(pieces.map((p) => p.piece).join("")).toBe(result.finalText);
+    expect(result.finalText).toBe(
+      "So I wanted to say that the release is ready and we can ship it on Monday.",
+    );
+  });
+
+  test("a model that dies mid-cleanup leaves the rest of the transcript", async () => {
+    const raw = "um so the build is green and the deploy can go out after lunch today";
+    const { result, pieces } = await run(
+      raw,
+      streamingLlm("So the build is green and the deploy can go out after lunch today.", 30),
+    );
+    expect(result.llmOutcome).toBe("failed");
+    expect(pieces.map((p) => p.piece).join("")).toBe(result.finalText);
+    expect(result.finalText).toBe(
+      "So the build is green and the deploy can go out after lunch today.",
+    );
+  });
+
+  test("a terminal gets the whole, checked text in one piece", async () => {
+    const { pieces } = await run(
+      "git status and then git push",
+      streamingLlm("git status and then git push"),
+      "terminal",
+    );
+    expect(pieces.map((p) => p.piece)).toEqual(["git status and then git push"]);
+  });
+
+  test("a skipped cleanup is handed over too", async () => {
+    const pieces: string[] = [];
+    await runPipeline(
+      { audio },
+      deps({ asr: fakeAsr({ text: "Yes please.", confidence: 0.97 }) }),
+      async (piece) => {
+        pieces.push(piece);
+      },
+    );
+    expect(pieces).toEqual(["Yes please."]);
+  });
+});

@@ -26,3 +26,10 @@ export {
   startOllamaServer,
 } from "./ollama.ts";
 export { type CompletionRequest, type LlmProvider, LlmRequestError } from "./provider.ts";
+export {
+  dropLastWords,
+  formatPartial,
+  holdBack,
+  rawRemainder,
+  verifiedPrefix,
+} from "./stream.ts";
