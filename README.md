@@ -1,6 +1,6 @@
-<p align="center">
-  <img src="docs/assets/wordmark.png" width="560" alt="mockingbird: a pixel-art bird in flight above the word mockingbird">
-</p>
+<h3 align="center">
+  <img src="docs/assets/wordmark.png" width="560" alt="mockingbird">
+</h3>
 
 <p align="center">
   Local voice dictation for macOS. Free forever, and your voice never leaves your Mac.
