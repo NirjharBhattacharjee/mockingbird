@@ -1,8 +1,6 @@
-<p align="center">
-  <img src="docs/assets/logo.png" height="120" alt="mockingbird logo">
-</p>
-
-<h3 align="center">mockingbird</h3>
+<h3 align="center">
+  <img src="docs/assets/wordmark.png" width="560" alt="mockingbird">
+</h3>
 
 <p align="center">
   Local voice dictation for macOS. Free forever, and your voice never leaves your Mac.
