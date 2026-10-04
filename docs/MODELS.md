@@ -124,7 +124,7 @@ every captured segment goes through both.
 - **Measured on an M3 (warm server, 4.5s clip, median of 3 —
   `bun run bench:models`):** `base.en` 177ms, `small.en` Q5_1 533ms,
   `medium.en` Q5_0 1508ms, `large-v3-turbo` Q8_0 2142ms, `large-v3-turbo`
-  Q5_0 2248ms. The encoder alone is ~1.1s of that on the GPU, and the
+  Q5_0 2248ms (before `-nlp`; the current comparison is in §7a). The encoder alone is ~1.1s of that on the GPU, and the
   Homebrew `whisper-cpp` has no Core ML encoder, which would cut it. Accuracy
   was chosen over speed here; `MOCKINGBIRD_ASR_MODEL` takes a file name in
   `models/` or a path, so a slower Mac can drop to `small.en`.
@@ -292,6 +292,59 @@ everything else in this file). Tracked as undecided, not silently assumed.
   `settings` table (see [state ownership map](./ARCHITECTURE.md#8-state-ownership-map))
   and be editable via the TUI or a future `mockingbird config` CLI — exact
   surface undecided, see [ARCHITECTURE.md §16](./ARCHITECTURE.md#16-known-gaps--scope-not-yet-decided).
+
+### 7a. Which models, measured (2026-10-03)
+
+The question is whether a Whisper model and a cleanup model exist that are
+faster, smaller to download and lighter on memory, without being less
+accurate. The rule for switching a default is that the new model is at least as accurate
+**and** measurably faster or smaller. Accuracy alone, or speed alone, isn't
+enough.
+
+**Whisper,** `bun run bench:models`, on an M3 (16 GB), warm server. 64 clips:
+8 dictation-style sentences (names, numbers, a list, a question) spoken by 8
+macOS voices, three of them Indian English. Synthetic voices are easier than
+a real one, so the error rates are optimistic; compare the rows, not the
+absolute numbers. "Names" counts names spelled exactly, with no dictionary.
+Word error is summed over the corpus (total edits over total words).
+
+| Model | Disk | Ready | Memory | Median | p90 | WER | WER en_IN | Names |
+|---|---|---|---|---|---|---|---|---|
+| large-v3-q5_0 | 1081 MB | 1.1 s | 1437 MB | 1547 ms | 1589 ms | 3.2% | 3.6% | 17/32 |
+| large-v3-turbo-q8_0 | 874 MB | 0.7 s | 960 MB | 1099 ms | 1116 ms | 4.0% | 4.3% | 13/32 |
+| large-v3-turbo-q5_0 | 574 MB | 0.5 s | 773 MB | 1146 ms | 1160 ms | 4.2% | 4.3% | 13/32 |
+| medium.en-q5_0 | 539 MB | 0.7 s | 807 MB | 814 ms | 850 ms | 4.3% | 4.7% | 14/32 |
+| small.en-q5_1 | 190 MB | 0.5 s | 456 MB | 290 ms | 304 ms | 5.9% | 6.5% | 8/32 |
+| base.en | 148 MB | 0.3 s | 322 MB | 103 ms | 109 ms | 8.5% | 7.5% | 5/32 |
+| large-v3 | 3095 MB | 2.1 s | 3351 MB | 1620 ms | 1721 ms | 3.2% | 3.9% | 17/32 |
+
+**Cleanup models,** `bun run bench:cleanup <models>`: the eval's pass count
+(evals/cleanup) on the dev and held-out sets, and the time of each model
+call, one at a time. The prompt was tuned against qwen3 on the dev set, so
+the held-out column is the fairer comparison.
+
+| Cleanup model | Disk | Memory | dev | held-out | Median call | p90 call |
+|---|---|---|---|---|---|---|
+| qwen3:4b-instruct-2507-q4_K_M | 2.5 GB | 3.2 GB | 30/30 | 11/11 | 657 ms | 1535 ms |
+| gemma3:4b | 3.3 GB | 2.9 GB | 27/30 | 8/11 | 1820 ms | 2260 ms |
+| llama3.2:3b | 2.0 GB | 2.5 GB | 27/30 | 9/11 | 572 ms | 942 ms |
+| qwen2.5:3b | 1.9 GB | 2.2 GB | 27/30 | 7/11 | 479 ms | 920 ms |
+| llama3.2:1b | 1.3 GB | 1.5 GB | 23/30 | 7/11 | 507 ms | 1141 ms |
+| qwen2.5:1.5b | 1.0 GB | 1.2 GB | 24/30 | 8/11 | 296 ms | 487 ms |
+| gemma3:1b | 0.8 GB | 0.9 GB | 25/30 | 8/11 | 516 ms | 771 ms |
+
+**Neither default changes.** `large-v3` Q5_0 is the most accurate
+Whisper model overall, on the Indian-accent voices and on names, and no
+quantisation of it does better: the full-precision `large-v3` is three times
+the size for the same accuracy. `qwen3:4b-instruct-2507-q4_K_M` passes every
+eval case, and every smaller model fails two to four held-out cases. If a
+lighter setup is ever offered for small Macs, this is the cost.
+`large-v3-turbo` Q5_0 is half the disk and ~0.4s faster for ~1 point more
+word error and 4 fewer names right; `qwen2.5:1.5b` is about twice as fast per call and
+2.5 GB smaller, but fails 3 of 11 held-out cases.
+
+Re-run both when a new model comes out. `bench:cleanup` needs the models
+pulled into Ollama first, and both take a few minutes.
 
 ## 8. Acquisition, storage & integrity
 
