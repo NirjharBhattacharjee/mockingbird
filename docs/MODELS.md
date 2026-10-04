@@ -260,6 +260,12 @@ the same words.
 - **Model file:** `Qwen3-4B-Instruct`, quantized to `Q4`. Chosen as an
   instruction-tuned model small enough to run acceptably on a laptop GPU/CPU
   while still following formatting instructions reliably.
+- **Streaming:** the reply is read as Ollama writes it (`stream: true`), and
+  the transcript's own words are typed as they arrive (ARCHITECTURE.md §6).
+  The model's speed still sets when the last word lands; what changes is
+  when the first one does. Two Ollama cache slots (`OLLAMA_NUM_PARALLEL=2`)
+  were tried to keep the list and non-list prompts both cached, and changed
+  nothing: Ollama 0.34.4 doesn't send a prompt back to the slot holding it.
 - **Fallback behavior:** if this server is down, dictation falls back to raw
   ASR output rather than blocking — same degrade-don't-break principle as
   `whisper-server`.
