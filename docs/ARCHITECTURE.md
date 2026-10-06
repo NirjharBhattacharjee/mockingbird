@@ -691,6 +691,9 @@ flowchart TB
    needed to test 90% of the interesting logic.
 6. A `bun build --compile` smoke test on a macOS runner — catches bundling
    breakage before release day.
+7. On pull requests, a `dco` job checks every commit carries a
+   `Signed-off-by` line for its author
+   ([CONTRIBUTING.md §11](../CONTRIBUTING.md#11-contributor-licensing--dco-not-a-cla)).
 
 **`release.yml`** (runs on `v*.*.*` tag push). What it does today:
 
@@ -699,10 +702,13 @@ flowchart TB
 3. Test `apps/cli` and build it into `mockingbird-darwin-arm64`, with the
    tag built in for `mockingbird --version`.
 4. Pack the source with `git archive` into `mockingbird-<version>.tar.gz`
-   and write its sha256 and the binary's to `checksums.txt`.
-5. Create the GitHub Release with the three files and notes generated from
-   the merged PRs.
-6. Open a PR on `NirjharBhattacharjee/homebrew-mockingbird` setting the
+   and write its sha256, the binary's and `install.sh`'s to `checksums.txt`.
+5. Create the GitHub Release with those four files and notes generated from
+   the merged PRs. `install.sh` is attached so the README's install command
+   (`releases/latest/download/install.sh`) runs the released installer, not
+   whatever `main` has. A tag with a `-` (`v0.2.0-rc.1`) is published as a
+   prerelease, which GitHub never marks latest.
+6. Except for a prerelease, open a PR on `NirjharBhattacharjee/homebrew-mockingbird` setting the
    formula's `url` and `sha256` to the new tarball. The workflow's own token
    can't write to another repo, so this needs a `TAP_TOKEN` secret (a
    fine-grained token with contents and pull-request write access to the
@@ -724,9 +730,14 @@ Once the compiled binary exists, it grows into the full version:
    the formula's version and sha256 — reviewed and merged by us, not
    auto-merged, at least until the process has proven itself.
 
-**Branch protection:** once this repo is pushed to GitHub, `main` should
-require `ci.yml` green before merge, and releases should only ever be cut
-from tags on `main`.
+**`main` is staging, releases are production.** Merging a PR changes `main`
+and nothing users run: the installer and the Homebrew tap both install the
+latest release tag. Two GitHub rulesets hold this in place. On `main`: a pull
+request for every change, squash merge only, `check` and `cli` green, review
+threads resolved, no force-push or deletion. On `v*` tags: only a repository
+admin can create, move or delete one, and `release.yml` refuses any not on
+`main`. A prerelease tag is the beta channel: the installer only picks it up
+with `MOCKINGBIRD_CHANNEL=beta`, and the Homebrew tap never does.
 
 **Why Changesets specifically:** this is a multi-package Bun workspace
 (`packages/protocol`, `packages/asr`, etc.) and Changesets is built for

@@ -2,6 +2,8 @@ name: release
 
 # Push a tag like v0.1.0 that is on main. Users get it by re-running the
 # install command, or with `brew upgrade` once the tap PR below is merged.
+# A tag with a "-" (v0.2.0-rc.1) is a prerelease: published as one, installed
+# only with MOCKINGBIRD_CHANNEL=beta, and left out of the Homebrew tap.
 on:
   push:
     tags: ["v*.*.*"]
@@ -52,7 +54,8 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           archive="mockingbird-$version.tar.gz"
           git archive --format=tar.gz --prefix="mockingbird-$version/" -o "$archive" "$GITHUB_REF_NAME"
-          shasum -a 256 "$archive" mockingbird-darwin-arm64 > checksums.txt
+          cp scripts/install.sh install.sh
+          shasum -a 256 "$archive" mockingbird-darwin-arm64 install.sh > checksums.txt
           sha="$(shasum -a 256 "$archive" | cut -d' ' -f1)"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "sha256=$sha" >> "$GITHUB_OUTPUT"
@@ -62,12 +65,19 @@ jobs:
           # Through the environment, not spliced into the script: the version
           # comes from the tag name, which anyone who can push a tag picks.
           VERSION: ${{ steps.pack.outputs.version }}
+        # install.sh is what the README's curl command fetches, from the
+        # latest release rather than main, so merging a PR doesn't change what
+        # new users run. A prerelease is never "latest".
         run: |
-          gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes \
-            "mockingbird-$VERSION.tar.gz" mockingbird-darwin-arm64 checksums.txt
+          prerelease=""
+          case "$VERSION" in *-*) prerelease=--prerelease ;; esac
+          gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes $prerelease \
+            "mockingbird-$VERSION.tar.gz" mockingbird-darwin-arm64 install.sh checksums.txt
 
   homebrew:
     needs: release
+    # Prereleases are for testers who opt in, not for `brew upgrade`.
+    if: ${{ !contains(needs.release.outputs.version, '-') }}
     runs-on: ubuntu-latest
     steps:
       # The workflow's own token can't write to another repo, so this needs a

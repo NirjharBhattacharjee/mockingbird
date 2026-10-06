@@ -128,7 +128,8 @@ greploop have something to check a "fix" against.
 2. Run the checks in [§Commands & checks](#commands--checks).
 3. Assemble evidence into a before/after pair (measured numbers until the
    TUI exists).
-4. Commit with a clear message (run it through `/unslop`), rebase onto
+4. Commit with a clear message, signed off (`git commit -s`, the `dco` CI
+   job checks it; run the message through `/unslop`), rebase onto
    latest `origin/main`, rerun the checks.
 5. Push (`git push -u origin <branch>`; after rebasing an already-pushed
    branch, `--force-with-lease`).
