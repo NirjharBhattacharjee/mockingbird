@@ -54,7 +54,7 @@ jobs:
           missing=0
           for c in $(git rev-list --no-merges "$BASE..$HEAD"); do
             author="$(git log -1 --format='%an <%ae>' "$c")"
-            if ! git log -1 --format=%B "$c" | grep -qiF "Signed-off-by: $author"; then
+            if ! git log -1 --format=%B "$c" | grep -qixF "Signed-off-by: $author"; then
               echo "::error::$(git log -1 --format='%h %s' "$c") has no \"Signed-off-by: $author\" line."
               missing=1
             fi
