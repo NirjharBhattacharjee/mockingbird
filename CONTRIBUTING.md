@@ -179,7 +179,9 @@ These are enforced, not stylistic suggestions:
 
 These are the checks a PR must pass
 (see [ARCHITECTURE.md §14](./docs/ARCHITECTURE.md#14-cicd-pipeline)).
-`ci.yml` currently runs the first four, and the Go checks, on every push and PR:
+`ci.yml` currently runs the first four, and the Go checks, on every push and PR.
+`main` only takes changes through a pull request, squash-merged, once the
+`check` and `cli` jobs pass and every review thread is resolved.
 
 | Check | Command | In CI |
 |---|---|---|
@@ -277,8 +279,10 @@ Instead, contributions will use the lightweight
 by signing off your commits (`git commit -s`), you're certifying you wrote
 the contribution or otherwise have the right to submit it under the
 project's open-source license. No copyright transfer, no extra rights
-granted beyond what that license already gives everyone. (DCO enforcement
-in CI is not yet wired up — tracked in [§15](#15-open-gaps-in-this-process).)
+granted beyond what that license already gives everyone. The `dco` job in
+`ci.yml` checks that every commit in a pull request has a `Signed-off-by`
+line matching its author. Forgot one? `git commit --amend -s`, or
+`git rebase --signoff origin/main` for several commits, then push again.
 
 The project is licensed under the [MIT License](./LICENSE). By contributing,
 you agree that your contribution is released under it too.
@@ -337,13 +341,8 @@ Named explicitly rather than silently deferred, matching the style of
 
 - **`CODE_OF_CONDUCT.md`** — not yet adopted; [§2](#2-code-of-conduct) states
   the standard inline in the meantime.
-- **DCO enforcement in CI** — the policy in [§11](#11-contributor-licensing--dco-not-a-cla)
-  is stated but not yet mechanically checked (e.g. a DCO GitHub App/Action
-  that blocks unsigned commits).
 - **Issue labels** (`good first issue`, `help wanted`) — the repo
   ([github.com/NirjharBhattacharjee/mockingbird](https://github.com/NirjharBhattacharjee/mockingbird))
   is live, but labels haven't been set up yet.
-- **Branch protection on `main`** — should require `ci.yml` green before
-  merge, per [§8](#8-tests--ci-gate); not yet configured in GitHub settings.
 - **Integration tests in CI** — they need whisper-server, Ollama, and about
   2.7 GB of models, so they only run locally for now.

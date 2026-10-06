@@ -36,3 +36,30 @@ jobs:
       - run: test -z "$(gofmt -l .)"
       - run: go vet ./...
       - run: go test -race ./...
+
+  # Every commit in a pull request carries a Signed-off-by line for its author
+  # (`git commit -s`): the Developer Certificate of Origin, CONTRIBUTING.md §11.
+  dco:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - name: Check sign-offs
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          missing=0
+          for c in $(git rev-list --no-merges "$BASE..$HEAD"); do
+            author="$(git log -1 --format='%an <%ae>' "$c")"
+            if ! git log -1 --format=%B "$c" | grep -qixF "Signed-off-by: $author"; then
+              echo "::error::$(git log -1 --format='%h %s' "$c") has no \"Signed-off-by: $author\" line."
+              missing=1
+            fi
+          done
+          if [ "$missing" = 1 ]; then
+            echo "Sign off with \`git commit --amend -s\` (or \`git rebase --signoff $BASE\` for several commits), then push again."
+          fi
+          exit "$missing"

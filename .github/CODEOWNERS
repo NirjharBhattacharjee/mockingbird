@@ -1,0 +1,6 @@
+# Changes here reach users or CI without going through the app's code review:
+# the workflows build and publish releases, install.sh is what users run, and
+# models.ts holds the pinned download URLs and checksums.
+/.github/                     @NirjharBhattacharjee
+/scripts/install.sh           @NirjharBhattacharjee
+/apps/daemon/src/models.ts    @NirjharBhattacharjee

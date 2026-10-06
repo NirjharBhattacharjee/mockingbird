@@ -64,7 +64,7 @@ First download the installer, and check this command succeeds. If it prints
 
 ```sh
 mkdir -p ~/.mockingbird && rm -f ~/.mockingbird/install.out
-curl -fsSL https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/scripts/install.sh -o ~/.mockingbird/install.sh
+curl -fsSL https://github.com/NirjharBhattacharjee/mockingbird/releases/latest/download/install.sh -o ~/.mockingbird/install.sh
 ```
 
 It goes in the person's own folder rather than `/tmp`, where another account

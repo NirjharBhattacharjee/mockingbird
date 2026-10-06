@@ -40,7 +40,7 @@ You need a Mac with Apple Silicon, [Homebrew](https://brew.sh), and about 6 GB
 of free space.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/scripts/install.sh | bash
+curl -fsSL https://github.com/NirjharBhattacharjee/mockingbird/releases/latest/download/install.sh | bash
 ```
 
 It's safe to run again. Prefer to do it by hand? See

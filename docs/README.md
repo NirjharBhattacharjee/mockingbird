@@ -14,7 +14,7 @@ free space.
 **1. Install everything**
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/scripts/install.sh | bash
+curl -fsSL https://github.com/NirjharBhattacharjee/mockingbird/releases/latest/download/install.sh | bash
 ```
 
 This installs Bun, whisper-cpp, Ollama and ffmpeg with Homebrew, clones
@@ -38,6 +38,16 @@ doesn't make. To update, run the install command again. It moves
 `~/mockingbird` to the latest release, refuses if you've edited files there,
 and restarts mockingbird if it's running. With Homebrew, `brew upgrade
 mockingbird`, then `mockingbird restart`.
+
+To test what's coming before it's released, install the beta, the newest
+prerelease if there is one:
+
+```sh
+curl -fsSL https://github.com/NirjharBhattacharjee/mockingbird/releases/latest/download/install.sh | MOCKINGBIRD_CHANNEL=beta bash
+```
+
+Running the plain install command again later takes you back to the latest
+release.
 
 ### Manual install
 

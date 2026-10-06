@@ -4,7 +4,10 @@
 # anything already done is skipped, and an existing install is updated to the
 # latest release.
 #
-#   curl -fsSL https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/scripts/install.sh | bash
+#   curl -fsSL https://github.com/NirjharBhattacharjee/mockingbird/releases/latest/download/install.sh | bash
+#
+# That URL is this file as attached to the latest release, so a change merged
+# to main reaches users only when it's released.
 #
 # Or from a clone: ./scripts/install.sh
 #
@@ -14,6 +17,8 @@
 # MOCKINGBIRD_LLM_URL  the Ollama server to check and pull the model into
 #                      (default http://127.0.0.1:11434)
 # MOCKINGBIRD_LLM_MODEL  the cleanup model to pull
+# MOCKINGBIRD_CHANNEL  "beta" to also install prereleases (tags like
+#                      v1.2.0-rc.1); anything else installs releases only
 
 # Everything is inside main, so a download cut short by curl runs nothing.
 main() {
@@ -81,10 +86,13 @@ main() {
     fi
     git -C "$d" fetch --quiet --tags origin
     # Only tags on main: the release workflow refuses any other, so a tag
-    # pushed on a branch was never released or checked.
+    # pushed on a branch was never released or checked. A tag with a "-" is a
+    # prerelease, skipped unless asked for; versionsort.suffix sorts
+    # v1.2.0-rc.1 below v1.2.0, so beta moves on to the release once it's out.
     tag=""
     local t
-    for t in $(git -C "$d" tag --list 'v*.*.*' --sort=-v:refname); do
+    for t in $(git -C "$d" -c versionsort.suffix=- tag --list 'v*.*.*' --sort=-v:refname); do
+      case "$t" in *-*) [ "${MOCKINGBIRD_CHANNEL:-}" = beta ] || continue ;; esac
       if git -C "$d" merge-base --is-ancestor "$t^{commit}" origin/main 2>/dev/null; then
         tag="$t"
         break
