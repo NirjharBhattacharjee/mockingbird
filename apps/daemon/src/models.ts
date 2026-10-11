@@ -143,11 +143,22 @@ export async function pullModels(deps: PullDeps = {}): Promise<number> {
   const modelsDir = deps.modelsDir ?? join(home, "models");
   const downloads = new Map<string, Download>();
   let shown = 0;
+  const show = () => {
+    shown = Date.now();
+    deps.progress?.(progressLine([...downloads.values()]));
+  };
   const progress = (name: string) => (done: number, total: number) => {
     downloads.set(name, { name, done, total });
-    if (deps.progress && Date.now() - shown >= 250) {
-      shown = Date.now();
-      deps.progress(progressLine([...downloads.values()]));
+    if (Date.now() - shown >= 250) show();
+  };
+  // A pull that has ended leaves the line straight away, unthrottled, so the
+  // last thing shown is never a stale byte count.
+  const tracked = async <T>(name: string, pull: Promise<T>): Promise<T> => {
+    try {
+      return await pull;
+    } finally {
+      downloads.delete(name);
+      show();
     }
   };
 
@@ -157,16 +168,18 @@ export async function pullModels(deps: PullDeps = {}): Promise<number> {
   // half-written or an Ollama we started still running.
   const files = (async () => {
     for (const model of deps.files ?? MODEL_FILES) {
-      await pullFile(model, modelsDir, {
-        fetch: deps.fetch,
-        log,
-        onProgress: progress(model.name),
-      });
+      await tracked(
+        model.name,
+        pullFile(model, modelsDir, { fetch: deps.fetch, log, onProgress: progress(model.name) }),
+      );
     }
   })();
   const [pulled, code] = await Promise.allSettled([
     files,
-    pullCleanupModel(llmUrl, llmModel, deps, log, progress("cleanup model")),
+    tracked(
+      "cleanup model",
+      pullCleanupModel(llmUrl, llmModel, deps, log, progress("cleanup model")),
+    ),
   ]);
   if (pulled.status === "rejected") {
     // Both failed: say why Ollama did too, since only one can be thrown.

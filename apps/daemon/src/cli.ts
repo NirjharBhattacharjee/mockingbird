@@ -72,7 +72,7 @@ async function logFnAdvice(): Promise<void> {
  * also goes to that file, which the install shows in place of its clock.
  */
 async function pullWithProgress(): Promise<number> {
-  const file = process.env.MOCKINGBIRD_PROGRESS;
+  let file = process.env.MOCKINGBIRD_PROGRESS;
   let drawn = false;
   const clear = () => {
     if (drawn) process.stderr.write("\r\x1b[K");
@@ -86,9 +86,15 @@ async function pullWithProgress(): Promise<number> {
       },
       progress: (line) => {
         if (file) {
-          // Renamed into place, so the installer never reads half a line.
-          writeFileSync(`${file}.tmp`, line);
-          renameSync(`${file}.tmp`, file);
+          // Renamed into place, so the installer never reads half a line. The
+          // file is only for show: if it can't be written, the downloads go on.
+          try {
+            writeFileSync(`${file}.tmp`, line);
+            renameSync(`${file}.tmp`, file);
+          } catch (error) {
+            log(`not showing progress: ${error instanceof Error ? error.message : error}`);
+            file = undefined;
+          }
         }
         if (process.stderr.isTTY) {
           process.stderr.write(`\r\x1b[K${line}`);

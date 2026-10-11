@@ -226,6 +226,26 @@ describe("pullModels", () => {
   });
 });
 
+test("a download of unknown size still leaves the line when it finishes", async () => {
+  const lines: string[] = [];
+  const server = Bun.serve({ port: 0, fetch: () => new Response("{}") });
+  try {
+    await pullModels({
+      home: tempDir(),
+      llmUrl: `http://127.0.0.1:${server.port}`,
+      files: [modelOf("weights")],
+      fetch: serving("weights").get,
+      ollamaPull: async () => {},
+      which: () => "/opt/homebrew/bin/ollama",
+      log: () => {},
+      progress: (line) => lines.push(line),
+    });
+    expect(lines.at(-1)).toBe("");
+  } finally {
+    server.stop(true);
+  }
+});
+
 describe("progressLine", () => {
   test("shows each running download with a bar, and drops finished ones", () => {
     expect(
@@ -260,7 +280,8 @@ test("pullModels hands the progress line to deps.progress", async () => {
       log: () => {},
       progress: (line) => lines.push(line),
     });
-    expect(lines).toEqual(["cleanup model ███░░░░░ 1.0/2.5 GB"]);
+    // The last line comes once the pull has ended, however soon after.
+    expect(lines).toEqual(["cleanup model ███░░░░░ 1.0/2.5 GB", ""]);
   } finally {
     server.stop(true);
   }
