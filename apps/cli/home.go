@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -24,10 +26,12 @@ type homeInfo struct {
 }
 
 // loadHome asks the engine for its commands and the agent's state. An older
-// engine without `help --json` fails here, and the caller falls back to the
-// plain usage text.
+// engine without `help --json`, or one that takes over 5s to answer, fails
+// here, and the caller falls back to the plain usage text.
 func loadHome(argv []string) (homeInfo, error) {
-	out, err := exec.Command(argv[0], append(argv[1:], "help", "--json")...).Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, argv[0], append(argv[1:], "help", "--json")...).Output()
 	var info homeInfo
 	if err == nil {
 		err = json.Unmarshal(out, &info)
@@ -83,7 +87,7 @@ func agentLine(state string) string {
 	case "running":
 		return paint("● running", green)
 	case "crashed", "exited":
-		return paint("✕ "+state+", see `mockingbird status`", red)
+		return paint("✕ "+state+", see status", red)
 	case "not-installed":
 		return paint("○ not started yet", yellow)
 	default:
@@ -97,16 +101,23 @@ func (m home) render() string {
 	for i, c := range m.info.Commands {
 		// The engine wraps long summaries for --help; one line here, cut to
 		// fit after the 19 columns of indent, pointer and name.
-		summary := []rune(strings.Join(strings.Fields(c.Summary), " "))
-		if room := m.width - 19; m.width > 0 && len(summary) > room {
-			summary = append(summary[:max(0, room-1)], '…')
-		}
+		summary := cut(strings.Join(strings.Fields(c.Summary), " "), m.width-19)
 		pointer, color := "  ", text
 		if i == m.cursor {
 			pointer, color = paint("▸ ", mauve), mauve
 		}
-		b.WriteString("  " + pointer + paint(fmt.Sprintf("%-13s", c.Name), color) + paint(string(summary), subtext0) + "\n")
+		b.WriteString("  " + pointer + paint(fmt.Sprintf("%-13s", c.Name), color) + paint(summary, subtext0) + "\n")
 	}
 	b.WriteString("\n  " + paint("↑/↓ move · enter run · q quit", overlay0))
 	return b.String()
+}
+
+// cut shortens s to n columns with an ellipsis. n <= 0 means no limit: the
+// width isn't known until the first WindowSizeMsg.
+func cut(s string, n int) string {
+	r := []rune(s)
+	if n <= 0 || len(r) <= n {
+		return s
+	}
+	return string(r[:n-1]) + "…"
 }

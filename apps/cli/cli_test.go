@@ -183,10 +183,15 @@ func TestHomeRunsTheChosenCommand(t *testing.T) {
 }
 
 func TestHomeFitsItsWidth(t *testing.T) {
-	m := home{width: 40, info: homeInfo{Commands: []command{{"fn", strings.Repeat("long summary ", 10)}}}}
-	for _, line := range strings.Split(escapes.ReplaceAllString(m.render(), ""), "\n") {
-		if n := len([]rune(line)); n > 40 {
-			t.Errorf("%d columns: %q", n, line)
+	for _, agent := range []string{"running", "stopped", "not-installed", "crashed", "exited"} {
+		m := home{width: homeCols, info: homeInfo{
+			Agent:    agent,
+			Commands: []command{{"fn", strings.Repeat("long summary ", 10)}},
+		}}
+		for _, line := range strings.Split(escapes.ReplaceAllString(m.render(), ""), "\n") {
+			if n := len([]rune(line)); n > homeCols {
+				t.Errorf("%s, %d columns: %q", agent, n, line)
+			}
 		}
 	}
 }
