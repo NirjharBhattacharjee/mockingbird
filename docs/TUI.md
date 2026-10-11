@@ -207,15 +207,16 @@ home screen. Neither needs the IPC socket.
 
 ### Home screen (built)
 - Opens when `mockingbird` runs with no command in a terminal of at least
-  40×17. Piped output, `TERM=dumb` and smaller terminals get the engine's plain
+  40×20. Piped output, `TERM=dumb` and smaller terminals get the engine's plain
   usage text, the same as `mockingbird --help`.
 - The top line says whether the background agent is running. Each state has a
   symbol and a word as well as a color: `● running` in `green`, `○ stopped` or
   `○ not started yet` in `yellow`, `✕ crashed` or `✕ exited` in `red`.
-- When the running agent last reported a permission missing, the top line adds
-  `✕ missing Input Monitoring` (or whichever, in `red`), with a `yellow` line
-  under it: `! allow it in System Settings → Privacy & Security, then
-  restart`. These are the agent's own grants, read from its latest `checks:`
+- When the running agent last reported a permission missing, a `red` line
+  under the title says `✕ missing Input Monitoring` (or whichever), with a
+  `yellow` one under it: `! allow it in System Settings → Privacy & Security,
+  then restart`. These lines wrap rather than cut, so a narrow terminal still
+  shows the permission's name and the next step in full. These are the agent's own grants, read from its latest `checks:`
   line in `agent.log`, not the terminal's, which can differ.
 - When tapping Fn opens something in macOS, a `yellow` line says so:
   `! tapping Fn opens Show Emoji & Symbols, so tapping won't dictate`.

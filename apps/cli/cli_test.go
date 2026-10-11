@@ -224,3 +224,19 @@ func TestHomeStartsOnTheNextStep(t *testing.T) {
 		}
 	}
 }
+
+func TestHomeShowsTheWholeWarningWhenNarrow(t *testing.T) {
+	m := home{width: homeCols, info: homeInfo{Status: status{
+		Agent:   "running",
+		Missing: []string{"Input Monitoring", "Accessibility", "Microphone"},
+	}}}
+	screen := strings.Join(strings.Fields(escapes.ReplaceAllString(m.render(), "")), " ")
+	for _, want := range []string{"Input Monitoring, Accessibility, Microphone", "then restart"} {
+		if !strings.Contains(screen, want) {
+			t.Errorf("at %d columns the screen doesn't say %q", homeCols, want)
+		}
+	}
+	if rows := strings.Count(m.render(), "\n") + 1; rows > homeRows {
+		t.Errorf("%d rows, more than homeRows %d", rows, homeRows)
+	}
+}

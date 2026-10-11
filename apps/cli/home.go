@@ -110,18 +110,19 @@ func (m home) View() tea.View {
 }
 
 // statusLines pairs every state with a word and a symbol, so they read
-// without color too (docs/TUI.md §8). Each line is cut to width, after the
-// "  mockingbird  " title on the first.
+// without color too (docs/TUI.md §8). The agent's state goes on the title
+// line. Anything wrong goes on lines of its own, wrapped to width rather than
+// cut, so a permission's name and the next step always show in full.
 func statusLines(st status, width int) string {
 	text, color := agentLine(st.Agent)
 	line := paint(text, color)
+	note := func(s string, c rgb) { line += "\n" + paint(wrap(s, width-2, "  "), c) }
 	if len(st.Missing) > 0 {
-		missing := "✕ missing " + strings.Join(st.Missing, ", ")
-		line += "  " + paint(cut(missing, width-17-len([]rune(text))), red) +
-			"\n  " + paint(cut("! allow it in System Settings → Privacy & Security, then restart", width-2), yellow)
+		note("✕ missing "+strings.Join(st.Missing, ", "), red)
+		note("! allow it in System Settings → Privacy & Security, then restart", yellow)
 	}
 	if st.FnAction != nil {
-		line += "\n  " + paint(cut("! tapping Fn opens "+*st.FnAction+", so tapping won't dictate", width-2), yellow)
+		note("! tapping Fn opens "+*st.FnAction+", so tapping won't dictate", yellow)
 	}
 	return line
 }
@@ -164,4 +165,22 @@ func cut(s string, n int) string {
 		return s
 	}
 	return string(r[:n-1]) + "…"
+}
+
+// wrap breaks s into lines of at most width runes, at spaces, each one
+// starting with indent. width <= 0 means one line.
+func wrap(s string, width int, indent string) string {
+	var lines []string
+	line := ""
+	for _, w := range strings.Fields(s) {
+		if width > 0 && line != "" && len([]rune(line))+1+len([]rune(w)) > width {
+			lines = append(lines, indent+line)
+			line = ""
+		}
+		if line != "" {
+			line += " "
+		}
+		line += w
+	}
+	return strings.Join(append(lines, indent+line), "\n")
 }

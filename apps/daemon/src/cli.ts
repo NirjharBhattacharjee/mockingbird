@@ -295,11 +295,9 @@ export async function agentState(
   fnUsage: () => Promise<FnUsage> = () => readFnUsage(),
 ) {
   const { state } = await agentStatus(process.getuid?.() ?? 0, run);
-  // The end of the log is enough: the agent writes its checks at every start.
-  // (Bun.file().slice with a negative start reads nothing, so it's spelled out.)
-  const file = Bun.file(logPath);
-  const log = await file
-    .slice(Math.max(0, file.size - 65_536))
+  // The whole log: the agent writes its checks once, at start, and trims the
+  // log to nothing past 1 MB before that, so it's never big.
+  const log = await Bun.file(logPath)
     .text()
     .catch(() => "");
   const line = log.split("\n").findLast((l) => l.includes(CHECKS));
