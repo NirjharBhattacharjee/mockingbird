@@ -274,6 +274,9 @@ Environment variables:
 | `MOCKINGBIRD_LLM_URL` | `http://127.0.0.1:11434` |
 | `MOCKINGBIRD_LLM_MODEL` | `qwen3:4b-instruct-2507-q4_K_M` |
 
+The background agent reads them from the shell that last ran `mockingbird start`
+or `restart`, so run `mockingbird restart` after changing one.
+
 </details>
 
 ## Troubleshooting

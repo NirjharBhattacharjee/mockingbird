@@ -6,7 +6,6 @@ import {
   agentStatus,
   type Launchctl,
   type LaunchctlResult,
-  restartArgv,
   runAll,
   runLaunchctl,
   settle,
@@ -111,6 +110,15 @@ export function agentEntry(
   return root ? join(root, "apps", "daemon", "src", "agent.ts") : join(here, "agent.ts");
 }
 
+/** The MOCKINGBIRD_* settings from the shell that ran `start`; launchd passes nothing else on. */
+export function agentEnvironment(env = process.env): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(env).filter(
+      (e): e is [string, string] => e[0].startsWith("MOCKINGBIRD_") && e[1] !== undefined,
+    ),
+  );
+}
+
 function agentProgram(runner: string): string[] {
   return [runner, agentEntry()];
 }
@@ -143,9 +151,7 @@ async function start(run: Launchctl = runLaunchctl): Promise<number> {
       logPath: paths.logPath,
       workingDirectory: paths.home,
       pathEntries: [dirname(bunPath())],
-      ...(process.env.MOCKINGBIRD_HOME
-        ? { environment: { MOCKINGBIRD_HOME: process.env.MOCKINGBIRD_HOME } }
-        : {}),
+      environment: agentEnvironment(),
     }),
     { mode: 0o600 },
   );
@@ -235,8 +241,8 @@ export async function agentVerdict(
   return undefined;
 }
 
-/** Exported for tests, which supply their own launchctl and a short settle. */
-export async function stop(run: Launchctl = runLaunchctl, settleMs?: number): Promise<number> {
+/** Boots the agent out and waits until launchd has let go of it. */
+async function unload(run: Launchctl, settleMs?: number): Promise<boolean> {
   const uid = process.getuid?.() ?? 0;
   await runAll(
     stopArgv(uid),
@@ -246,7 +252,12 @@ export async function stop(run: Launchctl = runLaunchctl, settleMs?: number): Pr
       step[0] === "bootout" && /Could not find|No such process/i.test(result.stderr),
   );
   // bootout is asynchronous; returning early makes a following `start` race it.
-  if (!(await settle(uid, "gone", run, settleMs))) {
+  return settle(uid, "gone", run, settleMs);
+}
+
+/** Exported for tests, which supply their own launchctl and a short settle. */
+export async function stop(run: Launchctl = runLaunchctl, settleMs?: number): Promise<number> {
+  if (!(await unload(run, settleMs))) {
     log(
       "launchd is still unloading the agent, so it may still be listening for Fn.\n" +
         "It won't come back at login. Check `mockingbird status` before `mockingbird start`.",
@@ -260,12 +271,16 @@ export async function stop(run: Launchctl = runLaunchctl, settleMs?: number): Pr
   return 0;
 }
 
+/**
+ * A full unload and `start`, not `kickstart -k`: launchd reads the plist only
+ * when it loads the job, and `start` rewrites it with the current settings.
+ */
 async function restart(run: Launchctl = runLaunchctl): Promise<number> {
-  const uid = process.getuid?.() ?? 0;
-  await runAll(restartArgv(uid), run);
-  log("mockingbird restarted.");
-  await logFnAdvice();
-  return 0;
+  if (!(await unload(run))) {
+    log("launchd is still unloading the agent. Run `mockingbird start` in a moment.");
+    return 1;
+  }
+  return start(run);
 }
 
 /** Named for the System Settings panes, because that's where the user is going. */
