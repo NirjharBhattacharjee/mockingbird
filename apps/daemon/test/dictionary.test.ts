@@ -49,6 +49,19 @@ test("openDaemonStore keeps data.db when dictionary.txt can't be imported", () =
   store?.close();
 });
 
+test("dictionary.txt that can't be renamed isn't imported", () => {
+  const home = newHome();
+  writeFileSync(join(home, "dictionary.txt"), "Catppuccin (old note)\n");
+  // A directory in the way makes the rename fail.
+  mkdirSync(join(home, "dictionary.txt.imported"));
+  const logged: string[] = [];
+  const store = openDaemonStore(home, (m) => logged.push(m));
+  expect(store?.dictionary()).toEqual([]);
+  expect(existsSync(join(home, "dictionary.txt"))).toBe(true);
+  expect(logged[0]).toContain("couldn't import dictionary.txt");
+  store?.close();
+});
+
 describe("recordUses", () => {
   test("counts a term only when the text says it as a whole word", () => {
     const home = newHome();

@@ -27,15 +27,24 @@ export const formatEntry = ({ term, heard, hint }: DictionaryEntry) =>
 
 /**
  * Moves the old `dictionary.txt` into the store, once: the file is renamed so
- * nobody edits a file that's no longer read. Adding is an upsert, so if the
- * rename fails the next start imports the same words again, harmlessly.
+ * nobody edits a file that's no longer read. It's renamed before anything is
+ * written, so a file that can't be renamed isn't imported again on every
+ * start, over edits made since.
  */
 export function importDictionaryFile(store: Store, home: string, log: (m: string) => void): void {
   const path = join(home, "dictionary.txt");
   if (!existsSync(path)) return;
-  const entries = parseDictionary(readFileSync(path, "utf8"));
-  store.addTerms(entries);
-  renameSync(path, `${path}.imported`);
+  const imported = `${path}.imported`;
+  renameSync(path, imported);
+  let entries: DictionaryEntry[];
+  try {
+    entries = parseDictionary(readFileSync(imported, "utf8"));
+    store.addTerms(entries);
+  } catch (error) {
+    // Put it back, so the next start tries again.
+    renameSync(imported, path);
+    throw error;
+  }
   log(
     `moved ${entries.length} dictionary words from dictionary.txt into data.db ` +
       "(it's now dictionary.txt.imported). Edit them with `mockingbird dictionary`.",
