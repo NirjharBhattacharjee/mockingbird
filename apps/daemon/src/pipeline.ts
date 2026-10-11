@@ -15,6 +15,7 @@ import {
   type GateOptions,
   holdBack,
   type LlmProvider,
+  looksLikeList,
   rawRemainder,
   shouldSkipLlm,
   verifiedPrefix,
@@ -164,11 +165,16 @@ export async function cleanUp(
     // A terminal is left to the whole, checked cleanup: there a stray word is a command.
     if (onText && deps.llm.stream && style === "default") {
       const held = holdBack(dictionary);
+      const listy = looksLikeList(asr.text);
       for await (const piece of deps.llm.stream(prompt)) {
         cleaned += piece;
         // Typed as the model wrote it, and only as far as the dictionary
         // leaves it alone, so `rawRemainder` can line it up with the transcript.
-        const verified = formatPartial(verifiedPrefix(asr.text, cleaned));
+        let verified = formatPartial(verifiedPrefix(asr.text, cleaned));
+        // A list's heading can be the user's own words ("To make tea:") and
+        // has to go out with its list, on a line of its own. So where a list
+        // may come, only finished sentences are typed early.
+        if (listy) verified = verified.slice(0, verified.search(/[.!?][^.!?]*$/) + 1);
         const ready = dropLastWords(verified, held);
         if (correct(verified).startsWith(ready)) await send(ready);
       }
