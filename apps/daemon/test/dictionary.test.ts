@@ -95,6 +95,17 @@ describe("mockingbird dictionary", () => {
     }
   });
 
+  test("a socket it can't create is logged, not thrown, and the umask is put back", async () => {
+    const home = join(newHome(), "missing");
+    const store = openStore(":memory:");
+    const before = process.umask();
+    const logged: string[] = [];
+    expect(await serveDictionary(store, quiet, (m) => logged.push(m), home)).toBeUndefined();
+    expect(logged[0]).toContain("couldn't listen for dictionary edits");
+    expect(process.umask()).toBe(before);
+    store.close();
+  });
+
   test("a second mockingbird leaves the edits to the first", async () => {
     const home = newHome();
     const store = openStore(join(home, "data.db"));

@@ -115,34 +115,42 @@ export async function serveDictionary(
   rmSync(socket, { force: true });
   // Created 0600 from the start, not chmod-ed after anyone could connect.
   const umask = process.umask(0o177);
-  const server = Bun.serve({
-    unix: socket,
-    async fetch(request) {
-      const { pathname } = new URL(request.url);
-      if (request.method === "GET" && pathname === "/") return new Response("mockingbird");
-      if (request.method !== "POST") return new Response("not found", { status: 404 });
-      const body = await request.text();
-      let reply: string;
-      if (pathname === "/dictionary/add") {
-        const entries = parseDictionary(body);
-        if (!entries.length) return new Response("nothing to add", { status: 400 });
-        store.addTerms(entries);
-        reply = `added ${entries.map((e) => e.term).join(", ")}`;
-      } else if (pathname === "/dictionary/remove") {
-        const term = body.trim();
-        if (!store.removeTerm(term)) {
-          return new Response(`"${term}" isn't in the dictionary`, { status: 404 });
+  let server: ReturnType<typeof Bun.serve>;
+  try {
+    server = Bun.serve({
+      unix: socket,
+      async fetch(request) {
+        const { pathname } = new URL(request.url);
+        if (request.method === "GET" && pathname === "/") return new Response("mockingbird");
+        if (request.method !== "POST") return new Response("not found", { status: 404 });
+        const body = await request.text();
+        let reply: string;
+        if (pathname === "/dictionary/add") {
+          const entries = parseDictionary(body);
+          if (!entries.length) return new Response("nothing to add", { status: 400 });
+          store.addTerms(entries);
+          reply = `added ${entries.map((e) => e.term).join(", ")}`;
+        } else if (pathname === "/dictionary/remove") {
+          const term = body.trim();
+          if (!store.removeTerm(term)) {
+            return new Response(`"${term}" isn't in the dictionary`, { status: 404 });
+          }
+          reply = `removed ${term}`;
+        } else {
+          return new Response("not found", { status: 404 });
         }
-        reply = `removed ${term}`;
-      } else {
-        return new Response("not found", { status: 404 });
-      }
-      changed(store.dictionary());
-      return new Response(reply);
-    },
-    error: (error) => new Response(String(error), { status: 500 }),
-  });
-  process.umask(umask);
+        changed(store.dictionary());
+        return new Response(reply);
+      },
+      error: (error) => new Response(String(error), { status: 500 }),
+    });
+  } catch (error) {
+    // Dictation doesn't need the socket; only `mockingbird dictionary add/remove` does.
+    log(`warning: couldn't listen for dictionary edits on ${socket}: ${error}`);
+    return;
+  } finally {
+    process.umask(umask);
+  }
   return {
     stop() {
       server.stop(true);
