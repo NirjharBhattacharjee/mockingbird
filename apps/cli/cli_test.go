@@ -159,7 +159,7 @@ func TestCanvasHalfBlocks(t *testing.T) {
 }
 
 func TestHomeRunsTheChosenCommand(t *testing.T) {
-	info := homeInfo{Agent: "stopped", Commands: []command{
+	info := homeInfo{Status: status{Agent: "stopped"}, Commands: []command{
 		{"start", "run in the background"},
 		{"models pull", "download the models\n(the only network use)"},
 	}}
@@ -184,14 +184,43 @@ func TestHomeRunsTheChosenCommand(t *testing.T) {
 
 func TestHomeFitsItsWidth(t *testing.T) {
 	for _, agent := range []string{"running", "stopped", "not-installed", "crashed", "exited"} {
+		action := "Show Emoji & Symbols"
 		m := home{width: homeCols, info: homeInfo{
-			Agent:    agent,
+			Status: status{
+				Agent:    agent,
+				Missing:  []string{"Input Monitoring", "Accessibility", "Microphone"},
+				FnAction: &action,
+			},
 			Commands: []command{{"fn", strings.Repeat("long summary ", 10)}},
 		}}
 		for _, line := range strings.Split(escapes.ReplaceAllString(m.render(), ""), "\n") {
 			if n := len([]rune(line)); n > homeCols {
 				t.Errorf("%s, %d columns: %q", agent, n, line)
 			}
+		}
+	}
+}
+
+func TestHomeStartsOnTheNextStep(t *testing.T) {
+	emoji := "Show Emoji & Symbols"
+	cmds := []command{{"start", ""}, {"restart", ""}, {"fn", ""}, {"status", ""}}
+	tests := []struct {
+		st   status
+		want string
+		says string
+	}{
+		{status{Agent: "stopped"}, "start", "○ stopped"},
+		{status{Agent: "running", Missing: []string{"Accessibility"}}, "restart", "✕ missing Accessibility"},
+		{status{Agent: "running", Missing: []string{}, FnAction: &emoji}, "fn", "tapping Fn opens Show Emoji & Symbols"},
+		{status{Agent: "running", Missing: []string{}}, "start", "● running"},
+	}
+	for _, tt := range tests {
+		m := newHome(homeInfo{Commands: cmds, Status: tt.st})
+		if got := cmds[m.cursor].Name; got != tt.want {
+			t.Errorf("%+v: cursor on %q, want %q", tt.st, got, tt.want)
+		}
+		if !strings.Contains(escapes.ReplaceAllString(m.render(), ""), tt.says) {
+			t.Errorf("%+v: screen doesn't say %q", tt.st, tt.says)
 		}
 	}
 }

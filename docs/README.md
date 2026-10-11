@@ -171,7 +171,7 @@ It stays off, including after a reboot, until the next `mockingbird start`.
 | `mockingbird start` | Run in the background, now and at every login |
 | `mockingbird stop` | Stop, and stay stopped across reboots |
 | `mockingbird restart` | Restart it (do this after granting a permission) |
-| `mockingbird status` | Whether it's running, and what it can see |
+| `mockingbird status` | Whether it's running, and what it can see (`--json` for scripts) |
 | `mockingbird fn` | Bind Fn to dictation only, so tapping it stops opening the emoji picker. Changes a system-wide setting, so it's never done for you |
 | `mockingbird fn --undo` | Put back the Fn setting `mockingbird fn` replaced |
 
