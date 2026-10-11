@@ -34,10 +34,43 @@ main() {
   if [ "$(uname -s)" != "Darwin" ] || [ "$(uname -m)" != "arm64" ]; then
     fail "mockingbird needs a Mac with Apple Silicon."
   fi
+  local brew_bin=/opt/homebrew/bin/brew
+  # Homebrew's own installer, after asking. Its prompts (the Mac password,
+  # "Press RETURN") read the keyboard: under `curl | bash` this script is on
+  # stdin. With no terminal to ask on, the error below stands.
+  install_brew() {
+    (: </dev/tty) 2>/dev/null || return 0
+    id -Gn | grep -qw admin ||
+      fail "Homebrew needs an administrator account, and $(id -un) isn't one. Ask an administrator to install it (https://brew.sh), then run this again."
+    printf "mockingbird needs Homebrew, which isn't installed.\n"
+    printf "Install it now? It asks for your Mac password, and on a new Mac it also\n"
+    printf "installs Apple's command line tools (about 5-15 minutes). [Y/n] "
+    local answer
+    read -r answer </dev/tty || answer=n
+    case "$answer" in [nN]*) return 0 ;; esac
+    # Downloaded first: a failed download would hand bash an empty script,
+    # which "succeeds".
+    local brew_script
+    brew_script="$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" ||
+      fail "Couldn't download Homebrew's installer. Check the connection, then run this again."
+    /bin/bash -c "$brew_script" </dev/tty ||
+      fail "Homebrew's installer stopped; its output is above. Run this again to retry."
+    # Homebrew ends by asking the user to add this to .zprofile, in ZDOTDIR
+    # if zsh has one.
+    if [ "$(basename "${SHELL:-}")" = zsh ]; then
+      local zprofile
+      zprofile="$(zsh -c 'printf %s "${ZDOTDIR:-$HOME}"' 2>/dev/null)/.zprofile" || zprofile="$HOME/.zprofile"
+      grep -qF 'brew shellenv' "$zprofile" 2>/dev/null ||
+        printf '\n# Added by the mockingbird installer\neval "$(%s shellenv)"\n' "$brew_bin" >>"$zprofile"
+    fi
+  }
+  if ! command -v brew >/dev/null 2>&1 && [ ! -x "$brew_bin" ]; then
+    install_brew
+  fi
   # Homebrew's installer leaves adding itself to PATH to the user, so a
   # Homebrew that's installed can still be missing from this shell.
-  if ! command -v brew >/dev/null 2>&1 && [ -x /opt/homebrew/bin/brew ]; then
-    eval "$(/opt/homebrew/bin/brew shellenv)"
+  if ! command -v brew >/dev/null 2>&1 && [ -x "$brew_bin" ]; then
+    eval "$("$brew_bin" shellenv)"
   fi
   command -v brew >/dev/null 2>&1 || fail "Homebrew is needed first: see https://brew.sh, then run this again."
 
