@@ -70,13 +70,14 @@ do.
 
 Next, delete the agent and `~/.mockingbird`, or your `MOCKINGBIRD_HOME` if you
 set one. That folder holds the models, about 1.1 GB, plus the agent's runner,
-the logs and your dictionary. Copy the dictionary out first if you want to
-keep your words:
+the logs and your dictionary. The `cp` line keeps a copy of your words; leave
+it out if you don't want them:
 
 ```sh
-cp ~/.mockingbird/dictionary.txt ~/mockingbird-dictionary.txt
+home="${MOCKINGBIRD_HOME:-$HOME/.mockingbird}"
+cp "$home/dictionary.txt" ~/mockingbird-dictionary.txt
 rm ~/Library/LaunchAgents/com.mockingbird.agent.plist
-rm -rf ~/.mockingbird
+rm -rf "$home"
 ```
 
 Then remove the code and the command. After the curl install, that's
