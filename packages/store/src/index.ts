@@ -40,13 +40,14 @@ export function openStore(path: string, { readonly = false } = {}): Store {
   db.run("PRAGMA busy_timeout = 5000");
   if (!readonly) {
     db.run("PRAGMA journal_mode = WAL");
+    // Immediate, so two mockingbirds starting at once can't both read version 0.
     db.transaction(() => {
       const { user_version: version } = db.query("PRAGMA user_version").get() as {
         user_version: number;
       };
       for (const sql of MIGRATIONS.slice(version)) db.run(sql);
       db.run(`PRAGMA user_version = ${MIGRATIONS.length}`);
-    })();
+    }).immediate();
   }
 
   const upsert = db.query(

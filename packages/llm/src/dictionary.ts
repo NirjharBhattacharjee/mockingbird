@@ -199,6 +199,22 @@ export function correctNames(
   );
   if (terms.length === 0) return text;
 
+  // Each span is compared with every term, so remember each string's sound.
+  const sounds = new Map<string, string>();
+  const sound = (s: string) => {
+    let found = sounds.get(s);
+    if (found === undefined) {
+      found = soundOf(s);
+      sounds.set(s, found);
+    }
+    return found;
+  };
+  const like = (a: string, b: string) => {
+    const [x, y] = [sound(a), sound(b)];
+    if (!x || !y) return 0;
+    return 1 - distance(x, y) / Math.max(x.length, y.length);
+  };
+
   const words = text.split(/(\s+)/);
   const isWord = (i: number) => i % 2 === 0 && words[i] !== "";
   for (let i = 0; i < words.length; i += 2) {
@@ -215,20 +231,19 @@ export function correctNames(
         const candidate = words.slice(i, end + 1).join("");
         // Keep whatever punctuation ended the span, e.g. the comma in "Chargy,".
         const trailing = /[^\p{L}\p{N}]+$/u.exec(candidate)?.[0] ?? "";
-        const whole = soundsLike(candidate, term);
+        const whole = like(candidate, term);
+        const extra = Math.max(0, span - termWords);
+        const score = whole - extra * EXTRA_WORD_PENALTY;
+        if (score < threshold || (best && score <= best.score)) continue;
         if (span > 1) {
           // Every word in the span has to earn its place: if dropping the one
           // at either end matches the term better, that word isn't part of the
           // name ("and Siddharth Mukherjee").
-          const withoutFirst = soundsLike(words.slice(i + 2, end + 1).join(""), term);
-          const withoutLast = soundsLike(words.slice(i, end - 1).join(""), term);
+          const withoutFirst = like(words.slice(i + 2, end + 1).join(""), term);
+          const withoutLast = like(words.slice(i, end - 1).join(""), term);
           if (whole < withoutFirst || whole < withoutLast) continue;
         }
-        const extra = Math.max(0, span - termWords);
-        const score = whole - extra * EXTRA_WORD_PENALTY;
-        if (score >= threshold && (!best || score > best.score)) {
-          best = { term: term + trailing, score, end };
-        }
+        best = { term: term + trailing, score, end };
       }
     }
     if (best) {
