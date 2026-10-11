@@ -34,6 +34,11 @@ main() {
   if [ "$(uname -s)" != "Darwin" ] || [ "$(uname -m)" != "arm64" ]; then
     fail "mockingbird needs a Mac with Apple Silicon."
   fi
+  # Homebrew's installer leaves adding itself to PATH to the user, so a
+  # Homebrew that's installed can still be missing from this shell.
+  if ! command -v brew >/dev/null 2>&1 && [ -x /opt/homebrew/bin/brew ]; then
+    eval "$(/opt/homebrew/bin/brew shellenv)"
+  fi
   command -v brew >/dev/null 2>&1 || fail "Homebrew is needed first: see https://brew.sh, then run this again."
 
   # Everything a step prints goes to its own log, not the terminal: steps run
