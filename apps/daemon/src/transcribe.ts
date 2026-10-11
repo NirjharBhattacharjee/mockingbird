@@ -1,5 +1,6 @@
 import { parseArgs } from "node:util";
 import { loadAudio } from "@mockingbird/audio";
+import type { DictionaryEntry } from "@mockingbird/llm";
 import { readDictionary } from "./dictionary.ts";
 import { describeTimings, runPipeline } from "./pipeline.ts";
 import { requireFile, startEngines } from "./runtime.ts";
@@ -52,7 +53,13 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
   }
 
   const audio = await loadAudio(requireFile(positionals[0], "Audio file"));
-  const engines = await startEngines(log, readDictionary());
+  let dictionary: DictionaryEntry[] = [];
+  try {
+    dictionary = readDictionary();
+  } catch (error) {
+    log(`warning: couldn't read the dictionary from data.db: ${error}`);
+  }
+  const engines = await startEngines(log, dictionary);
   process.once("SIGINT", () => {
     void engines.close().finally(() => process.exit(130));
   });

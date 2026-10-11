@@ -47,13 +47,20 @@ export function importDictionaryFile(store: Store, home: string, log: (m: string
  * can't be opened, dictation goes on without a dictionary.
  */
 export function openDaemonStore(home: string, log: (m: string) => void): Store | undefined {
+  let store: Store;
   try {
-    const store = openStore(join(home, "data.db"));
-    importDictionaryFile(store, home, log);
-    return store;
+    store = openStore(join(home, "data.db"));
   } catch (error) {
     log(`warning: couldn't open data.db, so dictation runs without the dictionary: ${error}`);
+    return;
   }
+  try {
+    importDictionaryFile(store, home, log);
+  } catch (error) {
+    // The words already in data.db still work; the next start tries again.
+    log(`warning: couldn't import dictionary.txt: ${error}`);
+  }
+  return store;
 }
 
 /** The dictionary for a process that only reads it: every one but the daemon. */

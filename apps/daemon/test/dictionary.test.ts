@@ -1,5 +1,5 @@
 import { describe, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openStore } from "@mockingbird/store";
@@ -33,6 +33,20 @@ describe("importDictionaryFile", () => {
     expect(logged).toHaveLength(1);
     store.close();
   });
+});
+
+test("openDaemonStore keeps data.db when dictionary.txt can't be imported", () => {
+  const home = newHome();
+  const seeded = openStore(join(home, "data.db"));
+  seeded.addTerms([{ term: "Kept" }]);
+  seeded.close();
+  // A directory where the file should be: reading it fails.
+  mkdirSync(join(home, "dictionary.txt"));
+  const logged: string[] = [];
+  const store = openDaemonStore(home, (m) => logged.push(m));
+  expect(store?.dictionary()).toEqual([{ term: "Kept" }]);
+  expect(logged[0]).toContain("couldn't import dictionary.txt");
+  store?.close();
 });
 
 describe("recordUses", () => {
