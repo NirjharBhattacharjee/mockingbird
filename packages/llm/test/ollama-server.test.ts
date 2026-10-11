@@ -142,6 +142,28 @@ describe("pullOllamaModel", () => {
     }
   });
 
+  test("gives up on an Ollama that goes quiet mid-pull", async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch: () =>
+        new Response(
+          new ReadableStream({
+            start(c) {
+              // One record, then nothing, with the connection left open.
+              c.enqueue(new TextEncoder().encode('{"status":"pulling manifest"}\n'));
+            },
+          }),
+        ),
+    });
+    try {
+      await expect(
+        pullOllamaModel(`http://127.0.0.1:${server.port}`, "m", () => {}, 100),
+      ).rejects.toThrow("no word on the pull of m");
+    } finally {
+      server.stop(true);
+    }
+  });
+
   test("a pull cut off before success is a failure", async () => {
     const server = pulling([{ status: "pulling a", digest: "a", total: 100, completed: 40 }]);
     try {
