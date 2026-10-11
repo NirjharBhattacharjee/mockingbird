@@ -246,8 +246,20 @@ SHIM
     *)
       cmd="~/.local/bin/mockingbird"
       case "$(basename "${SHELL:-}")" in
-        zsh) profile="${ZDOTDIR:-$HOME}/.zshrc" ;;
-        bash) profile="$HOME/.bash_profile" ;;
+        # zsh itself says where its files are: ZDOTDIR may be set in ~/.zshenv.
+        zsh)
+          local zdot
+          zdot="$(zsh -c 'printf %s "${ZDOTDIR:-$HOME}"' 2>/dev/null)" || zdot=""
+          [ -n "$zdot" ] && profile="$zdot/.zshrc"
+          ;;
+        # A login bash reads only the first of these that exists, so creating
+        # ~/.bash_profile would hide an existing ~/.profile.
+        bash)
+          for profile in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do
+            [ -e "$profile" ] && break
+          done
+          [ -e "$profile" ] || profile="$HOME/.bash_profile"
+          ;;
       esac
       if [ -n "$profile" ] && grep -qF '.local/bin' "$profile" 2>/dev/null; then
         in_profile=1

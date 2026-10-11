@@ -57,9 +57,10 @@ ls -l ~/.local/bin/mockingbird 2>/dev/null && ~/.local/bin/mockingbird status
 The installer clones the code into `~/mockingbird`, installs Bun, whisper-cpp,
 Ollama and ffmpeg with Homebrew, downloads the speech and cleanup models into
 `~/.mockingbird`, and puts the `mockingbird` command in `~/.local/bin`. If
-that folder isn't on the PATH, it adds it to `~/.zshrc`, or `~/.bash_profile`
-for bash. New terminal windows read that file. The first run downloads about
-4 GB, so it usually takes 5 to 20 minutes.
+that folder isn't on the PATH, it adds it to the shell's profile: `~/.zshrc`
+for zsh, or for bash whichever of `~/.bash_profile`, `~/.bash_login` and
+`~/.profile` bash reads. New terminal windows pick it up. The first run
+downloads about 4 GB, so it usually takes 5 to 20 minutes.
 
 First download the installer, and check this command succeeds. If it prints
 `curl: (...)`, nothing was installed: check the network and try again.
