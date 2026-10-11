@@ -111,6 +111,15 @@ export function agentEntry(
   return root ? join(root, "apps", "daemon", "src", "agent.ts") : join(here, "agent.ts");
 }
 
+/** The MOCKINGBIRD_* settings from the shell that ran `start`; launchd passes nothing else on. */
+export function agentEnvironment(env = process.env): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(env).filter(
+      (e): e is [string, string] => e[0].startsWith("MOCKINGBIRD_") && e[1] !== undefined,
+    ),
+  );
+}
+
 function agentProgram(runner: string): string[] {
   return [runner, agentEntry()];
 }
@@ -143,9 +152,7 @@ async function start(run: Launchctl = runLaunchctl): Promise<number> {
       logPath: paths.logPath,
       workingDirectory: paths.home,
       pathEntries: [dirname(bunPath())],
-      ...(process.env.MOCKINGBIRD_HOME
-        ? { environment: { MOCKINGBIRD_HOME: process.env.MOCKINGBIRD_HOME } }
-        : {}),
+      environment: agentEnvironment(),
     }),
     { mode: 0o600 },
   );

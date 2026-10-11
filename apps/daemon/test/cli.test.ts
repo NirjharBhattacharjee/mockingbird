@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { Launchctl } from "../src/agent/launchctl.ts";
-import { agentEntry, agentVerdict, bunPath, main, stop } from "../src/cli.ts";
+import { agentEntry, agentEnvironment, agentVerdict, bunPath, main, stop } from "../src/cli.ts";
 
 /** Runs the router with stdout captured, so help text doesn't pollute the run. */
 async function run(argv: string[]): Promise<{ code: number; out: string }> {
@@ -20,6 +20,16 @@ async function run(argv: string[]): Promise<{ code: number; out: string }> {
 }
 
 describe("mockingbird", () => {
+  test("hands the agent every MOCKINGBIRD_ setting and nothing else", () => {
+    expect(
+      agentEnvironment({
+        MOCKINGBIRD_LLM_MODEL: "qwen2.5:1.5b",
+        MOCKINGBIRD_CUES: "0",
+        HOME: "/x",
+      }),
+    ).toEqual({ MOCKINGBIRD_LLM_MODEL: "qwen2.5:1.5b", MOCKINGBIRD_CUES: "0" });
+  });
+
   test("lists its commands with no arguments", async () => {
     const { code, out } = await run([]);
     expect(code).toBe(0);
