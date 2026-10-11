@@ -48,11 +48,20 @@ main() {
     local answer
     read -r answer </dev/tty || answer=n
     case "$answer" in [nN]*) return 0 ;; esac
-    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" </dev/tty ||
+    # Downloaded first: a failed download would hand bash an empty script,
+    # which "succeeds".
+    local brew_script
+    brew_script="$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" ||
+      fail "Couldn't download Homebrew's installer. Check the connection, then run this again."
+    /bin/bash -c "$brew_script" </dev/tty ||
       fail "Homebrew's installer stopped; its output is above. Run this again to retry."
-    # Homebrew ends by asking the user to add this to ~/.zprofile.
-    if [ "$(basename "${SHELL:-}")" = zsh ] && ! grep -qF 'brew shellenv' "$HOME/.zprofile" 2>/dev/null; then
-      printf '\n# Added by the mockingbird installer\neval "$(%s shellenv)"\n' "$brew_bin" >>"$HOME/.zprofile"
+    # Homebrew ends by asking the user to add this to .zprofile, in ZDOTDIR
+    # if zsh has one.
+    if [ "$(basename "${SHELL:-}")" = zsh ]; then
+      local zprofile
+      zprofile="$(zsh -c 'printf %s "${ZDOTDIR:-$HOME}"' 2>/dev/null)/.zprofile" || zprofile="$HOME/.zprofile"
+      grep -qF 'brew shellenv' "$zprofile" 2>/dev/null ||
+        printf '\n# Added by the mockingbird installer\neval "$(%s shellenv)"\n' "$brew_bin" >>"$zprofile"
     fi
   }
   if ! command -v brew >/dev/null 2>&1 && [ ! -x "$brew_bin" ]; then
