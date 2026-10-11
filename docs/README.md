@@ -153,6 +153,8 @@ Click into any app (Slack, Notes, a browser), then hold **Fn**, speak, and let
 go: your words are typed where your cursor is. The first time, macOS will ask
 for permission — run `mockingbird status` to see what's still missing, and read
 [Permissions](#permissions) for the one surprise in how macOS grants them.
+Or run `mockingbird setup`, which goes through each permission, the Fn key and
+a test dictation with you, one step at a time, and checks each one worked.
 
 To turn it off again:
 
@@ -171,6 +173,7 @@ It stays off, including after a reboot, until the next `mockingbird start`.
 | `mockingbird start` | Run in the background, now and at every login |
 | `mockingbird stop` | Stop, and stay stopped across reboots |
 | `mockingbird restart` | Restart it (do this after granting a permission) |
+| `mockingbird setup` | Walk through the permissions, Fn and a test dictation, checking each step |
 | `mockingbird status` | Whether it's running, and what it can see (`--json` for scripts) |
 | `mockingbird fn` | Bind Fn to dictation only, so tapping it stops opening the emoji picker. Changes a system-wide setting, so it's never done for you |
 | `mockingbird fn --undo` | Put back the Fn setting `mockingbird fn` replaced |

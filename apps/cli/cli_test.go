@@ -240,3 +240,60 @@ func TestHomeShowsTheWholeWarningWhenNarrow(t *testing.T) {
 		t.Errorf("%d rows, more than homeRows %d", rows, homeRows)
 	}
 }
+
+// TestSetupWalksEveryStep feeds the flow what the engine would report and
+// checks each step comes up in turn. No engine command runs: the commands
+// the model returns are never executed.
+func TestSetupWalksEveryStep(t *testing.T) {
+	emoji := "Show Emoji & Symbols"
+	feed := func(m tea.Model, msg tea.Msg) setupModel { m, _ = m.Update(msg); return m.(setupModel) }
+	key := func(s string) tea.Msg {
+		if s == "enter" {
+			return tea.KeyPressMsg{Code: tea.KeyEnter}
+		}
+		return tea.KeyPressMsg{Code: rune(s[0]), Text: s}
+	}
+
+	m := feed(newSetup([]string{"bun", "cli.ts"}), statusMsg{Agent: "stopped"})
+	if m.stage != starting {
+		t.Fatalf("stopped agent: stage %d, want starting", m.stage)
+	}
+	if m = feed(m, statusMsg{Agent: "stopped"}); !strings.Contains(m.note, "didn't start") {
+		t.Errorf("an agent that won't start should say so, got note %q", m.note)
+	}
+
+	m = feed(m, statusMsg{Agent: "running", Missing: []string{"Accessibility"}})
+	if m.stage != granting || m.perm != "Accessibility" {
+		t.Fatalf("missing Accessibility: stage %d perm %q", m.stage, m.perm)
+	}
+	if m = feed(m, key("enter")); m.busy == "" {
+		t.Error("enter on a permission should restart mockingbird to check")
+	}
+	m.busy = "" // the restart has finished
+	if m = feed(m, statusMsg{Agent: "running", Missing: []string{"Accessibility"}}); !strings.Contains(m.note, "still shows as off") {
+		t.Errorf("a permission still off should say so, got note %q", m.note)
+	}
+
+	m = feed(m, statusMsg{Agent: "running", Missing: []string{}, FnAction: &emoji})
+	if m.stage != freeingFn {
+		t.Fatalf("Fn taken: stage %d, want freeingFn", m.stage)
+	}
+	if !strings.Contains(escapes.ReplaceAllString(m.render(), ""), "Tapping Fn opens Show Emoji & Symbols") {
+		t.Error("the Fn step doesn't say what Fn opens")
+	}
+	if m = feed(m, key("n")); m.stage != dictating {
+		t.Fatalf("declining fn: stage %d, want dictating", m.stage)
+	}
+
+	if m = feed(m, dictationMsg{Outcome: "no-speech"}); !strings.Contains(m.note, "heard nothing") || m.stage != dictating {
+		t.Errorf("no speech: note %q, stage %d", m.note, m.stage)
+	}
+	if m = feed(m, dictationMsg{Outcome: "typed", Detail: "16 characters"}); m.stage != finished {
+		t.Fatalf("typed: stage %d, want finished", m.stage)
+	}
+	for _, line := range strings.Split(escapes.ReplaceAllString(m.render(), ""), "\n") {
+		if n := len([]rune(line)); n > setupCols {
+			t.Errorf("%d columns: %q", n, line)
+		}
+	}
+}
