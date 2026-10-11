@@ -1,5 +1,6 @@
 import { parseArgs } from "node:util";
 import { loadAudio } from "@mockingbird/audio";
+import { readDictionary } from "./dictionary.ts";
 import { describeTimings, runPipeline } from "./pipeline.ts";
 import { requireFile, startEngines } from "./runtime.ts";
 
@@ -51,7 +52,7 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
   }
 
   const audio = await loadAudio(requireFile(positionals[0], "Audio file"));
-  const engines = await startEngines(log);
+  const engines = await startEngines(log, readDictionary());
   process.once("SIGINT", () => {
     void engines.close().finally(() => process.exit(130));
   });

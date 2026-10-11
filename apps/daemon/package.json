@@ -10,6 +10,7 @@
     "@mockingbird/hotkey": "workspace:*",
     "@mockingbird/inject": "workspace:*",
     "@mockingbird/llm": "workspace:*",
+    "@mockingbird/store": "workspace:*",
     "@mockingbird/vad": "workspace:*"
   }
 }

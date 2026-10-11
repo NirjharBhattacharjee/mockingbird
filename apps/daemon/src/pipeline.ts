@@ -16,6 +16,7 @@ import {
   holdBack,
   type LlmProvider,
   looksLikeList,
+  promptTerms,
   rawRemainder,
   shouldSkipLlm,
   verifiedPrefix,
@@ -157,7 +158,11 @@ export async function cleanUp(
     return { finalText, llmMs: null, llmOutcome: "skipped", llmModel: null };
   }
 
-  const prompt = buildCleanupPrompt({ text: asr.text, dictionary, style });
+  const prompt = buildCleanupPrompt({
+    text: asr.text,
+    dictionary: promptTerms(asr.text, dictionary),
+    style,
+  });
   const t = performance.now();
   let cleaned = "";
   let failure: string | undefined;

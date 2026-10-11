@@ -162,13 +162,15 @@ every captured segment goes through both.
 - The integration tests still use `base.en` (~148 MB), which keeps them
   quick; it is not what ships.
 
-### 4a. The user dictionary — `~/.mockingbird/dictionary.txt`
+### 4a. The user dictionary
 
 No model spells a name it has never seen; every dictation app relies on being
-told. The file lists the words that matter to this person, one per line, and
-feeds three places (`packages/llm/src/dictionary.ts`):
+told. `mockingbird dictionary add` takes the words that matter to this
+person, which live in the `dictionary` table of `data.db`
+([DATABASE.md §5](./DATABASE.md#5-dictionary)), and they feed three places
+(`packages/llm/src/dictionary.ts`):
 
-| Line | What it does |
+| Entry | What it does |
 |---|---|
 | `Nirjhar Bhattacharjee` | Given to Whisper before it listens (`prompt`), and to the cleanup model as a spelling to keep |
 | `Catppuccin (a colour theme)` | Same, with a note for the cleanup model |
@@ -195,11 +197,16 @@ right, "Bhattacharjee" → "Bhattacharje" and "Aishwarya" → "Aiishwarya". The
 prompt biases the whole decode, not just the word it was given. The
 replacement lines carry no such risk, so they are the default advice. Whisper
 takes at most 224 tokens of prompt, so `buildVocabularyPrompt` stops at 600
-characters. The file
-is created with instructions in it on first run, and read at startup — it
-takes effect on `mockingbird restart`. `docs/DATABASE.md` has a `dictionary`
-table planned; the file is what exists today, and the TUI editor will write
-the same words.
+characters.
+
+**A long dictionary doesn't all go into the cleanup prompt.** Up to 50 terms
+go in whole. Past that, `promptTerms` sends the terms the transcript seems to
+say (by spelling, or by sound after `correctNames`), then the most used, up
+to 50. Replacements and `correctNames` still use every term, since they cost
+nothing. 50 is a first guess, not measured against cleanup time per
+dictionary size. Edits take effect on the next dictation. The old
+`~/.mockingbird/dictionary.txt` is imported once on start and renamed to
+`dictionary.txt.imported`.
 
 ## 5. Cleanup / formatting LLM — Qwen3-4B-Instruct
 

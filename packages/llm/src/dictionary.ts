@@ -130,6 +130,44 @@ export function soundsLike(a: string, b: string): number {
   return 1 - distance(x, y) / Math.max(x.length, y.length);
 }
 
+/**
+ * The terms `text` contains, matched whole and ignoring case: what counts as a
+ * use of a term, and what the cleanup prompt keeps of a long dictionary.
+ */
+export function mentions(text: string, entries: DictionaryEntry[]): string[] {
+  return entries
+    .filter(({ term }) =>
+      new RegExp(`(?<![\\p{L}\\p{N}])${escapeForRegex(term)}(?![\\p{L}\\p{N}])`, "iu").test(text),
+    )
+    .map(({ term }) => term);
+}
+
+/**
+ * Past this many terms the cleanup prompt is long enough to slow every
+ * cleanup down. ponytail: a fixed cap; measure prompt time against dictionary
+ * size before tuning it.
+ */
+const MAX_PROMPT_TERMS = 50;
+
+/**
+ * The terms worth giving the cleanup model for this transcript. A dictionary
+ * that fits goes in whole. A larger one gives the terms the transcript seems
+ * to say, by spelling or by sound, then the rest in the order given, which
+ * the store makes most used first.
+ */
+export function promptTerms(
+  text: string,
+  entries: DictionaryEntry[],
+  max = MAX_PROMPT_TERMS,
+): DictionaryEntry[] {
+  if (entries.length <= max) return entries;
+  const said = new Set(mentions(correctNames(applyCorrections(text, entries), entries), entries));
+  return [
+    ...entries.filter((e) => said.has(e.term)),
+    ...entries.filter((e) => !said.has(e.term)),
+  ].slice(0, max);
+}
+
 /** Below this, a match is more likely to be a different word than a misheard one. */
 const MATCH_THRESHOLD = 0.7;
 /** Short words sound like too many other things to risk replacing. */
