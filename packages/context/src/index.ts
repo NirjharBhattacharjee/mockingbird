@@ -1,4 +1,9 @@
-export { charBeforeCaret, needsLeadingSpace } from "./caret.ts";
+export {
+  charBeforeCaret,
+  type FocusedField,
+  needsLeadingSpace,
+  readFocusedField,
+} from "./caret.ts";
 export {
   type FrontmostApp,
   frontmostApp,

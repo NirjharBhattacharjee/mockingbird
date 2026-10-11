@@ -176,6 +176,14 @@ person, which live in the `dictionary` table of `data.db`
 | `Catppuccin (a colour theme)` | Same, with a note for the cleanup model |
 | `cat puck => Catppuccin` | A plain replacement afterwards, for a word Whisper gets wrong the same way every time |
 
+**It also learns from the user's fixes.** When someone corrects a misheard
+name in a dictation ("near jar" → "Nirjhar"), the daemon reads the fix back
+and adds the name once it has seen the same fix twice, or once if the user
+capitalised it. A replacement only counts if it's one to three words that
+`soundsLike` the typed ones (0.7, `correctNames`' threshold), so "Tuesday" →
+"Wednesday" is a change of mind, not a mishearing. Ordinary words in
+`/usr/share/dict/words` never go in. What it reads and keeps is in [SECURITY_PRIVACY.md §5](./SECURITY_PRIVACY.md#learning-from-your-corrections).
+
 **A term is matched by sound, not spelling** (`correctNames`, `soundOf`).
 Whisper writes an unfamiliar name as it hears it, and never the same way
 twice: "Nurj Harbada Charjee", "Nerj Herbata Chargy". Comparing letters finds

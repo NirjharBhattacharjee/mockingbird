@@ -208,7 +208,8 @@ CREATE TABLE dictionary (
   hint        TEXT,                              -- pronunciation/usage note fed into the LLM prompt
   uses        INTEGER NOT NULL DEFAULT 0,
   created_at  INTEGER NOT NULL,
-  updated_at  INTEGER NOT NULL
+  updated_at  INTEGER NOT NULL,
+  learned     INTEGER NOT NULL DEFAULT 0          -- 1: added from the user's corrections (§7), not by hand
 );
 ```
 
@@ -228,6 +229,9 @@ CREATE TABLE dictionary (
   `MIGRATIONS` list, and `PRAGMA user_version` records how many have run.
   The daemon writes; `mockingbird dictionary add/remove` asks it to over
   the IPC socket, and `list` reads `data.db` read-only.
+- `learned` marks a word added from the user's corrections, so
+  `mockingbird dictionary forget` can delete those and nothing the user
+  added. Adding a learned word by hand clears the flag.
 
 ## 6. `app_profile`
 
@@ -267,6 +271,13 @@ CREATE TABLE correction (
 );
 ```
 
+- Implemented (#62). The daemon records a pair when the user fixes a
+  misheard word in a dictation: `from_text` lowercased, `to_text` as the
+  user wrote it. The word is added to `dictionary` (with `learned = 1`) at
+  `count` 2, or at 1 if the user capitalised it. Removing a dictionary word
+  deletes the pairs that led to it, so it isn't learned straight back. The
+  rules on what is read to find a correction are in
+  [SECURITY_PRIVACY.md §5](./SECURITY_PRIVACY.md#learning-from-your-corrections).
 - This is aggregate, learned data — a `(from, to)` pair's `count`
   increments each time the same correction pattern is observed again; it
   does **not** store a row per correction event, and it does **not** link

@@ -328,6 +328,8 @@ Environment variables:
 | `MOCKINGBIRD_ASR_MODEL` (a file in `models/`, or a path) | `ggml-large-v3-q5_0.bin` |
 | `MOCKINGBIRD_ASR_VOCABULARY` (read the dictionary to Whisper; can distort other names) | off |
 | `MOCKINGBIRD_ASR_PORT` | `8771` |
+| `MOCKINGBIRD_LEARN` (`0`: don't learn dictionary words from your corrections) | on |
+| `MOCKINGBIRD_LEARN_EXCLUDE` (bundle ids, comma separated, never read to learn from) | none |
 | `MOCKINGBIRD_LLM_URL` | `http://127.0.0.1:11434` |
 | `MOCKINGBIRD_LLM_MODEL` | `qwen3:4b-instruct-2507-q4_K_M` |
 

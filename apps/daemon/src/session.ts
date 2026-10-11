@@ -5,6 +5,7 @@ import {
   frontmostApp,
   isTerminal,
   mayRunCommands,
+  readFocusedField,
 } from "@mockingbird/context";
 import { type Cue, cues } from "@mockingbird/cue";
 import { type HotkeyListener, startHotkeyListener } from "@mockingbird/hotkey";
@@ -12,6 +13,7 @@ import { prepareForTyping, typeText } from "@mockingbird/inject";
 import type { AppStyle } from "@mockingbird/llm";
 import { openDaemonStore, recordUses, serveDictionary } from "./dictionary.ts";
 import { HotkeyFsm } from "./hotkey-fsm.ts";
+import { CorrectionWatcher, correctionsIn, learnFrom, markEnd, markStart } from "./learn.ts";
 import { ListenController } from "./listen-controller.ts";
 import { describeTimings, type PipelineResult, runPipeline } from "./pipeline.ts";
 import { Recorder, type Recording } from "./recorder.ts";
@@ -27,6 +29,9 @@ export type Delivery =
       spacing: string;
     }
   | { typed: false; reason: string };
+
+/** How long an app gets to show the last keystrokes before its field is read. */
+const TYPING_SETTLE_MS = 300;
 
 /** How often focus is re-checked while the text is being typed. */
 const FOCUS_POLL_MS = 50;
@@ -172,6 +177,30 @@ export async function startSession(options: SessionOptions): Promise<Session> {
       options.log,
     ));
 
+  // Learns dictionary words from the user's own fixes to a dictation. Off with
+  // MOCKINGBIRD_LEARN=0; apps in MOCKINGBIRD_LEARN_EXCLUDE (bundle ids, comma
+  // separated) are never read.
+  const learning = process.env.MOCKINGBIRD_LEARN !== "0" ? store : undefined;
+  const excluded = new Set(
+    (process.env.MOCKINGBIRD_LEARN_EXCLUDE ?? "").split(",").map((b) => b.trim()),
+  );
+  const corrections = new CorrectionWatcher(async (typed) => {
+    if (!learning) return;
+    try {
+      // Read only the field the dictation went into, never one in another app.
+      if ((await frontmostApp().catch(() => undefined))?.bundleId !== typed.bundleId) return;
+      const learned = learnFrom(learning, correctionsIn(typed));
+      if (!learned.length) return;
+      engines.deps.dictionary = learning.dictionary();
+      notify(
+        `learned ${learned.length === 1 ? "a word" : `${learned.length} words`} from your corrections. ` +
+          "`mockingbird dictionary` lists them; `mockingbird dictionary forget` drops everything learned.",
+      );
+    } catch (error) {
+      notify(`couldn't learn from a correction: ${error}`);
+    }
+  });
+
   /** Where the last dictation ended, for apps that can't say what's before the cursor. */
   let lastTyped: LastTyped | undefined;
   /** Key presses and clicks since then, from the Fn key's event tap. */
@@ -190,6 +219,8 @@ export async function startSession(options: SessionOptions): Promise<Session> {
       | { now: FrontmostApp; watch: FocusWatch; spacing: string; lineBreaks: boolean }
       | undefined;
     let lastChar = "";
+    /** Where the dictation starts in the field, to find it again for `corrections`. */
+    let mark: ReturnType<typeof markStart>;
 
     const start = async (piece: string): Promise<string | undefined> => {
       if (!typingAllowed) {
@@ -219,6 +250,7 @@ export async function startSession(options: SessionOptions): Promise<Session> {
             inputSince: watchingInput ? inputs.hasInput() : undefined,
           });
       lastTyped = undefined;
+      if (learning && !terminal && !excluded.has(now.bundleId)) mark = readFocusedField(markStart);
       open = {
         now,
         watch: watchFocus(now),
@@ -260,6 +292,15 @@ export async function startSession(options: SessionOptions): Promise<Session> {
       if (!open) return { typed: false, reason: "no speech detected" };
       if (lastChar) lastTyped = { bundleId: open.now.bundleId, lastChar };
       inputs.reset();
+      const begun = mark;
+      const { bundleId } = open.now;
+      // Read once the app has caught up with the last keystrokes.
+      if (begun) {
+        setTimeout(() => {
+          const typed = readFocusedField((field) => markEnd(field, begun, bundleId));
+          if (typed) corrections.typed(typed);
+        }, TYPING_SETTLE_MS);
+      }
       return { typed: true, spacing: open.spacing };
     };
 
@@ -312,6 +353,8 @@ export async function startSession(options: SessionOptions): Promise<Session> {
       : { start: "Enter: start speaking · q: quit", stop: "Enter: stop · Esc: cancel" },
     () => {
       targetLookup = frontmostApp().catch(() => undefined);
+      // The user is done with the last dictation: see what they changed in it.
+      corrections.flush();
       // Warms the model while the user is still speaking, so the cleanup that
       // follows doesn't pay a cold load. Failure just means a slower cleanup.
       void engines.deps.llm.load?.().catch(() => {});
@@ -361,6 +404,7 @@ export async function startSession(options: SessionOptions): Promise<Session> {
       onEvent: (event) => {
         if (event.type === "input") {
           inputs.input(event.at, event.source);
+          corrections.input();
           return;
         }
         if (event.type === "fn-down" || event.type === "fn-up") inputs.fn(event.at);
@@ -436,6 +480,7 @@ export async function startSession(options: SessionOptions): Promise<Session> {
         await controller.settled();
         await hotkey?.stop();
         await supervisor.stop();
+        corrections.stop();
         await engines.close();
         dictionaryEdits?.stop();
         store?.close();

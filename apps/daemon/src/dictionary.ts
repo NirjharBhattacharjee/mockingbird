@@ -1,13 +1,13 @@
 import { existsSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { type DictionaryEntry, mentions, parseDictionary } from "@mockingbird/llm";
-import { openStore, type Store } from "@mockingbird/store";
+import { openStore, type Store, type StoredEntry } from "@mockingbird/store";
 import { mockingbirdHome } from "./runtime.ts";
 
 /** Where the daemon listens for dictionary edits, inside the mockingbird home. */
 const SOCKET = "mockingbird.sock";
 
-const USAGE = `Usage: mockingbird dictionary [list | add <entry> | remove <term>]
+const USAGE = `Usage: mockingbird dictionary [list | add <entry> | remove <term> | forget]
 
 Words mockingbird should get right: names, places, jargon. The cleanup model
 is told how to spell them, and words that sound like one are corrected to it.
@@ -17,13 +17,20 @@ is told how to spell them, and words that sound like one are corrected to it.
   mockingbird dictionary add "Catppuccin (a colour theme)" with a note for the cleanup model
   mockingbird dictionary add "cat puck => Catppuccin"      what it hears => what to write
   mockingbird dictionary remove Catppuccin
+  mockingbird dictionary forget                            drop every learned word
+
+It also learns. Fix a misheard name in a dictation and it adds the name once
+you've made the same fix twice, or once if you capitalised it. The list marks
+these "# learned". It keeps only the word pair, never the text around it.
+Turn it off with MOCKINGBIRD_LEARN=0, or for some apps with
+MOCKINGBIRD_LEARN_EXCLUDE (bundle ids, comma separated).
 
 Changes take effect on the next dictation. Adding and removing go through the
 background agent, so it has to be running (\`mockingbird start\`).`;
 
 /** An entry as `add` takes it, so a listed line can be pasted back. */
-export const formatEntry = ({ term, heard, hint }: DictionaryEntry) =>
-  `${heard ? `${heard} => ` : ""}${term}${hint ? ` (${hint})` : ""}`;
+export const formatEntry = ({ term, heard, hint, learned }: StoredEntry) =>
+  `${heard ? `${heard} => ` : ""}${term}${hint ? ` (${hint})` : ""}${learned ? "  # learned" : ""}`;
 
 /**
  * Moves the old `dictionary.txt` into the store, once: the file is renamed so
@@ -73,7 +80,7 @@ export function openDaemonStore(home: string, log: (m: string) => void): Store |
 }
 
 /** The dictionary for a process that only reads it: every one but the daemon. */
-export function readDictionary(home = mockingbirdHome()): DictionaryEntry[] {
+export function readDictionary(home = mockingbirdHome()): StoredEntry[] {
   const path = join(home, "data.db");
   if (!existsSync(path)) return [];
   const store = openStore(path, { readonly: true });
@@ -145,6 +152,9 @@ export async function serveDictionary(
             return new Response(`"${term}" isn't in the dictionary`, { status: 404 });
           }
           reply = `removed ${term}`;
+        } else if (pathname === "/dictionary/forget") {
+          const forgotten = store.forgetLearned();
+          reply = `forgot ${forgotten} learned word${forgotten === 1 ? "" : "s"} and every correction`;
         } else {
           return new Response("not found", { status: 404 });
         }
@@ -185,7 +195,9 @@ export async function main(args: string[], home = mockingbirdHome()): Promise<nu
     for (const entry of entries) console.log(formatEntry(entry));
     return 0;
   }
-  if ((command !== "add" && command !== "remove") || !value) {
+  const known =
+    command === "forget" ? !value : (command === "add" || command === "remove") && value;
+  if (!known) {
     console.error(`error: unknown \`mockingbird dictionary ${args.join(" ")}\`\n\n${USAGE}`);
     return 2;
   }

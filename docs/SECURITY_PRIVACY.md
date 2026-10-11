@@ -79,7 +79,7 @@ until it's explicitly closed.
 | Which app you dictated into | Medium — behavioral/usage signal | `utterance.app_bundle` | Yes |
 | Per-stage latency timings | Low | `utterance.t_*` columns | Yes |
 | User dictionary (names, jargon, codenames) | Medium–High — can include proper nouns like client/project names | `dictionary` table | Yes |
-| Correction history (what got edited after the fact) | Medium–High — can reconstruct sensitive corrections | `correction` table | Yes |
+| Correction history (word pairs from fixes you made to a dictation, e.g. "near jar" → "Nirjhar") | Medium — names and jargon, never the text around them | `correction` table | Yes, until `mockingbird dictionary forget` |
 | Settings (hotkey binding, model choice) | Low | `settings` table | Yes |
 | ASR/LLM model weights | None (public model files) | `~/.mockingbird/models/` | Yes, on disk |
 | Logs | Variable — see [§8](#8-known-privacy-issues--open-unresolved) | `~/.mockingbird/logs/` | Yes, rotated |
@@ -298,6 +298,39 @@ time. Both are tracked in [§9](#9-hardening-roadmap).
   opt-in escape hatch named above is `MOCKINGBIRD_LOG_TEXT=1`, which adds the
   text and is off by default. The agent truncates the file at 1 MB on start,
   because launchd appends to it forever and never rotates it.
+
+### Learning from your corrections
+
+When you fix a misheard word in something mockingbird typed, it reads the
+fix back and can add the word to the dictionary (#62). To do that it reads
+text in another app's field after you've edited it, so it keeps to these
+rules.
+
+- **Only the dictation and a little around it.** Right after typing it
+  notes where the dictation starts and up to 30 characters either side,
+  in memory. Later it reads that span again with up to 100 characters of
+  slack, in case the text moved. It never asks the app for the whole field.
+- **Only once you're done, and only if you touched it.** That means some
+  typing or clicking and then 5 seconds of quiet, or the start of the next
+  dictation. With no input since the dictation, it reads nothing. It never
+  records keystrokes. The event tap still reduces every key except Fn to a
+  bare "input" event.
+- **Only the same app.** If another app is in front by then, it reads nothing.
+- **Never password fields** (`AXSecureTextField`), terminals, or apps listed
+  in `MOCKINGBIRD_LEARN_EXCLUDE` (bundle ids, comma separated).
+- **Only word pairs are stored**, with a count: never the text around them,
+  and neither the pair nor the text is logged. The log says only that a word
+  was learned.
+- **No ordinary words.** It never adds a word from the system word list,
+  `/usr/share/dict/words`, so a fix like "great" → "grate"
+  can't start rewriting every later "great".
+- **Off with `MOCKINGBIRD_LEARN=0`.** `mockingbird dictionary` lists learned
+  words (marked `# learned`), `mockingbird dictionary remove <word>` drops one
+  with its pairs, and `mockingbird dictionary forget` deletes every learned
+  word and every pair.
+
+It can't learn in apps that don't expose their text through Accessibility,
+such as Google Docs and many Electron apps.
 
 ## 6. Process & trust boundaries
 
