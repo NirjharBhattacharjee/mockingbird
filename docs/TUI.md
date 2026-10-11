@@ -182,8 +182,9 @@ flowchart LR
 ```
 
 Four screens, matching
-[ARCHITECTURE.md §15](./ARCHITECTURE.md#15-v1-scope) exactly — nothing
-added beyond what's already scoped there:
+[ARCHITECTURE.md §15](./ARCHITECTURE.md#15-v1-scope), plus two built
+around the commands rather than the daemon: the launch animation and the
+home screen. Neither needs the IPC socket.
 
 ### Launch animation (built)
 - Plays when `mockingbird start` runs in a terminal, for as long as the
@@ -203,6 +204,28 @@ added beyond what's already scoped there:
   `lavender` and `blue`. The wordmark is a `sky` gradient and the tagline is
   `yellow`. They're written as 24-bit escapes, and Bubble Tea downsamples them
   for terminals with fewer colors and drops them under `NO_COLOR`.
+
+### Home screen (built)
+- Opens when `mockingbird` runs with no command in a terminal of at least
+  40×15. Piped output, `TERM=dumb` and smaller terminals get the engine's plain
+  usage text, the same as `mockingbird --help`.
+- The top line says whether the background agent is running. Each state has a
+  symbol and a word as well as a color: `● running` in `green`, `○ stopped` or
+  `○ not started yet` in `yellow`, `✕ crashed` or `✕ exited` in `red`.
+- Below it, the engine's commands with their one-line summaries, cut to the
+  terminal's width. The list comes from `mockingbird help --json` (the
+  `COMMANDS` list in `apps/daemon/src/cli.ts`, which also builds `--help`), so
+  the two can't drift apart. The same call reports the agent's state.
+- `↑`/`↓` or `k`/`j` move, `Enter` runs the command as if it were typed (so
+  `start` still plays the launch animation), and `q`, `Esc` or `Ctrl+C` quit.
+  The menu erases itself either way, so the scrollback holds only what the
+  command printed.
+- The selected row is `mauve` with a `▸` pointer, names are `text`, summaries
+  `subtext0` and the key hints `overlay0`.
+- An engine without `help --json` (an older clone) gets the plain usage text.
+- Not built yet (#50): missing permissions and the Fn binding in the top line,
+  commands that need attention moved to the top, and the install ending on
+  this screen.
 
 ### Dashboard (default view)
 - **Live hotkey FSM state** ([ARCHITECTURE.md §5](./ARCHITECTURE.md#5-the-hotkey-state-machine)),

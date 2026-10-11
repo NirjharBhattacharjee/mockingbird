@@ -47,6 +47,14 @@ describe("mockingbird", () => {
     }
   });
 
+  test("help --json gives the home screen every command and the agent's state", async () => {
+    const { code, out } = await run(["help", "--json"]);
+    expect(code).toBe(0);
+    const info = JSON.parse(out) as { agent: string; commands: { name: string }[] };
+    expect(info.commands.map((c) => c.name)).toContain("models pull");
+    expect(["running", "stopped", "not-installed", "crashed", "exited"]).toContain(info.agent);
+  });
+
   test("--help and help both work", async () => {
     expect((await run(["--help"])).out).toContain("Usage: mockingbird");
     expect((await run(["help"])).out).toContain("Usage: mockingbird");

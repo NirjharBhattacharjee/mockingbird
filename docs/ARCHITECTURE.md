@@ -51,6 +51,7 @@ it is not a design doc that gets abandoned once code exists.
 | 2026-10-04 | Spoken corrections and symbols. The LLM gate no longer skips a transcript with a correction after a comma (", no wait", ", sorry", ", actually", ", make that", ", I meant") or a spoken symbol ("dash", "slash", "underscore"), however short or confident. Before, "docker ps dash a" and "at five, sorry, at six" were typed as said. The cleanup rules gain a self-correction rule. 12 new eval cases; with `qwen3:4b-instruct-2507-q4_K_M` on an M3, dev 35/37 → 36/37 and held-out 14/16 → 16/16, and the median model call no slower. The dev miss is a correction too short for `acceptCleanup`'s floor, which stays at half the transcript (MODELS.md §5). |
 | 2026-10-11 | Downloads show how far they've got. `mockingbird models pull` counts the bytes of each Whisper and VAD file as they arrive, and pulls the cleanup model through Ollama's `/api/pull` (`pullOllamaModel` in `packages/llm`) instead of running the `ollama` command, which printed its own bars. It draws one line, `Whisper ███░░░░░ 0.4/1.1 GB   cleanup model █░░░░░░░ 0.3/2.5 GB`, in place on a terminal. When `install.sh` sets `MOCKINGBIRD_PROGRESS`, it also writes that line to the file, and the install shows it instead of the clock while a download is running. Same downloads, same servers: only the display changed (§9). |
 | 2026-10-11 | The dictionary moves into SQLite (#61). `packages/store` opens `data.db` with the `dictionary` table (DATABASE.md §5); the daemon imports `~/.mockingbird/dictionary.txt` once and renames it `.imported`. The daemon counts a use when a typed transcript contains a term, and a dictionary over 50 terms gives the cleanup prompt only the terms this transcript seems to say, then the most used (MODELS.md §4a). First IPC: the daemon listens on `~/.mockingbird/mockingbird.sock` (`0600`) and `mockingbird dictionary add/remove` asks it to write; `list` reads `data.db` read-only. The socket speaks HTTP (`Bun.serve({ unix })`) for these request/reply edits; the TUI's live event stream (NDJSON) isn't built yet. If data.db can't be opened, dictation runs without the dictionary. |
+| 2026-10-11 | Bare `mockingbird` opens a home screen in the Go command: the agent's state and the engine's commands, picked with the arrow keys and run as if typed. The engine owns the list: `COMMANDS` in `apps/daemon/src/cli.ts` builds both `--help` and `help --json`, which the Go command reads along with the agent's state, so the Go side copies nothing. Output that isn't a terminal, or a terminal under 40×15, still gets the plain usage text (TUI.md §5). |
 
 ---
 
@@ -763,6 +764,8 @@ has a fixed line to improve past:
 - SQLite-backed history with full-text search, exposed via the TUI.
 - Bubble Tea dashboard (Go, `apps/cli`): live state, latency waterfall,
   history browser, dictionary editor.
+- A home screen for bare `mockingbird`: the agent's state and every command,
+  picked with the arrow keys ([TUI.md §5](./TUI.md#home-screen-built)).
 - Homebrew + curl installer distribution.
 - No GUI app, no menubar icon, no floating HUD — audio cues + TUI only.
 

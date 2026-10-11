@@ -1,6 +1,7 @@
 // Command mockingbird is the command users type. The dictation engine is the
-// TypeScript CLI in apps/daemon; this binary hands every command to it, and
-// plays the launch animation while `mockingbird start` runs.
+// TypeScript CLI in apps/daemon; this binary hands every command to it, plays
+// the launch animation while `mockingbird start` runs, and with no command
+// opens a home screen listing them.
 package main
 
 import (
@@ -12,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
+	"strings"
 	"syscall"
 	"time"
 
@@ -40,6 +42,19 @@ func run(args []string) int {
 		return fail(errors.New("bun isn't on the PATH; install it with `brew install bun`"))
 	}
 	argv := append([]string{bun, filepath.Join(root, engineCLI)}, args...)
+	if len(args) == 0 && fits(homeCols, homeRows) {
+		if info, err := loadHome(argv); err == nil {
+			p, err := tea.NewProgram(home{info: info}).Run()
+			if err != nil {
+				return fail(err)
+			}
+			if chosen := p.(home).chosen; chosen != "" {
+				// As if typed, so `start` still gets the animation.
+				return run(strings.Fields(chosen))
+			}
+			return 0
+		}
+	}
 	if len(args) == 1 && args[0] == "start" && canAnimate() {
 		return startWithSplash(argv)
 	}
@@ -104,13 +119,24 @@ func isFile(path string) bool {
 
 // canAnimate is false when output goes to a pipe or log, or the terminal is
 // too small for the art; `start` then runs exactly as the engine prints it.
-func canAnimate() bool {
+func canAnimate() bool { return fits(minCols, minRows) }
+
+// The home screen: a row per command (nine) plus six for the title, gaps and
+// key hints, and room for a name and some of its summary.
+const (
+	homeCols = 40
+	homeRows = 15
+)
+
+// fits is whether stdin and stdout are a terminal of at least cols×rows.
+// Otherwise output is piped or logged, and gets the engine's plain text.
+func fits(cols, rows int) bool {
 	fd := os.Stdout.Fd()
 	if !term.IsTerminal(fd) || !term.IsTerminal(os.Stdin.Fd()) || os.Getenv("TERM") == "dumb" {
 		return false
 	}
-	cols, rows, err := term.GetSize(fd)
-	return err == nil && cols >= minCols && rows >= minRows
+	c, r, err := term.GetSize(fd)
+	return err == nil && c >= cols && r >= rows
 }
 
 // startWithSplash runs the engine's `start` under the animation, showing its
