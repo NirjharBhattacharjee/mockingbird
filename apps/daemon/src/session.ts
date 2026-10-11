@@ -85,6 +85,15 @@ export function separator(piece: string, lineBreaks: boolean): string {
   return /^\s/.test(piece) ? " " : "";
 }
 
+/**
+ * What goes before a dictation's first piece when there's text before the
+ * cursor: a space, or a line break for a list, so its heading starts a line.
+ */
+export function leadIn(space: boolean, piece: string, lineBreaks: boolean): string {
+  if (!space) return "";
+  return lineBreaks && piece.trim().includes("\n") ? "\n" : " ";
+}
+
 export type SessionOptions = {
   /** ffmpeg input arguments, from `inputArgsFor`. */
   inputArgs: string[];
@@ -163,7 +172,7 @@ export async function startSession(options: SessionOptions): Promise<Session> {
       | undefined;
     let lastChar = "";
 
-    const start = async (): Promise<string | undefined> => {
+    const start = async (piece: string): Promise<string | undefined> => {
       if (!typingAllowed) {
         failed = "typing isn't allowed";
         return;
@@ -200,13 +209,13 @@ export async function startSession(options: SessionOptions): Promise<Session> {
         // run a command.
         lineBreaks: !mayRunCommands(now),
       };
-      return decision.space ? " " : "";
+      return leadIn(decision.space, piece, open.lineBreaks);
     };
 
     const write = async (piece: string) => {
       if (failed) return;
       try {
-        const prefix = open ? separator(piece, open.lineBreaks) : await start();
+        const prefix = open ? separator(piece, open.lineBreaks) : await start(piece);
         if (!open || prefix === undefined) return;
         const result = await typeText(piece, {
           prefix,
