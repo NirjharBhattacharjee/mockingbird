@@ -242,9 +242,39 @@ export PATH="$(dirname "$bun_bin"):\$PATH"
 $run "\$@"
 SHIM
   chmod +x "$shim"
+  # A new Mac doesn't have ~/.local/bin on the PATH, so the install adds it to
+  # the login shell's profile, once. This terminal keeps its old PATH, so the
+  # last lines give the command's full path.
+  local cmd="mockingbird" profile="" in_profile=""
   case ":$PATH:" in
     *":$bin_dir:"*) ;;
-    *) printf '    \033[1;33mnote:\033[0m %s is not on your PATH. Add it to your shell profile:\n      export PATH="%s:$PATH"\n' "$bin_dir" "$bin_dir" ;;
+    *)
+      cmd="~/.local/bin/mockingbird"
+      case "$(basename "${SHELL:-}")" in
+        # zsh itself says where its files are: ZDOTDIR may be set in ~/.zshenv.
+        zsh)
+          local zdot
+          zdot="$(zsh -c 'printf %s "${ZDOTDIR:-$HOME}"' 2>/dev/null)" || zdot=""
+          [ -n "$zdot" ] && profile="$zdot/.zshrc"
+          ;;
+        # A login bash reads only the first of these that exists, so creating
+        # ~/.bash_profile would hide an existing ~/.profile.
+        bash)
+          for profile in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do
+            [ -e "$profile" ] && break
+          done
+          [ -e "$profile" ] || profile="$HOME/.bash_profile"
+          ;;
+      esac
+      if [ -n "$profile" ] && grep -qF '.local/bin' "$profile" 2>/dev/null; then
+        in_profile=1
+      elif [ -n "$profile" ] && printf '\n# Added by the mockingbird installer\nexport PATH="$HOME/.local/bin:$PATH"\n' 2>/dev/null >>"$profile"; then
+        in_profile=1
+        done_ "PATH: added ~/.local/bin in $profile"
+      else
+        printf '    \033[1;33mnote:\033[0m %s is not on your PATH. Add it to your shell profile:\n      export PATH="%s:$PATH"\n' "$bin_dir" "$bin_dir"
+      fi
+      ;;
   esac
 
   # An agent that's running is still on the old code, so restart it. One that
@@ -258,9 +288,12 @@ SHIM
   fi
 
   printf '\n\033[1;32mAll set.\033[0m Now run:\n\n'
-  printf '    mockingbird start\n\n'
+  printf '    %s start\n\n' "$cmd"
   printf 'That runs it in the background, now and at every login. macOS will ask\n'
-  printf 'for permission the first time; `mockingbird status` says what is missing.\n'
+  printf 'for permission the first time; `%s status` says what is missing.\n' "$cmd"
+  if [ -n "$in_profile" ]; then
+    printf 'In a new terminal window, plain `mockingbird` works too.\n'
+  fi
   printf 'To update later, run the install command again.\n\n'
 }
 

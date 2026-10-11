@@ -56,8 +56,11 @@ ls -l ~/.local/bin/mockingbird 2>/dev/null && ~/.local/bin/mockingbird status
 
 The installer clones the code into `~/mockingbird`, installs Bun, whisper-cpp,
 Ollama and ffmpeg with Homebrew, downloads the speech and cleanup models into
-`~/.mockingbird`, and puts the `mockingbird` command in `~/.local/bin`. The
-first run downloads about 4 GB, so it usually takes 5 to 20 minutes.
+`~/.mockingbird`, and puts the `mockingbird` command in `~/.local/bin`. If
+that folder isn't on the PATH, it adds it to the shell's profile: `~/.zshrc`
+for zsh, or for bash whichever of `~/.bash_profile`, `~/.bash_login` and
+`~/.profile` bash reads. New terminal windows pick it up. The first run
+downloads about 4 GB, so it usually takes 5 to 20 minutes.
 
 First download the installer, and check this command succeeds. If it prints
 `curl: (...)`, nothing was installed: check the network and try again.
@@ -94,7 +97,8 @@ still working, even if a step has failed: it waits for every step to end.
   [If something fails](#if-something-fails), then run step 2 again: finished
   steps are skipped.
 - Run `grep -A1 'note:' ~/.mockingbird/install.out`. If it says
-  `~/.local/bin` isn't on the PATH, tell the person.
+  `~/.local/bin` isn't on the PATH, tell the person. That happens when their
+  shell isn't zsh or bash, or the installer couldn't write the profile.
   They should add the `export PATH=...` line it shows to their shell profile,
   or you can, if they say so. The steps below use the full path either way.
 
