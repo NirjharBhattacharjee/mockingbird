@@ -63,6 +63,11 @@ mockingbird fn --undo  # only if you ran `mockingbird fn`
 
 Fn goes back to what it did before once you log out of your Mac and back in.
 
+If `mockingbird` no longer runs, stop the agent with
+`launchctl bootout gui/$(id -u)/com.mockingbird.agent` instead, and set
+**System Settings → Keyboard → "Press 🌐 key to"** back to what you want Fn to
+do.
+
 Next, delete the agent and `~/.mockingbird`, or your `MOCKINGBIRD_HOME` if you
 set one. That folder holds the models, about 1.1 GB, plus the agent's runner,
 the logs and your dictionary. Copy the dictionary out first if you want to
@@ -76,10 +81,18 @@ rm -rf ~/.mockingbird
 
 Then remove the code and the command. After the curl install, that's
 `rm -rf ~/mockingbird ~/.local/bin/mockingbird`, with your `MOCKINGBIRD_DIR`
-in place of `~/mockingbird` if you set one. If `~/.zshrc` or `~/.bash_profile`
-has a `# Added by the mockingbird installer` line, delete it and the `PATH`
-line under it. After a Homebrew install, it's `brew uninstall mockingbird`,
-then `brew untap nirjharbhattacharjee/mockingbird`.
+in place of `~/mockingbird` if you set one. The installer may also have added
+`~/.local/bin` to your PATH. This prints the file it changed, if any:
+
+```sh
+grep -l 'Added by the mockingbird installer' "${ZDOTDIR:-$HOME}/.zshrc" \
+  ~/.bash_profile ~/.bash_login ~/.profile 2>/dev/null
+```
+
+Delete that line and the `PATH` line under it.
+
+After a Homebrew install, run `brew uninstall mockingbird`, then
+`brew untap nirjharbhattacharjee/mockingbird`.
 
 The rest is shared with other programs, so remove it only if nothing else
 uses it:
