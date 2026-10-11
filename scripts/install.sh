@@ -79,7 +79,9 @@ main() {
   # view. On a failure the end of that step's log is shown.
   local log_dir="${MOCKINGBIRD_HOME:-$HOME/.mockingbird}/logs"
   mkdir -p "$log_dir"
-  rm -f "$log_dir"/install-*.log
+  # `models pull` keeps its download progress here, one line, while it runs.
+  local progress="$log_dir/install-progress"
+  rm -f "$log_dir"/install-*.log "$progress"
   local STEP
   quietly() { "$@" >>"$log_dir/install-$STEP.log" 2>&1 </dev/null; }
   done_() { printf '    \033[1;32m✓\033[0m %s\n' "$1"; }
@@ -92,15 +94,20 @@ main() {
     exit 1
   }
 
-  # Waits for every step running in the background, with a clock ticking so a
-  # long download doesn't look stuck. All of them finish before any failure is
-  # reported, so nothing is left writing files behind a retry. Arguments are
-  # name/pid pairs.
+  # Waits for every step running in the background, showing the download
+  # progress, or else a clock, so a long step doesn't look stuck. All of them
+  # finish before any failure is reported, so nothing is left writing files
+  # behind a retry. Arguments are name/pid pairs.
   await() {
-    local start=$SECONDS
+    local start=$SECONDS line
     if [ -t 1 ]; then
       while [ -n "$(jobs -r)" ]; do
-        printf '\r    %s… %dm%02ds ' "$WORKING" $(((SECONDS - start) / 60)) $(((SECONDS - start) % 60))
+        line="$(cat "$progress" 2>/dev/null)" || line=""
+        if [ -n "$line" ]; then
+          printf '\r\033[K    %s' "$line"
+        else
+          printf '\r\033[K    %s… %dm%02ds ' "$WORKING" $(((SECONDS - start) / 60)) $(((SECONDS - start) % 60))
+        fi
         sleep 1
       done
       printf '\r\033[K'
@@ -241,7 +248,8 @@ main() {
   local cli="$dir/apps/cli/mockingbird"
   rm -f "$cli"
   WORKING="models and command"
-  (STEP=models && cd "$dir" && quietly bun apps/daemon/src/cli.ts models pull) &
+  (STEP=models && cd "$dir" && export MOCKINGBIRD_PROGRESS="$progress" &&
+    quietly bun apps/daemon/src/cli.ts models pull) &
   local models_pid=$!
   (STEP=command && quietly get_cli "$dir" "$cli" || true) &
   local cli_pid=$!

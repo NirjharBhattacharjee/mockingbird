@@ -1,10 +1,11 @@
 import { createReadStream, existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { isLocalUrl, ollamaRunning, startOllamaServer } from "@mockingbird/llm";
+import { isLocalUrl, ollamaRunning, pullOllamaModel, startOllamaServer } from "@mockingbird/llm";
 import { DEFAULT_ASR_MODEL, DEFAULT_LLM_MODEL } from "./runtime.ts";
 
-export type ModelFile = { file: string; url: string; sha256: string };
+/** `name` is what the progress line calls it. */
+export type ModelFile = { name: string; file: string; url: string; sha256: string };
 
 /**
  * What `mockingbird models pull` downloads. Each one is pinned to a fixed
@@ -13,11 +14,13 @@ export type ModelFile = { file: string; url: string; sha256: string };
  */
 export const MODEL_FILES: ModelFile[] = [
   {
+    name: "Whisper",
     file: DEFAULT_ASR_MODEL,
     url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-large-v3-q5_0.bin",
     sha256: "d75795ecff3f83b5faa89d1900604ad8c780abd5739fae406de19f23ecd98ad1",
   },
   {
+    name: "VAD",
     file: "silero_vad.onnx",
     url: "https://github.com/snakers4/silero-vad/raw/v6.2.2/src/silero_vad/data/silero_vad.onnx",
     sha256: "1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3",
@@ -33,6 +36,8 @@ export async function sha256Of(path: string): Promise<string> {
 export type PullFileDeps = {
   fetch?: typeof fetch;
   log?: (message: string) => void;
+  /** Bytes written so far, and the size the server gave (0 if it gave none). */
+  onProgress?: (done: number, total: number) => void;
 };
 
 /**
@@ -42,7 +47,7 @@ export type PullFileDeps = {
 export async function pullFile(
   model: ModelFile,
   dir: string,
-  { fetch: get = fetch, log = () => {} }: PullFileDeps = {},
+  { fetch: get = fetch, log = () => {}, onProgress = () => {} }: PullFileDeps = {},
 ): Promise<boolean> {
   const path = join(dir, model.file);
   if (existsSync(path) && (await sha256Of(path)) === model.sha256) {
@@ -58,8 +63,14 @@ export async function pullFile(
   // A temporary name first, so an interrupted download isn't mistaken for a model.
   const part = `${path}.part`;
   const writer = Bun.file(part).writer();
+  const total = Number(response.headers.get("content-length")) || 0;
+  let done = 0;
   try {
-    for await (const chunk of response.body) writer.write(chunk);
+    for await (const chunk of response.body) {
+      writer.write(chunk);
+      done += chunk.byteLength;
+      onProgress(done, total);
+    }
   } finally {
     await writer.end();
   }
@@ -77,24 +88,46 @@ export type PullDeps = PullFileDeps & {
   home?: string;
   llmUrl?: string;
   llmModel?: string;
-  /** Pulls the cleanup model into a running Ollama. Returns the exit code. */
-  ollamaPull?: (model: string, url: string) => Promise<number>;
+  /** Pulls the cleanup model into a running Ollama, reporting bytes as they arrive. */
+  ollamaPull?: (
+    url: string,
+    model: string,
+    onProgress: (done: number, total: number) => void,
+  ) => Promise<void>;
   /** Finds a command on the PATH; `Bun.which` unless a test supplies one. */
   which?: (command: string) => string | null;
   /** Injected in tests; the pinned list otherwise. */
   files?: ModelFile[];
   modelsDir?: string;
+  /** Gets the line from progressLine, at most every quarter second. */
+  progress?: (line: string) => void;
 };
 
-const runOllamaPull = async (model: string, url: string): Promise<number> => {
-  // The ollama CLI finds its server through OLLAMA_HOST.
-  const proc = Bun.spawn(["ollama", "pull", model], {
-    env: { ...process.env, OLLAMA_HOST: url },
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-  return proc.exited;
+type Download = { name: string; done: number; total: number };
+
+const bar = (fraction: number) => {
+  const full = Math.round(Math.min(1, fraction) * 8);
+  return "█".repeat(full) + "░".repeat(8 - full);
 };
+
+const size = (done: number, total: number) => {
+  if (!total) return `${Math.round(done / 1e6)} MB`;
+  return total >= 1e8
+    ? `${(done / 1e9).toFixed(1)}/${(total / 1e9).toFixed(1)} GB`
+    : `${Math.round(done / 1e6)}/${Math.round(total / 1e6)} MB`;
+};
+
+/**
+ * One line for the downloads still running, short enough for an 80-column
+ * terminal: `Whisper ███░░░░░ 0.4/1.1 GB   cleanup model █░░░░░░░ 0.3/2.5 GB`.
+ * Empty once they've all finished.
+ */
+export function progressLine(downloads: Download[]): string {
+  return downloads
+    .filter((d) => !d.total || d.done < d.total)
+    .map((d) => `${d.name} ${d.total ? `${bar(d.done / d.total)} ` : ""}${size(d.done, d.total)}`)
+    .join("   ");
+}
 
 /**
  * The only network call mockingbird makes (ARCHITECTURE.md §9): the Whisper
@@ -108,6 +141,26 @@ export async function pullModels(deps: PullDeps = {}): Promise<number> {
   const llmUrl = deps.llmUrl ?? env.MOCKINGBIRD_LLM_URL ?? "http://127.0.0.1:11434";
   const llmModel = deps.llmModel ?? env.MOCKINGBIRD_LLM_MODEL ?? DEFAULT_LLM_MODEL;
   const modelsDir = deps.modelsDir ?? join(home, "models");
+  const downloads = new Map<string, Download>();
+  let shown = 0;
+  const show = () => {
+    shown = Date.now();
+    deps.progress?.(progressLine([...downloads.values()]));
+  };
+  const progress = (name: string) => (done: number, total: number) => {
+    downloads.set(name, { name, done, total });
+    if (Date.now() - shown >= 250) show();
+  };
+  // A pull that has ended leaves the line straight away, unthrottled, so the
+  // last thing shown is never a stale byte count.
+  const tracked = async <T>(name: string, pull: Promise<T>): Promise<T> => {
+    try {
+      return await pull;
+    } finally {
+      downloads.delete(name);
+      show();
+    }
+  };
 
   // The files and the cleanup model come from different servers, so they
   // download side by side: the wait is the longest one, not the sum. Both
@@ -115,12 +168,18 @@ export async function pullModels(deps: PullDeps = {}): Promise<number> {
   // half-written or an Ollama we started still running.
   const files = (async () => {
     for (const model of deps.files ?? MODEL_FILES) {
-      await pullFile(model, modelsDir, { fetch: deps.fetch, log });
+      await tracked(
+        model.name,
+        pullFile(model, modelsDir, { fetch: deps.fetch, log, onProgress: progress(model.name) }),
+      );
     }
   })();
   const [pulled, code] = await Promise.allSettled([
     files,
-    pullCleanupModel(llmUrl, llmModel, deps, log),
+    tracked(
+      "cleanup model",
+      pullCleanupModel(llmUrl, llmModel, deps, log, progress("cleanup model")),
+    ),
   ]);
   if (pulled.status === "rejected") {
     // Both failed: say why Ollama did too, since only one can be thrown.
@@ -138,6 +197,7 @@ async function pullCleanupModel(
   llmModel: string,
   deps: PullDeps,
   log: (message: string) => void,
+  onProgress: (done: number, total: number) => void,
 ): Promise<number> {
   log(`pulling the cleanup model ${llmModel} through Ollama at ${llmUrl}`);
   const running = await ollamaRunning(llmUrl);
@@ -146,7 +206,8 @@ async function pullCleanupModel(
     log(`No Ollama answers at ${llmUrl}. Start it there, then run this again.`);
     return 1;
   }
-  // Needed even for a server elsewhere: the pull runs the local ollama CLI.
+  // Checked even for a running server: without the ollama command this Mac
+  // can't start one, so cleanup wouldn't work after the next restart.
   if ((deps.which ?? Bun.which)("ollama") === null) {
     log("Ollama isn't installed. Install it with `brew install ollama`, then run this again.");
     return 1;
@@ -156,11 +217,10 @@ async function pullCleanupModel(
     stop = (await startOllamaServer({ baseUrl: llmUrl })).stop;
   }
   try {
-    const code = await (deps.ollamaPull ?? runOllamaPull)(llmModel, llmUrl);
-    if (code !== 0) {
-      log(`\`ollama pull ${llmModel}\` failed (exit ${code}).`);
-      return 1;
-    }
+    await (deps.ollamaPull ?? pullOllamaModel)(llmUrl, llmModel, onProgress);
+  } catch (error) {
+    log(`Pulling ${llmModel} failed: ${error instanceof Error ? error.message : error}`);
+    return 1;
   } finally {
     await stop?.();
   }

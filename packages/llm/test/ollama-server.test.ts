@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isLocalUrl, ollamaRunning, startOllamaServer } from "../src/index.ts";
+import { isLocalUrl, ollamaRunning, pullOllamaModel, startOllamaServer } from "../src/index.ts";
 
 const dir = await mkdtemp(join(tmpdir(), "mockingbird-ollama-"));
 afterAll(() => rm(dir, { recursive: true, force: true }));
@@ -87,5 +87,91 @@ describe("startOllamaServer", () => {
     await server.stop();
     expect(await ollamaRunning(baseUrl)).toBe(true);
     other.stop(true);
+  });
+});
+
+describe("pullOllamaModel", () => {
+  /** An Ollama whose /api/pull streams `records`, split mid-line to test reassembly. */
+  function pulling(records: object[]) {
+    const text = records.map((r) => `${JSON.stringify(r)}\n`).join("");
+    return Bun.serve({
+      port: 0,
+      fetch: () =>
+        new Response(
+          new ReadableStream({
+            start(c) {
+              const half = Math.floor(text.length / 2);
+              c.enqueue(new TextEncoder().encode(text.slice(0, half)));
+              c.enqueue(new TextEncoder().encode(text.slice(half)));
+              c.close();
+            },
+          }),
+        ),
+    });
+  }
+
+  test("reports the bytes summed over the model's layers", async () => {
+    const server = pulling([
+      { status: "pulling manifest" },
+      { status: "pulling a", digest: "a", total: 100, completed: 40 },
+      { status: "pulling b", digest: "b", total: 10, completed: 10 },
+      { status: "pulling a", digest: "a", total: 100, completed: 100 },
+      { status: "success" },
+    ]);
+    const seen: [number, number][] = [];
+    try {
+      await pullOllamaModel(`http://127.0.0.1:${server.port}`, "m", (d, t) => seen.push([d, t]));
+      expect(seen).toEqual([
+        [40, 100],
+        [50, 110],
+        [110, 110],
+      ]);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("throws Ollama's error", async () => {
+    const server = pulling([{ error: "pull model manifest: file does not exist" }]);
+    try {
+      await expect(pullOllamaModel(`http://127.0.0.1:${server.port}`, "nope")).rejects.toThrow(
+        "file does not exist",
+      );
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("gives up on an Ollama that goes quiet mid-pull", async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch: () =>
+        new Response(
+          new ReadableStream({
+            start(c) {
+              // One record, then nothing, with the connection left open.
+              c.enqueue(new TextEncoder().encode('{"status":"pulling manifest"}\n'));
+            },
+          }),
+        ),
+    });
+    try {
+      await expect(
+        pullOllamaModel(`http://127.0.0.1:${server.port}`, "m", () => {}, 100),
+      ).rejects.toThrow("no word on the pull of m");
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("a pull cut off before success is a failure", async () => {
+    const server = pulling([{ status: "pulling a", digest: "a", total: 100, completed: 40 }]);
+    try {
+      await expect(pullOllamaModel(`http://127.0.0.1:${server.port}`, "m")).rejects.toThrow(
+        "pulling a",
+      );
+    } finally {
+      server.stop(true);
+    }
   });
 });
