@@ -157,3 +157,36 @@ func TestCanvasHalfBlocks(t *testing.T) {
 		})
 	}
 }
+
+func TestHomeRunsTheChosenCommand(t *testing.T) {
+	info := homeInfo{Agent: "stopped", Commands: []command{
+		{"start", "run in the background"},
+		{"models pull", "download the models\n(the only network use)"},
+	}}
+	var m tea.Model = home{info: info, width: 80}
+	if !strings.Contains(escapes.ReplaceAllString(m.(home).render(), ""), "○ stopped") {
+		t.Error("the agent's state isn't shown as text")
+	}
+	for _, k := range []tea.KeyPressMsg{{Code: tea.KeyDown}, {Code: 'j', Text: "j"}, {Code: tea.KeyUp}, {Code: 'j', Text: "j"}} {
+		m, _ = m.Update(k)
+	}
+	if got := m.(home).cursor; got != 1 {
+		t.Fatalf("cursor = %d, want it held at the last command", got)
+	}
+	m, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if m.(home).chosen != "models pull" || cmd == nil {
+		t.Errorf("enter chose %q", m.(home).chosen)
+	}
+	if m, _ = (home{info: info}).Update(tea.KeyPressMsg{Code: 'q', Text: "q"}); m.(home).chosen != "" {
+		t.Error("q ran a command")
+	}
+}
+
+func TestHomeFitsItsWidth(t *testing.T) {
+	m := home{width: 40, info: homeInfo{Commands: []command{{"fn", strings.Repeat("long summary ", 10)}}}}
+	for _, line := range strings.Split(escapes.ReplaceAllString(m.render(), ""), "\n") {
+		if n := len([]rune(line)); n > 40 {
+			t.Errorf("%d columns: %q", n, line)
+		}
+	}
+}

@@ -31,25 +31,38 @@ import { openPermissionPane, paneFor } from "./permissions.ts";
 import { main as transcribeMain } from "./transcribe.ts";
 import { main as typeMain } from "./type.ts";
 
+/** The commands, for `--help` and the Go command's home screen (`help --json`). */
+export const COMMANDS: { name: string; summary: string }[] = [
+  { name: "start", summary: "run in the background, now and at every login" },
+  { name: "stop", summary: "stop, and stay stopped across reboots" },
+  { name: "restart", summary: "restart the background agent (after granting a permission)" },
+  { name: "status", summary: "whether it's running, and what it can see" },
+  {
+    name: "fn",
+    summary:
+      "bind Fn to dictation only, so macOS stops opening the picker\n(`mockingbird fn --undo` puts back the previous setting)",
+  },
+  { name: "dictionary", summary: "list, add and remove words it should spell right" },
+  {
+    name: "models pull",
+    summary: "download the speech and cleanup models (the only command\nthat uses the network)",
+  },
+  { name: "listen", summary: "run in this terminal instead, with a live status line" },
+  { name: "transcribe", summary: "turn a recording into text" },
+  { name: "type", summary: "check typing permission, or type some text" },
+];
+
 const USAGE = `Usage: mockingbird <command> [options]
 
 Dictation for macOS. Hold Fn, speak, and the text is typed into whatever app
 is in front of you.
 
 Commands:
-  start        run in the background, now and at every login
-  stop         stop, and stay stopped across reboots
-  restart      restart the background agent (after granting a permission)
-  status       whether it's running, and what it can see
-  fn           bind Fn to dictation only, so macOS stops opening the picker
-               (\`mockingbird fn --undo\` puts back the previous setting)
-  dictionary   list, add and remove words it should spell right
-  models pull  download the speech and cleanup models (the only command
-               that uses the network)
-  listen       run in this terminal instead, with a live status line
-  transcribe   turn a recording into text
-  type         check typing permission, or type some text
-  -h, --help   show this help
+${[...COMMANDS, { name: "-h, --help", summary: "show this help" }]
+  .map(
+    ({ name, summary }) => `  ${name.padEnd(13)}${summary.replaceAll("\n", `\n${" ".repeat(15)}`)}`,
+  )
+  .join("\n")}
 
 Run a command with --help for its own options, e.g. \`mockingbird listen --help\`.`;
 
@@ -374,6 +387,11 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
     case "-h":
     case "--help":
     case "help":
+      if (command === "help" && rest[0] === "--json") {
+        const { state } = await agentStatus(process.getuid?.() ?? 0);
+        console.log(JSON.stringify({ agent: state, commands: COMMANDS }));
+        return 0;
+      }
       console.log(USAGE);
       return 0;
     case "start":

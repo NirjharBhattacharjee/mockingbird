@@ -36,6 +36,7 @@ func mix(a, b rgb, k float64) rgb {
 // Catppuccin Mocha (docs/TUI.md §3), checked against catppuccin/palette.
 var (
 	mauve    = rgb{0xcb, 0xa6, 0xf7}
+	red      = rgb{0xf3, 0x8b, 0xa8}
 	yellow   = rgb{0xf9, 0xe2, 0xaf}
 	green    = rgb{0xa6, 0xe3, 0xa1}
 	teal     = rgb{0x94, 0xe2, 0xd5}
