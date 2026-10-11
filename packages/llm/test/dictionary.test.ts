@@ -3,7 +3,9 @@ import {
   applyCorrections,
   buildVocabularyPrompt,
   correctNames,
+  mentions,
   parseDictionary,
+  promptTerms,
 } from "../src/index.ts";
 
 describe("parseDictionary", () => {
@@ -131,5 +133,41 @@ describe("correctNames", () => {
 
   test("does nothing without a dictionary", () => {
     expect(correctNames("Nurj Harbada Charjee", [])).toBe("Nurj Harbada Charjee");
+  });
+});
+
+describe("mentions", () => {
+  test("whole words only, ignoring case", () => {
+    const entries = [{ term: "Ash" }, { term: "Node.js" }];
+    expect(mentions("wash it, then ask ash about node.js", entries)).toEqual(["Ash", "Node.js"]);
+    expect(mentions("washing", entries)).toEqual([]);
+  });
+});
+
+describe("promptTerms", () => {
+  const many = [
+    "Alpha",
+    "Bravo",
+    "Charlie",
+    "Delta",
+    "Echo",
+    "Foxtrot",
+    "Golf",
+    "Hotel",
+    "India",
+    "Juliett",
+  ].map((term) => ({ term }));
+
+  test("a dictionary under the cap goes in whole", () => {
+    expect(promptTerms("anything", many, 10)).toBe(many);
+  });
+
+  test("a larger one puts the terms this transcript says first, then the rest in order", () => {
+    const terms = promptTerms(
+      "ask hotel and Nurj Harbada Charjee",
+      [...many, { term: "Nirjhar Bhattacharjee" }],
+      3,
+    ).map((e) => e.term);
+    expect(terms).toEqual(["Hotel", "Nirjhar Bhattacharjee", "Alpha"]);
   });
 });

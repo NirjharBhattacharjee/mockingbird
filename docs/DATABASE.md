@@ -204,6 +204,7 @@ CREATE VIRTUAL TABLE utterance_fts USING fts5(
 ```sql
 CREATE TABLE dictionary (
   term        TEXT PRIMARY KEY COLLATE NOCASE,   -- "Nirjhar" and "nirjhar" are the same row
+  heard       TEXT,                              -- what Whisper writes instead, replaced after cleanup
   hint        TEXT,                              -- pronunciation/usage note fed into the LLM prompt
   uses        INTEGER NOT NULL DEFAULT 0,
   created_at  INTEGER NOT NULL,
@@ -216,10 +217,17 @@ CREATE TABLE dictionary (
   [ARCHITECTURE.md §7](./ARCHITECTURE.md#7-where-sqlite-fits). `COLLATE
   NOCASE` prevents silently accumulating case-variant duplicates of the same
   word.
-- `uses` increments each time the LLM Gate includes this term in a prompt
-  and the resulting transcript actually contains it — this is what lets the
-  dictionary editor in the TUI sort by "most relevant," not just
-  alphabetically.
+- `heard` is the `cat puck => Catppuccin` form: a plain replacement applied
+  to the finished text ([MODELS.md §4a](./MODELS.md#4a-the-user-dictionary)).
+- `uses` goes up by one each time a typed transcript contains the term as a
+  whole word. The dictionary is read most used first, so when it's longer
+  than the cleanup prompt's cap, the terms this transcript seems to say go
+  in first and the most used fill the rest. The TUI editor can sort by it
+  too.
+- Implemented in `packages/store`. Schema changes are appended to its
+  `MIGRATIONS` list, and `PRAGMA user_version` records how many have run.
+  The daemon writes; `mockingbird dictionary add/remove` asks it to over
+  the IPC socket, and `list` reads `data.db` read-only.
 
 ## 6. `app_profile`
 

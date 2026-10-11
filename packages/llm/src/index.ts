@@ -14,7 +14,9 @@ export {
   buildVocabularyPrompt,
   correctNames,
   type DictionaryEntry,
+  mentions,
   parseDictionary,
+  promptTerms,
   soundOf,
   soundsLike,
 } from "./dictionary.ts";

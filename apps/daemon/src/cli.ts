@@ -14,6 +14,7 @@ import {
 } from "./agent/launchctl.ts";
 import { AGENT_LABEL, agentPaths, plistFor } from "./agent/plist.ts";
 import { ensureRunner, runnerPath } from "./agent/runner.ts";
+import { main as dictionaryMain } from "./dictionary.ts";
 import {
   claimFnKey,
   claimMessage,
@@ -42,6 +43,7 @@ Commands:
   status       whether it's running, and what it can see
   fn           bind Fn to dictation only, so macOS stops opening the picker
                (\`mockingbird fn --undo\` puts back the previous setting)
+  dictionary   list, add and remove words it should spell right
   models pull  download the speech and cleanup models (the only command
                that uses the network)
   listen       run in this terminal instead, with a live status line
@@ -389,6 +391,8 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
         throw new UsageError("the only `mockingbird models` command is `mockingbird models pull`");
       }
       return pullWithProgress();
+    case "dictionary":
+      return dictionaryMain(rest);
     case "listen":
       return listenMain(rest);
     case "transcribe":

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { startWhisperServer } from "@mockingbird/asr";
@@ -7,7 +7,6 @@ import {
   isLocalUrl,
   OllamaProvider,
   ollamaRunning,
-  parseDictionary,
   startOllamaServer,
 } from "@mockingbird/llm";
 import { detectSpeech, SileroVad } from "@mockingbird/vad";
@@ -76,48 +75,17 @@ export type Engines = {
   close(): Promise<void>;
 };
 
-const DICTIONARY_TEMPLATE = `# Words mockingbird should get right: names, places, jargon.
-# One per line. Lines starting with # are ignored.
-#
-#   Nirjhar Bhattacharjee          spell it this way
-#   Catppuccin (a colour theme)    with a note for the cleanup model
-#   cat puck => Catppuccin         what it hears => what to write
-#
-# The first two are given to the cleanup model as spellings to keep. The third
-# is a plain replacement, applied to the finished text — the reliable fix for
-# a word that comes out wrong the same way every time.
-#
-# Setting MOCKINGBIRD_ASR_VOCABULARY=1 also reads these words to Whisper
-# before it listens. That can fix a name it never gets right, but it bends
-# names it already spelled correctly, so it is off by default.
-#
-# Takes effect on "mockingbird restart".
-`;
-
-/**
- * The user's own vocabulary. Whisper spells an unfamiliar name phonetically
- * however good the model is, so the words that matter to this person have to
- * be nameable somewhere.
- */
-export function loadDictionary(home: string): DictionaryEntry[] {
-  const path = join(home, "dictionary.txt");
-  try {
-    if (!existsSync(path)) {
-      writeFileSync(path, DICTIONARY_TEMPLATE, { flag: "wx" });
-      return [];
-    }
-    return parseDictionary(readFileSync(path, "utf8"));
-  } catch {
-    // A dictionary that can't be read costs spelling, not dictation.
-    return [];
-  }
-}
+/** `~/.mockingbird`, or MOCKINGBIRD_HOME: models, data.db, logs and the socket. */
+export const mockingbirdHome = (env = process.env) =>
+  env.MOCKINGBIRD_HOME ?? join(homedir(), ".mockingbird");
 
 /** Checks the models, loads VAD, starts whisper-server, and checks Ollama. */
-export async function startEngines(log: (message: string) => void): Promise<Engines> {
+export async function startEngines(
+  log: (message: string) => void,
+  dictionary: DictionaryEntry[] = [],
+): Promise<Engines> {
   const env = process.env;
-  const home = env.MOCKINGBIRD_HOME ?? join(homedir(), ".mockingbird");
-  const models = join(home, "models");
+  const models = join(mockingbirdHome(env), "models");
   // MOCKINGBIRD_ASR_MODEL takes a path, or a file name inside models/, so a
   // smaller model can be used on a slower Mac without touching the code.
   const whisperModel = findAsrModel(models, env.MOCKINGBIRD_ASR_MODEL, log);
@@ -178,7 +146,7 @@ export async function startEngines(log: (message: string) => void): Promise<Engi
         detectSpeech: (audio) => detectSpeech(vad, audio),
         asr: whisper.engine,
         llm,
-        dictionary: loadDictionary(home),
+        dictionary,
         // Opt-in: it fixes a name Whisper never gets, at the risk of bending
         // ones it already spells correctly (packages/llm/src/dictionary.ts).
         vocabularyHint: env.MOCKINGBIRD_ASR_VOCABULARY === "1",

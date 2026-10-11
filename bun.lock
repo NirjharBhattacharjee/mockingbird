@@ -20,6 +20,7 @@
         "@mockingbird/hotkey": "workspace:*",
         "@mockingbird/inject": "workspace:*",
         "@mockingbird/llm": "workspace:*",
+        "@mockingbird/store": "workspace:*",
         "@mockingbird/vad": "workspace:*",
       },
     },
@@ -49,6 +50,12 @@
     },
     "packages/llm": {
       "name": "@mockingbird/llm",
+    },
+    "packages/store": {
+      "name": "@mockingbird/store",
+      "dependencies": {
+        "@mockingbird/llm": "workspace:*",
+      },
     },
     "packages/vad": {
       "name": "@mockingbird/vad",
@@ -92,6 +99,8 @@
     "@mockingbird/inject": ["@mockingbird/inject@workspace:packages/inject"],
 
     "@mockingbird/llm": ["@mockingbird/llm@workspace:packages/llm"],
+
+    "@mockingbird/store": ["@mockingbird/store@workspace:packages/store"],
 
     "@mockingbird/vad": ["@mockingbird/vad@workspace:packages/vad"],
 

@@ -10,11 +10,12 @@ import { type Cue, cues } from "@mockingbird/cue";
 import { type HotkeyListener, startHotkeyListener } from "@mockingbird/hotkey";
 import { prepareForTyping, typeText } from "@mockingbird/inject";
 import type { AppStyle } from "@mockingbird/llm";
+import { openDaemonStore, recordUses, serveDictionary } from "./dictionary.ts";
 import { HotkeyFsm } from "./hotkey-fsm.ts";
 import { ListenController } from "./listen-controller.ts";
 import { describeTimings, type PipelineResult, runPipeline } from "./pipeline.ts";
 import { Recorder, type Recording } from "./recorder.ts";
-import { startEngines } from "./runtime.ts";
+import { mockingbirdHome, startEngines } from "./runtime.ts";
 import { decideSpacing, InputTracker, type LastTyped } from "./spacing.ts";
 import { Supervisor } from "./supervisor.ts";
 
@@ -158,7 +159,18 @@ export async function startSession(options: SessionOptions): Promise<Session> {
   /** The app that was in front when the recording started. */
   let targetLookup: Promise<FrontmostApp | undefined> = Promise.resolve(undefined);
 
-  const engines = await startEngines(options.log);
+  const store = openDaemonStore(mockingbirdHome(), options.log);
+  const engines = await startEngines(options.log, store?.dictionary());
+  // Edits take effect on the next dictation.
+  const dictionaryEdits =
+    store &&
+    (await serveDictionary(
+      store,
+      (dictionary) => {
+        engines.deps.dictionary = dictionary;
+      },
+      options.log,
+    ));
 
   /** Where the last dictation ended, for apps that can't say what's before the cursor. */
   let lastTyped: LastTyped | undefined;
@@ -273,6 +285,15 @@ export async function startSession(options: SessionOptions): Promise<Session> {
 
     if (!delivery.typed && result.finalText) cue("error");
     onResult?.(result, delivery);
+    if (store && delivery.typed) {
+      try {
+        recordUses(store, engines.deps.dictionary ?? [], result.finalText);
+        // Keeps it most used first, for the cleanup prompt's cap.
+        engines.deps.dictionary = store.dictionary();
+      } catch (error) {
+        notify(`couldn't count dictionary uses: ${error}`);
+      }
+    }
     if (delivery.typed) notify(delivery.spacing);
     if (truncated) notify("the recording hit the 2-minute limit, so the end was cut off");
     if (result.llmOutcome === "failed") notify(`cleanup failed: ${result.llmError}`);
@@ -416,6 +437,8 @@ export async function startSession(options: SessionOptions): Promise<Session> {
         await hotkey?.stop();
         await supervisor.stop();
         await engines.close();
+        dictionaryEdits?.stop();
+        store?.close();
       })();
       return closing;
     },
