@@ -50,6 +50,62 @@ curl -fsSL https://github.com/NirjharBhattacharjee/mockingbird/releases/latest/d
 Running the plain install command again later takes you back to the latest
 release.
 
+### Uninstalling
+
+There's no `mockingbird uninstall` yet
+([#55](https://github.com/NirjharBhattacharjee/mockingbird/issues/55)), so
+it takes a few commands. Run the first two while the `mockingbird` command
+still exists:
+
+```sh
+mockingbird stop
+mockingbird fn --undo  # only if you ran `mockingbird fn`
+```
+
+Fn goes back to what it did before once you log out of your Mac and back in.
+
+If `mockingbird` no longer runs, stop the agent with
+`launchctl bootout gui/$(id -u)/com.mockingbird.agent` instead, and set
+**System Settings → Keyboard → "Press 🌐 key to"** back to what you want Fn to
+do.
+
+Next, delete the agent and `~/.mockingbird`, or your `MOCKINGBIRD_HOME` if you
+set one. That folder holds the models, about 1.1 GB, plus the agent's runner,
+the logs and your dictionary. The `cp` line keeps a copy of your words; leave
+it out if you don't want them:
+
+```sh
+home="${MOCKINGBIRD_HOME:-$HOME/.mockingbird}"
+cp "$home/dictionary.txt" ~/mockingbird-dictionary.txt
+rm ~/Library/LaunchAgents/com.mockingbird.agent.plist
+rm -rf "$home"
+```
+
+Then remove the code and the command. After the curl install, that's
+`rm -rf ~/mockingbird ~/.local/bin/mockingbird`, with your `MOCKINGBIRD_DIR`
+in place of `~/mockingbird` if you set one. The installer may also have added
+`~/.local/bin` to your PATH. This prints the file it changed, if any:
+
+```sh
+grep -l 'Added by the mockingbird installer' "${ZDOTDIR:-$HOME}/.zshrc" \
+  ~/.bash_profile ~/.bash_login ~/.profile 2>/dev/null
+```
+
+Delete that line and the `PATH` line under it.
+
+After a Homebrew install, run `brew uninstall mockingbird`, then
+`brew untap nirjharbhattacharjee/mockingbird`.
+
+The rest is shared with other programs, so remove it only if nothing else
+uses it:
+
+- `ollama rm qwen3:4b-instruct-2507-q4_K_M` deletes the cleanup model, about
+  2.5 GB.
+- `brew uninstall bun whisper-cpp ollama ffmpeg` removes the tools.
+- In **System Settings → Privacy & Security**, the **Microphone**,
+  **Accessibility** and **Input Monitoring** lists each still show
+  mockingbird, or bun on some installs. Select it and click **−**.
+
 ### Manual install
 
 ```sh
