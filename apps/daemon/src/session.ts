@@ -86,12 +86,19 @@ export function separator(piece: string, lineBreaks: boolean): string {
 }
 
 /**
- * What goes before a dictation's first piece when there's text before the
- * cursor: a space, or a line break for a list, so its heading starts a line.
+ * What goes before a dictation's first piece: a space after earlier text, and
+ * a line break before a list, so its heading starts a line. `before` is the
+ * character the app shows before the cursor, when it shows one.
  */
-export function leadIn(space: boolean, piece: string, lineBreaks: boolean): string {
-  if (!space) return "";
-  return lineBreaks && piece.trim().includes("\n") ? "\n" : " ";
+export function leadIn(
+  space: boolean,
+  before: string | undefined,
+  piece: string,
+  lineBreaks: boolean,
+): string {
+  const afterText = before ? !/[\r\n]/.test(before) : space;
+  if (lineBreaks && afterText && piece.trim().includes("\n")) return "\n";
+  return space ? " " : "";
 }
 
 export type SessionOptions = {
@@ -209,7 +216,7 @@ export async function startSession(options: SessionOptions): Promise<Session> {
         // run a command.
         lineBreaks: !mayRunCommands(now),
       };
-      return leadIn(decision.space, piece, open.lineBreaks);
+      return leadIn(decision.space, read, piece, open.lineBreaks);
     };
 
     const write = async (piece: string) => {

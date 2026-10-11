@@ -161,6 +161,28 @@ describe("runPipeline with onText", () => {
     expect(pieces.length).toBeGreaterThan(3);
   });
 
+  test("a list whose heading is the user's words is typed whole", async () => {
+    const list =
+      "To make tea:\n1. Boil the water\n2. Put the tea bag in the cup\n3. Pour the water\n4. Add milk";
+    const { result, pieces } = await run(
+      "to make tea first boil the water then put the tea bag in the cup then pour the water and finally add milk",
+      streamingLlm(list),
+    );
+    expect(result.finalText).toBe(list);
+    expect(pieces.map((p) => p.piece)).toEqual([list]);
+  });
+
+  test("where a list may come, finished sentences still go out early", async () => {
+    const reply = "I need to call mom today. I will buy milk on the way home after work.";
+    const { result, pieces } = await run(
+      "I need to call mom today. I will buy milk on the way home after work",
+      streamingLlm(reply),
+    );
+    expect(result.finalText).toBe(reply);
+    expect(pieces[0]?.piece).toBe("I need to call mom today.");
+    expect(pieces.map((p) => p.piece).join("")).toBe(reply);
+  });
+
   test("an answer is never typed early, and is still rejected", async () => {
     const { result, pieces } = await run("what is the capital of france", streamingLlm("Paris."));
     expect(pieces.map((p) => p.piece)).toEqual(["What is the capital of france?"]);

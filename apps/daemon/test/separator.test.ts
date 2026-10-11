@@ -12,9 +12,16 @@ test("separator keeps what came between two typed pieces", () => {
 });
 
 test("a list after earlier text starts on a new line", () => {
-  expect(leadIn(true, "To do:\n- onions\n- milk", true)).toBe("\n");
-  expect(leadIn(true, "Just a sentence.", true)).toBe(" ");
-  expect(leadIn(false, "To do:\n- onions", true)).toBe("");
+  const list = "To do:\n- onions\n- milk";
+  expect(leadIn(true, ".", list, true)).toBe("\n");
+  // After "My list. " the app needs no space, but the list still needs a line.
+  expect(leadIn(false, " ", list, true)).toBe("\n");
+  expect(leadIn(false, "\n", list, true)).toBe("");
+  expect(leadIn(false, "", list, true)).toBe("");
+  // The app doesn't show its text: following our last dictation is the only clue.
+  expect(leadIn(true, undefined, list, true)).toBe("\n");
+  expect(leadIn(false, undefined, list, true)).toBe("");
+  expect(leadIn(true, ".", "Just a sentence.", true)).toBe(" ");
   // Where a line break could run a command, it's a space.
-  expect(leadIn(true, "To do:\n- onions", false)).toBe(" ");
+  expect(leadIn(true, ".", list, false)).toBe(" ");
 });
