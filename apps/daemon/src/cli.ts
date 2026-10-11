@@ -1,4 +1,4 @@
-import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { checkInputMonitoring } from "@mockingbird/hotkey";
 import { checkTypingAccess } from "@mockingbird/inject";
@@ -64,6 +64,41 @@ function fnBackupPath(): string {
 async function logFnAdvice(): Promise<void> {
   const advice = fnAdvice(await readFnUsage());
   if (advice) log(`\n${advice}`);
+}
+
+/**
+ * `models pull`, with the downloads drawn on one line that redraws in place
+ * on a terminal. When the installer sets MOCKINGBIRD_PROGRESS, the same line
+ * also goes to that file, which the install shows in place of its clock.
+ */
+async function pullWithProgress(): Promise<number> {
+  const file = process.env.MOCKINGBIRD_PROGRESS;
+  let drawn = false;
+  const clear = () => {
+    if (drawn) process.stderr.write("\r\x1b[K");
+    drawn = false;
+  };
+  try {
+    return await pullModels({
+      log: (message) => {
+        clear();
+        log(message);
+      },
+      progress: (line) => {
+        if (file) {
+          // Renamed into place, so the installer never reads half a line.
+          writeFileSync(`${file}.tmp`, line);
+          renameSync(`${file}.tmp`, file);
+        }
+        if (process.stderr.isTTY) {
+          process.stderr.write(`\r\x1b[K${line}`);
+          drawn = line !== "";
+        }
+      },
+    });
+  } finally {
+    clear();
+  }
 }
 
 async function fn(args: string[]): Promise<number> {
@@ -347,7 +382,7 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
       if (rest.length !== 1 || rest[0] !== "pull") {
         throw new UsageError("the only `mockingbird models` command is `mockingbird models pull`");
       }
-      return pullModels();
+      return pullWithProgress();
     case "listen":
       return listenMain(rest);
     case "transcribe":

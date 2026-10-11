@@ -38,26 +38,13 @@ export class OllamaProvider implements LlmProvider {
     });
     if (!res.ok || !res.body)
       throw new LlmRequestError(`ollama ${res.status}: ${await res.text()}`);
-    // One JSON object per line, and a network chunk can end mid-line.
-    const decoder = new TextDecoder();
-    let pending = "";
     let done = false;
-    const read = (line: string) => {
-      const reply = JSON.parse(line) as {
-        message?: { content?: string };
-        error?: string;
-        done?: boolean;
-      };
-      if (reply.error) throw new LlmRequestError(`ollama: ${reply.error}`);
+    for await (const reply of records<{ message?: { content?: string }; done?: boolean }>(
+      res.body,
+    )) {
       done ||= reply.done === true;
-      return reply.message?.content ?? "";
-    };
-    for await (const chunk of res.body) {
-      const lines = (pending + decoder.decode(chunk, { stream: true })).split("\n");
-      pending = lines.pop() ?? "";
-      for (const line of lines.filter((l) => l.trim())) yield read(line);
+      yield reply.message?.content ?? "";
     }
-    if (pending.trim()) yield read(pending);
     // A connection cut mid-reply ends the stream without Ollama's last record;
     // that's a failure, not a short cleanup.
     if (!done) throw new LlmRequestError("ollama: the reply ended before the model finished");
@@ -81,6 +68,66 @@ export class OllamaProvider implements LlmProvider {
       body: JSON.stringify({ model: this.model, keep_alive: "30m" }),
     });
     if (!res.ok) throw new LlmRequestError(`ollama ${res.status}: ${await res.text()}`);
+  }
+}
+
+/**
+ * Ollama's streamed reply, one JSON object per line. A network chunk can end
+ * mid-line, and a record with `error` is thrown.
+ */
+async function* records<T>(body: ReadableStream<Uint8Array>): AsyncGenerator<T> {
+  const decoder = new TextDecoder();
+  let pending = "";
+  const read = (line: string) => {
+    const reply = JSON.parse(line) as Awaited<T> & { error?: string };
+    if (reply.error) throw new LlmRequestError(`ollama: ${reply.error}`);
+    return reply;
+  };
+  for await (const chunk of body) {
+    const lines = (pending + decoder.decode(chunk, { stream: true })).split("\n");
+    pending = lines.pop() ?? "";
+    for (const line of lines.filter((l) => l.trim())) yield read(line);
+  }
+  if (pending.trim()) yield read(pending);
+}
+
+/**
+ * Pulls `model` into the Ollama at `baseUrl`, the same download as
+ * `ollama pull`, calling `onProgress` with the bytes done and the total so
+ * far, summed over the model's layers.
+ */
+export async function pullOllamaModel(
+  baseUrl: string,
+  model: string,
+  onProgress: (done: number, total: number) => void = () => {},
+): Promise<void> {
+  const res = await fetch(`${baseUrl}/api/pull`, {
+    method: "POST",
+    body: JSON.stringify({ model, stream: true }),
+  });
+  if (!res.ok || !res.body) throw new LlmRequestError(`ollama ${res.status}: ${await res.text()}`);
+  const layers = new Map<string, { completed: number; total: number }>();
+  let status = "";
+  for await (const r of records<{
+    status?: string;
+    digest?: string;
+    total?: number;
+    completed?: number;
+  }>(res.body)) {
+    status = r.status ?? status;
+    if (r.digest && r.total) {
+      layers.set(r.digest, { completed: r.completed ?? 0, total: r.total });
+      let done = 0;
+      let total = 0;
+      for (const l of layers.values()) {
+        done += l.completed;
+        total += l.total;
+      }
+      onProgress(done, total);
+    }
+  }
+  if (status !== "success") {
+    throw new LlmRequestError(`ollama: the pull of ${model} ended at "${status}"`);
   }
 }
 

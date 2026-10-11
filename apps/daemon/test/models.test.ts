@@ -2,13 +2,21 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MODEL_FILES, type ModelFile, pullFile, pullModels, sha256Of } from "../src/models.ts";
+import {
+  MODEL_FILES,
+  type ModelFile,
+  progressLine,
+  pullFile,
+  pullModels,
+  sha256Of,
+} from "../src/models.ts";
 
 const tempDir = () => mkdtempSync(join(tmpdir(), "mockingbird-pull-"));
 
 const sha256 = (text: string) => new Bun.CryptoHasher("sha256").update(text).digest("hex");
 
 const modelOf = (content: string): ModelFile => ({
+  name: "Model",
   file: "model.bin",
   url: "https://example.invalid/model.bin",
   sha256: sha256(content),
@@ -59,6 +67,17 @@ describe("pullFile", () => {
     expect(existsSync(join(dir, "model.bin.part"))).toBe(false);
   });
 
+  test("reports the bytes as they arrive, against the size the server gave", async () => {
+    const seen: [number, number][] = [];
+    const get = (async () =>
+      new Response("weights", { headers: { "content-length": "7" } })) as unknown as typeof fetch;
+    await pullFile(modelOf("weights"), tempDir(), {
+      fetch: get,
+      onProgress: (d, t) => seen.push([d, t]),
+    });
+    expect(seen.at(-1)).toEqual([7, 7]);
+  });
+
   test("an HTTP error says so", async () => {
     const { get } = serving("", 404);
     await expect(pullFile(modelOf("weights"), tempDir(), { fetch: get })).rejects.toThrow(
@@ -84,9 +103,8 @@ describe("pullModels", () => {
         llmModel: "tiny:latest",
         files: fake,
         modelsDir: home,
-        ollamaPull: async (model) => {
+        ollamaPull: async (_url, model) => {
           pulled.push(model);
-          return 0;
         },
         which: () => "/opt/homebrew/bin/ollama",
         log: () => {},
@@ -118,7 +136,6 @@ describe("pullModels", () => {
         fetch: get,
         ollamaPull: async () => {
           ollamaStarted();
-          return 0;
         },
         which: () => "/opt/homebrew/bin/ollama",
         log: () => {},
@@ -142,7 +159,6 @@ describe("pullModels", () => {
           ollamaPull: async () => {
             await Bun.sleep(50);
             pullDone = true;
-            return 0;
           },
           which: () => "/opt/homebrew/bin/ollama",
           log: () => {},
@@ -185,7 +201,7 @@ describe("pullModels", () => {
         home: tempDir(),
         llmUrl: `http://127.0.0.1:${server.port}`,
         files: [],
-        ollamaPull: async () => 0,
+        ollamaPull: async () => {},
         which: () => null,
         log: (m) => logged.push(m),
       });
@@ -202,12 +218,52 @@ describe("pullModels", () => {
       home: tempDir(),
       llmUrl: "http://192.0.2.1:11434",
       files: [],
-      ollamaPull: async () => 0,
+      ollamaPull: async () => {},
       log: (m) => logged.push(m),
     });
     expect(code).toBe(1);
     expect(logged.at(-1)).toContain("No Ollama answers");
   });
+});
+
+describe("progressLine", () => {
+  test("shows each running download with a bar, and drops finished ones", () => {
+    expect(
+      progressLine([
+        { name: "Whisper", done: 540e6, total: 1081e6 },
+        { name: "VAD", done: 2e6, total: 2e6 },
+        { name: "cleanup model", done: 0.3e9, total: 2.5e9 },
+      ]),
+    ).toBe("Whisper ████░░░░ 0.5/1.1 GB   cleanup model █░░░░░░░ 0.3/2.5 GB");
+  });
+
+  test("small files in MB, an unknown size as bytes so far", () => {
+    expect(progressLine([{ name: "VAD", done: 1e6, total: 2e6 }])).toBe("VAD ████░░░░ 1/2 MB");
+    expect(progressLine([{ name: "Whisper", done: 30e6, total: 0 }])).toBe("Whisper 30 MB");
+  });
+
+  test("empty once everything has finished", () => {
+    expect(progressLine([{ name: "VAD", done: 2e6, total: 2e6 }])).toBe("");
+  });
+});
+
+test("pullModels hands the progress line to deps.progress", async () => {
+  const lines: string[] = [];
+  const server = Bun.serve({ port: 0, fetch: () => new Response("{}") });
+  try {
+    await pullModels({
+      home: tempDir(),
+      llmUrl: `http://127.0.0.1:${server.port}`,
+      files: [],
+      ollamaPull: async (_url, _model, onProgress) => onProgress(1e9, 2.5e9),
+      which: () => "/opt/homebrew/bin/ollama",
+      log: () => {},
+      progress: (line) => lines.push(line),
+    });
+    expect(lines).toEqual(["cleanup model ███░░░░░ 1.0/2.5 GB"]);
+  } finally {
+    server.stop(true);
+  }
 });
 
 test("sha256Of matches a known digest", async () => {

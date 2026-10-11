@@ -23,6 +23,7 @@ export {
   OllamaProvider,
   type OllamaServerProcess,
   ollamaRunning,
+  pullOllamaModel,
   startOllamaServer,
 } from "./ollama.ts";
 export { type CompletionRequest, type LlmProvider, LlmRequestError } from "./provider.ts";
