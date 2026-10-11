@@ -9,7 +9,8 @@ option, permissions, troubleshooting, and privacy. After it, the
 ## Quick start
 
 You need a Mac with Apple Silicon, [Homebrew](https://brew.sh), and about 6 GB of
-free space.
+free space. Without Homebrew, the installer offers to install it, which needs
+an administrator account.
 
 **1. Install everything**
 

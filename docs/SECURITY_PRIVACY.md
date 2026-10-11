@@ -354,6 +354,9 @@ flowchart LR
   tools come from Homebrew (sha256 per formula) and the models are pinned and
   sha256-checked (`apps/daemon/src/models.ts`). Re-running it is also how a
   user updates, and it refuses to overwrite a clone with local edits.
+  If Homebrew is missing and the user says yes, it runs Homebrew's own
+  installer from `raw.githubusercontent.com/Homebrew/install`, unpinned,
+  the way brew.sh tells people to install it.
 - **The Homebrew formula** (in `NirjharBhattacharjee/homebrew-mockingbird`)
   pins each release's source tarball by sha256. CI opens the PR that bumps
   it; a person merges it, so a release reaches `brew upgrade` only after
