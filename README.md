@@ -73,6 +73,8 @@ Run the same install command again, or `brew upgrade mockingbird` if you used
 Homebrew. Either way you get the latest release, and mockingbird never checks
 for updates on its own. After `brew upgrade`, run `mockingbird restart`.
 
+To remove it, follow [Uninstalling](docs/README.md#uninstalling).
+
 ## 🎤 Use it
 
 ```sh

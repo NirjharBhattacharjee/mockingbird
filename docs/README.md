@@ -49,6 +49,48 @@ curl -fsSL https://github.com/NirjharBhattacharjee/mockingbird/releases/latest/d
 Running the plain install command again later takes you back to the latest
 release.
 
+### Uninstalling
+
+There's no `mockingbird uninstall` yet
+([#55](https://github.com/NirjharBhattacharjee/mockingbird/issues/55)), so
+it takes a few commands. Run the first two while the `mockingbird` command
+still exists:
+
+```sh
+mockingbird stop
+mockingbird fn --undo  # only if you ran `mockingbird fn`
+```
+
+Fn goes back to what it did before once you log out of your Mac and back in.
+
+Next, delete the agent and `~/.mockingbird`, or your `MOCKINGBIRD_HOME` if you
+set one. That folder holds the models, about 1.1 GB, plus the agent's runner,
+the logs and your dictionary. Copy the dictionary out first if you want to
+keep your words:
+
+```sh
+cp ~/.mockingbird/dictionary.txt ~/mockingbird-dictionary.txt
+rm ~/Library/LaunchAgents/com.mockingbird.agent.plist
+rm -rf ~/.mockingbird
+```
+
+Then remove the code and the command. After the curl install, that's
+`rm -rf ~/mockingbird ~/.local/bin/mockingbird`, with your `MOCKINGBIRD_DIR`
+in place of `~/mockingbird` if you set one. If `~/.zshrc` or `~/.bash_profile`
+has a `# Added by the mockingbird installer` line, delete it and the `PATH`
+line under it. After a Homebrew install, it's `brew uninstall mockingbird`,
+then `brew untap nirjharbhattacharjee/mockingbird`.
+
+The rest is shared with other programs, so remove it only if nothing else
+uses it:
+
+- `ollama rm qwen3:4b-instruct-2507-q4_K_M` deletes the cleanup model, about
+  2.5 GB.
+- `brew uninstall bun whisper-cpp ollama ffmpeg` removes the tools.
+- In **System Settings → Privacy & Security**, the **Microphone**,
+  **Accessibility** and **Input Monitoring** lists each still show
+  mockingbird, or bun on some installs. Select it and click **−**.
+
 ### Manual install
 
 ```sh
