@@ -5,7 +5,6 @@ import {
   type LaunchctlResult,
   parseDisabled,
   parsePrint,
-  restartArgv,
   runAll,
   settle,
   startArgv,
@@ -42,10 +41,6 @@ describe("argv builders", () => {
       ["disable", `gui/501/${AGENT_LABEL}`],
       ["bootout", `gui/501/${AGENT_LABEL}`],
     ]);
-  });
-
-  test("restart kickstarts in place", () => {
-    expect(restartArgv(UID)).toEqual([["kickstart", "-k", `gui/501/${AGENT_LABEL}`]]);
   });
 });
 

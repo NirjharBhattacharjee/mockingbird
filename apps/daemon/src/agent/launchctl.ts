@@ -35,10 +35,6 @@ export const stopArgv = (uid: number, label = AGENT_LABEL) => [
   ["bootout", target(uid, label)],
 ];
 
-export const restartArgv = (uid: number, label = AGENT_LABEL) => [
-  ["kickstart", "-k", target(uid, label)],
-];
-
 export type PrintInfo = {
   pid?: number;
   state?: string;
