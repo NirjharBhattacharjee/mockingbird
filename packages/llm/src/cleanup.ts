@@ -36,7 +36,8 @@ export function buildCleanupPrompt({
 }): CompletionRequest {
   const own = custom ? sectionsOf(custom) : {};
   const section = (name: string) => {
-    const body = own[name] ?? SHIPPED[name];
+    // An empty section in the user's file counts as left out.
+    const body = own[name] || SHIPPED[name];
     if (!body) throw new Error(`prompts/cleanup.md has no "## ${name}" section`);
     return body;
   };

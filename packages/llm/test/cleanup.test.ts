@@ -107,6 +107,8 @@ describe("buildCleanupPrompt", () => {
     expect(mine).not.toContain(shipped.split("\n")[0]);
     // The sections the file leaves out are the shipped ones.
     expect(mine).toContain("one item per line");
+    // An empty section is left out, not an empty prompt or an error.
+    expect(buildCleanupPrompt({ text: list, custom: "## Rules\n\n" }).system).toBe(shipped);
     expect(unknownSections(custom)).toEqual([]);
     expect(unknownSections("## Rules\nx\n## List\ny")).toEqual(["List"]);
   });
