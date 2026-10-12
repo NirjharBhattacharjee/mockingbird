@@ -156,7 +156,7 @@ the local setup the integration tests need.
 | Integration tests (real VAD, whisper-server, Ollama) | `bun run test:integration` | no — run locally for any change to `packages/{vad,asr,llm}` or the pipeline |
 | Build smoke test | `bun build --compile` | not yet — no daemon entry point |
 | Go command (`apps/cli`) | `cd apps/cli && gofmt -l . && go vet ./... && go test -race ./...` | yes |
-| Model comparison (Whisper, cleanup models) | `bun run bench:models`, `bun run bench:cleanup <ollama models>` | no — run locally before changing a default model (MODELS.md §7a) |
+| Model comparison (Whisper, cleanup models, both together) | `bun run bench:models`, `bun run bench:cleanup <ollama models>`, `bun run bench:e2e --speech <file> --cleanup <model>` | no — run locally before changing a default model (MODELS.md §7a) |
 | Cleanup eval (promptfoo, local Ollama) | `bun run eval:cleanup`, then `MOCKINGBIRD_EVAL_SET=holdout bun run eval:cleanup` | no — run locally for any change to the cleanup prompt, the gate, or the cleanup model |
 
 Integration tests are the evidence for pipeline work: they print each

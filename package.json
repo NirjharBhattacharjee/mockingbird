@@ -21,7 +21,8 @@
     "bench:models": "bun bench/models.ts",
     "bench:record": "bun bench/record.ts",
     "eval:cleanup": "bun evals/cleanup/run.ts",
-    "bench:cleanup": "bun bench/cleanup-models.ts"
+    "bench:cleanup": "bun bench/cleanup-models.ts",
+    "bench:e2e": "bun bench/e2e.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",

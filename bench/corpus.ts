@@ -8,7 +8,8 @@
 import { existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-export type Sentence = { text: string; names: string[] };
+/** `cleaned` is what the cleanup should make of `text`, where that isn't `text` itself. */
+export type Sentence = { text: string; names: string[]; cleaned?: string };
 
 export const SENTENCES: Sentence[] = [
   {
@@ -20,7 +21,12 @@ export const SENTENCES: Sentence[] = [
     names: ["Nirjhar Bhattacharjee"],
   },
   { text: "The meeting moved to 3:30 on Thursday and it should take 45 minutes.", names: [] },
-  { text: "I need to buy onions, milk and bread on the way home.", names: [] },
+  {
+    text: "I need to buy onions, milk and bread on the way home.",
+    names: [],
+    // Three things become a list (packages/llm/prompts/cleanup.md, "Lists").
+    cleaned: "On the way home:\n- onions\n- milk\n- bread",
+  },
   { text: "Run the tests again because the build failed on the second step.", names: [] },
   {
     text: "Siobhan and Xiaoming are presenting the quarterly results in Sydney.",

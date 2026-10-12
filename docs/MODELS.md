@@ -381,8 +381,32 @@ lighter setup is ever offered for small Macs, this is the cost.
 word error and 4 fewer names right; `qwen2.5:1.5b` is about twice as fast per call and
 2.5 GB smaller, but fails 3 of 11 held-out cases.
 
-Re-run both when a new model comes out. `bench:cleanup` needs the models
-pulled into Ollama first, and both take a few minutes.
+**Both together,** `bun run bench:e2e --speech <file> --cleanup <model>`
+(2026-10-12, same machine): each of the 64 clips through `runPipeline`
+itself, VAD, Whisper, the gate and the cleanup, no dictionary. "WER raw" is
+Whisper's transcript against the words spoken; "WER final" and "Exact" are
+the typed text against what the cleanup should make of it (the sentence as
+written, or for the shopping sentence, a list). Time runs from the end of the
+clip to the final text, warm.
+
+| Speech | Cleanup | WER raw | WER final | Exact | Names | Median | p90 | Cleaned / skipped |
+|---|---|---|---|---|---|---|---|---|
+| large-v3-q5_0 | qwen3:4b-instruct-2507-q4_K_M | 3.2% | 8.7% | 34/64 | 17/32 | 1622 ms | 2057 ms | 10 / 54 |
+| large-v3-q5_0 | qwen2.5:1.5b | 3.2% | 12.6% | 34/64 | 17/32 | 1655 ms | 1942 ms | 10 / 54 |
+| large-v3-turbo-q5_0 | qwen3:4b-instruct-2507-q4_K_M | 4.2% | 8.9% | 32/64 | 13/32 | 1179 ms | 1837 ms | 13 / 51 |
+| large-v3-turbo-q5_0 | qwen2.5:1.5b | 4.2% | 13.5% | 32/64 | 13/32 | 1220 ms | 1510 ms | 13 / 51 |
+
+On synthetic voices the gate skips the cleanup for most clips, so the speech
+model decides most of the result. The final error is above the raw error
+because of the one list sentence: `qwen3:4b` makes the list but drops "on the
+way home", and `qwen2.5:1.5b` keeps it a sentence. The defaults stay.
+
+Re-run all three when a new model comes out. `bench:cleanup` and `bench:e2e`
+need the models pulled into Ollama first, and each takes a few minutes. A
+fresh `bench/corpus/` is worth a look: on 2026-10-12 `say` rendered ten Aman
+and Tara clips garbled (1.2-10 s long), once. This Mac also has a Siri voice
+with each of those names. Deleting the clips and running again fixed them, and
+the raw word error then matched `bench:models` again.
 
 ## 8. Acquisition, storage & integrity
 
