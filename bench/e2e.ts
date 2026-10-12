@@ -92,7 +92,8 @@ for (const modelPath of speechModels) {
         if (result.finalText === expected) exact++;
         for (const name of clip.sentence.names) {
           names++;
-          if (result.finalText.includes(name)) namesRight++;
+          // Whole words only: "Xiaomingo" isn't "Xiaoming".
+          if (new RegExp(`\\b${name}\\b`).test(result.finalText)) namesRight++;
         }
       }
       const failed = outcomes.failed ? ` / ${outcomes.failed} failed` : "";
