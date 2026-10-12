@@ -334,10 +334,15 @@ SHIM
   # script, so setup reads the keyboard from /dev/tty. Anything else (output
   # to a file, as for a coding agent, or no Go command) gets the steps below.
   if [ -x "$cli" ] && [ -t 1 ] && (: </dev/tty) 2>/dev/null; then
-    printf '\n\033[1;32mAll set.\033[0m Next, the permissions, the Fn key and a test dictation.\n'
-    "$shim" setup </dev/tty || true
-    printf '\nLater: `%s setup` goes through this again,\n' "$cmd"
-    printf 'and `%s` on its own lists every command.\n' "$cmd"
+    printf '\n\033[1;32mInstalled.\033[0m Next, the permissions, the Fn key and a test dictation.\n'
+    # Quitting setup early is fine and exits 0; only a setup that couldn't run fails.
+    if ! "$shim" setup </dev/tty; then
+      printf '\n\033[1;33mnote:\033[0m setup stopped with an error. mockingbird is installed;\n'
+      printf 'run `%s setup` to try again, or `%s start` to skip it.\n' "$cmd" "$cmd"
+    else
+      printf '\nLater: `%s setup` goes through this again,\n' "$cmd"
+      printf 'and `%s` on its own lists every command.\n' "$cmd"
+    fi
     if [ -n "$in_profile" ]; then
       printf 'In a new terminal window, plain `mockingbird` works too.\n'
     fi
