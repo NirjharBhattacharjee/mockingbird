@@ -134,20 +134,21 @@ describe("learnFrom", () => {
 describe("CorrectionWatcher", () => {
   test("checks once input has gone quiet, and only after input", async () => {
     const checked: Typed[] = [];
-    const watcher = new CorrectionWatcher((t) => checked.push(t), 20);
+    // Wide margins around the 100 ms quiet time, so a busy machine can't flake it.
+    const watcher = new CorrectionWatcher((t) => checked.push(t), 100);
     const t = typed("", "Ask near jar.");
     watcher.typed(t);
-    await Bun.sleep(40);
+    await Bun.sleep(200);
     expect(checked).toEqual([]);
     watcher.input();
-    await Bun.sleep(10);
-    watcher.input();
-    await Bun.sleep(10);
-    expect(checked).toEqual([]);
     await Bun.sleep(30);
+    watcher.input();
+    await Bun.sleep(30);
+    expect(checked).toEqual([]);
+    await Bun.sleep(200);
     expect(checked).toEqual([t]);
     watcher.input();
-    await Bun.sleep(40);
+    await Bun.sleep(200);
     expect(checked).toEqual([t]);
   });
 
