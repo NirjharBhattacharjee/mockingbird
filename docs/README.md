@@ -224,6 +224,21 @@ Set `MOCKINGBIRD_CUES=0` to silence them. `mockingbird listen` is quiet by
 default instead, since it draws a live level meter; `--cues` turns them on
 there too.
 
+**You can change how it cleans up.** The cleanup model's instructions are in
+[`packages/llm/prompts/cleanup.md`](../packages/llm/prompts/cleanup.md), in
+sections: `## Rules`, `## Lists`, `## Terminal`, `## Dictionary`. To change
+one, put a section with the same heading in `~/.mockingbird/cleanup.md` and
+run `mockingbird restart`. For example, British spelling:
+
+```markdown
+## Rules
+Rewrite the transcript inside <transcript> in British spelling (colour,
+organise). Remove filler words. Return only the text.
+```
+
+Sections you leave out stay as shipped. Your file replaces a whole section,
+so copy the shipped one and edit it rather than starting from nothing.
+
 ### `mockingbird listen`: talk live in a terminal
 
 | Key | Does |

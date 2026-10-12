@@ -31,6 +31,8 @@ export type PipelineDeps = {
   dictionary?: DictionaryEntry[];
   /** Give Whisper the dictionary before it listens. Off by default: it can distort other names. */
   vocabularyHint?: boolean;
+  /** The user's ~/.mockingbird/cleanup.md, whose sections replace the shipped prompt's. */
+  cleanupRules?: string;
   gate?: GateOptions;
 };
 
@@ -108,7 +110,7 @@ export async function runPipeline(
   return { ...base, rawText: asr.text, vadMs, asrMs, ...(await cleanUp(asr, deps, style, onText)) };
 }
 
-export type CleanupDeps = Pick<PipelineDeps, "llm" | "dictionary" | "gate">;
+export type CleanupDeps = Pick<PipelineDeps, "llm" | "dictionary" | "gate" | "cleanupRules">;
 
 export type CleanupResult = Pick<
   PipelineResult,
@@ -165,6 +167,7 @@ export async function cleanUp(
     text: asr.text,
     dictionary: promptTerms(asr.text, dictionary),
     style,
+    custom: deps.cleanupRules,
   });
   const t = performance.now();
   let cleaned = "";

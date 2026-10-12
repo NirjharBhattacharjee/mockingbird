@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_ASR_MODEL, findAsrModel } from "../src/runtime.ts";
+import { DEFAULT_ASR_MODEL, findAsrModel, readCleanupRules } from "../src/runtime.ts";
 
 const modelsWith = (...names: string[]) => {
   const dir = mkdtempSync(join(tmpdir(), "mockingbird-models-"));
@@ -41,5 +41,19 @@ describe("findAsrModel", () => {
     expect(findAsrModel(models, "ggml-base.en.bin", () => {})).toBe(
       join(models, "ggml-base.en.bin"),
     );
+  });
+});
+
+describe("readCleanupRules", () => {
+  test("reads the user's file, warns about a heading it won't use, and is quiet when there's none", () => {
+    const home = mkdtempSync(join(tmpdir(), "mb-rules-"));
+    const logs: string[] = [];
+    expect(readCleanupRules(home, (m) => logs.push(m))).toBeUndefined();
+    expect(logs).toEqual([]);
+
+    writeFileSync(join(home, "cleanup.md"), "## Rules\nBe brief.\n## List\nTypo.\n");
+    expect(readCleanupRules(home, (m) => logs.push(m))).toContain("Be brief.");
+    expect(logs[0]).toContain('"## List"');
+    expect(logs[1]).toContain("cleanup rules: yours from");
   });
 });

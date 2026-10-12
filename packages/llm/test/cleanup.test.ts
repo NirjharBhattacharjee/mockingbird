@@ -8,6 +8,7 @@ import {
   looksLikeList,
   shouldSkipLlm,
   spokenFlags,
+  unknownSections,
 } from "../src/index.ts";
 
 describe("shouldSkipLlm", () => {
@@ -97,6 +98,19 @@ describe("acceptCleanup", () => {
 });
 
 describe("buildCleanupPrompt", () => {
+  test("the user's sections replace the shipped ones, heading by heading", () => {
+    const custom = "# Mine\n\n## Rules\nWrite in British English.\n";
+    const list = "I need to buy onions, milk and bread";
+    const shipped = buildCleanupPrompt({ text: list }).system;
+    const mine = buildCleanupPrompt({ text: list, custom }).system;
+    expect(mine.startsWith("Write in British English.")).toBe(true);
+    expect(mine).not.toContain(shipped.split("\n")[0]);
+    // The sections the file leaves out are the shipped ones.
+    expect(mine).toContain("one item per line");
+    expect(unknownSections(custom)).toEqual([]);
+    expect(unknownSections("## Rules\nx\n## List\ny")).toEqual(["List"]);
+  });
+
   test("wraps the transcript and includes dictionary terms and terminal rules", () => {
     const prompt = buildCleanupPrompt({
       text: "run bun test",
