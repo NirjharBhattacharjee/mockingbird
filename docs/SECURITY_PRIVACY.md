@@ -315,7 +315,9 @@ rules.
   dictation. With no input since the dictation, it reads nothing. It never
   records keystrokes. The event tap still reduces every key except Fn to a
   bare "input" event.
-- **Only the same app.** If another app is in front by then, it reads nothing.
+- **Only the same app.** Every read after the first checks which process the
+  focused field belongs to before reading anything from it, and stops if it
+  isn't the app the dictation went into.
 - **Never password fields** (`AXSecureTextField`), terminals, or apps listed
   in `MOCKINGBIRD_LEARN_EXCLUDE` (bundle ids, comma separated).
 - **Only word pairs are stored**, with a count: never the text around them,

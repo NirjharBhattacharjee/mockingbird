@@ -14,7 +14,7 @@ import {
 
 /** A dictation typed into a field that held `before` and `after` around it. */
 const typed = (before: string, inserted: string, after = ""): Typed => ({
-  bundleId: "com.apple.TextEdit",
+  pid: 1,
   start: before.length,
   before,
   inserted,

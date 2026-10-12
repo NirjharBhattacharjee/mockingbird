@@ -184,11 +184,9 @@ export async function startSession(options: SessionOptions): Promise<Session> {
   const excluded = new Set(
     (process.env.MOCKINGBIRD_LEARN_EXCLUDE ?? "").split(",").map((b) => b.trim()),
   );
-  const corrections = new CorrectionWatcher(async (typed) => {
+  const corrections = new CorrectionWatcher((typed) => {
     if (!learning) return;
     try {
-      // Read only the field the dictation went into, never one in another app.
-      if ((await frontmostApp().catch(() => undefined))?.bundleId !== typed.bundleId) return;
       const learned = learnFrom(learning, correctionsIn(typed));
       if (!learned.length) return;
       engines.deps.dictionary = learning.dictionary();
@@ -200,6 +198,9 @@ export async function startSession(options: SessionOptions): Promise<Session> {
       notify(`couldn't learn from a correction: ${error}`);
     }
   });
+
+  /** The wait before a dictation just typed is read, so `close` can cancel it. */
+  let settling: ReturnType<typeof setTimeout> | undefined;
 
   /** Where the last dictation ended, for apps that can't say what's before the cursor. */
   let lastTyped: LastTyped | undefined;
@@ -293,11 +294,11 @@ export async function startSession(options: SessionOptions): Promise<Session> {
       if (lastChar) lastTyped = { bundleId: open.now.bundleId, lastChar };
       inputs.reset();
       const begun = mark;
-      const { bundleId } = open.now;
-      // Read once the app has caught up with the last keystrokes.
+      // Read once the app has caught up with the last keystrokes, and only
+      // if focus is still in the app the dictation went into.
       if (begun) {
-        setTimeout(() => {
-          const typed = readFocusedField((field) => markEnd(field, begun, bundleId));
+        settling = setTimeout(() => {
+          const typed = readFocusedField((field) => markEnd(field, begun), begun);
           if (typed) corrections.typed(typed);
         }, TYPING_SETTLE_MS);
       }
@@ -478,9 +479,11 @@ export async function startSession(options: SessionOptions): Promise<Session> {
         if (deadlineTimer) clearTimeout(deadlineTimer);
         if (controller.busy) notify("finishing the current transcription...");
         await controller.settled();
+        // After the last dictation's done(), which may start the wait.
+        clearTimeout(settling);
+        corrections.stop();
         await hotkey?.stop();
         await supervisor.stop();
-        corrections.stop();
         await engines.close();
         dictionaryEdits?.stop();
         store?.close();

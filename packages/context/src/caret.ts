@@ -40,6 +40,7 @@ function loadSymbols() {
       args: [REF, REF, FFIType.ptr],
       returns: FFIType.i32,
     },
+    AXUIElementGetPid: { args: [REF, FFIType.ptr], returns: FFIType.i32 },
     AXUIElementCopyParameterizedAttributeValue: {
       args: [REF, REF, REF, FFIType.ptr],
       returns: FFIType.i32,
@@ -55,6 +56,8 @@ function loadSymbols() {
  * UTF-16 units, as the field's own do.
  */
 export type FocusedField = {
+  /** The process the field belongs to. */
+  pid: number;
   /** Where the cursor is, or where the selection starts. */
   caret: number;
   /** How long the text is; undefined if the app doesn't say. */
@@ -68,8 +71,13 @@ export type FocusedField = {
  * when there's no such field to read: no permission, no text field, an app
  * that doesn't expose its text or is too slow to answer, or a password field,
  * which is never read. Callers ask for the ranges they need, never the field.
+ * With `pid`, a field that has moved to another app by then isn't read either.
  */
-export function readFocusedField<T>(read: (field: FocusedField) => T): T | undefined {
+export function readFocusedField<T>(
+  read: (field: FocusedField) => T,
+  /** Read only if the field belongs to this process; checked before anything is read from it. */
+  { pid }: { pid?: number } = {},
+): T | undefined {
   let symbols: ReturnType<typeof loadSymbols>;
   try {
     symbols = loadSymbols();
@@ -122,6 +130,9 @@ export function readFocusedField<T>(read: (field: FocusedField) => T): T | undef
 
     const element = copy(system, "AXFocusedUIElement");
     if (!element) return undefined;
+    const owner = new Int32Array(1);
+    if (ax.symbols.AXUIElementGetPid(element, ptr(owner)) !== kAXErrorSuccess) return undefined;
+    if (pid !== undefined && owner[0] !== pid) return undefined;
     ax.symbols.AXUIElementSetMessagingTimeout(element, MESSAGING_TIMEOUT_S);
     if (jsString(copy(element, "AXSubrole")) === "AXSecureTextField") return undefined;
 
@@ -154,7 +165,7 @@ export function readFocusedField<T>(read: (field: FocusedField) => T): T | undef
       );
       return span ? jsString(copy(element, "AXStringForRange", span)) : undefined;
     };
-    return read({ caret, length, text });
+    return read({ pid: owner[0] ?? 0, caret, length, text });
   } catch {
     return undefined;
   } finally {

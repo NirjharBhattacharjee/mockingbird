@@ -20,7 +20,8 @@ const MIN_KEPT = 0.5;
 
 /** A dictation as the field showed it right after typing. Held in memory only. */
 export type Typed = {
-  bundleId: string;
+  /** The app it went into. Every later read is refused in any other. */
+  pid: number;
   /** Where it starts in the field. */
   start: number;
   before: string;
@@ -30,22 +31,20 @@ export type Typed = {
 
 export type Correction = { from: string; to: string };
 
+export type Mark = Pick<Typed, "pid" | "start" | "before">;
+
 /** Where a dictation is about to start, and the text before it. */
-export function markStart(field: FocusedField): { start: number; before: string } | undefined {
+export function markStart(field: FocusedField): Mark | undefined {
   const before = field.text(field.caret - ANCHOR, field.caret);
-  return before === undefined ? undefined : { start: field.caret, before };
+  return before === undefined ? undefined : { pid: field.pid, start: field.caret, before };
 }
 
 /** The dictation that went in since `markStart`, with the text after it. */
-export function markEnd(
-  field: FocusedField,
-  mark: { start: number; before: string },
-  bundleId: string,
-): Typed | undefined {
+export function markEnd(field: FocusedField, mark: Mark): Typed | undefined {
   const inserted = field.text(mark.start, field.caret);
   const after = field.text(field.caret, field.caret + ANCHOR);
   if (!inserted?.trim() || after === undefined) return undefined;
-  return { bundleId, ...mark, inserted, after };
+  return { ...mark, inserted, after };
 }
 
 type Word = { key: string; text: string; start: number; end: number };
@@ -222,7 +221,7 @@ export function correctionsIn(typed: Typed): Correction[] {
         typed.start + typed.inserted.length + typed.after.length + SLACK,
       );
       return text === undefined ? [] : findCorrections(typed, { text, from });
-    }) ?? []
+    }, typed) ?? []
   );
 }
 
