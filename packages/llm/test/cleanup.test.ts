@@ -358,6 +358,7 @@ describe("spokenFlags", () => {
     );
     expect(spokenFlags("docker ps dash a")).toBe("docker ps -a");
     expect(spokenFlags("npm run build dash dash watch")).toBe("npm run build --watch");
+    expect(spokenFlags("git commit -m dash a")).toBe("git commit -m -a");
   });
 
   test("leaves everything else alone", () => {

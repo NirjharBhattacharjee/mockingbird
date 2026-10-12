@@ -162,14 +162,15 @@ export function acceptCleanup(raw: string, cleaned: string): boolean {
 /**
  * Spoken flags written as flags, for a terminal: "git commit dash dash amend
  * dash dash no dash edit" becomes "git commit --amend --no-edit", and "docker
- * ps dash a" becomes "docker ps -a". A dash inside a flag joins the words
- * either side. Done here rather than by the cleanup model because the rule
+ * ps dash a" becomes "docker ps -a". A dash inside a long flag joins the
+ * words either side; a short flag like "-m" stays apart from the next one.
+ * Done here rather than by the cleanup model because the rule
  * never changes, and small models get it wrong.
  */
 export const spokenFlags = (text: string) =>
   text
     .replace(/\bdash dash (?=\S)/gi, "--")
-    .replace(/(-[\p{L}\p{N}-]+) dash (?=\S)/giu, "$1-")
+    .replace(/(--[\p{L}\p{N}-]+) dash (?=\S)/giu, "$1-")
     .replace(/\bdash (?=\S)/gi, "-");
 
 /** Words a question usually opens with. */
