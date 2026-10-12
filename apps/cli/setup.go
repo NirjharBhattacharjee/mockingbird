@@ -151,7 +151,8 @@ func (m setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.next()
 	case engineMsg:
 		if m.stage == freeingFn {
-			m.note = lastLine(msg.out)
+			// All of it: the line that matters, log out of the Mac, isn't the last.
+			m.note = strings.Join(strings.Fields(msg.out), " ")
 		}
 		return m, nil
 	case dictationMsg:
@@ -288,9 +289,4 @@ func (m setupModel) render() string {
 		b.WriteString(paint("enter check again · q quit", overlay0))
 	}
 	return b.String() + "\n"
-}
-
-func lastLine(s string) string {
-	lines := strings.Split(strings.TrimSpace(s), "\n")
-	return lines[len(lines)-1]
 }

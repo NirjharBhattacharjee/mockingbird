@@ -22,7 +22,9 @@ This installs Bun, whisper-cpp, Ollama and ffmpeg with Homebrew, clones
 mockingbird into `~/mockingbird` at the latest release, and runs
 `mockingbird models pull` for the models (checking each against its sha256)
 and the cleanup model.
-It skips anything you already have, so it's safe to run again.
+It skips anything you already have, so it's safe to run again. A first
+install then opens `mockingbird setup`, which starts mockingbird and walks you
+through the permissions, the Fn key and a test dictation.
 [Read the script](../scripts/install.sh) first if you like.
 
 Or install it with Homebrew instead:

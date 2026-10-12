@@ -264,9 +264,19 @@ home screen. Neither needs the IPC socket.
 - The engine does every step. The Go command calls `status --json`, `start`,
   `restart`, `fn`, and two helpers only setup uses: `setup open <pane>` and
   `setup await-dictation`. Nothing in Go writes state.
+- A first install ends here: once `install.sh` has put the Go command in
+  place, and its output is a terminal, it runs `mockingbird setup` with the
+  keyboard read from `/dev/tty` (under `curl | bash`, stdin is the script).
+  An update, output to a file (a coding agent's install), or no Go command
+  gets the old "Now run: `mockingbird start`" ending.
+- The Fn step shows all of what `fn` printed, since the line that matters
+  ("log out of your Mac (Apple menu → Log Out)", not `mockingbird restart`)
+  isn't the last one.
 - Not built yet (#54): telling the user to restart the Mac when a permission
-  is on but still not applied. #54 asks for that to come from cases seen on
-  real Macs, not a guess. The install doesn't end here yet either (#49).
+  is on but still not applied, and opening System Settings' Keyboard pane
+  instead of writing the Fn default (expected to apply without a log out).
+  Both need checking on a real Mac first: #54 asks for the first to come from
+  real cases, and the second is untested.
 
 ### Dashboard (default view)
 - **Live hotkey FSM state** ([ARCHITECTURE.md §5](./ARCHITECTURE.md#5-the-hotkey-state-machine)),

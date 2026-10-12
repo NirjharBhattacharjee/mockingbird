@@ -328,6 +328,23 @@ SHIM
     return
   fi
 
+  # A fresh install goes straight into `mockingbird setup`, which starts the
+  # agent and walks through the permissions, Fn and a test dictation (#54). It
+  # needs the Go command and a terminal. Under `curl | bash` stdin is this
+  # script, so setup reads the keyboard from /dev/tty. Anything else (output
+  # to a file, as for a coding agent, or no Go command) gets the steps below.
+  if [ -x "$cli" ] && [ -t 1 ] && (: </dev/tty) 2>/dev/null; then
+    printf '\n\033[1;32mAll set.\033[0m Next, the permissions, the Fn key and a test dictation.\n'
+    "$shim" setup </dev/tty || true
+    printf '\nLater: `%s setup` goes through this again,\n' "$cmd"
+    printf 'and `%s` on its own lists every command.\n' "$cmd"
+    if [ -n "$in_profile" ]; then
+      printf 'In a new terminal window, plain `mockingbird` works too.\n'
+    fi
+    printf 'To update, run the install command again.\n\n'
+    return
+  fi
+
   printf '\n\033[1;32mAll set.\033[0m Now run:\n\n'
   printf '    %s start\n\n' "$cmd"
   printf 'That runs it in the background, now and at every login. macOS will ask\n'

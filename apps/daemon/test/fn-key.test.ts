@@ -160,7 +160,9 @@ describe("claimFnKey", () => {
 describe("claimMessage", () => {
   test("says a logout is needed, because macOS only reads it at login", () => {
     const message = claimMessage({ kind: "claimed", from: "Show Emoji & Symbols" });
-    expect(message).toContain("log out");
+    // "Restart" alone read as `mockingbird restart` to a tester (#54).
+    expect(message.replace(/\s+/g, " ")).toContain("log out of your Mac (Apple menu → Log Out)");
+    expect(message).toContain("`mockingbird restart` isn't enough");
     expect(message).toContain("Show Emoji & Symbols");
   });
 
@@ -225,6 +227,8 @@ describe("restoreMessage", () => {
   test("names what Fn went back to and that a logout is needed", () => {
     const message = restoreMessage({ kind: "restored", to: "Show Emoji & Symbols" });
     expect(message).toContain("Show Emoji & Symbols");
-    expect(message).toContain("log out");
+    // "Restart" alone read as `mockingbird restart` to a tester (#54).
+    expect(message.replace(/\s+/g, " ")).toContain("log out of your Mac (Apple menu → Log Out)");
+    expect(message).toContain("`mockingbird restart` isn't enough");
   });
 });

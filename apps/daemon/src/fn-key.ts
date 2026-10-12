@@ -214,8 +214,9 @@ export function claimMessage(claim: FnClaim): string {
     case "claimed":
       return (
         `Fn was opening ${claim.from}; it's now bound to nothing.\n` +
-        `macOS only reads that at login, so log out and back in (or restart) before\n` +
-        `tapping Fn. Holding Fn works already. To put it back: \`mockingbird fn --undo\`.`
+        "macOS only reads that when you log in, so log out of your Mac (Apple menu →\n" +
+        "Log Out) and back in before tapping Fn; `mockingbird restart` isn't enough.\n" +
+        "Holding Fn works already. To put it back: `mockingbird fn --undo`."
       );
     case "failed":
       return (
@@ -235,8 +236,9 @@ export function restoreMessage(result: FnRestore): string {
       );
     case "restored":
       return (
-        `Fn is back to ${result.to}. macOS only reads that at login, so log out and\n` +
-        "back in (or restart) for it to take effect."
+        `Fn is back to ${result.to}.\n` +
+        "macOS only reads that when you log in, so log out of your Mac (Apple menu →\n" +
+        "Log Out) and back in; `mockingbird restart` isn't enough."
       );
     case "failed":
       return (
