@@ -79,7 +79,7 @@ const sourceMarker = (app: string) => `${app}.source`;
  */
 function describe(path: string): string {
   const s = statSync(path);
-  return `${realpathSync(path)}\n${s.size}\n${Math.round(s.mtimeMs)}\n${Bun.hash(INFO_PLIST + statSync(ICON).size)}\n`;
+  return `${realpathSync(path)}\n${s.size}\n${Math.round(s.mtimeMs)}\n${Bun.hash(INFO_PLIST)}\n${Bun.hash(readFileSync(ICON))}\n`;
 }
 
 export type EnsureRunnerOptions = {
@@ -126,14 +126,34 @@ export function ensureRunner(options: EnsureRunnerOptions = {}): EnsureRunnerRes
   } catch {
     current = undefined;
   }
-  if (current === wanted) return { path, app, installed: false };
+  const run = options.run ?? defaultRun;
+  const result =
+    current === wanted
+      ? { path, app, installed: false }
+      : build(source, app, wanted, current !== undefined, run);
+  // Tells System Settings where to find the name and icon. It's cheap and safe
+  // to repeat, so every start does it, and a failed registration retries itself.
+  run([LSREGISTER, "-f", app]);
+  return result;
+}
 
+/**
+ * Builds the bundle beside `app` and swaps it in. `signed` says the bundle
+ * already there was signed, which a failed signing mustn't throw away.
+ */
+function build(
+  source: string,
+  app: string,
+  wanted: string,
+  signed: boolean,
+  run: (cmd: string[]) => number,
+): EnsureRunnerResult {
+  const path = executableIn(app);
   mkdirSync(dirname(app), { recursive: true, mode: 0o700 });
 
   // Built beside the destination and moved in. An agent running from the old
   // bundle keeps its open file; the new bundle is there for the next start.
   const staged = `${app}.new`;
-  const run = options.run ?? defaultRun;
   let code: number;
   rmSync(staged, { recursive: true, force: true });
   try {
@@ -147,13 +167,21 @@ export function ensureRunner(options: EnsureRunnerOptions = {}): EnsureRunnerRes
     // failure leaves bun's own signature, which still runs, so it costs the
     // name and icon, not the feature.
     code = run(["codesign", "--sign", "-", "--force", staged]);
+    // A signed bundle keeps its name and grants, so it beats an unsigned new
+    // one. The marker stays stale, and the next start tries again.
+    if (code !== 0 && signed) {
+      return {
+        path,
+        app,
+        installed: false,
+        unsigned: `codesign exited with ${code}; kept the current one, and will retry on the next start`,
+      };
+    }
     rmSync(app, { recursive: true, force: true });
     renameSync(staged, app);
   } finally {
     rmSync(staged, { recursive: true, force: true });
   }
-  // Tells System Settings where to find the name and icon. Best effort.
-  run([LSREGISTER, "-f", app]);
   // The runner from before the bundle. Its grants don't carry over anyway.
   const old = join(dirname(app), "mockingbird");
   rmSync(old, { force: true });
@@ -162,12 +190,16 @@ export function ensureRunner(options: EnsureRunnerOptions = {}): EnsureRunnerRes
   // The marker says this copy is current, so it's only written once the copy
   // really is. Writing it after a failed signing would make every later start
   // skip the retry, and the agent would stay unnamed in the Privacy panes
-  // until bun itself changed.
-  if (code === 0) writeFileSync(marker, wanted);
+  // until bun itself changed. An old marker goes too, since it would vouch for
+  // the unsigned bundle as signed.
+  if (code === 0) writeFileSync(sourceMarker(app), wanted);
+  else rmSync(sourceMarker(app), { force: true });
   return {
     path,
     app,
     installed: true,
-    ...(code === 0 ? {} : { unsigned: `codesign exited with ${code}` }),
+    ...(code === 0
+      ? {}
+      : { unsigned: `codesign exited with ${code}; it runs, but without its name and logo` }),
   };
 }

@@ -104,6 +104,32 @@ describe("ensureRunner", () => {
     // And once it works, it settles down again.
     expect(ensureRunner({ source, app, run: recorder().run }).installed).toBe(false);
   });
+
+  test("keeps the signed bundle when signing its replacement fails", () => {
+    const dir = workspace();
+    const source = fakeBun(dir);
+    const app = join(dir, "bin", "mockingbird.app");
+    ensureRunner({ source, app, run: recorder().run });
+    writeFileSync(source, "#!/bin/sh\necho newer\n", { mode: 0o755 });
+    const failed = ensureRunner({ source, app, run: recorder(1).run });
+    expect(failed).toMatchObject({ installed: false, unsigned: expect.stringContaining("kept") });
+    expect(readFileSync(executableIn(app), "utf8")).not.toContain("newer");
+    expect(existsSync(`${app}.new`)).toBe(false);
+    // The next start tries again.
+    expect(ensureRunner({ source, app, run: recorder().run }).installed).toBe(true);
+    expect(readFileSync(executableIn(app), "utf8")).toContain("newer");
+  });
+
+  test("registers with LaunchServices on every start, so a failed registration retries", () => {
+    const dir = workspace();
+    const source = fakeBun(dir);
+    const app = join(dir, "bin", "mockingbird.app");
+    ensureRunner({ source, app, run: recorder().run });
+    const { calls, run } = recorder();
+    expect(ensureRunner({ source, app, run }).installed).toBe(false);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.slice(-2)).toEqual(["-f", app]);
+  });
 });
 
 describe("runnerPath", () => {

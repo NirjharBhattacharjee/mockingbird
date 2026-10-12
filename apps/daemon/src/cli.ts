@@ -208,7 +208,7 @@ async function start(run: Launchctl = runLaunchctl): Promise<number> {
   // Our own copy of bun in mockingbird.app, so macOS shows our name and logo.
   const runner = ensureRunner();
   if (runner.unsigned) {
-    log(`note: couldn't rename the agent for System Settings (${runner.unsigned}).`);
+    log(`note: couldn't sign the new mockingbird.app (${runner.unsigned}).`);
   }
   if (runner.installed) {
     log(
