@@ -326,10 +326,19 @@ everything else in this file). Tracked as undecided, not silently assumed.
   `onnxruntime-node` is treated as a fixed part of the pipeline, not a
   configurable choice, since its cost/accuracy profile isn't a tradeoff most
   users need to tune.
-- Model choice (which Whisper size, which LLM) is expected to live in the
-  `settings` table (see [state ownership map](./ARCHITECTURE.md#8-state-ownership-map))
-  and be editable via the TUI or a future `mockingbird config` CLI — exact
-  surface undecided, see [ARCHITECTURE.md §16](./ARCHITECTURE.md#16-known-gaps--scope-not-yet-decided).
+- **The cleanup model is picked with `mockingbird models`.** On its own it
+  lists the models Ollama has that can write text (embedding models are left
+  out), with the eval's pass counts from §7a for the ones measured, and marks
+  the one in use. `mockingbird models use <name>` saves the choice as
+  `llm_model` in the `settings` table, through the daemon (the only writer to
+  `data.db`), and restarts the agent; `--default` deletes it.
+  `MOCKINGBIRD_LLM_MODEL`, when set, still wins, and `models use` says so.
+  `mockingbird models pull` pulls whichever model is in use. A model nobody
+  has evaluated works the same way: it shows as "not measured", and running
+  `bun run eval:cleanup` with it set gives its numbers.
+- The Whisper model has no command yet: it's `MOCKINGBIRD_ASR_MODEL`. A
+  `models use speech <model>` is planned once there's more than one speech
+  backend ([#51](https://github.com/NirjharBhattacharjee/mockingbird/issues/51), #56).
 
 ### 7a. Which models, measured (2026-10-03)
 

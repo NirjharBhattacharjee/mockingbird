@@ -292,7 +292,7 @@ describe("agentEntry", () => {
   });
 });
 
-test("models takes only pull", async () => {
-  await expect(main(["models"])).rejects.toThrow("mockingbird models pull");
-  await expect(main(["models", "list"])).rejects.toThrow("mockingbird models pull");
+test("models rejects what it doesn't know", async () => {
+  expect(await main(["models", "list"])).toBe(2);
+  expect(await main(["models", "use"])).toBe(2);
 });

@@ -1,8 +1,16 @@
 import { createReadStream, existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { isLocalUrl, ollamaRunning, pullOllamaModel, startOllamaServer } from "@mockingbird/llm";
-import { DEFAULT_ASR_MODEL, DEFAULT_LLM_MODEL } from "./runtime.ts";
+import {
+  isLocalUrl,
+  listOllamaModels,
+  ollamaRunning,
+  pullOllamaModel,
+  startOllamaServer,
+} from "@mockingbird/llm";
+import { openStore } from "@mockingbird/store";
+import { LLM_MODEL_SETTING, tellDaemon } from "./dictionary.ts";
+import { cleanupModel, DEFAULT_ASR_MODEL, DEFAULT_LLM_MODEL, mockingbirdHome } from "./runtime.ts";
 
 /** `name` is what the progress line calls it. */
 export type ModelFile = { name: string; file: string; url: string; sha256: string };
@@ -139,7 +147,7 @@ export async function pullModels(deps: PullDeps = {}): Promise<number> {
   const log = deps.log ?? ((m: string) => console.error(m));
   const home = deps.home ?? env.MOCKINGBIRD_HOME ?? join(homedir(), ".mockingbird");
   const llmUrl = deps.llmUrl ?? env.MOCKINGBIRD_LLM_URL ?? "http://127.0.0.1:11434";
-  const llmModel = deps.llmModel ?? env.MOCKINGBIRD_LLM_MODEL ?? DEFAULT_LLM_MODEL;
+  const llmModel = deps.llmModel ?? cleanupModel(savedModel(home), env);
   const modelsDir = deps.modelsDir ?? join(home, "models");
   const downloads = new Map<string, Download>();
   let shown = 0;
@@ -225,4 +233,139 @@ async function pullCleanupModel(
     await stop?.();
   }
   return 0;
+}
+
+/**
+ * The cleanup eval's pass counts for the models it has measured (MODELS.md
+ * §7a: 37 dev cases, 16 held out), so a smaller model's cost shows before
+ * switching to it. Any other model shows as not measured.
+ */
+export const MEASURED: Record<string, { dev: number; holdout: number }> = {
+  [DEFAULT_LLM_MODEL]: { dev: 35, holdout: 16 },
+  "llama3.2:3b": { dev: 30, holdout: 13 },
+  "qwen2.5:1.5b": { dev: 28, holdout: 12 },
+  "gemma3:1b": { dev: 26, holdout: 10 },
+};
+
+/** The model `mockingbird models use` saved, read without writing to data.db. */
+export function savedModel(home = mockingbirdHome()): string | undefined {
+  const path = join(home, "data.db");
+  if (!existsSync(path)) return undefined;
+  try {
+    const store = openStore(path, { readonly: true });
+    try {
+      return store.setting(LLM_MODEL_SETTING);
+    } finally {
+      store.close();
+    }
+  } catch {
+    return undefined;
+  }
+}
+
+export type ModelsDeps = {
+  /** Restarts the agent, so the next dictation uses the new model. */
+  restart: () => Promise<number>;
+  list?: (url: string) => Promise<{ name: string; size: number; writes: boolean }[]>;
+  tell?: (path: string, body: string) => Promise<Response>;
+  saved?: () => string | undefined;
+  out?: (line: string) => void;
+  log?: (message: string) => void;
+  env?: Record<string, string | undefined>;
+};
+
+const gb = (bytes: number) => `${(bytes / 1e9).toFixed(1)} GB`;
+
+/**
+ * `mockingbird models` lists the cleanup models Ollama has; `models use
+ * <name>` switches the agent to one, and `models use --default` back.
+ */
+export async function modelsCommand(args: string[], deps: ModelsDeps): Promise<number> {
+  const env = deps.env ?? process.env;
+  const out = deps.out ?? ((l: string) => console.log(l));
+  const log = deps.log ?? ((m: string) => console.error(m));
+  const url = env.MOCKINGBIRD_LLM_URL ?? "http://127.0.0.1:11434";
+  const inUse = cleanupModel((deps.saved ?? savedModel)(), env);
+  const list = async () => {
+    try {
+      return await (deps.list ?? listOllamaModels)(url);
+    } catch {
+      log(`Ollama isn't answering at ${url}. \`mockingbird start\` starts it.`);
+      return undefined;
+    }
+  };
+
+  if (args.length === 0) {
+    const models = (await list())?.filter((m) => m.writes);
+    if (!models) return 1;
+    const rank = (n: string) => MEASURED[n]?.dev ?? -1;
+    models.sort((a, b) => rank(b.name) - rank(a.name) || a.name.localeCompare(b.name));
+    const width = Math.max(13, ...models.map((m) => m.name.length)) + 2;
+    out(`${"cleanup model".padEnd(width)}${"size".padEnd(9)}dev    held-out`);
+    for (const { name, size } of models) {
+      const m = MEASURED[name];
+      const score = m
+        ? `${`${m.dev}/37`.padEnd(7)}${`${m.holdout}/16`.padEnd(9)}`
+        : "not measured".padEnd(16);
+      const row = `${name.padEnd(width)}${gb(size).padEnd(9)}${score}${name === inUse ? "in use" : ""}`;
+      out(row.trimEnd());
+    }
+    if (!models.some((m) => m.name === inUse)) {
+      out(`\nIn use: ${inUse}, which isn't in Ollama yet. \`mockingbird models pull\` gets it.`);
+    }
+    out(
+      `\nSwitch with \`mockingbird models use <name>\`; \`--default\` goes back to ${DEFAULT_LLM_MODEL}.`,
+    );
+    return 0;
+  }
+
+  const [verb, name, ...extra] = args;
+  if (verb !== "use" || !name || extra.length > 0) {
+    log("usage: mockingbird models | models use <name> | models use --default | models pull");
+    return 2;
+  }
+  let model: string | undefined;
+  if (name !== "--default") {
+    const models = await list();
+    if (!models) return 1;
+    // "gemma3" means what Ollama calls "gemma3:latest".
+    const found = models.find((m) => m.name === name || m.name === `${name}:latest`);
+    if (!found) {
+      log(
+        `Ollama doesn't have ${name}. Pull it with \`ollama pull ${name}\`, then run this again.`,
+      );
+      return 1;
+    }
+    if (!found.writes) {
+      log(
+        `${found.name} can't write text (it's an embedding model), so it can't clean up dictation.`,
+      );
+      return 1;
+    }
+    model = found.name;
+  }
+  let reply: Response;
+  try {
+    reply = await (deps.tell ?? ((p, b) => tellDaemon(p, b)))(
+      `/settings/${LLM_MODEL_SETTING}`,
+      model ?? "",
+    );
+  } catch {
+    log(
+      "mockingbird isn't running, so the choice can't be saved. `mockingbird start`, then try again.",
+    );
+    return 1;
+  }
+  if (!reply.ok) {
+    log(`error: ${await reply.text()}`);
+    return 1;
+  }
+  log(await reply.text());
+  if (env.MOCKINGBIRD_LLM_MODEL) {
+    log(
+      `note: MOCKINGBIRD_LLM_MODEL=${env.MOCKINGBIRD_LLM_MODEL} is set in this shell and wins ` +
+        "over this choice. Unset it, then `mockingbird restart`.",
+    );
+  }
+  return deps.restart();
 }

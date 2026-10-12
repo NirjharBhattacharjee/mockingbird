@@ -7,6 +7,9 @@ import { mockingbirdHome } from "./runtime.ts";
 /** Where the daemon listens for dictionary edits, inside the mockingbird home. */
 const SOCKET = "mockingbird.sock";
 
+/** The settings key `mockingbird models use` writes. */
+export const LLM_MODEL_SETTING = "llm_model";
+
 const USAGE = `Usage: mockingbird dictionary [list | add <entry> | remove <term> | forget]
 
 Words mockingbird should get right: names, places, jargon. The cleanup model
@@ -97,6 +100,13 @@ export function recordUses(store: Store, dictionary: DictionaryEntry[], text: st
   if (used.length) store.countUses(used);
 }
 
+/**
+ * Sends one request to the daemon over its socket in `home`, for commands
+ * that change data.db. Rejects if no mockingbird is listening.
+ */
+export const tellDaemon = (path: string, body: string, home = mockingbirdHome()) =>
+  ask(join(home, SOCKET), path, body);
+
 /** Sends one request to the daemon's socket. Rejects if nothing is listening. */
 const ask = (socket: string, path: string, body?: string) =>
   fetch(`http://mockingbird${path}`, {
@@ -155,6 +165,11 @@ export async function serveDictionary(
         } else if (pathname === "/dictionary/forget") {
           const forgotten = store.forgetLearned();
           reply = `forgot ${forgotten} learned word${forgotten === 1 ? "" : "s"} and every correction`;
+        } else if (pathname === `/settings/${LLM_MODEL_SETTING}`) {
+          // Only settings a command writes; the model applies on the next start.
+          const model = body.trim() || undefined;
+          store.setSetting(LLM_MODEL_SETTING, model);
+          return new Response(model ? `cleanup model: ${model}` : "cleanup model: the default");
         } else {
           return new Response("not found", { status: 404 });
         }

@@ -27,7 +27,7 @@ import {
   restoreMessage,
 } from "./fn-key.ts";
 import { main as listenMain } from "./listen.ts";
-import { pullModels } from "./models.ts";
+import { modelsCommand, pullModels } from "./models.ts";
 import { openPermissionPane, paneFor } from "./permissions.ts";
 import { DEFAULT_LLM_MODEL, mockingbirdHome } from "./runtime.ts";
 import { main as transcribeMain } from "./transcribe.ts";
@@ -46,6 +46,11 @@ export const COMMANDS: { name: string; summary: string }[] = [
       "bind Fn to dictation only, so macOS stops opening the picker\n(`mockingbird fn --undo` puts back the previous setting)",
   },
   { name: "dictionary", summary: "list, add and remove words it should spell right" },
+  {
+    name: "models",
+    summary:
+      "the cleanup models Ollama has, with their scores\n(`mockingbird models use <name>` switches)",
+  },
   {
     name: "models pull",
     summary: "download the speech and cleanup models (the only command\nthat uses the network)",
@@ -547,10 +552,8 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
     case "fn":
       return fn(rest);
     case "models":
-      if (rest.length !== 1 || rest[0] !== "pull") {
-        throw new UsageError("the only `mockingbird models` command is `mockingbird models pull`");
-      }
-      return pullWithProgress();
+      if (rest.length === 1 && rest[0] === "pull") return pullWithProgress();
+      return modelsCommand(rest, { restart: () => restart() });
     case "dictionary":
       return dictionaryMain(rest);
     case "listen":

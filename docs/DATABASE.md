@@ -298,6 +298,10 @@ CREATE TABLE settings (
 );
 ```
 
+Built in migration 3. The one key so far is `llm_model`, the cleanup model
+`mockingbird models use` picked; it's absent for the default. The daemon
+writes it when the command asks over the socket, and reads it at start.
+
 - Deliberately untyped/schemaless — hotkey binding, active ASR/LLM model
   name, lock-mode silence threshold, and whatever else
   [ARCHITECTURE.md §16](./ARCHITECTURE.md#16-known-gaps--scope-not-yet-decided)'s

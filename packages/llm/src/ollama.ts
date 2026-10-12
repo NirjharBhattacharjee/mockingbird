@@ -149,6 +149,34 @@ export async function pullOllamaModel(
 }
 
 /**
+ * The models Ollama has locally, their size in bytes, and whether each can
+ * write text: embedding models have no "completion" capability. An Ollama
+ * too old to report capabilities counts every model as writing.
+ */
+export async function listOllamaModels(
+  baseUrl: string,
+): Promise<{ name: string; size: number; writes: boolean }[]> {
+  const res = await fetch(`${baseUrl}/api/tags`);
+  if (!res.ok) throw new LlmRequestError(`ollama ${res.status}: ${await res.text()}`);
+  const { models = [] } = (await res.json()) as { models?: { name: string; size: number }[] };
+  const writes = await Promise.all(
+    models.map(async ({ name }) => {
+      const show = await fetch(`${baseUrl}/api/show`, {
+        method: "POST",
+        body: JSON.stringify({ model: name }),
+      }).catch(() => undefined);
+      // A failed lookup isn't an old Ollama: count the model as unusable.
+      if (!show?.ok) return false;
+      const { capabilities } = (await show.json().catch(() => ({}))) as {
+        capabilities?: string[];
+      };
+      return !capabilities || capabilities.includes("completion");
+    }),
+  );
+  return models.map(({ name, size }, i) => ({ name, size, writes: writes[i] ?? true }));
+}
+
+/**
  * Whether an Ollama server answers at `baseUrl` within `timeoutMs` (its models
  * may still need pulling). A server that accepts the connection but never
  * replies counts as not running.

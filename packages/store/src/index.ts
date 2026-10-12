@@ -26,6 +26,11 @@ const MIGRATIONS = [
      UNIQUE (from_text, to_text)
    );
    ALTER TABLE dictionary ADD COLUMN learned INTEGER NOT NULL DEFAULT 0`,
+  // Choices the user makes with a command, like the cleanup model (#51).
+  `CREATE TABLE settings (
+     key    TEXT PRIMARY KEY,
+     value  TEXT NOT NULL
+   )`,
 ];
 
 /** A dictionary entry, and whether it was learned rather than added by the user. */
@@ -47,6 +52,10 @@ export type Store = {
   forgetLearned(): number;
   /** One more use for each of these terms. */
   countUses(terms: string[]): void;
+  /** A setting, or undefined if it was never set (or the schema predates settings). */
+  setting(key: string): string | undefined;
+  /** Sets a setting; undefined deletes it, so the default applies again. */
+  setSetting(key: string, value: string | undefined): void;
   close(): void;
 };
 
@@ -128,6 +137,26 @@ export function openStore(path: string, { readonly = false } = {}): Store {
     countUses: db.transaction((terms: string[]) => {
       for (const term of terms) use.run(term);
     }),
+    setting: (key) => {
+      try {
+        return (
+          db.query<{ value: string }, [string]>("SELECT value FROM settings WHERE key = ?").get(key)
+            ?.value ?? undefined
+        );
+      } catch {
+        // A read-only open of a data.db the daemon hasn't migrated yet.
+        return undefined;
+      }
+    },
+    setSetting: (key, value) => {
+      if (value === undefined) db.run("DELETE FROM settings WHERE key = ?", [key]);
+      else {
+        db.run(
+          "INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT (key) DO UPDATE SET value = ?2",
+          [key, value],
+        );
+      }
+    },
     close: () => db.close(),
   };
 }

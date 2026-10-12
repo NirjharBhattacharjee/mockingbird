@@ -23,6 +23,7 @@ export {
 } from "./dictionary.ts";
 export {
   isLocalUrl,
+  listOllamaModels,
   OllamaProvider,
   type OllamaServerProcess,
   ollamaRunning,

@@ -92,3 +92,17 @@ describe("dictionary", () => {
     expect(store.recordCorrection("bun", "Bun")).toBe(1);
   });
 });
+
+describe("settings", () => {
+  test("sets, replaces and deletes, and a reader sees the writer's value", () => {
+    const path = dbPath();
+    const store = openStore(path);
+    expect(store.setting("llm_model")).toBeUndefined();
+    store.setSetting("llm_model", "qwen2.5:1.5b");
+    store.setSetting("llm_model", "gemma3:1b");
+    const reader = openStore(path, { readonly: true });
+    expect(reader.setting("llm_model")).toBe("gemma3:1b");
+    store.setSetting("llm_model", undefined);
+    expect(reader.setting("llm_model")).toBeUndefined();
+  });
+});

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   MODEL_FILES,
   type ModelFile,
+  modelsCommand,
   progressLine,
   pullFile,
   pullModels,
@@ -293,4 +294,85 @@ test("sha256Of matches a known digest", async () => {
   expect(await sha256Of(path)).toBe(
     "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
   );
+});
+
+describe("modelsCommand", () => {
+  const ollama = [
+    { name: "mistral:instruct", size: 4.1e9, writes: true },
+    { name: "gemma3:1b", size: 0.8e9, writes: true },
+    { name: "nomic-embed-text:latest", size: 0.3e9, writes: false },
+    { name: "qwen3:4b-instruct-2507-q4_K_M", size: 2.5e9, writes: true },
+  ];
+  /** Deps that answer like a running mockingbird and Ollama, and record what they're told. */
+  function fake(saved?: string, env: Record<string, string | undefined> = {}) {
+    const lines: string[] = [];
+    const told: string[] = [];
+    let restarted = 0;
+    const deps = {
+      restart: async () => {
+        restarted++;
+        return 0;
+      },
+      list: async () => [...ollama],
+      tell: async (path: string, body: string) => {
+        told.push(`${path} ${body}`);
+        return new Response(`cleanup model: ${body || "the default"}`);
+      },
+      saved: () => saved,
+      out: (l: string) => lines.push(l),
+      log: (l: string) => lines.push(l),
+      env,
+    };
+    return { deps, lines, told, restarts: () => restarted };
+  }
+
+  test("lists the measured models first, with scores, and marks the one in use", async () => {
+    const f = fake("gemma3:1b");
+    expect(await modelsCommand([], f.deps)).toBe(0);
+    expect(f.lines.slice(1, 4).map((l) => l.split(/\s+/)[0])).toEqual([
+      "qwen3:4b-instruct-2507-q4_K_M",
+      "gemma3:1b",
+      "mistral:instruct",
+    ]);
+    expect(f.lines[2]).toMatch(/26\/37\s+10\/16\s+in use$/);
+    expect(f.lines[3]).toContain("not measured");
+    expect(f.lines.join("\n")).not.toContain("nomic-embed-text");
+  });
+
+  test("use saves the choice through the daemon and restarts the agent", async () => {
+    const f = fake();
+    expect(await modelsCommand(["use", "gemma3:1b"], f.deps)).toBe(0);
+    expect(f.told).toEqual(["/settings/llm_model gemma3:1b"]);
+    expect(f.restarts()).toBe(1);
+
+    const back = fake("gemma3:1b");
+    expect(await modelsCommand(["use", "--default"], back.deps)).toBe(0);
+    expect(back.told).toEqual(["/settings/llm_model "]);
+  });
+
+  test("refuses a model Ollama doesn't have, naming the pull", async () => {
+    const f = fake();
+    expect(await modelsCommand(["use", "phi4"], f.deps)).toBe(1);
+    expect(f.lines.join("\n")).toContain("ollama pull phi4");
+    expect(await modelsCommand(["use", "nomic-embed-text"], f.deps)).toBe(1);
+    expect(f.lines.at(-1)).toContain("embedding model");
+    expect(f.told).toEqual([]);
+    expect(f.restarts()).toBe(0);
+  });
+
+  test("says when MOCKINGBIRD_LLM_MODEL will win over the choice", async () => {
+    const f = fake(undefined, { MOCKINGBIRD_LLM_MODEL: "mistral:instruct" });
+    await modelsCommand(["use", "gemma3:1b"], f.deps);
+    expect(f.lines.join("\n")).toContain("wins over this choice");
+  });
+
+  test("a stopped mockingbird can't save the choice", async () => {
+    const f = fake();
+    f.deps.tell = async () => {
+      throw new Error("ECONNREFUSED");
+    };
+    expect(await modelsCommand(["use", "gemma3:1b"], f.deps)).toBe(1);
+    expect(f.lines.join("\n")).toContain("`mockingbird start`");
+    expect(f.restarts()).toBe(0);
+  });
 });
