@@ -127,7 +127,7 @@ message.
 
 > In **System Settings → Privacy & Security**:
 > - **Input Monitoring**: turn on **mockingbird**. If it isn't in the list,
->   click **+**, press **Cmd+Shift+G**, paste `~/.mockingbird/bin/mockingbird`,
+>   click **+**, press **Cmd+Shift+G**, paste `~/.mockingbird/bin/mockingbird.app`,
 >   and add it.
 > - **Accessibility**: the same, in the Accessibility list.
 > - **Microphone**: mockingbird has just asked for the microphone, so there
@@ -137,8 +137,9 @@ message.
 >
 > Tell me when that's done.
 
-These go to `~/.mockingbird/bin/mockingbird`, the program that runs in the
-background, not to the terminal or to your own app.
+These go to `~/.mockingbird/bin/mockingbird.app`, the program that runs in
+the background, not to the terminal or to your own app. It shows with the
+mockingbird logo.
 
 When they say it's done, run step 3 again. macOS only reads the permissions
 when mockingbird starts, and `start` restarts it and reports what it now has.

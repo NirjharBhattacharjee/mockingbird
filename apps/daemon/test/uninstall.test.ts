@@ -71,11 +71,18 @@ function installed({ root, answers = true }: { root?: string; answers?: boolean 
     git,
     ollamaRm: (m) => did(`ollama rm ${m}`),
     sizeOf: () => "1.1G",
+    unregisterApp: (app) => calls.push(`unregister ${app}`),
   };
   return { home, mb, plist, clone, deps, calls, logged };
 }
 
 describe("uninstall", () => {
+  test("tells LaunchServices mockingbird.app is gone before deleting it", async () => {
+    const m = installed();
+    expect(await uninstall(["--yes"], m.deps)).toBe(0);
+    expect(m.calls).toContain(`unregister ${join(m.mb, "bin", "mockingbird.app")}`);
+  });
+
   test("a no removes nothing and stops nothing", async () => {
     const m = installed({ answers: false });
     expect(await uninstall([], m.deps)).toBe(0);

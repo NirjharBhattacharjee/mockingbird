@@ -30,6 +30,8 @@ export type UninstallDeps = {
   ollamaRm: (model: string) => Promise<number>;
   /** Human-readable size of a path, or "" if unknown. */
   sizeOf: (path: string) => string;
+  /** Forgets mockingbird.app in LaunchServices, which keeps its name and icon otherwise. */
+  unregisterApp: (app: string) => void;
   /** Where zsh keeps .zshrc: ZDOTDIR as zsh sees it, or the home folder. */
   zdotdir?: string;
 };
@@ -157,6 +159,8 @@ export async function uninstall(args: string[], deps: UninstallDeps): Promise<nu
     }
   }
   // A copy that couldn't be written means the originals stay.
+  const app = join(mb, "bin", "mockingbird.app");
+  if (wordsSafe) attempt(app, () => deps.unregisterApp(app));
   const mbGone = wordsSafe && attempt(mb, () => rmSync(mb, { recursive: true, force: true }));
   if (!wordsSafe) failed.push(`${mb} was kept, since your words couldn't be copied out of it`);
   // While anything of it is left, keep the command and the code that runs it,

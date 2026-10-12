@@ -10,98 +10,192 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { agentPaths } from "./plist.ts";
+import { AGENT_LABEL, agentPaths } from "./plist.ts";
 
 /**
  * macOS names a permission after the program that asks for it, so running the
  * agent as `bun` puts "bun" in the Privacy lists — and grants every other bun
  * script the same right to type into any app. Our own copy of the bun binary,
- * named and signed `mockingbird`, is a separate identity: the lists say
- * mockingbird, and bun itself needs no permission at all.
+ * inside a small app bundle signed as `com.mockingbird.agent`, is a separate
+ * identity. The bundle is what gives it a name and the logo in Login Items and
+ * the Privacy lists; a bare executable only ever gets the generic icon.
  *
- * It also holds still. Editing our TypeScript doesn't change this file, and
- * neither does `brew upgrade bun`, so the grants survive both.
+ * It also holds still. Editing our TypeScript doesn't change it, and neither
+ * does `brew upgrade bun` until the next `start`, so the grants survive both.
  */
-export function runnerPath(home?: string): string {
-  return join(dirname(agentPaths(home).logDir), "bin", "mockingbird");
+export function appPath(home?: string): string {
+  return join(dirname(agentPaths(home).logDir), "bin", "mockingbird.app");
 }
 
-const sourceMarker = (runner: string) => `${runner}.source`;
+/** The executable launchd runs, inside the bundle. */
+export const executableIn = (app: string) => join(app, "Contents", "MacOS", "mockingbird");
 
-/** Identity of the bun we copied, so we can tell when it has moved on. */
+const ICON = join(import.meta.dir, "AppIcon.icns");
+
+/**
+ * LSUIElement keeps it out of the Dock. The microphone line is the reason the
+ * permission prompt shows; without one, macOS refuses the microphone outright.
+ */
+const INFO_PLIST = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>CFBundleIdentifier</key>
+    <string>${AGENT_LABEL}</string>
+    <key>CFBundleName</key>
+    <string>mockingbird</string>
+    <key>CFBundleExecutable</key>
+    <string>mockingbird</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>mockingbird listens while you hold Fn, and types what you said.</string>
+  </dict>
+</plist>
+`;
+
+/** LaunchServices, which System Settings asks for an app's name and icon. */
+const LSREGISTER =
+  "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
+
+/** Tells LaunchServices the bundle is gone, before it's deleted. */
+export function unregisterApp(app: string): void {
+  Bun.spawnSync([LSREGISTER, "-u", app], { stdout: "ignore", stderr: "ignore" });
+}
+
+const sourceMarker = (app: string) => `${app}.source`;
+
+/**
+ * Identity of the bun we copied and of the bundle around it, so we can tell
+ * when either has moved on.
+ */
 function describe(path: string): string {
   const s = statSync(path);
-  return `${realpathSync(path)}\n${s.size}\n${Math.round(s.mtimeMs)}\n`;
+  return `${realpathSync(path)}\n${s.size}\n${Math.round(s.mtimeMs)}\n${Bun.hash(INFO_PLIST)}\n${Bun.hash(readFileSync(ICON))}\n`;
 }
 
 export type EnsureRunnerOptions = {
   /** The bun binary to copy. */
   source?: string;
-  destination?: string;
-  /** Injected in tests. Returns the exit code. */
-  sign?: (cmd: string[]) => number;
+  /** The app bundle to build. */
+  app?: string;
+  /** Injected in tests. Runs codesign and lsregister; returns the exit code. */
+  run?: (cmd: string[]) => number;
 };
 
 export type EnsureRunnerResult = {
+  /** The executable inside the bundle. */
   path: string;
+  /** The bundle, which is what to pick when adding it to a Privacy list by hand. */
+  app: string;
   /** Whether the binary was just created or replaced, so grants need redoing. */
   installed: boolean;
   /** Why signing didn't happen, when it didn't. */
   unsigned?: string;
 };
 
-const defaultSign = (cmd: string[]): number => {
+const defaultRun = (cmd: string[]): number => {
   const proc = Bun.spawnSync(cmd, { stdout: "ignore", stderr: "pipe" });
   return proc.exitCode;
 };
 
 /**
- * Puts `~/.mockingbird/bin/mockingbird` in place, copying bun and re-signing
- * it under our own identifier. Does nothing when the copy is already current.
+ * Puts `~/.mockingbird/bin/mockingbird.app` in place: bun copied in as its
+ * executable, with the Info.plist and the logo, signed as one bundle. Does
+ * nothing when it's already current.
  */
 export function ensureRunner(options: EnsureRunnerOptions = {}): EnsureRunnerResult {
   const source = options.source ?? process.execPath;
-  const destination = options.destination ?? runnerPath();
-  const marker = sourceMarker(destination);
+  const app = options.app ?? appPath();
+  const path = executableIn(app);
+  const marker = sourceMarker(app);
   const wanted = describe(source);
 
   let current: string | undefined;
   try {
     current = readFileSync(marker, "utf8");
-    statSync(destination);
+    statSync(path);
   } catch {
     current = undefined;
   }
-  if (current === wanted) return { path: destination, installed: false };
+  const run = options.run ?? defaultRun;
+  const result =
+    current === wanted
+      ? { path, app, installed: false }
+      : build(source, app, wanted, current !== undefined, run);
+  // Tells System Settings where to find the name and icon. It's cheap and safe
+  // to repeat, so every start does it, and a failed registration retries itself.
+  run([LSREGISTER, "-f", app]);
+  return result;
+}
 
-  mkdirSync(dirname(destination), { recursive: true, mode: 0o700 });
+/**
+ * Builds the bundle beside `app` and swaps it in. `signed` says the bundle
+ * already there was signed, which a failed signing mustn't throw away.
+ */
+function build(
+  source: string,
+  app: string,
+  wanted: string,
+  signed: boolean,
+  run: (cmd: string[]) => number,
+): EnsureRunnerResult {
+  const path = executableIn(app);
+  mkdirSync(dirname(app), { recursive: true, mode: 0o700 });
 
-  // Built beside the destination and moved in, because writing over the file
-  // an agent is currently running fails with ETXTBSY. A rename leaves that
-  // process on the old inode and puts the new copy in place for the next start.
-  const staged = `${destination}.new`;
-  const sign = options.sign ?? defaultSign;
+  // Built beside the destination and moved in. An agent running from the old
+  // bundle keeps its open file; the new bundle is there for the next start.
+  const staged = `${app}.new`;
   let code: number;
+  rmSync(staged, { recursive: true, force: true });
   try {
-    copyFileSync(source, staged);
-    chmodSync(staged, 0o755);
-    // Re-signing is what changes the name macOS shows. A copy keeps bun's own
-    // ad-hoc signature and still runs, so a failure here costs the name, not
-    // the feature.
-    code = sign(["codesign", "--sign", "-", "--identifier", "mockingbird", "--force", staged]);
-    renameSync(staged, destination);
+    mkdirSync(dirname(executableIn(staged)), { recursive: true });
+    mkdirSync(join(staged, "Contents", "Resources"));
+    copyFileSync(source, executableIn(staged));
+    chmodSync(executableIn(staged), 0o755);
+    writeFileSync(join(staged, "Contents", "Info.plist"), INFO_PLIST);
+    copyFileSync(ICON, join(staged, "Contents", "Resources", "AppIcon.icns"));
+    // Signing the bundle binds the Info.plist and icon to the identifier. A
+    // failure leaves bun's own signature, which still runs, so it costs the
+    // name and icon, not the feature.
+    code = run(["codesign", "--sign", "-", "--force", staged]);
+    // A signed bundle keeps its name and grants, so it beats an unsigned new
+    // one. The marker stays stale, and the next start tries again.
+    if (code !== 0 && signed) {
+      return {
+        path,
+        app,
+        installed: false,
+        unsigned: `codesign exited with ${code}; kept the current one, and will retry on the next start`,
+      };
+    }
+    rmSync(app, { recursive: true, force: true });
+    renameSync(staged, app);
   } finally {
-    rmSync(staged, { force: true });
+    rmSync(staged, { recursive: true, force: true });
   }
+  // The runner from before the bundle. Its grants don't carry over anyway.
+  const old = join(dirname(app), "mockingbird");
+  rmSync(old, { force: true });
+  rmSync(`${old}.source`, { force: true });
 
   // The marker says this copy is current, so it's only written once the copy
   // really is. Writing it after a failed signing would make every later start
-  // skip the retry, and the agent would stay listed as "bun" in the Privacy
-  // panes until bun itself changed.
-  if (code === 0) writeFileSync(marker, wanted);
+  // skip the retry, and the agent would stay unnamed in the Privacy panes
+  // until bun itself changed. An old marker goes too, since it would vouch for
+  // the unsigned bundle as signed.
+  if (code === 0) writeFileSync(sourceMarker(app), wanted);
+  else rmSync(sourceMarker(app), { force: true });
   return {
-    path: destination,
+    path,
+    app,
     installed: true,
-    ...(code === 0 ? {} : { unsigned: `codesign exited with ${code}` }),
+    ...(code === 0
+      ? {}
+      : { unsigned: `codesign exited with ${code}; it runs, but without its name and logo` }),
   };
 }

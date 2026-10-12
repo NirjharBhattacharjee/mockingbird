@@ -223,10 +223,17 @@ to the terminal app — which is why `mockingbird listen` uses Ghostty's or
 Terminal's grants. Under launchd there is no such parent, so the agent's own
 executable becomes responsible.
 
-`mockingbird start` therefore does not run the agent as `bun`. It installs
-**`~/.mockingbird/bin/mockingbird`** — a copy of the Bun binary, re-signed
-ad-hoc under the identifier `mockingbird` — and points the LaunchAgent at
-that. The grants land on it, and three things follow:
+`mockingbird start` therefore does not run the agent as `bun`. It builds
+**`~/.mockingbird/bin/mockingbird.app`**, a small app bundle with a copy of
+the Bun binary as its executable, an `Info.plist` and the logo, signed ad-hoc
+as `com.mockingbird.agent`. The LaunchAgent runs
+`mockingbird.app/Contents/MacOS/mockingbird`. The grants land on the bundle,
+and four things follow:
+
+- **The Privacy lists and Login Items show mockingbird's name and logo** (#36).
+  macOS takes both from the bundle; a bare executable only ever gets the
+  generic icon. It's still labelled as from an unidentified developer, since
+  only a paid Apple Developer ID changes that.
 
 - **`bun` itself needs no permission.** Had the agent run as
   `/opt/homebrew/bin/bun`, Accessibility and Input Monitoring on that binary
@@ -236,12 +243,15 @@ that. The grants land on it, and three things follow:
   alone. A separately-named copy is a separate TCC client, so that does not
   happen. Anyone upgrading from an earlier build should remove `bun` from both
   Privacy lists.
-- **The grants survive upgrades and edits.** TCC keys an unbundled client by
-  resolved path plus, absent a signing identity, its cdhash. Our copy changes
-  on neither `brew upgrade bun` (it is ours, not Homebrew's) nor a `git pull`
-  (it is the runtime, not our TypeScript). `mockingbird start` re-copies only
-  when the installed bun has actually changed, and says so, because that is
-  the one moment the grants need redoing.
+- **The grants survive upgrades and edits.** TCC keys the client by its
+  bundle identifier plus, absent a signing identity, its cdhash. The bundle
+  changes on neither `brew upgrade bun` (it is ours, not Homebrew's) nor a
+  `git pull` (it is the runtime, not our TypeScript). `mockingbird start`
+  rebuilds it only when the installed bun or the bundle itself has changed,
+  and says so, because that is the one moment the grants need redoing.
+  Moving from the old bare runner, `~/.mockingbird/bin/mockingbird`, to the
+  bundle is one of those moments: every install re-grants once, and the old
+  entry can be removed from each list.
 - **The checkout becomes security-critical.** The binary executes
   `apps/daemon/src/agent.ts` from wherever mockingbird was installed, and it
   holds Accessibility. Anyone who can write to that directory, or to
@@ -472,7 +482,7 @@ this is a "if solving one of these, start here" list:
    keychain fixes the second (the designated requirement keys on the
    certificate, not the cdhash); the first needs the dylib shipped beside the
    binary or VAD moved off `onnxruntime-node`. Until then the re-signed copy
-   in [§4](#4-macos-permissions-tcc) carries the grants, and the checkout it
+   bundle in [§4](#4-macos-permissions-tcc) carries the grants, and the checkout it
    runs is part of the trusted computing base.
 2. **Encrypt `data.db` at rest**, or at minimum document and default to
    `0600`/`0700` permissions on `~/.mockingbird` and its contents at setup
