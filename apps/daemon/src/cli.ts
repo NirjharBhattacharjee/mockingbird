@@ -29,8 +29,10 @@ import {
 import { main as listenMain } from "./listen.ts";
 import { pullModels } from "./models.ts";
 import { openPermissionPane, paneFor } from "./permissions.ts";
+import { DEFAULT_LLM_MODEL, mockingbirdHome } from "./runtime.ts";
 import { main as transcribeMain } from "./transcribe.ts";
 import { main as typeMain } from "./type.ts";
+import { uninstall } from "./uninstall.ts";
 
 /** The commands, for `--help` and the Go command's home screen (`help --json`). */
 export const COMMANDS: { name: string; summary: string }[] = [
@@ -52,6 +54,7 @@ export const COMMANDS: { name: string; summary: string }[] = [
   { name: "transcribe", summary: "turn a recording into text" },
   { name: "type", summary: "check typing permission, or type some text" },
   { name: "setup", summary: "walk through the permissions, Fn and a test dictation" },
+  { name: "uninstall", summary: "remove mockingbird and what it installed (asks first)" },
 ];
 
 const USAGE = `Usage: mockingbird <command> [options]
@@ -443,6 +446,38 @@ async function setup(args: string[], logPath = agentPaths().logPath): Promise<nu
   return 0;
 }
 
+/** `uninstall` with the real agent, Fn, git, Ollama and du behind it. */
+function uninstallHere(args: string[]): Promise<number> {
+  if (args.some((a) => a !== "--yes")) {
+    throw new UsageError("`mockingbird uninstall` takes only --yes");
+  }
+  const out = (argv: string[]) => {
+    const r = Bun.spawnSync(argv, { stderr: "ignore" });
+    return r.exitCode === 0 ? r.stdout.toString().trim() : undefined;
+  };
+  return uninstall(args, {
+    mockingbirdHome: mockingbirdHome(),
+    root:
+      process.env.MOCKINGBIRD_ROOT ??
+      realpathSync(join(dirname(Bun.fileURLToPath(import.meta.url)), "..", "..", "..")),
+    plistPath: agentPaths().plistPath,
+    cleanupModel: process.env.MOCKINGBIRD_LLM_MODEL ?? DEFAULT_LLM_MODEL,
+    ask: (question, fallback) => {
+      const answer = prompt(question)?.trim();
+      return answer ? /^y/i.test(answer) : fallback;
+    },
+    log,
+    stopAgent: () => stop(),
+    undoFn: () => fn(["--undo"]),
+    fnBackupPath: fnBackupPath(),
+    git: (args) => out(["git", ...args]),
+    ollamaRm: (model) => Bun.spawn(["ollama", "rm", model], { stdout: "inherit" }).exited,
+    sizeOf: (path) => out(["du", "-sh", path])?.split("\t")[0] ?? "",
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: zsh expands it, not JS.
+    zdotdir: out(["zsh", "-c", 'printf %s "${ZDOTDIR:-$HOME}"']),
+  });
+}
+
 /** Named for the System Settings panes, because that's where the user is going. */
 function permissionsMissing(): string[] {
   const missing: string[] = [];
@@ -526,6 +561,8 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
       return typeMain(rest);
     case "setup":
       return setup(rest);
+    case "uninstall":
+      return uninstallHere(rest);
     default:
       throw new UsageError(`unknown command "${command}"`);
   }
