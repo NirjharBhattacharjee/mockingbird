@@ -66,6 +66,11 @@ const INFO_PLIST = `<?xml version="1.0" encoding="UTF-8"?>
 const LSREGISTER =
   "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
 
+/** Tells LaunchServices the bundle is gone, before it's deleted. */
+export function unregisterApp(app: string): void {
+  Bun.spawnSync([LSREGISTER, "-u", app], { stdout: "ignore", stderr: "ignore" });
+}
+
 const sourceMarker = (app: string) => `${app}.source`;
 
 /**

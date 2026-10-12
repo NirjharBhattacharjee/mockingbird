@@ -13,7 +13,7 @@ import {
   stopArgv,
 } from "./agent/launchctl.ts";
 import { AGENT_LABEL, agentPaths, plistFor } from "./agent/plist.ts";
-import { appPath, ensureRunner } from "./agent/runner.ts";
+import { appPath, ensureRunner, unregisterApp } from "./agent/runner.ts";
 import { main as dictionaryMain } from "./dictionary.ts";
 import {
   claimFnKey,
@@ -485,6 +485,7 @@ function uninstallHere(args: string[]): Promise<number> {
     git: (args) => out(["git", ...args]),
     ollamaRm: (model) => Bun.spawn(["ollama", "rm", model], { stdout: "inherit" }).exited,
     sizeOf: (path) => out(["du", "-sh", path])?.split("\t")[0] ?? "",
+    unregisterApp,
     // biome-ignore lint/suspicious/noTemplateCurlyInString: zsh expands it, not JS.
     zdotdir: out(["zsh", "-c", 'printf %s "${ZDOTDIR:-$HOME}"']),
   });
