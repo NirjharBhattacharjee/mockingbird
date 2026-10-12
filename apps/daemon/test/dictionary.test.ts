@@ -11,7 +11,9 @@ import {
   readDictionary,
   recordUses,
   serveDictionary,
+  tellDaemon,
 } from "../src/dictionary.ts";
+import { savedModel } from "../src/models.ts";
 
 const newHome = () => mkdtempSync(join(tmpdir(), "mb-"));
 const quiet = () => {};
@@ -135,4 +137,21 @@ test("formatEntry writes an entry the way `add` reads it", () => {
   expect(formatEntry({ term: "Catppuccin", heard: "cat puck", hint: "a theme" })).toBe(
     "cat puck => Catppuccin (a theme)",
   );
+});
+
+test("the socket saves the cleanup model choice, and an empty one clears it", async () => {
+  const home = newHome();
+  const store = openStore(join(home, "data.db"));
+  const server = await serveDictionary(store, quiet, quiet, home);
+  try {
+    expect(await (await tellDaemon("/settings/llm_model", "gemma3:1b", home)).text()).toBe(
+      "cleanup model: gemma3:1b",
+    );
+    expect(savedModel(home)).toBe("gemma3:1b");
+    await tellDaemon("/settings/llm_model", "", home);
+    expect(savedModel(home)).toBeUndefined();
+  } finally {
+    server?.stop();
+    store.close();
+  }
 });

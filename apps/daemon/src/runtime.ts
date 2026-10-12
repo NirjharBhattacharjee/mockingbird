@@ -25,7 +25,10 @@ export function requireFile(path: string, what: string, hint = ""): string {
  */
 export const DEFAULT_ASR_MODEL = "ggml-large-v3-q5_0.bin";
 
-/** The cleanup model Ollama runs, unless MOCKINGBIRD_LLM_MODEL names another. */
+/**
+ * The cleanup model Ollama runs, unless `mockingbird models use` picked another
+ * or MOCKINGBIRD_LLM_MODEL names one (see cleanupModel).
+ */
 export const DEFAULT_LLM_MODEL = "qwen3:4b-instruct-2507-q4_K_M";
 
 const SETUP_HINT = "\nRun `mockingbird models pull` to download it.";
@@ -79,10 +82,18 @@ export type Engines = {
 export const mockingbirdHome = (env = process.env) =>
   env.MOCKINGBIRD_HOME ?? join(homedir(), ".mockingbird");
 
+/**
+ * Which cleanup model to run: MOCKINGBIRD_LLM_MODEL if set, then the one
+ * `mockingbird models use` saved, then the default.
+ */
+export const cleanupModel = (saved?: string, env = process.env) =>
+  env.MOCKINGBIRD_LLM_MODEL ?? saved ?? DEFAULT_LLM_MODEL;
+
 /** Checks the models, loads VAD, starts whisper-server, and checks Ollama. */
 export async function startEngines(
   log: (message: string) => void,
   dictionary: DictionaryEntry[] = [],
+  savedModel?: string,
 ): Promise<Engines> {
   const env = process.env;
   const models = join(mockingbirdHome(env), "models");
@@ -91,7 +102,7 @@ export async function startEngines(
   const whisperModel = findAsrModel(models, env.MOCKINGBIRD_ASR_MODEL, log);
   const vadModel = requireFile(join(models, "silero_vad.onnx"), "Silero VAD model", SETUP_HINT);
   const llmUrl = env.MOCKINGBIRD_LLM_URL ?? "http://127.0.0.1:11434";
-  const llm = new OllamaProvider(llmUrl, env.MOCKINGBIRD_LLM_MODEL ?? DEFAULT_LLM_MODEL, 60_000);
+  const llm = new OllamaProvider(llmUrl, cleanupModel(savedModel, env), 60_000);
 
   const vad = await SileroVad.load(vadModel);
   let closing: Promise<void> | undefined;

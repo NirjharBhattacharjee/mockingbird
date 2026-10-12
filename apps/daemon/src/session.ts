@@ -11,7 +11,7 @@ import { type Cue, cues } from "@mockingbird/cue";
 import { type HotkeyListener, startHotkeyListener } from "@mockingbird/hotkey";
 import { prepareForTyping, typeText } from "@mockingbird/inject";
 import type { AppStyle } from "@mockingbird/llm";
-import { openDaemonStore, recordUses, serveDictionary } from "./dictionary.ts";
+import { LLM_MODEL_SETTING, openDaemonStore, recordUses, serveDictionary } from "./dictionary.ts";
 import { HotkeyFsm } from "./hotkey-fsm.ts";
 import { CorrectionWatcher, correctionsIn, learnFrom, markEnd, markStart } from "./learn.ts";
 import { ListenController } from "./listen-controller.ts";
@@ -165,7 +165,11 @@ export async function startSession(options: SessionOptions): Promise<Session> {
   let targetLookup: Promise<FrontmostApp | undefined> = Promise.resolve(undefined);
 
   const store = openDaemonStore(mockingbirdHome(), options.log);
-  const engines = await startEngines(options.log, store?.dictionary());
+  const engines = await startEngines(
+    options.log,
+    store?.dictionary(),
+    store?.setting(LLM_MODEL_SETTING),
+  );
   // Edits take effect on the next dictation.
   const dictionaryEdits =
     store &&
