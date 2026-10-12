@@ -19,6 +19,7 @@ import {
   promptTerms,
   rawRemainder,
   shouldSkipLlm,
+  spokenFlags,
   verifiedPrefix,
 } from "@mockingbird/llm";
 import { type SpeechSegment, trimToSpeech } from "@mockingbird/vad";
@@ -138,6 +139,8 @@ export async function cleanUp(
   style: AppStyle = "default",
   onText?: OnText,
 ): Promise<CleanupResult> {
+  // A spoken flag has one right answer, so it isn't left to the model.
+  if (style === "terminal") asr = { ...asr, text: spokenFlags(asr.text) };
   const dictionary = deps.dictionary ?? [];
   /** The dictionary: replacements first, then names by sound. */
   const correct = (text: string) => correctNames(applyCorrections(text, dictionary), dictionary);

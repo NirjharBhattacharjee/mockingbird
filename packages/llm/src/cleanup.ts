@@ -159,6 +159,19 @@ export function acceptCleanup(raw: string, cleaned: string): boolean {
   return ratio >= floor && ratio <= 1.5;
 }
 
+/**
+ * Spoken flags written as flags, for a terminal: "git commit dash dash amend
+ * dash dash no dash edit" becomes "git commit --amend --no-edit", and "docker
+ * ps dash a" becomes "docker ps -a". A dash inside a flag joins the words
+ * either side. Done here rather than by the cleanup model because the rule
+ * never changes, and small models get it wrong.
+ */
+export const spokenFlags = (text: string) =>
+  text
+    .replace(/\bdash dash (?=\S)/gi, "--")
+    .replace(/(-[\p{L}\p{N}-]+) dash (?=\S)/giu, "$1-")
+    .replace(/\bdash (?=\S)/gi, "-");
+
 /** Words a question usually opens with. */
 const QUESTION_WORD =
   /^(who|whom|whose|what|when|where|why|how|which|is|are|am|was|were|do|does|did|can|could|would|will|should|shall|may|might|have|has|had|isn't|aren't|don't|doesn't|didn't|can't|won't|wouldn't|shouldn't)\b/i;

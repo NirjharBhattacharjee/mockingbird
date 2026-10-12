@@ -7,6 +7,7 @@ import {
   looksClean,
   looksLikeList,
   shouldSkipLlm,
+  spokenFlags,
 } from "../src/index.ts";
 
 describe("shouldSkipLlm", () => {
@@ -347,5 +348,20 @@ describe("buildCleanupPrompt sections (prompts/cleanup.md)", () => {
       "Spell these terms exactly like this when they appear: Nirjhar Bhattacharjee (a name).",
     );
     expect(system).not.toContain("{terms}");
+  });
+});
+
+describe("spokenFlags", () => {
+  test("writes spoken flags as flags", () => {
+    expect(spokenFlags("git commit dash dash amend dash dash no dash edit")).toBe(
+      "git commit --amend --no-edit",
+    );
+    expect(spokenFlags("docker ps dash a")).toBe("docker ps -a");
+    expect(spokenFlags("npm run build dash dash watch")).toBe("npm run build --watch");
+  });
+
+  test("leaves everything else alone", () => {
+    expect(spokenFlags("open the dashboard")).toBe("open the dashboard");
+    expect(spokenFlags("ls")).toBe("ls");
   });
 });

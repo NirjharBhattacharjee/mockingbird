@@ -377,6 +377,28 @@ quantisation of it does better: the full-precision `large-v3` is three times
 the size for the same accuracy. `qwen3:4b-instruct-2507-q4_K_M` passes every
 eval case, and every smaller model fails two to four held-out cases. If a
 lighter setup is ever offered for small Macs, this is the cost.
+
+**Retuning the prompt for a small model doesn't close the gap** (#58,
+2026-10-12). The eval has grown to 37 dev and 16 held-out cases since the
+table above. Three prompt variants were tried against `qwen2.5:1.5b`: a
+heading line made compulsory, an example of a story staying a sentence, and
+the "one paragraph" rule relaxed for lists. The best lifted it from 28 to 30
+on dev. Every one of them cost qwen3 cases instead, turning "I opened the
+laptop, then I checked my email..." into a list. None was kept.
+
+| Cleanup model | Memory | dev | held-out |
+|---|---|---|---|
+| qwen3:4b-instruct-2507-q4_K_M | 3.2 GB | 35/37 | 16/16 |
+| llama3.2:3b | 2.5 GB | 30/37 | 13/16 |
+| qwen2.5:1.5b | 1.2 GB | 28/37 | 12/16 |
+
+The small models fail the same cases whatever the prompt says. They leave
+options and steps as a sentence, or list them with no heading, and they
+don't apply a spoken correction ("a table for four, actually make that
+six"). That's the model's limit, not the prompt's. What did help is
+writing spoken flags in code (`spokenFlags`, terminal style only). "git
+commit dash dash amend" has one right answer, so no model is asked for it.
+The default stays qwen3.
 `large-v3-turbo` Q5_0 is half the disk and ~0.4s faster for ~1 point more
 word error and 4 fewer names right; `qwen2.5:1.5b` is about twice as fast per call and
 2.5 GB smaller, but fails 3 of 11 held-out cases.
