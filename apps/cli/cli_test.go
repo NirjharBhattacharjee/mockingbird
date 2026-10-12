@@ -281,8 +281,27 @@ func TestSetupWalksEveryStep(t *testing.T) {
 	if !strings.Contains(escapes.ReplaceAllString(m.render(), ""), "Tapping Fn opens Show Emoji & Symbols") {
 		t.Error("the Fn step doesn't say what Fn opens")
 	}
+	// Yes, but the setting doesn't change: not shown as free.
+	yes := feed(m, key("y"))
+	yes = feed(yes, engineMsg{"Fn is bound to dictation only. Log out of your Mac for it to apply."})
+	yes = feed(yes, statusMsg{Agent: "running", Missing: []string{}, FnAction: &emoji})
+	if screen := escapes.ReplaceAllString(yes.render(), ""); !strings.Contains(screen, "– the Fn key: tapping still opens") ||
+		!strings.Contains(yes.note, "Fn didn't change") {
+		t.Errorf("a failed fn shows as done, or says nothing:\n%s", screen)
+	}
+	// Yes, and the status confirms it: done, and the log-out note stays.
+	yes = feed(feed(feed(m, key("y")), engineMsg{"Log out of your Mac for it to apply."}),
+		statusMsg{Agent: "running", Missing: []string{}})
+	if screen := escapes.ReplaceAllString(yes.render(), ""); !strings.Contains(screen, "✓ the Fn key is free") ||
+		!strings.Contains(yes.note, "Log out") {
+		t.Errorf("a freed Fn isn't shown as done with its note:\n%s", screen)
+	}
+
 	if m = feed(m, key("n")); m.stage != dictating {
 		t.Fatalf("declining fn: stage %d, want dictating", m.stage)
+	}
+	if !strings.Contains(escapes.ReplaceAllString(m.render(), ""), "– the Fn key: tapping still opens Show Emoji") {
+		t.Error("declining fn shows the step as done")
 	}
 
 	if m = feed(m, dictationMsg{Outcome: "no-speech"}); !strings.Contains(m.note, "heard nothing") || m.stage != dictating {

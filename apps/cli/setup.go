@@ -46,7 +46,7 @@ type setupModel struct {
 	st        status
 	stage     stage
 	perm      string // the permission being granted
-	fnAsked   bool
+	fnAsked   bool   // asked once; the answer doesn't mean Fn is free
 	busy      string // what's running, shown in place of the key hints
 	note      string // the last thing worth saying, under the steps
 	dictation string // how the test dictation went, once it has
@@ -139,12 +139,19 @@ func (m setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if m.stage == freeingFn {
+			// Keep what `fn` said (it applies after a log out), and say so if
+			// the setting didn't change.
+			if m.st.FnAction != nil {
+				m.note = "Fn didn't change: " + m.note
+			}
+			return m.next()
+		}
 		m.note = ""
 		return m.next()
 	case engineMsg:
 		if m.stage == freeingFn {
 			m.note = lastLine(msg.out)
-			return m.next()
 		}
 		return m, nil
 	case dictationMsg:
@@ -189,7 +196,7 @@ func (m setupModel) key(k string) (tea.Model, tea.Cmd) {
 			return m.next()
 		}
 		m.busy = "freeing Fn…"
-		return m, m.run("fn")
+		return m, tea.Sequence(m.run("fn"), m.checkStatus())
 	case m.stage == dictating && k == "enter":
 		m.note = ""
 		return m.next()
@@ -202,7 +209,8 @@ func (m setupModel) key(k string) (tea.Model, tea.Cmd) {
 
 func (m setupModel) View() tea.View { return tea.NewView(m.render()) }
 
-// step draws one checklist line: ✓ done, ▸ current, · still to come. The
+// step draws one checklist line: ✓ done, ▸ current, – skipped, · still to
+// come. The
 // symbol carries the state, so it reads without color (docs/TUI.md §8).
 func step(state, text string) string {
 	switch state {
@@ -210,6 +218,8 @@ func step(state, text string) string {
 		return "  " + paint("✓ "+text, green) + "\n"
 	case "now":
 		return "  " + paint("▸ "+text, mauve) + "\n"
+	case "skipped":
+		return "  " + paint("– "+text, yellow) + "\n"
 	default:
 		return "  " + paint("· "+text, overlay0) + "\n"
 	}
@@ -238,8 +248,12 @@ func (m setupModel) render() string {
 			b.WriteString(paint("      Switch on \"mockingbird\" (or \"bun\"), then press Enter.\n", text))
 		}
 	}
-	fnDone := m.fnAsked || (running && m.st.Missing != nil && m.st.FnAction == nil)
-	b.WriteString(step(state(fnDone, m.stage == freeingFn), "the Fn key is free for dictation"))
+	// Done only once the status says Fn is free, never just for answering.
+	fnState, fnLabel := state(running && m.st.Missing != nil && m.st.FnAction == nil, m.stage == freeingFn), "the Fn key is free for dictation"
+	if m.fnAsked && m.st.FnAction != nil {
+		fnState, fnLabel = "skipped", "the Fn key: tapping still opens "+*m.st.FnAction+" (holding works)"
+	}
+	b.WriteString(step(fnState, fnLabel))
 	if m.stage == freeingFn && m.st.FnAction != nil {
 		b.WriteString(paint("      Tapping Fn opens "+*m.st.FnAction+". Bind it to dictation only? y/n\n", text))
 		b.WriteString(paint("      (mockingbird fn --undo puts it back)\n", subtext0))
@@ -258,7 +272,11 @@ func (m setupModel) render() string {
 	b.WriteString("\n  ")
 	switch {
 	case m.stage == finished:
-		b.WriteString(paint("All set. Hold Fn anywhere to dictate, or double-tap it for hands-free.", green) +
+		done := "All set. Hold Fn anywhere to dictate, or double-tap it for hands-free."
+		if m.st.FnAction != nil {
+			done = "All set. Hold Fn anywhere to dictate."
+		}
+		b.WriteString(paint(done, green) +
 			"\n  " + paint("enter or q to close", overlay0))
 	case m.busy != "":
 		b.WriteString(paint(m.busy, sky))

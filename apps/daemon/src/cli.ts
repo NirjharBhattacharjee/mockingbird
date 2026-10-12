@@ -1,4 +1,4 @@
-import { mkdirSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { checkInputMonitoring } from "@mockingbird/hotkey";
 import { checkTypingAccess } from "@mockingbird/inject";
@@ -416,8 +416,8 @@ async function setup(args: string[], logPath = agentPaths().logPath): Promise<nu
     return 0;
   }
   if (step === "await-dictation") {
-    const file = Bun.file(logPath);
-    const from = file.size;
+    // statSync, not Bun.file().size, which isn't valid before a read.
+    const from = existsSync(logPath) ? statSync(logPath).size : 0;
     const deadline = Date.now() + 120_000;
     // Stops when the setup that asked has gone (this is reparented to
     // launchd, pid 1), rather than waiting out the two minutes on its own.
