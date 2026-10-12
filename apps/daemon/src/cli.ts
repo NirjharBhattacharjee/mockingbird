@@ -470,7 +470,7 @@ function uninstallHere(args: string[]): Promise<number> {
     stopAgent: () => stop(),
     undoFn: () => fn(["--undo"]),
     fnBackupPath: fnBackupPath(),
-    isClean: (dir) => out(["git", "-C", dir, "status", "--porcelain"]) === "",
+    git: (args) => out(["git", ...args]),
     ollamaRm: (model) => Bun.spawn(["ollama", "rm", model], { stdout: "inherit" }).exited,
     sizeOf: (path) => out(["du", "-sh", path])?.split("\t")[0] ?? "",
     // biome-ignore lint/suspicious/noTemplateCurlyInString: zsh expands it, not JS.

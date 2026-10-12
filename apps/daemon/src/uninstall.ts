@@ -25,8 +25,8 @@ export type UninstallDeps = {
   /** `mockingbird fn --undo`, when there's an Fn setting to give back. */
   undoFn: () => Promise<number>;
   fnBackupPath: string;
-  /** Whether a clone has no local changes, so deleting it loses nothing. */
-  isClean: (dir: string) => boolean;
+  /** Runs git; its output, or undefined when it fails. */
+  git: (args: string[]) => string | undefined;
   ollamaRm: (model: string) => Promise<number>;
   /** Human-readable size of a path, or "" if unknown. */
   sizeOf: (path: string) => string;
@@ -37,16 +37,58 @@ export type UninstallDeps = {
 const isHomebrew = (root: string) => /\/(Cellar|opt)\/mockingbird(\/|$)/.test(root);
 
 /**
+ * Whether deleting a clone can lose nothing of the user's: no changes, no
+ * files git ignores other than what `bun install` and the Go build make, no
+ * stash, and no commit that isn't on a remote branch or a tag. Anything
+ * uncertain counts as not pristine, and the clone is left alone.
+ */
+export function clonePristine(dir: string, git: UninstallDeps["git"]): boolean {
+  const status = git(["-C", dir, "status", "--porcelain", "--ignored"]);
+  if (status === undefined) return false;
+  const theirs = status
+    .split("\n")
+    .filter((l) => l && !/^!! (.*\/)?node_modules\/$/.test(l) && l !== "!! apps/cli/mockingbird");
+  return (
+    theirs.length === 0 &&
+    !!git(["-C", dir, "for-each-ref", "--contains", "HEAD", "refs/remotes", "refs/tags"]) &&
+    git(["-C", dir, "log", "--branches", "--not", "--remotes", "--tags", "--oneline"]) === "" &&
+    git(["-C", dir, "stash", "list"]) === ""
+  );
+}
+
+/** `path`, or the first of `stem-2.txt`, `stem-3.txt`… that doesn't exist yet. */
+function freshName(path: string): string {
+  let n = 1;
+  let candidate = path;
+  while (existsSync(candidate)) candidate = path.replace(/\.txt$/, `-${++n}.txt`);
+  return candidate;
+}
+
+/**
  * `mockingbird uninstall` (#55): everything an install put on this Mac, after
  * one question. The user's dictionary gets its own question, the cleanup model
  * too since Ollama may serve other things, and the Homebrew tools are never
- * removed. The code goes last: it's what's running this.
+ * removed. Anything that can lose the user's data stops it before anything is
+ * deleted; after that, each removal is tried on its own and failures are
+ * reported at the end. The code goes last: it's what's running this.
  */
 export async function uninstall(args: string[], deps: UninstallDeps): Promise<number> {
   const yes = args.includes("--yes");
   const home = deps.home ?? homedir();
-  const { log, root } = deps;
+  const { log, root, mockingbirdHome: mb } = deps;
   const ask = (q: string, fallback: boolean) => (yes ? fallback : deps.ask(q, fallback));
+
+  // Read the user's words first: if they can't be read, nothing is touched.
+  let words: string[];
+  try {
+    words = readDictionary(mb).map(formatEntry);
+  } catch (error) {
+    log(`Couldn't read your dictionary in ${mb}, so nothing was removed: ${error}`);
+    return 1;
+  }
+  // A dictionary.txt the agent hasn't moved into data.db yet.
+  const legacy = join(mb, "dictionary.txt");
+  if (existsSync(legacy)) words.push(...readFileSync(legacy, "utf8").trimEnd().split("\n"));
 
   const installerClone = process.env.MOCKINGBIRD_DIR ?? join(home, "mockingbird");
   const shim = join(home, ".local", "bin", "mockingbird");
@@ -58,11 +100,12 @@ export async function uninstall(args: string[], deps: UninstallDeps): Promise<nu
     join(home, ".profile"),
   ].filter((p) => existsSync(p) && readFileSync(p, "utf8").includes(PROFILE_LINES));
   const real = (p: string) => (existsSync(p) ? realpathSync(p) : p);
-  const removeCode = !isHomebrew(root) && real(root) === real(installerClone) && deps.isClean(root);
+  const removeCode =
+    !isHomebrew(root) && real(root) === real(installerClone) && clonePristine(root, deps.git);
 
   const items: [string, string][] = [
     ["the background agent", deps.plistPath],
-    ["models, logs, the agent's runner and your dictionary", deps.mockingbirdHome],
+    ["models, logs, the agent's runner and your dictionary", mb],
   ];
   if (removeCode) items.push(["the code", root]);
   if (ownShim) items.push(["the mockingbird command", shim]);
@@ -77,42 +120,64 @@ export async function uninstall(args: string[], deps: UninstallDeps): Promise<nu
     return 0;
   }
 
-  await deps.stopAgent();
-  rmSync(deps.plistPath, { force: true });
-
+  // Fn's backup is in the folder about to go, so give Fn back first.
   const fnTaken = existsSync(deps.fnBackupPath);
-  if (fnTaken) await deps.undoFn();
-
-  let words: ReturnType<typeof readDictionary> = [];
-  try {
-    words = readDictionary(deps.mockingbirdHome);
-  } catch (error) {
-    log(`Couldn't read your dictionary to keep a copy: ${error}`);
+  if (fnTaken && (await deps.undoFn()) !== 0) {
+    log("Fn couldn't be given back, so nothing was removed. Fix that, then run this again.");
+    return 1;
   }
+  if ((await deps.stopAgent()) !== 0) {
+    log("The agent didn't stop, so nothing was removed. Run this again in a moment.");
+    return 1;
+  }
+
+  const failed: string[] = [];
+  const attempt = (what: string, remove: () => void): boolean => {
+    try {
+      remove();
+      return true;
+    } catch (error) {
+      failed.push(`${what}: ${error instanceof Error ? error.message : error}`);
+      return false;
+    }
+  };
+  attempt(deps.plistPath, () => rmSync(deps.plistPath, { force: true }));
+  let wordsSafe = true;
   if (
     words.length > 0 &&
     ask(`Keep a copy of your ${words.length} dictionary words? [Y/n]`, true)
   ) {
-    const copy = join(home, "mockingbird-dictionary.txt");
-    writeFileSync(copy, `${words.map(formatEntry).join("\n")}\n`);
-    log(
-      `Your words are in ${copy}. To use them after a reinstall, move it to ` +
-        "~/.mockingbird/dictionary.txt before `mockingbird start`.",
-    );
+    const copy = freshName(join(home, "mockingbird-dictionary.txt"));
+    wordsSafe = attempt(copy, () => writeFileSync(copy, `${words.join("\n")}\n`));
+    if (wordsSafe) {
+      log(
+        `Your words are in ${copy}. To use them after a reinstall, move it to ` +
+          "~/.mockingbird/dictionary.txt before `mockingbird start`.",
+      );
+    }
   }
-  rmSync(deps.mockingbirdHome, { recursive: true, force: true });
-
+  // A copy that couldn't be written means the originals stay.
+  if (wordsSafe) attempt(mb, () => rmSync(mb, { recursive: true, force: true }));
+  else failed.push(`${mb} was kept, since your words couldn't be copied out of it`);
   for (const p of profiles) {
-    writeFileSync(p, readFileSync(p, "utf8").replace(PROFILE_LINES, "\n"));
+    attempt(p, () => writeFileSync(p, readFileSync(p, "utf8").replace(PROFILE_LINES, "\n")));
   }
-  if (ownShim) rmSync(shim, { force: true });
+  if (ownShim) attempt(shim, () => rmSync(shim, { force: true }));
 
   const kept: string[] = [];
-  const modelGone =
+  let modelGone = false;
+  if (
     ask(
       `Remove the cleanup model ${deps.cleanupModel} from Ollama? Other programs may use it. [y/N]`,
       false,
-    ) && (await deps.ollamaRm(deps.cleanupModel)) === 0;
+    )
+  ) {
+    try {
+      modelGone = (await deps.ollamaRm(deps.cleanupModel)) === 0;
+    } catch {
+      // No ollama command any more: the model is reported as kept.
+    }
+  }
   if (!modelGone) {
     kept.push(`The cleanup model is still in Ollama: \`ollama rm ${deps.cleanupModel}\`.`);
   }
@@ -127,14 +192,18 @@ export async function uninstall(args: string[], deps: UninstallDeps): Promise<nu
     kept.push("The code and the command came from Homebrew: `brew uninstall mockingbird`.");
   } else if (!removeCode) {
     kept.push(
-      `The code at ${root} was left alone: it isn't the installer's clone, or it has ` +
-        "changes of yours. Delete it yourself if you're done with it.",
+      `The code at ${root} was left alone: it isn't the installer's clone, or it may hold ` +
+        "work of yours (changes, ignored files, a stash or unpushed commits).",
     );
   }
 
-  log("\nmockingbird is uninstalled. Left on this Mac:");
+  log(`\nmockingbird is ${failed.length ? "partly " : ""}uninstalled. Left on this Mac:`);
   for (const line of kept) log(`  - ${line}`);
+  if (failed.length) {
+    log("These couldn't be removed:");
+    for (const line of failed) log(`  - ${line}`);
+  }
   // Last, since this is running from it.
-  if (removeCode) rmSync(root, { recursive: true, force: true });
-  return 0;
+  if (removeCode) attempt(root, () => rmSync(root, { recursive: true, force: true }));
+  return failed.length ? 1 : 0;
 }
