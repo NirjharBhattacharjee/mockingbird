@@ -54,4 +54,41 @@ describe("dictionary", () => {
     reader.close();
     writer.close();
   });
+
+  test("counts corrections, and forgets everything learned but the user's own words", () => {
+    const store = openStore(dbPath());
+    expect(store.recordCorrection("near jar", "Nirjhar")).toBe(1);
+    expect(store.recordCorrection("near jar", "Nirjhar")).toBe(2);
+    store.addTerms([{ term: "Nirjhar" }], { learned: true });
+    store.addTerms([{ term: "Ollama" }]);
+    store.addTerms([{ term: "Ollama" }], { learned: true });
+    expect(store.dictionary()).toEqual([{ term: "Nirjhar", learned: true }, { term: "Ollama" }]);
+    expect(store.forgetLearned()).toBe(1);
+    expect(store.dictionary()).toEqual([{ term: "Ollama" }]);
+    expect(store.recordCorrection("near jar", "Nirjhar")).toBe(1);
+  });
+
+  test("removing a word drops its corrections, so it isn't learned straight back", () => {
+    const store = openStore(dbPath());
+    store.recordCorrection("near jar", "Nirjhar");
+    store.addTerms([{ term: "Nirjhar" }], { learned: true });
+    store.addTerms([{ term: "Nirjhar" }]);
+    expect(store.dictionary()).toEqual([{ term: "Nirjhar" }]);
+    store.removeTerm("nirjhar");
+    expect(store.recordCorrection("near jar", "Nirjhar")).toBe(1);
+  });
+
+  test("upgrades a data.db made before learning", () => {
+    const path = dbPath();
+    const { Database } = require("bun:sqlite");
+    const old = new Database(path);
+    old.run(`CREATE TABLE dictionary (term TEXT PRIMARY KEY COLLATE NOCASE, heard TEXT, hint TEXT,
+      uses INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`);
+    old.run("INSERT INTO dictionary (term, created_at, updated_at) VALUES ('Bun', 0, 0)");
+    old.run("PRAGMA user_version = 1");
+    old.close();
+    const store = openStore(path);
+    expect(store.dictionary()).toEqual([{ term: "Bun" }]);
+    expect(store.recordCorrection("bun", "Bun")).toBe(1);
+  });
 });

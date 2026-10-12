@@ -14,15 +14,37 @@ const MIGRATIONS = [
      created_at  INTEGER NOT NULL,
      updated_at  INTEGER NOT NULL
    )`,
+  // Learning from the user's corrections (#62): the word pairs, counted, and
+  // which dictionary words came from them, so they can all be forgotten.
+  `CREATE TABLE correction (
+     id          INTEGER PRIMARY KEY AUTOINCREMENT,
+     from_text   TEXT NOT NULL,
+     to_text     TEXT NOT NULL,
+     count       INTEGER NOT NULL DEFAULT 1,
+     created_at  INTEGER NOT NULL,
+     updated_at  INTEGER NOT NULL,
+     UNIQUE (from_text, to_text)
+   );
+   ALTER TABLE dictionary ADD COLUMN learned INTEGER NOT NULL DEFAULT 0`,
 ];
+
+/** A dictionary entry, and whether it was learned rather than added by the user. */
+export type StoredEntry = DictionaryEntry & { learned?: true };
 
 export type Store = {
   /** Every term, most used first. */
-  dictionary(): DictionaryEntry[];
-  /** Adds terms, or updates the ones already there; a missing heard or hint keeps the old one. */
-  addTerms(entries: DictionaryEntry[]): void;
-  /** Whether there was such a term. Case doesn't matter. */
+  dictionary(): StoredEntry[];
+  /**
+   * Adds terms, or updates the ones already there; a missing heard or hint
+   * keeps the old one. A term the user adds stops counting as learned.
+   */
+  addTerms(entries: DictionaryEntry[], options?: { learned?: boolean }): void;
+  /** Whether there was such a term. Case doesn't matter. Its corrections go too. */
   removeTerm(term: string): boolean;
+  /** Counts one sighting of the user correcting `from` to `to`; returns how many so far. */
+  recordCorrection(from: string, to: string): number;
+  /** Deletes every learned term and every correction; returns how many terms went. */
+  forgetLearned(): number;
   /** One more use for each of these terms. */
   countUses(terms: string[]): void;
   close(): void;
@@ -51,35 +73,58 @@ export function openStore(path: string, { readonly = false } = {}): Store {
   }
 
   const upsert = db.query(
-    `INSERT INTO dictionary (term, heard, hint, created_at, updated_at)
-     VALUES ($term, $heard, $hint, $now, $now)
+    `INSERT INTO dictionary (term, heard, hint, learned, created_at, updated_at)
+     VALUES ($term, $heard, $hint, $learned, $now, $now)
      ON CONFLICT (term) DO UPDATE SET
        term = excluded.term,
        heard = coalesce(excluded.heard, heard),
        hint = coalesce(excluded.hint, hint),
+       learned = learned AND excluded.learned,
        updated_at = excluded.updated_at`,
+  );
+  const correction = db.query<{ count: number }, [string, string, number]>(
+    `INSERT INTO correction (from_text, to_text, created_at, updated_at) VALUES (?1, ?2, ?3, ?3)
+     ON CONFLICT (from_text, to_text) DO UPDATE SET
+       count = count + 1,
+       updated_at = excluded.updated_at
+     RETURNING count`,
   );
   const use = db.query("UPDATE dictionary SET uses = uses + 1 WHERE term = ?");
 
   return {
     dictionary: () =>
       db
-        .query<{ term: string; heard: string | null; hint: string | null }, []>(
-          "SELECT term, heard, hint FROM dictionary ORDER BY uses DESC, term",
+        .query<{ term: string; heard: string | null; hint: string | null; learned: number }, []>(
+          "SELECT term, heard, hint, learned FROM dictionary ORDER BY uses DESC, term",
         )
         .all()
-        .map(({ term, heard, hint }) => ({
+        .map(({ term, heard, hint, learned }) => ({
           term,
           ...(heard && { heard }),
           ...(hint && { hint }),
+          ...(learned && { learned: true as const }),
         })),
-    addTerms: db.transaction((entries: DictionaryEntry[]) => {
+    addTerms: db.transaction((entries: DictionaryEntry[], { learned = false } = {}) => {
       const now = Date.now();
       for (const { term, heard, hint } of entries) {
-        upsert.run({ $term: term, $heard: heard ?? null, $hint: hint ?? null, $now: now });
+        upsert.run({
+          $term: term,
+          $heard: heard ?? null,
+          $hint: hint ?? null,
+          $learned: learned ? 1 : 0,
+          $now: now,
+        });
       }
     }),
-    removeTerm: (term) => db.run("DELETE FROM dictionary WHERE term = ?", [term]).changes > 0,
+    removeTerm: db.transaction((term: string) => {
+      db.run("DELETE FROM correction WHERE to_text = ? COLLATE NOCASE", [term]);
+      return db.run("DELETE FROM dictionary WHERE term = ?", [term]).changes > 0;
+    }),
+    recordCorrection: (from, to) => correction.get(from, to, Date.now())?.count ?? 1,
+    forgetLearned: db.transaction(() => {
+      db.run("DELETE FROM correction");
+      return db.run("DELETE FROM dictionary WHERE learned").changes;
+    }),
     countUses: db.transaction((terms: string[]) => {
       for (const term of terms) use.run(term);
     }),

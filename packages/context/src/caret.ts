@@ -6,6 +6,7 @@ const APPLICATION_SERVICES =
 
 const kCFStringEncodingUTF8 = 0x08000100;
 const kAXValueCFRangeType = 4;
+const kCFNumberSInt64Type = 4;
 const kAXErrorSuccess = 0;
 /** Seconds an app gets to answer, so a hung one can't hold up typing. */
 const MESSAGING_TIMEOUT_S = 0.25;
@@ -29,6 +30,7 @@ function loadSymbols() {
     CFStringGetTypeID: { args: [], returns: FFIType.u64_fast },
     CFStringGetLength: { args: [REF], returns: FFIType.i64_fast },
     CFStringGetCharacterAtIndex: { args: [REF, FFIType.i64], returns: FFIType.u16 },
+    CFNumberGetValue: { args: [REF, FFIType.i32, FFIType.ptr], returns: FFIType.bool },
   });
   const ax = dlopen(APPLICATION_SERVICES, {
     AXIsProcessTrusted: { args: [], returns: FFIType.bool },
@@ -38,6 +40,7 @@ function loadSymbols() {
       args: [REF, REF, FFIType.ptr],
       returns: FFIType.i32,
     },
+    AXUIElementGetPid: { args: [REF, FFIType.ptr], returns: FFIType.i32 },
     AXUIElementCopyParameterizedAttributeValue: {
       args: [REF, REF, REF, FFIType.ptr],
       returns: FFIType.i32,
@@ -49,14 +52,32 @@ function loadSymbols() {
 }
 
 /**
- * The one character just before the cursor in the focused text field of the
- * app in front, read through Accessibility: `""` when the cursor is at the
- * start of the field, `undefined` when it can't be read (no permission, no
- * text field, an app that doesn't expose its text, or one too slow to answer).
- * With a selection, it's the character before the selection, since typing
- * replaces it. Only that one character is ever requested, never the field.
+ * The focused text field, as far as Accessibility shows it. Positions count
+ * UTF-16 units, as the field's own do.
  */
-export function charBeforeCaret(): string | undefined {
+export type FocusedField = {
+  /** The process the field belongs to. */
+  pid: number;
+  /** Where the cursor is, or where the selection starts. */
+  caret: number;
+  /** How long the text is; undefined if the app doesn't say. */
+  length(): number | undefined;
+  /** The text from `start` to `end`, cut to the field; undefined if the app won't give it. */
+  text(start: number, end: number): string | undefined;
+};
+
+/**
+ * Runs `read` against the focused text field of the app in front. Undefined
+ * when there's no such field to read: no permission, no text field, an app
+ * that doesn't expose its text or is too slow to answer, or a password field,
+ * which is never read. Callers ask for the ranges they need, never the field.
+ * With `pid`, a field that has moved to another app by then isn't read either.
+ */
+export function readFocusedField<T>(
+  read: (field: FocusedField) => T,
+  /** Read only if the field belongs to this process; checked before anything is read from it. */
+  { pid }: { pid?: number } = {},
+): T | undefined {
   let symbols: ReturnType<typeof loadSymbols>;
   try {
     symbols = loadSymbols();
@@ -92,6 +113,14 @@ export function charBeforeCaret(): string | undefined {
     if (error !== kAXErrorSuccess) return null;
     return own(out[0] ?? null);
   };
+  /** A CFString as JS, or undefined for anything else. */
+  const jsString = (ref: bigint | null): string | undefined => {
+    if (!ref || cf.symbols.CFGetTypeID(ref) !== cf.symbols.CFStringGetTypeID()) return undefined;
+    const units: number[] = [];
+    const length = Number(cf.symbols.CFStringGetLength(ref));
+    for (let i = 0; i < length; i++) units.push(cf.symbols.CFStringGetCharacterAtIndex(ref, i));
+    return String.fromCharCode(...units);
+  };
 
   try {
     if (!ax.symbols.AXIsProcessTrusted()) return undefined;
@@ -99,26 +128,44 @@ export function charBeforeCaret(): string | undefined {
     if (!system) return undefined;
     ax.symbols.AXUIElementSetMessagingTimeout(system, MESSAGING_TIMEOUT_S);
 
-    const field = copy(system, "AXFocusedUIElement");
-    if (!field) return undefined;
-    ax.symbols.AXUIElementSetMessagingTimeout(field, MESSAGING_TIMEOUT_S);
+    const element = copy(system, "AXFocusedUIElement");
+    if (!element) return undefined;
+    const owner = new Int32Array(1);
+    if (ax.symbols.AXUIElementGetPid(element, ptr(owner)) !== kAXErrorSuccess) return undefined;
+    if (pid !== undefined && owner[0] !== pid) return undefined;
+    ax.symbols.AXUIElementSetMessagingTimeout(element, MESSAGING_TIMEOUT_S);
+    if (jsString(copy(element, "AXSubrole")) === "AXSecureTextField") return undefined;
 
-    const selection = copy(field, "AXSelectedTextRange");
+    const selection = copy(element, "AXSelectedTextRange");
     if (!selection) return undefined;
     // A CFRange: location and length, both CFIndex (64-bit).
     const range = new BigInt64Array(2);
     if (!ax.symbols.AXValueGetValue(selection, kAXValueCFRangeType, ptr(range))) return undefined;
-    const location = range[0] ?? -1n;
-    if (location < 0n) return undefined;
-    if (location === 0n) return "";
+    const caret = Number(range[0] ?? -1n);
+    if (caret < 0) return undefined;
 
-    const previous = new BigInt64Array([location - 1n, 1n]);
-    const previousRange = own(ax.symbols.AXValueCreate(kAXValueCFRangeType, ptr(previous)));
-    if (!previousRange) return undefined;
-    const text = copy(field, "AXStringForRange", previousRange);
-    if (!text || cf.symbols.CFGetTypeID(text) !== cf.symbols.CFStringGetTypeID()) return undefined;
-    if (cf.symbols.CFStringGetLength(text) < 1) return undefined;
-    return String.fromCharCode(cf.symbols.CFStringGetCharacterAtIndex(text, 0));
+    let known: number | undefined;
+    const length = () => {
+      if (known !== undefined) return known;
+      const count = copy(element, "AXNumberOfCharacters");
+      const out = new BigInt64Array(1);
+      if (!count || !cf.symbols.CFNumberGetValue(count, kCFNumberSInt64Type, ptr(out))) return;
+      known = Number(out[0]);
+      return known;
+    };
+    const text = (from: number, to: number) => {
+      const start = Math.max(0, from);
+      const end = Math.min(to, length() ?? to);
+      if (end <= start) return "";
+      const span = own(
+        ax.symbols.AXValueCreate(
+          kAXValueCFRangeType,
+          ptr(new BigInt64Array([BigInt(start), BigInt(end - start)])),
+        ),
+      );
+      return span ? jsString(copy(element, "AXStringForRange", span)) : undefined;
+    };
+    return read({ pid: owner[0] ?? 0, caret, length, text });
   } catch {
     return undefined;
   } finally {
@@ -126,6 +173,18 @@ export function charBeforeCaret(): string | undefined {
     cf.close();
     ax.close();
   }
+}
+
+/**
+ * The one character just before the cursor in the focused text field: `""`
+ * when the cursor is at the start of the field, `undefined` when it can't be
+ * read (see `readFocusedField`). With a selection, it's the character before
+ * the selection, since typing replaces it. Only that one character is read.
+ */
+export function charBeforeCaret(): string | undefined {
+  return readFocusedField(({ caret, text }) =>
+    caret === 0 ? "" : text(caret - 1, caret)?.slice(-1) || undefined,
+  );
 }
 
 /** Characters after which new text follows directly, without a space. */
