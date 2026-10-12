@@ -92,6 +92,15 @@ describe("mockingbird", () => {
       missing: ["Accessibility", "Microphone"],
       fnAction: "Show Emoji & Symbols",
     });
+    // Restarted, and not reported yet: the last run's checks don't count.
+    writeFileSync(
+      log,
+      "09:00 permissions: Fn ok, typing ok\n09:00 checks: Fn MISSING, typing ok, microphone ok\n" +
+        "09:10 permissions: Fn ok, typing ok\n",
+    );
+    expect(await agentState(running, log, async () => ({ kind: "free" }))).toMatchObject({
+      missing: null,
+    });
     const stopped: Launchctl = async () => ({
       code: 113,
       stdout: "",

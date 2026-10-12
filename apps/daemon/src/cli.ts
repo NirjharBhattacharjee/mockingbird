@@ -300,7 +300,11 @@ export async function agentState(
   const log = await Bun.file(logPath)
     .text()
     .catch(() => "");
-  const line = log.split("\n").findLast((l) => l.includes(CHECKS));
+  // Only this run's checks: each run starts with a "permissions:" line, and a
+  // restarted agent hasn't reported until a "checks:" line follows it.
+  const lines = log.split("\n");
+  const thisRun = lines.findLastIndex((l) => l.includes("permissions: Fn "));
+  const line = lines.slice(Math.max(0, thisRun)).findLast((l) => l.includes(CHECKS));
   const fn = await fnUsage();
   return {
     agent: state,
