@@ -328,6 +328,32 @@ SHIM
     return
   fi
 
+  # A first install goes straight into `mockingbird setup`, which starts the
+  # agent and walks through the permissions, Fn and a test dictation (#54).
+  # First means the agent was never set up: `start` writes its plist and only
+  # uninstall removes it, so an update of an agent the user stopped stays
+  # stopped. Setup also needs the Go command and a terminal; under
+  # `curl | bash` stdin is this script, so it reads the keyboard from
+  # /dev/tty. Anything else (output to a file, as for a coding agent, or no Go
+  # command) gets the steps below.
+  local plist="$HOME/Library/LaunchAgents/com.mockingbird.agent.plist"
+  if [ ! -e "$plist" ] && [ -x "$cli" ] && [ -t 1 ] && (: </dev/tty) 2>/dev/null; then
+    printf '\n\033[1;32mInstalled.\033[0m Next, the permissions, the Fn key and a test dictation.\n'
+    # Quitting setup early is fine and exits 0; only a setup that couldn't run fails.
+    if ! "$shim" setup </dev/tty; then
+      printf '\n\033[1;33mnote:\033[0m setup stopped with an error. mockingbird is installed;\n'
+      printf 'run `%s setup` to try again, or `%s start` to skip it.\n' "$cmd" "$cmd"
+    else
+      printf '\nLater: `%s setup` goes through this again,\n' "$cmd"
+      printf 'and `%s` on its own lists every command.\n' "$cmd"
+    fi
+    if [ -n "$in_profile" ]; then
+      printf 'In a new terminal window, plain `mockingbird` works too.\n'
+    fi
+    printf 'To update, run the install command again.\n\n'
+    return
+  fi
+
   printf '\n\033[1;32mAll set.\033[0m Now run:\n\n'
   printf '    %s start\n\n' "$cmd"
   printf 'That runs it in the background, now and at every login. macOS will ask\n'
