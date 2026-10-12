@@ -239,6 +239,35 @@ home screen. Neither needs the IPC socket.
 - Not built yet (#50): the install ending on this screen, which needs #49 to
   put the Go command in place first.
 
+### Guided setup (built)
+- `mockingbird setup`, in a terminal of at least 80×20, or `setup` from the
+  home screen. Smaller terminals and piped output get the same steps as text.
+- A checklist, one step at a time, each checked before it moves on:
+  1. **mockingbird is running.** Runs `start` if it isn't. If the agent still
+     isn't running after that, it says so and points at `status` and the log
+     rather than trying again by itself.
+  2. **Input Monitoring, Accessibility, Microphone**, each with why it's
+     needed. For the first one the agent reports missing, System Settings
+     opens at its pane. Enter restarts the agent (macOS reads permissions when
+     a program starts) and reads its checks again. A permission still off
+     says to check the switch is on for "mockingbird" or "bun", and for the
+     microphone, that Sound → Input picks the right one.
+  3. **The Fn key is free.** Only when tapping Fn opens something in macOS:
+     asks `y`/`n` before running `fn`, since it changes a system-wide setting,
+     and shows the undo command. Never changes it without a yes.
+  4. **A test dictation.** Waits up to two minutes for the agent's next
+     dictation in its log and says whether it was typed, heard nothing, or
+     couldn't be typed and why. `Enter` tries again, `s` skips.
+  5. "All set", with how to dictate from now on.
+- Step states are `✓` (`green`), `▸` (`mauve`) and `·` (`overlay0`), so they
+  read without color. Notes are `yellow`, what's running is `sky`.
+- The engine does every step. The Go command calls `status --json`, `start`,
+  `restart`, `fn`, and two helpers only setup uses: `setup open <pane>` and
+  `setup await-dictation`. Nothing in Go writes state.
+- Not built yet (#54): telling the user to restart the Mac when a permission
+  is on but still not applied. #54 asks for that to come from cases seen on
+  real Macs, not a guess. The install doesn't end here yet either (#49).
+
 ### Dashboard (default view)
 - **Live hotkey FSM state** ([ARCHITECTURE.md §5](./ARCHITECTURE.md#5-the-hotkey-state-machine)),
   streamed over the IPC socket, colored per [§4](#4-semantic-color-mapping).

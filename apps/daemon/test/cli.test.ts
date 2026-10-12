@@ -9,6 +9,7 @@ import {
   agentState,
   agentVerdict,
   bunPath,
+  dictationOutcome,
   main,
   stop,
 } from "../src/cli.ts";
@@ -111,6 +112,27 @@ describe("mockingbird", () => {
       missing: null,
       fnAction: null,
     });
+  });
+
+  test("dictationOutcome reads the agent's dictation lines and nothing else", () => {
+    expect(dictationOutcome("2026-10-11 18:19:36 typed 10 characters")).toEqual({
+      outcome: "typed",
+      detail: "10 characters",
+    });
+    expect(dictationOutcome("2026-10-11 18:19:36 no speech detected")).toEqual({
+      outcome: "no-speech",
+      detail: "",
+    });
+    expect(
+      dictationOutcome("2026-10-11 18:19:36 not typed (12 characters): no Accessibility"),
+    ).toEqual({ outcome: "not-typed", detail: "no Accessibility" });
+    expect(dictationOutcome("2026-10-11 18:19:36 speech 2.3s · vad 213ms")).toBeUndefined();
+  });
+
+  test("setup on its own prints the steps by hand", async () => {
+    const { code, out } = await run(["setup"]);
+    expect(code).toBe(0);
+    expect(out).toContain("mockingbird restart");
   });
 
   test("--help and help both work", async () => {

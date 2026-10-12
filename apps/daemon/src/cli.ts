@@ -1,4 +1,4 @@
-import { mkdirSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { checkInputMonitoring } from "@mockingbird/hotkey";
 import { checkTypingAccess } from "@mockingbird/inject";
@@ -51,6 +51,7 @@ export const COMMANDS: { name: string; summary: string }[] = [
   { name: "listen", summary: "run in this terminal instead, with a live status line" },
   { name: "transcribe", summary: "turn a recording into text" },
   { name: "type", summary: "check typing permission, or type some text" },
+  { name: "setup", summary: "walk through the permissions, Fn and a test dictation" },
 ];
 
 const USAGE = `Usage: mockingbird <command> [options]
@@ -376,6 +377,72 @@ async function restart(run: Launchctl = runLaunchctl): Promise<number> {
   return start(run);
 }
 
+const SETUP_BY_HAND = `The guided setup needs a terminal. By hand:
+
+  1. mockingbird start
+  2. Allow "mockingbird" in System Settings → Privacy & Security under Input
+     Monitoring, Accessibility and Microphone, then mockingbird restart.
+     mockingbird status says what's still missing.
+  3. If tapping Fn opens the emoji picker: mockingbird fn, then log out of
+     your Mac and back in.
+  4. Click into any text box, hold Fn, say something, and let go.`;
+
+/**
+ * What a dictation's log line says happened, for `setup await-dictation`:
+ * typed, nothing heard, or not typed and why. Undefined for any other line.
+ */
+export function dictationOutcome(
+  line: string,
+): { outcome: "typed" | "no-speech" | "not-typed"; detail: string } | undefined {
+  const typed = line.match(/ typed (\d+) characters$/);
+  if (typed) return { outcome: "typed", detail: `${typed[1]} characters` };
+  if (line.endsWith(" no speech detected")) return { outcome: "no-speech", detail: "" };
+  const not = line.match(/ not typed \(\d+ characters\): (.*)$/);
+  if (not) return { outcome: "not-typed", detail: not[1] ?? "" };
+  return undefined;
+}
+
+/**
+ * `setup`. The Go command draws the guided flow and calls the two helpers
+ * below; run on its own, this prints the same steps as text.
+ *   setup open <pane>        opens System Settings at that Privacy pane
+ *   setup await-dictation    waits for the agent's next dictation, then
+ *                            prints its outcome as JSON
+ */
+async function setup(args: string[], logPath = agentPaths().logPath): Promise<number> {
+  const [step, ...more] = args;
+  if (step === "open" && more.length > 0) {
+    openPermissionPane(paneFor(more.join(" ")));
+    return 0;
+  }
+  if (step === "await-dictation") {
+    // statSync, not Bun.file().size, which isn't valid before a read.
+    const from = existsSync(logPath) ? statSync(logPath).size : 0;
+    const deadline = Date.now() + 120_000;
+    // Stops when the setup that asked has gone (this is reparented to
+    // launchd, pid 1), rather than waiting out the two minutes on its own.
+    while (Date.now() < deadline && process.ppid !== 1) {
+      await Bun.sleep(250);
+      const fresh = await Bun.file(logPath)
+        .slice(from)
+        .text()
+        .catch(() => "");
+      for (const line of fresh.split("\n")) {
+        const outcome = dictationOutcome(line);
+        if (outcome) {
+          console.log(JSON.stringify(outcome));
+          return 0;
+        }
+      }
+    }
+    console.log(JSON.stringify({ outcome: "timeout", detail: "" }));
+    return 1;
+  }
+  if (step !== undefined) throw new UsageError(`unknown setup step "${step}"`);
+  console.log(SETUP_BY_HAND);
+  return 0;
+}
+
 /** Named for the System Settings panes, because that's where the user is going. */
 function permissionsMissing(): string[] {
   const missing: string[] = [];
@@ -457,6 +524,8 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
       return transcribeMain(rest);
     case "type":
       return typeMain(rest);
+    case "setup":
+      return setup(rest);
     default:
       throw new UsageError(`unknown command "${command}"`);
   }

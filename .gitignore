@@ -15,7 +15,8 @@ bench/voice/
 # Left behind by `bun build --compile`
 .*.bun-build
 
-# Built by `go build` in apps/cli
+# Built by `go build` in apps/cli (`go build ./...` names it after the folder)
 apps/cli/mockingbird
+apps/cli/cli
 # Synthetic clips bench/corpus.ts generates with `say`.
 bench/corpus/

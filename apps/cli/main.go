@@ -1,7 +1,7 @@
 // Command mockingbird is the command users type. The dictation engine is the
 // TypeScript CLI in apps/daemon; this binary hands every command to it, plays
 // the launch animation while `mockingbird start` runs, and with no command
-// opens a home screen listing them.
+// opens a home screen listing them. `mockingbird setup` is a guided first run.
 package main
 
 import (
@@ -54,6 +54,12 @@ func run(args []string) int {
 			}
 			return 0
 		}
+	}
+	if len(args) == 1 && args[0] == "setup" && fits(setupCols, setupRows) {
+		if _, err := tea.NewProgram(newSetup(argv[:2])).Run(); err != nil {
+			return fail(err)
+		}
+		return 0
 	}
 	if len(args) == 1 && args[0] == "start" && canAnimate() {
 		return startWithSplash(argv)
@@ -120,6 +126,13 @@ func isFile(path string) bool {
 // canAnimate is false when output goes to a pipe or log, or the terminal is
 // too small for the art; `start` then runs exactly as the engine prints it.
 func canAnimate() bool { return fits(minCols, minRows) }
+
+// The setup checklist's longest instruction line, and its steps, hints and
+// notes. Smaller, the engine prints the same steps as text.
+const (
+	setupCols = 80
+	setupRows = 20
+)
 
 // The home screen: a row per command (nine), up to seven for the status and
 // its notes wrapped at 40 columns, four for gaps and key hints, and room for
