@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { startWhisperServer } from "@mockingbird/asr";
@@ -8,6 +8,7 @@ import {
   OllamaProvider,
   ollamaRunning,
   startOllamaServer,
+  unknownSections,
 } from "@mockingbird/llm";
 import { detectSpeech, SileroVad } from "@mockingbird/vad";
 import type { PipelineDeps } from "./pipeline.ts";
@@ -89,6 +90,32 @@ export const mockingbirdHome = (env = process.env) =>
 export const cleanupModel = (saved?: string, env = process.env) =>
   env.MOCKINGBIRD_LLM_MODEL ?? saved ?? DEFAULT_LLM_MODEL;
 
+/**
+ * The user's own cleanup rules, `cleanup.md` in the mockingbird folder, if
+ * there is one. Read once at startup, so a change needs a restart.
+ */
+export function readCleanupRules(home: string, log: (message: string) => void): string | undefined {
+  const path = join(home, "cleanup.md");
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      log(`warning: couldn't read ${path}, so the shipped cleanup rules apply: ${error}`);
+    }
+    return undefined;
+  }
+  const unknown = unknownSections(text);
+  if (unknown.length) {
+    log(
+      `warning: ${path} has sections mockingbird doesn't use: ${unknown.map((h) => `"## ${h}"`).join(", ")}.` +
+        " Its headings have to match the ones in packages/llm/prompts/cleanup.md.",
+    );
+  }
+  log(`cleanup rules: yours from ${path}, the shipped ones for any section it leaves out`);
+  return text;
+}
+
 /** Checks the models, loads VAD, starts whisper-server, and checks Ollama. */
 export async function startEngines(
   log: (message: string) => void,
@@ -161,6 +188,7 @@ export async function startEngines(
         // Opt-in: it fixes a name Whisper never gets, at the risk of bending
         // ones it already spells correctly (packages/llm/src/dictionary.ts).
         vocabularyHint: env.MOCKINGBIRD_ASR_VOCABULARY === "1",
+        cleanupRules: readCleanupRules(mockingbirdHome(env), log),
       },
       close,
     };

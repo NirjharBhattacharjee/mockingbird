@@ -9,6 +9,7 @@ export {
   looksLikeList,
   shouldSkipLlm,
   spokenFlags,
+  unknownSections,
 } from "./cleanup.ts";
 export {
   applyCorrections,

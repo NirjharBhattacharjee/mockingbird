@@ -4,32 +4,43 @@ import type { CompletionRequest } from "./provider.ts";
 
 export type AppStyle = "default" | "terminal";
 
-/** The prompt's sections from prompts/cleanup.md, by heading. */
-const SECTIONS = Object.fromEntries(
-  cleanupMarkdown
-    .split(/^## /m)
-    .slice(1)
-    .map((part) => {
-      const [heading = "", ...body] = part.split("\n");
-      return [heading.trim(), body.join("\n").trim()];
-    }),
-);
+/** A prompt file's sections, by `## ` heading. */
+const sectionsOf = (markdown: string): Record<string, string> =>
+  Object.fromEntries(
+    markdown
+      .split(/^## /m)
+      .slice(1)
+      .map((part) => {
+        const [heading = "", ...body] = part.split("\n");
+        return [heading.trim(), body.join("\n").trim()];
+      }),
+  );
 
-function section(name: string): string {
-  const text = SECTIONS[name];
-  if (!text) throw new Error(`prompts/cleanup.md has no "## ${name}" section`);
-  return text;
-}
+const SHIPPED = sectionsOf(cleanupMarkdown);
+
+/** Headings in a user's prompt file that match none of the shipped sections, so would be ignored. */
+export const unknownSections = (markdown: string): string[] =>
+  Object.keys(sectionsOf(markdown)).filter((heading) => !(heading in SHIPPED));
 
 export function buildCleanupPrompt({
   text,
   dictionary = [],
   style = "default",
+  custom,
 }: {
   text: string;
   dictionary?: DictionaryEntry[];
   style?: AppStyle;
+  /** The user's own rules, in the shipped file's format: each section replaces the one with its heading. */
+  custom?: string;
 }): CompletionRequest {
+  const own = custom ? sectionsOf(custom) : {};
+  const section = (name: string) => {
+    // An empty section in the user's file counts as left out.
+    const body = own[name] || SHIPPED[name];
+    if (!body) throw new Error(`prompts/cleanup.md has no "## ${name}" section`);
+    return body;
+  };
   const parts = [section("Rules")];
   // Terminal text is never a list: a line break there runs the command.
   if (style === "terminal") parts.push(section("Terminal"));

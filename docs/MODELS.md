@@ -251,7 +251,12 @@ dictionary size. Edits take effect on the next dictation. The old
   rules in every prompt qwen3 turned plain sentences into lists ("Meeting:\n-
   Thursday", which `acceptCleanup` then rejected, leaving the fillers in).
   `## Terminal` and `## Dictionary` are added when they apply. Change it
-  against `bun run eval:cleanup` and the held-out set. One cost to know. Ollama
+  against `bun run eval:cleanup` and the held-out set. A user can override
+  any section without editing the code: `~/.mockingbird/cleanup.md`, in the
+  same format, read when the agent starts. Each `## ` section in it replaces
+  the shipped one with that heading, and the rest stay as shipped. A heading
+  that matches none is logged as a warning. The evals and benches only ever
+  use the shipped file. One cost to know. Ollama
   reuses the processed start of a prompt between calls, so a list dictation
   that follows a non-list one processes the list section afresh: 650-850ms
   more than a list after a list on an M3, where a cached prompt costs ~30ms
