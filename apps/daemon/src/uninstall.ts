@@ -203,13 +203,15 @@ export async function uninstall(args: string[], deps: UninstallDeps): Promise<nu
     );
   }
 
+  // The last removal, since this is running from it, but before the report so
+  // a failure shows in it. Every module is loaded by now.
+  if (mbGone && removeCode) attempt(root, () => rmSync(root, { recursive: true, force: true }));
+
   log(`\nmockingbird is ${failed.length ? "partly " : ""}uninstalled. Left on this Mac:`);
   for (const line of kept) log(`  - ${line}`);
   if (failed.length) {
     log("These couldn't be removed:");
     for (const line of failed) log(`  - ${line}`);
   }
-  // Last, since this is running from it.
-  if (mbGone && removeCode) attempt(root, () => rmSync(root, { recursive: true, force: true }));
   return failed.length ? 1 : 0;
 }
