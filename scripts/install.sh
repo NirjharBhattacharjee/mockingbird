@@ -328,12 +328,16 @@ SHIM
     return
   fi
 
-  # A fresh install goes straight into `mockingbird setup`, which starts the
-  # agent and walks through the permissions, Fn and a test dictation (#54). It
-  # needs the Go command and a terminal. Under `curl | bash` stdin is this
-  # script, so setup reads the keyboard from /dev/tty. Anything else (output
-  # to a file, as for a coding agent, or no Go command) gets the steps below.
-  if [ -x "$cli" ] && [ -t 1 ] && (: </dev/tty) 2>/dev/null; then
+  # A first install goes straight into `mockingbird setup`, which starts the
+  # agent and walks through the permissions, Fn and a test dictation (#54).
+  # First means the agent was never set up: `start` writes its plist and only
+  # uninstall removes it, so an update of an agent the user stopped stays
+  # stopped. Setup also needs the Go command and a terminal; under
+  # `curl | bash` stdin is this script, so it reads the keyboard from
+  # /dev/tty. Anything else (output to a file, as for a coding agent, or no Go
+  # command) gets the steps below.
+  local plist="$HOME/Library/LaunchAgents/com.mockingbird.agent.plist"
+  if [ ! -e "$plist" ] && [ -x "$cli" ] && [ -t 1 ] && (: </dev/tty) 2>/dev/null; then
     printf '\n\033[1;32mInstalled.\033[0m Next, the permissions, the Fn key and a test dictation.\n'
     # Quitting setup early is fine and exits 0; only a setup that couldn't run fails.
     if ! "$shim" setup </dev/tty; then
