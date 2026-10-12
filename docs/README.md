@@ -52,10 +52,26 @@ release.
 
 ### Uninstalling
 
-There's no `mockingbird uninstall` yet
-([#55](https://github.com/NirjharBhattacharjee/mockingbird/issues/55)), so
-it takes a few commands. Run the first two while the `mockingbird` command
-still exists:
+```sh
+mockingbird uninstall
+```
+
+It lists what it will remove, with sizes, and asks once. Then it stops the
+agent, gives Fn back if you ran `mockingbird fn`, and offers to keep your
+dictionary words in `~/mockingbird-dictionary.txt` before deleting
+`~/.mockingbird`. It removes the command and the PATH line the installer
+added. It deletes `~/mockingbird` only if that's the installer's clone with
+no changes of yours; a Homebrew install says to run `brew uninstall
+mockingbird` instead. It asks separately before removing the cleanup model,
+since Ollama may serve other programs, and never removes the Homebrew tools.
+At the end it lists what's left, including the three Privacy & Security lists
+to clean by hand. `--yes` answers for you: remove everything, keep a copy of
+the words, keep the cleanup model.
+
+#### By hand
+
+If the command is broken, or you'd rather do it yourself, run the first two
+while the `mockingbird` command still exists:
 
 ```sh
 mockingbird stop
@@ -177,6 +193,7 @@ It stays off, including after a reboot, until the next `mockingbird start`.
 | `mockingbird status` | Whether it's running, and what it can see (`--json` for scripts) |
 | `mockingbird fn` | Bind Fn to dictation only, so tapping it stops opening the emoji picker. Changes a system-wide setting, so it's never done for you |
 | `mockingbird fn --undo` | Put back the Fn setting `mockingbird fn` replaced |
+| `mockingbird uninstall` | Remove mockingbird and what it installed, after asking |
 
 Dictate a list — "I'm going for groceries, I'll get onions, toilet paper and
 rice" — and it's typed as a list, one item per line. The line breaks are sent

@@ -276,6 +276,11 @@ time. Both are tracked in [§9](#9-hardening-roadmap).
   training set). This is the one piece of the inventory in
   [§2](#2-data-inventory--what-mockingbird-actually-touches) that defaults
   to *not* persisting.
+- **Uninstalling deletes it.** `mockingbird uninstall` removes
+  `~/.mockingbird`, `data.db` included, after one question. The dictionary
+  gets its own: the default keeps a copy of the words, as plain text in
+  `~/mockingbird-dictionary.txt`, and only the words. Nothing else from
+  `data.db` is copied out.
 - **The Unix socket is `0600`**, not a TCP port — only your own user account
   can connect to it, and it's deleted on clean daemon shutdown.
 - **Diagnostics export** (`mockingbird diagnostics export`, still
