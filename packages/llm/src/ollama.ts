@@ -164,7 +164,9 @@ export async function listOllamaModels(
       const show = await fetch(`${baseUrl}/api/show`, {
         method: "POST",
         body: JSON.stringify({ model: name }),
-      });
+      }).catch(() => undefined);
+      // A failed lookup isn't an old Ollama: count the model as unusable.
+      if (!show?.ok) return false;
       const { capabilities } = (await show.json().catch(() => ({}))) as {
         capabilities?: string[];
       };

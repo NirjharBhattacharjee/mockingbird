@@ -2,7 +2,13 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isLocalUrl, ollamaRunning, pullOllamaModel, startOllamaServer } from "../src/index.ts";
+import {
+  isLocalUrl,
+  listOllamaModels,
+  ollamaRunning,
+  pullOllamaModel,
+  startOllamaServer,
+} from "../src/index.ts";
 
 const dir = await mkdtemp(join(tmpdir(), "mockingbird-ollama-"));
 afterAll(() => rm(dir, { recursive: true, force: true }));
@@ -170,6 +176,39 @@ describe("pullOllamaModel", () => {
       await expect(pullOllamaModel(`http://127.0.0.1:${server.port}`, "m")).rejects.toThrow(
         "pulling a",
       );
+    } finally {
+      server.stop(true);
+    }
+  });
+});
+
+describe("listOllamaModels", () => {
+  test("marks embedding models and failed lookups as not writing", async () => {
+    const server = Bun.serve({
+      port: 0,
+      async fetch(req) {
+        if (new URL(req.url).pathname === "/api/tags") {
+          return Response.json({
+            models: [
+              { name: "gemma3:1b", size: 1 },
+              { name: "nomic-embed-text:latest", size: 2 },
+              { name: "broken:latest", size: 3 },
+            ],
+          });
+        }
+        const { model } = (await req.json()) as { model: string };
+        if (model === "broken:latest") return Response.json({ error: "boom" }, { status: 500 });
+        return Response.json({
+          capabilities: model.startsWith("nomic") ? ["embedding"] : ["completion"],
+        });
+      },
+    });
+    try {
+      expect(await listOllamaModels(`http://127.0.0.1:${server.port}`)).toEqual([
+        { name: "gemma3:1b", size: 1, writes: true },
+        { name: "nomic-embed-text:latest", size: 2, writes: false },
+        { name: "broken:latest", size: 3, writes: false },
+      ]);
     } finally {
       server.stop(true);
     }
