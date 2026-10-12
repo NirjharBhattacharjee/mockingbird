@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ensureRunner, runnerPath } from "../src/agent/runner.ts";
+import { appPath, ensureRunner, executableIn, runnerPath } from "../src/agent/runner.ts";
 
 const workspace = () => mkdtempSync(join(tmpdir(), "mockingbird-runner-"));
 
@@ -13,99 +13,102 @@ function fakeBun(dir: string, contents = "#!/bin/sh\nexit 0\n"): string {
   return path;
 }
 
+/** Records codesign and lsregister instead of running them. */
+const recorder = (code = 0) => {
+  const calls: string[][] = [];
+  return {
+    calls,
+    run: (cmd: string[]) => {
+      calls.push(cmd);
+      return code;
+    },
+  };
+};
+
 describe("ensureRunner", () => {
-  test("installs a copy named mockingbird", () => {
+  test("builds mockingbird.app with bun inside, the Info.plist and the logo", () => {
     const dir = workspace();
-    const destination = join(dir, "bin", "mockingbird");
-    const result = ensureRunner({ source: fakeBun(dir), destination, sign: () => 0 });
-    expect(result.installed).toBe(true);
-    expect(result.path).toBe(destination);
-    expect(existsSync(destination)).toBe(true);
+    const app = join(dir, "bin", "mockingbird.app");
+    const result = ensureRunner({ source: fakeBun(dir), app, run: recorder().run });
+    expect(result).toMatchObject({ installed: true, app, path: executableIn(app) });
+    expect(statSync(result.path).mode & 0o111).toBeGreaterThan(0);
+    const info = readFileSync(join(app, "Contents", "Info.plist"), "utf8");
+    expect(info).toContain("<string>com.mockingbird.agent</string>");
+    expect(info).toContain("<key>CFBundleIconFile</key>");
+    expect(info).toContain("<key>NSMicrophoneUsageDescription</key>");
+    expect(existsSync(join(app, "Contents", "Resources", "AppIcon.icns"))).toBe(true);
   });
 
-  test("signs it under our own identifier, which is what renames it", () => {
+  test("signs the whole bundle where it's staged, then registers it where it ends up", () => {
     const dir = workspace();
-    const destination = join(dir, "bin", "mockingbird");
-    let argv: string[] = [];
-    ensureRunner({
-      source: fakeBun(dir),
-      destination,
-      sign: (cmd) => {
-        argv = cmd;
-        return 0;
-      },
-    });
-    // Signed where it is staged, then moved into place under that signature.
-    expect(argv).toEqual([
-      "codesign",
-      "--sign",
-      "-",
-      "--identifier",
-      "mockingbird",
-      "--force",
-      `${destination}.new`,
-    ]);
-    expect(existsSync(`${destination}.new`)).toBe(false);
+    const app = join(dir, "bin", "mockingbird.app");
+    const { calls, run } = recorder();
+    ensureRunner({ source: fakeBun(dir), app, run });
+    expect(calls[0]).toEqual(["codesign", "--sign", "-", "--force", `${app}.new`]);
+    expect(calls[1]?.slice(-2)).toEqual(["-f", app]);
+    expect(existsSync(`${app}.new`)).toBe(false);
   });
 
-  test("is executable", () => {
+  test("removes the runner from before the bundle", () => {
     const dir = workspace();
-    const destination = join(dir, "bin", "mockingbird");
-    ensureRunner({ source: fakeBun(dir), destination, sign: () => 0 });
-    expect(statSync(destination).mode & 0o111).toBeGreaterThan(0);
+    const app = join(dir, "bin", "mockingbird.app");
+    // An install from before the bundle: a bare executable and its marker.
+    const old = join(dir, "bin", "mockingbird");
+    ensureRunner({ source: fakeBun(dir), app, run: recorder().run });
+    writeFileSync(old, "old");
+    writeFileSync(`${old}.source`, "old");
+    ensureRunner({ source: fakeBun(dir, "#!/bin/sh\necho newer\n"), app, run: recorder().run });
+    expect(existsSync(old)).toBe(false);
+    expect(existsSync(`${old}.source`)).toBe(false);
   });
 
   test("does nothing the second time, so grants aren't invalidated on every start", () => {
     const dir = workspace();
     const source = fakeBun(dir);
-    const destination = join(dir, "bin", "mockingbird");
-    let signings = 0;
-    const sign = () => {
-      signings += 1;
-      return 0;
-    };
-    expect(ensureRunner({ source, destination, sign }).installed).toBe(true);
-    expect(ensureRunner({ source, destination, sign }).installed).toBe(false);
-    expect(signings).toBe(1);
+    const app = join(dir, "bin", "mockingbird.app");
+    const { calls, run } = recorder();
+    expect(ensureRunner({ source, app, run }).installed).toBe(true);
+    expect(ensureRunner({ source, app, run }).installed).toBe(false);
+    expect(calls.filter((c) => c[0] === "codesign")).toHaveLength(1);
   });
 
-  test("replaces the copy when bun itself has changed", () => {
+  test("rebuilds when bun itself has changed", () => {
     const dir = workspace();
     const source = fakeBun(dir);
-    const destination = join(dir, "bin", "mockingbird");
-    ensureRunner({ source, destination, sign: () => 0 });
+    const app = join(dir, "bin", "mockingbird.app");
+    ensureRunner({ source, app, run: recorder().run });
     writeFileSync(source, "#!/bin/sh\necho newer\n", { mode: 0o755 });
-    expect(ensureRunner({ source, destination, sign: () => 0 }).installed).toBe(true);
-    expect(readFileSync(destination, "utf8")).toContain("newer");
+    expect(ensureRunner({ source, app, run: recorder().run }).installed).toBe(true);
+    expect(readFileSync(executableIn(app), "utf8")).toContain("newer");
   });
 
   test("reports a failed signing but still installs, since the copy runs anyway", () => {
     const dir = workspace();
-    const destination = join(dir, "bin", "mockingbird");
-    const result = ensureRunner({ source: fakeBun(dir), destination, sign: () => 1 });
+    const app = join(dir, "bin", "mockingbird.app");
+    const result = ensureRunner({ source: fakeBun(dir), app, run: recorder(1).run });
     expect(result.installed).toBe(true);
     expect(result.unsigned).toContain("1");
-    expect(existsSync(destination)).toBe(true);
-    expect(existsSync(`${destination}.new`)).toBe(false);
+    expect(existsSync(result.path)).toBe(true);
+    expect(existsSync(`${app}.new`)).toBe(false);
   });
 
   test("tries the signing again next time, rather than trusting a failed one", () => {
     const dir = workspace();
     const source = fakeBun(dir);
-    const destination = join(dir, "bin", "mockingbird");
+    const app = join(dir, "bin", "mockingbird.app");
     // A marker written after a failed signing would make every later start skip
-    // the retry, leaving the agent listed as "bun" until bun itself changed.
-    expect(ensureRunner({ source, destination, sign: () => 1 }).unsigned).toBeDefined();
-    expect(ensureRunner({ source, destination, sign: () => 1 }).unsigned).toBeDefined();
-    const signed = ensureRunner({ source, destination, sign: () => 0 });
-    expect(signed.unsigned).toBeUndefined();
+    // the retry, leaving the agent unnamed until bun itself changed.
+    expect(ensureRunner({ source, app, run: recorder(1).run }).unsigned).toBeDefined();
+    expect(ensureRunner({ source, app, run: recorder(1).run }).unsigned).toBeDefined();
+    expect(ensureRunner({ source, app, run: recorder().run }).unsigned).toBeUndefined();
     // And once it works, it settles down again.
-    expect(ensureRunner({ source, destination, sign: () => 0 }).installed).toBe(false);
+    expect(ensureRunner({ source, app, run: recorder().run }).installed).toBe(false);
   });
 });
 
 describe("runnerPath", () => {
-  test("lives in bin/ beside the models and logs", () => {
-    expect(runnerPath("/Users/me")).toEndWith("/bin/mockingbird");
+  test("is the executable in bin/mockingbird.app, beside the models and logs", () => {
+    expect(appPath("/Users/me")).toEndWith("/bin/mockingbird.app");
+    expect(runnerPath("/Users/me")).toEndWith("/bin/mockingbird.app/Contents/MacOS/mockingbird");
   });
 });

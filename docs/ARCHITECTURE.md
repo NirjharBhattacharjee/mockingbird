@@ -55,6 +55,7 @@ it is not a design doc that gets abandoned once code exists.
 | 2026-10-11 | `mockingbird setup` guides the first run in the Go command: start the agent, switch on each permission it reports missing (opening System Settings, then restarting the agent to check), offer to free Fn after a yes, and a test dictation confirmed from the agent's log. The engine does every step; Go only draws the checklist and calls `status --json`, `start`, `restart`, `fn`, `setup open <pane>` and `setup await-dictation`. When to tell someone to restart their Mac is left out until real cases show it (TUI.md §5). |
 | 2026-10-12 | `mockingbird uninstall` (#55) removes what an install put on the Mac after one question: the agent and its plist, Fn given back, `~/.mockingbird` (offering to keep the dictionary words as text first), the command and the installer's PATH line, and the code only when it's the installer's clean clone. A Homebrew install is pointed at `brew uninstall`. It asks again before `ollama rm` and never removes the Homebrew tools. macOS's Privacy entries are left for the user to clear by hand: `tccutil reset` hasn't been tested on a real Mac (`apps/daemon/src/uninstall.ts`). |
 | 2026-10-12 | The cleanup model can be picked with a command (#51). `mockingbird models` lists what Ollama has that can write text (`listOllamaModels` in `packages/llm`, using `/api/tags` and each model's capabilities from `/api/show`), with the eval's scores. `models use <name>` asks the daemon over its socket to save `llm_model` in the new `settings` table and restarts the agent, which reads it at start. Order of precedence: `MOCKINGBIRD_LLM_MODEL`, then the saved choice, then the default. A plist variable was ruled out: `start` rebuilds the agent's environment from the shell each time, so a choice kept there would be lost. |
+| 2026-10-12 | The agent runs from an app bundle, `~/.mockingbird/bin/mockingbird.app`, instead of a bare copy of bun (#36). The bundle carries an `Info.plist` and the logo and is signed ad-hoc as `com.mockingbird.agent`, so Login Items and the Privacy lists show mockingbird's name and icon rather than a generic executable. The move is a new identity to macOS, so every install re-grants Microphone, Accessibility and Input Monitoring once (§8, SECURITY_PRIVACY §4). |
 
 ---
 
@@ -152,7 +153,7 @@ thing a user installs and sees. A Go binary starts instantly and ships as
 one file, with no runtime to install before it can run. Bubble Tea and
 Lip Gloss cover the launch animation and the screens in TUI.md. The command
 needs none of the macOS permissions the engine holds. Those stay with the
-engine's runner binary, `~/.mockingbird/bin/mockingbird`, so rebuilding the
+engine's runner, `~/.mockingbird/bin/mockingbird.app`, so rebuilding the
 command never drops a user's Fn or typing grant. The engine stays
 TypeScript. It works, it's tested headlessly, and a rewrite would gain
 nothing.
@@ -801,9 +802,10 @@ actual decision before or during v1, not an assumption:
   `start`. `KeepAlive` is `Crashed`-only, so a deliberate exit (no microphone,
   a missing model) doesn't relaunch every 10s forever. macOS attributes the Fn
   and typing permissions to the binary launchd runs, which is
-  `~/.mockingbird/bin/mockingbird` — a copy of the bun binary re-signed under
-  our own identifier, so the Privacy lists name mockingbird and `bun` itself
-  stays unprivileged. What that copy costs is in SECURITY_PRIVACY §4; a truly
+  `~/.mockingbird/bin/mockingbird.app/Contents/MacOS/mockingbird`: a copy of
+  the bun binary inside an app bundle signed as `com.mockingbird.agent`, so the
+  Privacy lists and Login Items show mockingbird's name and logo, and `bun`
+  itself stays unprivileged. What that copy costs is in SECURITY_PRIVACY §4; a truly
   compiled binary is still blocked on `onnxruntime-node`.
 - ~~**Auto-update.**~~ Settled 2026-10-01: there is no self-update command.
   Updating is re-running the install command or `brew upgrade`, both run by

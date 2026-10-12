@@ -13,7 +13,7 @@ import {
   stopArgv,
 } from "./agent/launchctl.ts";
 import { AGENT_LABEL, agentPaths, plistFor } from "./agent/plist.ts";
-import { ensureRunner, runnerPath } from "./agent/runner.ts";
+import { appPath, ensureRunner } from "./agent/runner.ts";
 import { main as dictionaryMain } from "./dictionary.ts";
 import {
   claimFnKey,
@@ -205,10 +205,17 @@ async function start(run: Launchctl = runLaunchctl): Promise<number> {
   mkdirSync(paths.logDir, { recursive: true, mode: 0o700 });
   mkdirSync(dirname(paths.plistPath), { recursive: true });
 
-  // Our own copy of bun, named mockingbird, so that's the name macOS shows.
+  // Our own copy of bun in mockingbird.app, so macOS shows our name and logo.
   const runner = ensureRunner();
   if (runner.unsigned) {
     log(`note: couldn't rename the agent for System Settings (${runner.unsigned}).`);
+  }
+  if (runner.installed) {
+    log(
+      "note: mockingbird.app was rebuilt, which macOS treats as a new program, so it\n" +
+        "may ask for the microphone, Accessibility and Input Monitoring again. An older\n" +
+        '"mockingbird" entry without the logo can be removed from those lists.',
+    );
   }
   writeFileSync(
     paths.plistPath,
@@ -265,7 +272,7 @@ async function start(run: Launchctl = runLaunchctl): Promise<number> {
   log(
     `\nThe agent can't use ${missing.join(" or ")} yet. macOS grants these to the\n` +
       `program launchd runs — listed as "mockingbird", at:\n\n` +
-      `  ${runner.path}\n\n` +
+      `  ${runner.app}\n\n` +
       `Switch it on under Privacy & Security → ${missing.join(" and ")} (click + and\n` +
       `add it if it isn't listed), then run \`mockingbird restart\`.`,
   );
@@ -518,7 +525,7 @@ async function status(run: Launchctl = runLaunchctl): Promise<number> {
   if (state === "running") {
     console.log(
       "\nIf Fn does nothing, the agent is missing a permission even though this terminal has it:\n" +
-        `grant them to "mockingbird" (${runnerPath()}) and run \`mockingbird restart\`.`,
+        `grant them to "mockingbird" (${appPath()}) and run \`mockingbird restart\`.`,
     );
   }
   return 0;
