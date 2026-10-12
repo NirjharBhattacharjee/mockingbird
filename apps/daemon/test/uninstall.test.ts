@@ -180,6 +180,16 @@ describe("uninstall stops before losing anything", () => {
     );
   });
 
+  test("if the data folder can't go, the command and code stay to run it again", async () => {
+    const m = installed();
+    // A NUL byte: no path like it can ever be removed.
+    m.deps.mockingbirdHome = join(m.home, "missing", "..", "\0bad");
+    expect(await uninstall(["--yes"], m.deps)).toBe(1);
+    expect(existsSync(m.clone)).toBe(true);
+    expect(existsSync(join(m.home, ".local", "bin", "mockingbird"))).toBe(true);
+    expect(m.logged.join("\n")).toContain("so you can run this again");
+  });
+
   test("an ollama that's gone still lets it finish", async () => {
     const m = installed();
     m.deps.ollamaRm = async () => {

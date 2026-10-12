@@ -157,12 +157,16 @@ export async function uninstall(args: string[], deps: UninstallDeps): Promise<nu
     }
   }
   // A copy that couldn't be written means the originals stay.
-  if (wordsSafe) attempt(mb, () => rmSync(mb, { recursive: true, force: true }));
-  else failed.push(`${mb} was kept, since your words couldn't be copied out of it`);
-  for (const p of profiles) {
-    attempt(p, () => writeFileSync(p, readFileSync(p, "utf8").replace(PROFILE_LINES, "\n")));
+  const mbGone = wordsSafe && attempt(mb, () => rmSync(mb, { recursive: true, force: true }));
+  if (!wordsSafe) failed.push(`${mb} was kept, since your words couldn't be copied out of it`);
+  // While anything of it is left, keep the command and the code that runs it,
+  // so this can be run again.
+  if (mbGone) {
+    for (const p of profiles) {
+      attempt(p, () => writeFileSync(p, readFileSync(p, "utf8").replace(PROFILE_LINES, "\n")));
+    }
+    if (ownShim) attempt(shim, () => rmSync(shim, { force: true }));
   }
-  if (ownShim) attempt(shim, () => rmSync(shim, { force: true }));
 
   const kept: string[] = [];
   let modelGone = false;
@@ -190,10 +194,12 @@ export async function uninstall(args: string[], deps: UninstallDeps): Promise<nu
   if (fnTaken) kept.push("Fn goes back to what it did before once you log out of your Mac.");
   if (isHomebrew(root)) {
     kept.push("The code and the command came from Homebrew: `brew uninstall mockingbird`.");
-  } else if (!removeCode) {
+  } else if (!removeCode || !mbGone) {
     kept.push(
-      `The code at ${root} was left alone: it isn't the installer's clone, or it may hold ` +
-        "work of yours (changes, ignored files, a stash or unpushed commits).",
+      mbGone
+        ? `The code at ${root} was left alone: it isn't the installer's clone, or it may ` +
+            "hold work of yours (changes, ignored files, a stash or unpushed commits)."
+        : `The code at ${root} and the command were kept, so you can run this again.`,
     );
   }
 
@@ -204,6 +210,6 @@ export async function uninstall(args: string[], deps: UninstallDeps): Promise<nu
     for (const line of failed) log(`  - ${line}`);
   }
   // Last, since this is running from it.
-  if (removeCode) attempt(root, () => rmSync(root, { recursive: true, force: true }));
+  if (mbGone && removeCode) attempt(root, () => rmSync(root, { recursive: true, force: true }));
   return failed.length ? 1 : 0;
 }
