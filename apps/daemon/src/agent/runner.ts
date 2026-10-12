@@ -30,10 +30,6 @@ export function appPath(home?: string): string {
 /** The executable launchd runs, inside the bundle. */
 export const executableIn = (app: string) => join(app, "Contents", "MacOS", "mockingbird");
 
-export function runnerPath(home?: string): string {
-  return executableIn(appPath(home));
-}
-
 const ICON = join(import.meta.dir, "AppIcon.icns");
 
 /**

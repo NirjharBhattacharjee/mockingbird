@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { appPath, ensureRunner, executableIn, runnerPath } from "../src/agent/runner.ts";
+import { appPath, ensureRunner, executableIn } from "../src/agent/runner.ts";
 
 const workspace = () => mkdtempSync(join(tmpdir(), "mockingbird-runner-"));
 
@@ -132,9 +132,8 @@ describe("ensureRunner", () => {
   });
 });
 
-describe("runnerPath", () => {
-  test("is the executable in bin/mockingbird.app, beside the models and logs", () => {
+describe("appPath", () => {
+  test("is bin/mockingbird.app, beside the models and logs", () => {
     expect(appPath("/Users/me")).toEndWith("/bin/mockingbird.app");
-    expect(runnerPath("/Users/me")).toEndWith("/bin/mockingbird.app/Contents/MacOS/mockingbird");
   });
 });
