@@ -44,7 +44,7 @@ func run(args []string) int {
 	argv := append([]string{bun, filepath.Join(root, engineCLI)}, args...)
 	if len(args) == 0 && fits(homeCols, homeRows) {
 		if info, err := loadHome(argv); err == nil {
-			p, err := tea.NewProgram(home{info: info}).Run()
+			p, err := tea.NewProgram(newHome(info)).Run()
 			if err != nil {
 				return fail(err)
 			}
@@ -121,11 +121,12 @@ func isFile(path string) bool {
 // too small for the art; `start` then runs exactly as the engine prints it.
 func canAnimate() bool { return fits(minCols, minRows) }
 
-// The home screen: a row per command (nine) plus six for the title, gaps and
-// key hints, and room for a name and some of its summary.
+// The home screen: a row per command (nine), up to seven for the status and
+// its notes wrapped at 40 columns, four for gaps and key hints, and room for
+// a name and some of its summary.
 const (
 	homeCols = 40
-	homeRows = 15
+	homeRows = 20
 )
 
 // fits is whether stdin and stdout are a terminal of at least cols×rows.

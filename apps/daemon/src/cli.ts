@@ -18,6 +18,7 @@ import { main as dictionaryMain } from "./dictionary.ts";
 import {
   claimFnKey,
   claimMessage,
+  type FnUsage,
   fnAdvice,
   fnConflict,
   readFnBackup,
@@ -268,6 +269,50 @@ async function start(run: Launchctl = runLaunchctl): Promise<number> {
  * The agent's own permission line from its log, named as System Settings panes.
  * Undefined when it hasn't got that far yet.
  */
+// The agent's "checks:" line, not its earlier "permissions:" one: it comes
+// after the microphone probe, so it's the only one that knows about all three.
+const CHECKS = "checks: Fn ";
+
+/** The permissions a "checks:" line from the agent's log says are missing. */
+export function missingFrom(line: string): string[] {
+  const missing: string[] = [];
+  if (line.includes("Fn MISSING")) missing.push("Input Monitoring");
+  if (line.includes("typing MISSING")) missing.push("Accessibility");
+  if (line.includes("microphone SILENT")) missing.push("Microphone");
+  return missing;
+}
+
+/**
+ * `status --json`, which the Go command's home screen shows. `missing` is
+ * what the running agent last reported, from its log: the agent's own
+ * grants, which can differ from this terminal's. It's null when the agent
+ * isn't running or hasn't reported yet. `fnAction` is set when tapping Fn
+ * opens something in macOS.
+ */
+export async function agentState(
+  run: Launchctl = runLaunchctl,
+  logPath = agentPaths().logPath,
+  fnUsage: () => Promise<FnUsage> = () => readFnUsage(),
+) {
+  const { state } = await agentStatus(process.getuid?.() ?? 0, run);
+  // The whole log: the agent writes its checks once, at start, and trims the
+  // log to nothing past 1 MB before that, so it's never big.
+  const log = await Bun.file(logPath)
+    .text()
+    .catch(() => "");
+  // Only this run's checks: each run starts with a "permissions:" line, and a
+  // restarted agent hasn't reported until a "checks:" line follows it.
+  const lines = log.split("\n");
+  const thisRun = lines.findLastIndex((l) => l.includes("permissions: Fn "));
+  const line = lines.slice(Math.max(0, thisRun)).findLast((l) => l.includes(CHECKS));
+  const fn = await fnUsage();
+  return {
+    agent: state,
+    missing: state === "running" && line ? missingFrom(line) : null,
+    fnAction: fn.kind === "taken" ? fn.action : null,
+  };
+}
+
 export async function agentVerdict(
   logPath: string,
   since: number,
@@ -279,19 +324,11 @@ export async function agentVerdict(
     const text = await Bun.file(logPath)
       .text()
       .catch(() => "");
-    // The "checks:" line, not the earlier "permissions:" one: it comes after
-    // the microphone probe, so it's the only one that knows about all three.
     const line = text
       .slice(since)
       .split("\n")
-      .find((l) => l.includes("checks: Fn "));
-    if (line) {
-      const missing: string[] = [];
-      if (line.includes("Fn MISSING")) missing.push("Input Monitoring");
-      if (line.includes("typing MISSING")) missing.push("Accessibility");
-      if (line.includes("microphone SILENT")) missing.push("Microphone");
-      return missing;
-    }
+      .find((l) => l.includes(CHECKS));
+    if (line) return missingFrom(line);
     await Bun.sleep(250);
   }
   return undefined;
@@ -388,8 +425,7 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
     case "--help":
     case "help":
       if (command === "help" && rest[0] === "--json") {
-        const { state } = await agentStatus(process.getuid?.() ?? 0);
-        console.log(JSON.stringify({ agent: state, commands: COMMANDS }));
+        console.log(JSON.stringify({ commands: COMMANDS, status: await agentState() }));
         return 0;
       }
       console.log(USAGE);
@@ -401,6 +437,10 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
     case "restart":
       return restart();
     case "status":
+      if (rest[0] === "--json") {
+        console.log(JSON.stringify(await agentState()));
+        return 0;
+      }
       return status();
     case "fn":
       return fn(rest);

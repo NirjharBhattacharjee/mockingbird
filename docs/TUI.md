@@ -207,15 +207,28 @@ home screen. Neither needs the IPC socket.
 
 ### Home screen (built)
 - Opens when `mockingbird` runs with no command in a terminal of at least
-  40×15. Piped output, `TERM=dumb` and smaller terminals get the engine's plain
+  40×20. Piped output, `TERM=dumb` and smaller terminals get the engine's plain
   usage text, the same as `mockingbird --help`.
 - The top line says whether the background agent is running. Each state has a
   symbol and a word as well as a color: `● running` in `green`, `○ stopped` or
   `○ not started yet` in `yellow`, `✕ crashed` or `✕ exited` in `red`.
+- When the running agent last reported a permission missing, a `red` line
+  under the title says `✕ missing Input Monitoring` (or whichever), with a
+  `yellow` one under it: `! allow it in System Settings → Privacy & Security,
+  then restart`. These lines wrap rather than cut, so a narrow terminal still
+  shows the permission's name and the next step in full. These are the agent's own grants, read from its latest `checks:`
+  line in `agent.log`, not the terminal's, which can differ.
+- When tapping Fn opens something in macOS, a `yellow` line says so:
+  `! tapping Fn opens Show Emoji & Symbols, so tapping won't dictate`.
+- The cursor starts on the command that fixes the first problem: `start` for
+  an agent that isn't running, `restart` for a missing permission, `fn` for a
+  taken Fn key. The list keeps its order, so it reads the same every time.
 - Below it, the engine's commands with their one-line summaries, cut to the
   terminal's width. The list comes from `mockingbird help --json` (the
   `COMMANDS` list in `apps/daemon/src/cli.ts`, which also builds `--help`), so
-  the two can't drift apart. The same call reports the agent's state.
+  the two can't drift apart. The same call carries `mockingbird status --json`:
+  `{"agent", "missing", "fnAction"}`, with `missing` null until the
+  running agent has reported.
 - `↑`/`↓` or `k`/`j` move, `Enter` runs the command as if it were typed (so
   `start` still plays the launch animation), and `q`, `Esc` or `Ctrl+C` quit.
   The menu erases itself either way, so the scrollback holds only what the
@@ -223,9 +236,8 @@ home screen. Neither needs the IPC socket.
 - The selected row is `mauve` with a `▸` pointer, names are `text`, summaries
   `subtext0` and the key hints `overlay0`.
 - An engine without `help --json` (an older clone) gets the plain usage text.
-- Not built yet (#50): missing permissions and the Fn binding in the top line,
-  commands that need attention moved to the top, and the install ending on
-  this screen.
+- Not built yet (#50): the install ending on this screen, which needs #49 to
+  put the Go command in place first.
 
 ### Dashboard (default view)
 - **Live hotkey FSM state** ([ARCHITECTURE.md §5](./ARCHITECTURE.md#5-the-hotkey-state-machine)),

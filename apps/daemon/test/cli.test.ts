@@ -3,7 +3,15 @@ import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { Launchctl } from "../src/agent/launchctl.ts";
-import { agentEntry, agentEnvironment, agentVerdict, bunPath, main, stop } from "../src/cli.ts";
+import {
+  agentEntry,
+  agentEnvironment,
+  agentState,
+  agentVerdict,
+  bunPath,
+  main,
+  stop,
+} from "../src/cli.ts";
 
 /** Runs the router with stdout captured, so help text doesn't pollute the run. */
 async function run(argv: string[]): Promise<{ code: number; out: string }> {
@@ -50,9 +58,59 @@ describe("mockingbird", () => {
   test("help --json gives the home screen every command and the agent's state", async () => {
     const { code, out } = await run(["help", "--json"]);
     expect(code).toBe(0);
-    const info = JSON.parse(out) as { agent: string; commands: { name: string }[] };
+    const info = JSON.parse(out) as {
+      commands: { name: string }[];
+      status: { agent: string };
+    };
     expect(info.commands.map((c) => c.name)).toContain("models pull");
-    expect(["running", "stopped", "not-installed", "crashed", "exited"]).toContain(info.agent);
+    expect(["running", "stopped", "not-installed", "crashed", "exited"]).toContain(
+      info.status.agent,
+    );
+  });
+
+  test("agentState reports the running agent's latest checks and a taken Fn", async () => {
+    const log = join(mkdtempSync(join(tmpdir(), "mockingbird-state-")), "agent.log");
+    writeFileSync(
+      log,
+      "09:00 checks: Fn MISSING, typing ok, microphone ok\n" +
+        "09:05 checks: Fn ok, typing MISSING, microphone SILENT\n" +
+        "09:06 dictation took 412ms\n",
+    );
+    const running: Launchctl = async (args) => ({
+      code: 0,
+      stdout: args[0] === "print" ? "state = running\n\tpid = 42\n" : "",
+      stderr: "",
+    });
+    expect(
+      await agentState(running, log, async () => ({
+        kind: "taken",
+        value: 2,
+        action: "Show Emoji & Symbols",
+      })),
+    ).toEqual({
+      agent: "running",
+      missing: ["Accessibility", "Microphone"],
+      fnAction: "Show Emoji & Symbols",
+    });
+    // Restarted, and not reported yet: the last run's checks don't count.
+    writeFileSync(
+      log,
+      "09:00 permissions: Fn ok, typing ok\n09:00 checks: Fn MISSING, typing ok, microphone ok\n" +
+        "09:10 permissions: Fn ok, typing ok\n",
+    );
+    expect(await agentState(running, log, async () => ({ kind: "free" }))).toMatchObject({
+      missing: null,
+    });
+    const stopped: Launchctl = async () => ({
+      code: 113,
+      stdout: "",
+      stderr: "Could not find service",
+    });
+    expect(await agentState(stopped, log, async () => ({ kind: "free" }))).toMatchObject({
+      agent: "not-installed",
+      missing: null,
+      fnAction: null,
+    });
   });
 
   test("--help and help both work", async () => {

@@ -11,18 +11,25 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// The home screen for a bare `mockingbird`: whether the agent is running,
-// and the engine's commands as a list to pick from. The list comes from the
-// engine (`help --json`), so it can't drift from what the engine accepts.
+// The home screen for a bare `mockingbird`: what state mockingbird is in,
+// and the engine's commands as a list to pick from. Both come from the engine
+// (`help --json`), so they can't drift from what it accepts and reports.
 
 type command struct {
 	Name    string `json:"name"`
 	Summary string `json:"summary"`
 }
 
+// status is `mockingbird status --json`.
+type status struct {
+	Agent    string   `json:"agent"`
+	Missing  []string `json:"missing"`  // nil when the agent hasn't reported
+	FnAction *string  `json:"fnAction"` // what macOS opens on a Fn tap, if anything
+}
+
 type homeInfo struct {
-	Agent    string    `json:"agent"`
 	Commands []command `json:"commands"`
+	Status   status    `json:"status"`
 }
 
 // loadHome asks the engine for its commands and the agent's state. An older
@@ -45,6 +52,28 @@ type home struct {
 	cursor int
 	chosen string // the command to run once the screen closes; "" to just quit
 	closed bool   // drawn as nothing, so the menu leaves no trace in the scrollback
+}
+
+// newHome starts the cursor on the command that fixes the first problem, so
+// Enter is the next step: start a stopped agent, restart one that's missing
+// a permission (after granting it), or free Fn. The list keeps its order.
+func newHome(info homeInfo) home {
+	next := ""
+	switch st := info.Status; {
+	case st.Agent != "running":
+		next = "start"
+	case len(st.Missing) > 0:
+		next = "restart"
+	case st.FnAction != nil:
+		next = "fn"
+	}
+	m := home{info: info}
+	for i, c := range info.Commands {
+		if c.Name == next {
+			m.cursor = i
+		}
+	}
+	return m
 }
 
 func (m home) Init() tea.Cmd { return nil }
@@ -80,24 +109,40 @@ func (m home) View() tea.View {
 	return tea.NewView(m.render())
 }
 
-// agentLine pairs every state with a word and a symbol, so it reads without
-// color too (docs/TUI.md §8).
-func agentLine(state string) string {
+// statusLines pairs every state with a word and a symbol, so they read
+// without color too (docs/TUI.md §8). The agent's state goes on the title
+// line. Anything wrong goes on lines of its own, wrapped to width rather than
+// cut, so a permission's name and the next step always show in full.
+func statusLines(st status, width int) string {
+	text, color := agentLine(st.Agent)
+	line := paint(text, color)
+	note := func(s string, c rgb) { line += "\n" + paint(wrap(s, width-2, "  "), c) }
+	if len(st.Missing) > 0 {
+		note("✕ missing "+strings.Join(st.Missing, ", "), red)
+		note("! allow it in System Settings → Privacy & Security, then restart", yellow)
+	}
+	if st.FnAction != nil {
+		note("! tapping Fn opens "+*st.FnAction+", so tapping won't dictate", yellow)
+	}
+	return line
+}
+
+func agentLine(state string) (string, rgb) {
 	switch state {
 	case "running":
-		return paint("● running", green)
+		return "● running", green
 	case "crashed", "exited":
-		return paint("✕ "+state+", see status", red)
+		return "✕ " + state + ", see status", red
 	case "not-installed":
-		return paint("○ not started yet", yellow)
+		return "○ not started yet", yellow
 	default:
-		return paint("○ "+state, yellow)
+		return "○ " + state, yellow
 	}
 }
 
 func (m home) render() string {
 	var b strings.Builder
-	b.WriteString("\n  " + paint("mockingbird", mauve) + "  " + agentLine(m.info.Agent) + "\n\n")
+	b.WriteString("\n  " + paint("mockingbird", mauve) + "  " + statusLines(m.info.Status, m.width) + "\n\n")
 	for i, c := range m.info.Commands {
 		// The engine wraps long summaries for --help; one line here, cut to
 		// fit after the 19 columns of indent, pointer and name.
@@ -120,4 +165,22 @@ func cut(s string, n int) string {
 		return s
 	}
 	return string(r[:n-1]) + "…"
+}
+
+// wrap breaks s into lines of at most width runes, at spaces, each one
+// starting with indent. width <= 0 means one line.
+func wrap(s string, width int, indent string) string {
+	var lines []string
+	line := ""
+	for _, w := range strings.Fields(s) {
+		if width > 0 && line != "" && len([]rune(line))+1+len([]rune(w)) > width {
+			lines = append(lines, indent+line)
+			line = ""
+		}
+		if line != "" {
+			line += " "
+		}
+		line += w
+	}
+	return strings.Join(append(lines, indent+line), "\n")
 }
