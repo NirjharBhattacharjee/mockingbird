@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { frontmostApp, isTerminal, mayRunCommands, parseAppInfo } from "../src/index.ts";
+import { frontmostApp, isBrowser, isTerminal, mayRunCommands, parseAppInfo } from "../src/index.ts";
 
 describe("parseAppInfo", () => {
   test("reads bundle id and name", () => {
@@ -26,6 +26,15 @@ describe("isTerminal", () => {
     expect(isTerminal({ bundleId: "com.mitchellh.ghostty", name: "Ghostty" })).toBe(true);
     expect(isTerminal({ bundleId: "com.tinyspeck.slackmacgap", name: "Slack" })).toBe(false);
     expect(isTerminal(undefined)).toBe(false);
+  });
+});
+
+describe("isBrowser", () => {
+  test("recognizes browsers, which get one character per key event", () => {
+    expect(isBrowser({ bundleId: "com.google.Chrome", name: "Google Chrome" })).toBe(true);
+    expect(isBrowser({ bundleId: "com.apple.Safari", name: "Safari" })).toBe(true);
+    expect(isBrowser({ bundleId: "com.microsoft.Word", name: "Microsoft Word" })).toBe(false);
+    expect(isBrowser(undefined)).toBe(false);
   });
 });
 

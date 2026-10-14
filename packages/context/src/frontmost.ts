@@ -41,6 +41,33 @@ export function isTerminal(app: FrontmostApp | undefined): boolean {
   return app !== undefined && TERMINAL_BUNDLE_IDS.has(app.bundleId);
 }
 
+const BROWSER_BUNDLE_IDS = new Set([
+  "com.apple.Safari",
+  "com.apple.SafariTechnologyPreview",
+  "com.google.Chrome",
+  "com.google.Chrome.beta",
+  "com.google.Chrome.dev",
+  "com.google.Chrome.canary",
+  "org.chromium.Chromium",
+  "company.thebrowser.Browser", // Arc
+  "company.thebrowser.dia",
+  "com.brave.Browser",
+  "com.microsoft.edgemac",
+  "com.vivaldi.Vivaldi",
+  "com.operasoftware.Opera",
+  "org.mozilla.firefox",
+  "app.zen-browser.zen",
+]);
+
+/**
+ * Browsers, whose web editors may read typed text from the key event rather
+ * than the text it inserts. A key event carrying several characters reports
+ * only the first as its `charCode`, so Google Docs typed one letter per event.
+ */
+export function isBrowser(app: FrontmostApp | undefined): boolean {
+  return app !== undefined && BROWSER_BUNDLE_IDS.has(app.bundleId);
+}
+
 /**
  * Editors with a terminal built in. Which pane has focus can't be seen from
  * outside, so the whole app is treated as one that may run what's typed.
