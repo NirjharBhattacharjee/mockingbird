@@ -3,6 +3,7 @@ import {
   charBeforeCaret,
   type FrontmostApp,
   frontmostApp,
+  isBrowser,
   isTerminal,
   mayRunCommands,
   readFocusedField,
@@ -276,6 +277,9 @@ export async function startSession(options: SessionOptions): Promise<Session> {
         const result = await typeText(piece, {
           prefix,
           lineBreaks: open.lineBreaks,
+          // One character per key event in a browser: Google Docs kept only
+          // the first character of each longer one.
+          maxUnitsPerEvent: isBrowser(open.now) ? 1 : undefined,
           stillWanted: open.watch.stillThere,
         });
         if (result.typed < result.total) {

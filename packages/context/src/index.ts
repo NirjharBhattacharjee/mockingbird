@@ -7,6 +7,7 @@ export {
 export {
   type FrontmostApp,
   frontmostApp,
+  isBrowser,
   isTerminal,
   mayRunCommands,
   parseAppInfo,
