@@ -30,7 +30,7 @@ describe("isTerminal", () => {
 });
 
 describe("isBrowser", () => {
-  test("recognizes browsers, which get one character per key event", () => {
+  test("recognizes browsers, which get an early accessibility read", () => {
     expect(isBrowser({ bundleId: "com.google.Chrome", name: "Google Chrome" })).toBe(true);
     expect(isBrowser({ bundleId: "com.apple.Safari", name: "Safari" })).toBe(true);
     expect(isBrowser({ bundleId: "com.microsoft.Word", name: "Microsoft Word" })).toBe(false);
