@@ -85,7 +85,13 @@ export async function pullFile(
   log(
     `downloading ${model.file}${have ? `, continuing from ${size(have, 0)}` : ""}\n  from ${model.url}`,
   );
-  const response = await get(model.url, have ? { headers: { range: `bytes=${have}-` } } : {});
+  let response = await get(model.url, have ? { headers: { range: `bytes=${have}-` } } : {});
+  if (response.status === 416) {
+    // The part is as long as the file or longer, and wrong, or the checksum
+    // above would have matched. Kept, it would fail every pull from now on.
+    rmSync(part, { force: true });
+    response = await get(model.url, {});
+  }
   if (!response.ok || !response.body) {
     throw new Error(`couldn't download ${model.file}: HTTP ${response.status}`);
   }

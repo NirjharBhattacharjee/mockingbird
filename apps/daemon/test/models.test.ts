@@ -108,6 +108,20 @@ describe("pullFile", () => {
     expect(readFileSync(join(dir, "model.bin"), "utf8")).toBe("weights");
   });
 
+  test("a part too long to continue is thrown away and the file fetched again", async () => {
+    const dir = tempDir();
+    writeFileSync(join(dir, "model.bin.part"), "garbage, longer than the model");
+    const asked: (string | null)[] = [];
+    const get = (async (_url: string, init?: RequestInit) => {
+      const range = new Headers(init?.headers).get("range");
+      asked.push(range);
+      return range ? new Response(null, { status: 416 }) : new Response("weights");
+    }) as unknown as typeof fetch;
+    expect(await pullFile(modelOf("weights"), dir, { fetch: get })).toBe(true);
+    expect(asked).toEqual(["bytes=30-", null]);
+    expect(readFileSync(join(dir, "model.bin"), "utf8")).toBe("weights");
+  });
+
   test("a finished download that was never renamed is kept, not fetched again", async () => {
     const dir = tempDir();
     writeFileSync(join(dir, "model.bin.part"), "weights");

@@ -225,9 +225,11 @@ main() {
   if [ ! -f "$models_dir/ggml-large-v3-q5_0.bin" ]; then
     first=1
     local free_gb
-    free_gb=$(($(df -Pk "$HOME" | awk 'NR==2 {print $4}') / 1024 / 1024))
+    # The disk the models go on, which MOCKINGBIRD_HOME can move off $HOME's.
+    mkdir -p "$models_dir"
+    free_gb=$(($(df -Pk "$models_dir" | awk 'NR==2 {print $4}') / 1024 / 1024))
     if [ "$free_gb" -lt 5 ]; then
-      fail "mockingbird needs about 5 GB free, and this Mac has ${free_gb} GB. Free up some space, then run this again."
+      fail "mockingbird needs about 5 GB free on the disk with $models_dir, and it has ${free_gb} GB. Free up some space, then run this again."
     fi
   fi
 
