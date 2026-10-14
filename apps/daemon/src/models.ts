@@ -1,4 +1,14 @@
-import { createReadStream, existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
+import {
+  closeSync,
+  createReadStream,
+  existsSync,
+  mkdirSync,
+  openSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -63,24 +73,41 @@ export async function pullFile(
     return false;
   }
   mkdirSync(dir, { recursive: true });
-  log(`downloading ${model.file}\n  from ${model.url}`);
-  const response = await get(model.url);
+  // A temporary name first, so an interrupted download isn't mistaken for a
+  // model. What an interrupted one left behind is kept and continued: on a slow
+  // connection, starting a 1 GB file over is what makes an install take an hour.
+  const part = `${path}.part`;
+  const have = existsSync(part) ? statSync(part).size : 0;
+  if (have > 0 && (await sha256Of(part)) === model.sha256) {
+    renameSync(part, path);
+    return true;
+  }
+  log(
+    `downloading ${model.file}${have ? `, continuing from ${size(have, 0)}` : ""}\n  from ${model.url}`,
+  );
+  let response = await get(model.url, have ? { headers: { range: `bytes=${have}-` } } : {});
+  if (response.status === 416) {
+    // The part is as long as the file or longer, and wrong, or the checksum
+    // above would have matched. Kept, it would fail every pull from now on.
+    rmSync(part, { force: true });
+    response = await get(model.url, {});
+  }
   if (!response.ok || !response.body) {
     throw new Error(`couldn't download ${model.file}: HTTP ${response.status}`);
   }
-  // A temporary name first, so an interrupted download isn't mistaken for a model.
-  const part = `${path}.part`;
-  const writer = Bun.file(part).writer();
-  const total = Number(response.headers.get("content-length")) || 0;
-  let done = 0;
+  // 206 is the rest of the file; a server that ignores the range sends all of it.
+  const from = response.status === 206 ? have : 0;
+  const total = from + (Number(response.headers.get("content-length")) || 0);
+  const fd = openSync(part, from ? "a" : "w");
+  let done = from;
   try {
     for await (const chunk of response.body) {
-      writer.write(chunk);
+      writeSync(fd, chunk);
       done += chunk.byteLength;
-      onProgress(done, total);
+      onProgress(done, total === from ? 0 : total);
     }
   } finally {
-    await writer.end();
+    closeSync(fd);
   }
   if ((await sha256Of(part)) !== model.sha256) {
     rmSync(part, { force: true });
