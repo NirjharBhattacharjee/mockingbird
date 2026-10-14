@@ -47,6 +47,7 @@ type setupModel struct {
 	stage     stage
 	perm      string // the permission being granted
 	fnAsked   bool   // asked once; the answer doesn't mean Fn is free
+	fnWas     string // what tapping Fn opened, until `fn` freed it in this run
 	busy      string // what's running, shown in place of the key hints
 	note      string // the last thing worth saying, under the steps
 	dictation string // how the test dictation went, once it has
@@ -144,6 +145,10 @@ func (m setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// the setting didn't change.
 			if m.st.FnAction != nil {
 				m.note = "Fn didn't change: " + m.note
+				m.fnWas = ""
+			} else {
+				// The Fn step and the last line say to log out instead.
+				m.note = ""
 			}
 			return m.next()
 		}
@@ -191,11 +196,14 @@ func (m setupModel) key(k string) (tea.Model, tea.Cmd) {
 		// macOS reads permissions when a program starts, so restart to check.
 		m.busy = "restarting mockingbird to check…"
 		return m, tea.Sequence(m.run("restart"), m.checkStatus())
-	case m.stage == freeingFn && (k == "y" || k == "n"):
+	case m.stage == freeingFn && (k == "y" || k == "enter" || k == "n"):
 		m.fnAsked = true
 		if k == "n" {
 			return m.next()
 		}
+		// The setting reads as free at once, but macOS keeps the old action
+		// until a log out, so remember it to say so.
+		m.fnWas = *m.st.FnAction
 		m.busy = "freeing Fn…"
 		return m, tea.Sequence(m.run("fn"), m.checkStatus())
 	case m.stage == dictating && k == "enter":
@@ -251,12 +259,15 @@ func (m setupModel) render() string {
 	}
 	// Done only once the status says Fn is free, never just for answering.
 	fnState, fnLabel := state(running && m.st.Missing != nil && m.st.FnAction == nil, m.stage == freeingFn), "the Fn key is free for dictation"
+	if m.fnWas != "" {
+		fnLabel = "the Fn key is free for dictation once you log out"
+	}
 	if m.fnAsked && m.st.FnAction != nil {
 		fnState, fnLabel = "skipped", "the Fn key: tapping still opens "+*m.st.FnAction+" (holding works)"
 	}
 	b.WriteString(step(fnState, fnLabel))
 	if m.stage == freeingFn && m.st.FnAction != nil {
-		b.WriteString(paint("      Tapping Fn opens "+*m.st.FnAction+". Bind it to dictation only? y/n\n", text))
+		b.WriteString(paint("      Tapping Fn opens "+*m.st.FnAction+". Bind it to dictation only? Y/n\n", text))
 		b.WriteString(paint("      (mockingbird fn --undo puts it back)\n", subtext0))
 	}
 	dictLabel := "a test dictation"
@@ -272,6 +283,13 @@ func (m setupModel) render() string {
 	}
 	b.WriteString("\n  ")
 	switch {
+	case m.stage == finished && m.fnWas != "":
+		// Last, so it can't be scrolled past: until the log out, a tap or a
+		// double tap still opens the old action (#31).
+		msg := "One more step: log out of your Mac and back in. Until then, tapping Fn " +
+			"still opens " + m.fnWas + "; holding Fn to dictate works now."
+		b.WriteString(paint(strings.TrimPrefix(wrap(msg, setupCols-4, "  "), "  "), yellow) +
+			"\n  " + paint("enter or q to close", overlay0))
 	case m.stage == finished:
 		done := "All set. Hold Fn anywhere to dictate, or double-tap it for hands-free."
 		if m.st.FnAction != nil {
@@ -282,7 +300,7 @@ func (m setupModel) render() string {
 	case m.busy != "":
 		b.WriteString(paint(m.busy, sky))
 	case m.stage == freeingFn:
-		b.WriteString(paint("y yes · n no · q quit", overlay0))
+		b.WriteString(paint("enter yes · n no · q quit", overlay0))
 	case m.stage == dictating:
 		b.WriteString(paint("enter try again · s skip · q quit", overlay0))
 	default:

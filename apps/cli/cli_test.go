@@ -289,12 +289,24 @@ func TestSetupWalksEveryStep(t *testing.T) {
 		!strings.Contains(yes.note, "Fn didn't change") {
 		t.Errorf("a failed fn shows as done, or says nothing:\n%s", screen)
 	}
-	// Yes, and the status confirms it: done, and the log-out note stays.
-	yes = feed(feed(feed(m, key("y")), engineMsg{"Log out of your Mac for it to apply."}),
+	// Enter means yes, and the status confirms it: done, pending a log out.
+	yes = feed(feed(feed(m, key("enter")), engineMsg{"Log out of your Mac for it to apply."}),
 		statusMsg{Agent: "running", Missing: []string{}})
-	if screen := escapes.ReplaceAllString(yes.render(), ""); !strings.Contains(screen, "✓ the Fn key is free") ||
-		!strings.Contains(yes.note, "Log out") {
-		t.Errorf("a freed Fn isn't shown as done with its note:\n%s", screen)
+	if screen := escapes.ReplaceAllString(yes.render(), ""); !strings.Contains(screen, "✓ the Fn key is free for dictation once you log out") {
+		t.Errorf("a freed Fn isn't shown as done, pending a log out:\n%s", screen)
+	}
+	// It ends on the log out, not "All set": until then a tap still opens the
+	// emoji picker (#31).
+	yes = feed(yes, dictationMsg{Outcome: "typed", Detail: "16 characters"})
+	screen := escapes.ReplaceAllString(yes.render(), "")
+	if !strings.Contains(screen, "One more step: log out") || strings.Contains(screen, "All set") ||
+		!strings.Contains(screen, "opens Show Emoji & Symbols; holding Fn") {
+		t.Errorf("a freed Fn doesn't end on the log out:\n%s", screen)
+	}
+	for _, line := range strings.Split(screen, "\n") {
+		if n := len([]rune(line)); n > setupCols {
+			t.Errorf("%d columns: %q", n, line)
+		}
 	}
 
 	if m = feed(m, key("n")); m.stage != dictating {

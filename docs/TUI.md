@@ -253,12 +253,19 @@ home screen. Neither needs the IPC socket.
      says to check the switch is on for "mockingbird" or "bun", and for the
      microphone, that Sound → Input picks the right one.
   3. **The Fn key is free.** Only when tapping Fn opens something in macOS:
-     asks `y`/`n` before running `fn`, since it changes a system-wide setting,
-     and shows the undo command. Never changes it without a yes.
+     asks `Y/n` before running `fn`, since it changes a system-wide setting,
+     and shows the undo command. `Enter` or `y` is yes; it never changes the
+     setting without one. Once freed, the step reads "free for dictation once
+     you log out": the setting reads back as free at once, but macOS keeps the
+     old action until a log out (#31).
   4. **A test dictation.** Waits up to two minutes for the agent's next
      dictation in its log and says whether it was typed, heard nothing, or
      couldn't be typed and why. `Enter` tries again, `s` skips.
-  5. "All set", with how to dictate from now on.
+  5. "All set", with how to dictate from now on. If this run freed Fn, it
+     ends instead on "One more step: log out of your Mac and back in", with
+     what tapping Fn still opens until then. It's the last line so it can't
+     be scrolled past. Before, setup said "All set … double-tap it for
+     hands-free" even though a double tap still opened the emoji picker.
 - Step states are `✓` (`green`), `▸` (`mauve`) and `·` (`overlay0`), so they
   read without color. Notes are `yellow`, what's running is `sky`.
 - The engine does every step. The Go command calls `status --json`, `start`,
@@ -271,9 +278,9 @@ home screen. Neither needs the IPC socket.
   leaves a stopped agent stopped. An update, output to a file (a coding
   agent's install), or no Go command gets the old "Now run:
   `mockingbird start`" ending.
-- The Fn step shows all of what `fn` printed, since the line that matters
-  ("log out of your Mac (Apple menu → Log Out)", not `mockingbird restart`)
-  isn't the last one.
+- When `fn` fails to change the setting, the Fn step shows all of what it
+  printed. When it works, the step label and the last line carry the log out
+  instead.
 - Not built yet (#54): telling the user to restart the Mac when a permission
   is on but still not applied, and opening System Settings' Keyboard pane
   instead of writing the Fn default (expected to apply without a log out).
