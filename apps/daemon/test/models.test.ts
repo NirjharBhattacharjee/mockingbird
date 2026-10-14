@@ -79,6 +79,44 @@ describe("pullFile", () => {
     expect(seen.at(-1)).toEqual([7, 7]);
   });
 
+  test("continues an interrupted download instead of starting over", async () => {
+    const dir = tempDir();
+    writeFileSync(join(dir, "model.bin.part"), "wei");
+    const asked: (string | null)[] = [];
+    const seen: [number, number][] = [];
+    const get = (async (_url: string, init?: RequestInit) => {
+      const range = new Headers(init?.headers).get("range");
+      asked.push(range);
+      return new Response("ghts", { status: 206, headers: { "content-length": "4" } });
+    }) as unknown as typeof fetch;
+    expect(
+      await pullFile(modelOf("weights"), dir, {
+        fetch: get,
+        onProgress: (d, t) => seen.push([d, t]),
+      }),
+    ).toBe(true);
+    expect(asked).toEqual(["bytes=3-"]);
+    expect(readFileSync(join(dir, "model.bin"), "utf8")).toBe("weights");
+    expect(seen.at(-1)).toEqual([7, 7]);
+  });
+
+  test("starts over when the server sends the whole file instead of the rest", async () => {
+    const dir = tempDir();
+    writeFileSync(join(dir, "model.bin.part"), "wei");
+    const { get } = serving("weights");
+    expect(await pullFile(modelOf("weights"), dir, { fetch: get })).toBe(true);
+    expect(readFileSync(join(dir, "model.bin"), "utf8")).toBe("weights");
+  });
+
+  test("a finished download that was never renamed is kept, not fetched again", async () => {
+    const dir = tempDir();
+    writeFileSync(join(dir, "model.bin.part"), "weights");
+    const { get, calls } = serving("weights");
+    expect(await pullFile(modelOf("weights"), dir, { fetch: get })).toBe(true);
+    expect(calls).toEqual([]);
+    expect(readFileSync(join(dir, "model.bin"), "utf8")).toBe("weights");
+  });
+
   test("an HTTP error says so", async () => {
     const { get } = serving("", 404);
     await expect(pullFile(modelOf("weights"), tempDir(), { fetch: get })).rejects.toThrow(

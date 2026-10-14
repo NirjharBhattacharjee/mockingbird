@@ -217,7 +217,24 @@ main() {
     quietly to_latest "$dir"
   }
 
+  # A first install downloads about 3.6 GB of models, and the tools and code
+  # take about 1 GB more. Checked before anything is downloaded, so a full disk
+  # fails now with the number, not partway through a model. An update already
+  # has the models, so it isn't held to this.
+  local models_dir="${MOCKINGBIRD_HOME:-$HOME/.mockingbird}/models" first=""
+  if [ ! -f "$models_dir/ggml-large-v3-q5_0.bin" ]; then
+    first=1
+    local free_gb
+    free_gb=$(($(df -Pk "$HOME" | awk 'NR==2 {print $4}') / 1024 / 1024))
+    if [ "$free_gb" -lt 5 ]; then
+      fail "mockingbird needs about 5 GB free, and this Mac has ${free_gb} GB. Free up some space, then run this again."
+    fi
+  fi
+
   printf '\n\033[1;35m==>\033[0m \033[1mInstalling mockingbird\033[0m (details in %s)\n' "$log_dir/install-*.log"
+  if [ -n "$first" ]; then
+    printf '    This takes about 10 minutes, most of it downloading 3.6 GB of models.\n'
+  fi
 
   # The tools and the code don't need each other, so they come down together.
   WORKING="tools and code"
