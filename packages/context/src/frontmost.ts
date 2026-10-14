@@ -60,9 +60,9 @@ const BROWSER_BUNDLE_IDS = new Set([
 ]);
 
 /**
- * Browsers, whose web editors may read typed text from the key event rather
- * than the text it inserts. A key event carrying several characters reports
- * only the first as its `charCode`, so Google Docs typed one letter per event.
+ * Browsers. Chrome switches its accessibility on at the first accessibility
+ * read, and Google Docs rebuilds its editor when that happens, so typing right
+ * after a first read was lost (#32).
  */
 export function isBrowser(app: FrontmostApp | undefined): boolean {
   return app !== undefined && BROWSER_BUNDLE_IDS.has(app.bundleId);

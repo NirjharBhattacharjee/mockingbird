@@ -277,9 +277,6 @@ export async function startSession(options: SessionOptions): Promise<Session> {
         const result = await typeText(piece, {
           prefix,
           lineBreaks: open.lineBreaks,
-          // One character per key event in a browser: Google Docs kept only
-          // the first character of each longer one.
-          maxUnitsPerEvent: isBrowser(open.now) ? 1 : undefined,
           stillWanted: open.watch.stillThere,
         });
         if (result.typed < result.total) {
@@ -361,7 +358,16 @@ export async function startSession(options: SessionOptions): Promise<Session> {
       ? { start: "hold Fn to talk (or Enter) · q: quit", stop: "release Fn · Esc: cancel" }
       : { start: "Enter: start speaking · q: quit", stop: "Enter: stop · Esc: cancel" },
     () => {
-      targetLookup = frontmostApp().catch(() => undefined);
+      targetLookup = frontmostApp()
+        .then((app) => {
+          // The first accessibility read switches Chrome's accessibility on,
+          // and Google Docs rebuilds its editor in response. Typing during the
+          // rebuild was lost (#32), so a browser gets that read now, while the
+          // user speaks, and the one before typing finds the editor settled.
+          if (isBrowser(app) && typingAllowed) charBeforeCaret();
+          return app;
+        })
+        .catch(() => undefined);
       // The user is done with the last dictation: see what they changed in it.
       corrections.flush();
       // Warms the model while the user is still speaking, so the cleanup that
