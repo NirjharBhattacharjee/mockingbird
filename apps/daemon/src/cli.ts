@@ -303,7 +303,9 @@ export function missingFrom(line: string): string[] {
  * what the running agent last reported, from its log: the agent's own
  * grants, which can differ from this terminal's. It's null when the agent
  * isn't running or hasn't reported yet. `fnAction` is set when tapping Fn
- * opens something in macOS.
+ * opens something in macOS. An unset key counts: on a Mac where nobody changed
+ * it, which is most new ones, macOS opens its default, usually the emoji
+ * picker (#31). Only an explicit "Do Nothing" is null.
  */
 export async function agentState(
   run: Launchctl = runLaunchctl,
@@ -325,7 +327,12 @@ export async function agentState(
   return {
     agent: state,
     missing: state === "running" && line ? missingFrom(line) : null,
-    fnAction: fn.kind === "taken" ? fn.action : null,
+    fnAction:
+      fn.kind === "taken"
+        ? fn.action
+        : fn.kind === "unset"
+          ? "the macOS default (usually the emoji picker)"
+          : null,
   };
 }
 

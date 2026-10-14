@@ -101,6 +101,11 @@ describe("mockingbird", () => {
     );
     expect(await agentState(running, log, async () => ({ kind: "free" }))).toMatchObject({
       missing: null,
+      fnAction: null,
+    });
+    // Never set: macOS opens its default, so setup must still offer `fn` (#31).
+    expect(await agentState(running, log, async () => ({ kind: "unset" }))).toMatchObject({
+      fnAction: "the macOS default (usually the emoji picker)",
     });
     const stopped: Launchctl = async () => ({
       code: 113,

@@ -252,9 +252,12 @@ home screen. Neither needs the IPC socket.
      a program starts) and reads its checks again. A permission still off
      says to check the switch is on for "mockingbird" or "bun", and for the
      microphone, that Sound → Input picks the right one.
-  3. **The Fn key is free.** Only when tapping Fn opens something in macOS:
-     asks `Y/n` before running `fn`, since it changes a system-wide setting,
-     and shows the undo command. `Enter` or `y` is yes; it never changes the
+  3. **The Fn key is free.** Only when tapping Fn opens something in macOS,
+     which includes a key nobody ever set: `status` reports it as "the macOS
+     default (usually the emoji picker)", and only an explicit "Do Nothing"
+     counts as free (#31). Before that, a new Mac skipped this step and was
+     told to double-tap. It asks `Y/n` before running `fn`, since it changes
+     a system-wide setting, and shows the undo command. `Enter` or `y` is yes; it never changes the
      setting without one. Once freed, the step reads "free for dictation once
      you log out": the setting reads back as free at once, but macOS keeps the
      old action until a log out (#31).

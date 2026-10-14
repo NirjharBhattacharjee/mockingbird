@@ -328,3 +328,29 @@ func TestSetupWalksEveryStep(t *testing.T) {
 		}
 	}
 }
+
+// TestSetupOffersFnWhenUnset: on a Mac where nobody changed the Fn setting,
+// status reports macOS's default, so setup still asks, and its longest lines
+// wrap to fit (#31).
+func TestSetupOffersFnWhenUnset(t *testing.T) {
+	unset := "the macOS default (usually the emoji picker)"
+	feed := func(m tea.Model, msg tea.Msg) setupModel { m, _ = m.Update(msg); return m.(setupModel) }
+	m := feed(newSetup([]string{"bun", "cli.ts"}), statusMsg{Agent: "running", Missing: []string{}, FnAction: &unset})
+	if m.stage != freeingFn {
+		t.Fatalf("unset Fn: stage %d, want freeingFn", m.stage)
+	}
+	declined := feed(m, tea.KeyPressMsg{Code: 'n', Text: "n"})
+	freed := feed(feed(feed(m, tea.KeyPressMsg{Code: tea.KeyEnter}), engineMsg{"Log out."}),
+		statusMsg{Agent: "running", Missing: []string{}})
+	freed = feed(freed, dictationMsg{Outcome: "typed", Detail: "16 characters"})
+	for _, s := range []setupModel{m, declined, freed} {
+		for _, line := range strings.Split(escapes.ReplaceAllString(s.render(), ""), "\n") {
+			if n := len([]rune(line)); n > setupCols {
+				t.Errorf("%d columns: %q", n, line)
+			}
+		}
+	}
+	if screen := escapes.ReplaceAllString(freed.render(), ""); !strings.Contains(screen, "One more step: log out") {
+		t.Errorf("freeing an unset Fn doesn't end on the log out:\n%s", screen)
+	}
+}

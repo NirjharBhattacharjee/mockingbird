@@ -219,19 +219,19 @@ func (m setupModel) key(k string) (tea.Model, tea.Cmd) {
 func (m setupModel) View() tea.View { return tea.NewView(m.render()) }
 
 // step draws one checklist line: ✓ done, ▸ current, – skipped, · still to
-// come. The
-// symbol carries the state, so it reads without color (docs/TUI.md §8).
+// come. The symbol carries the state, so it reads without color
+// (docs/TUI.md §8). A long label wraps, indented under its text.
 func step(state, text string) string {
+	symbol, color := "·", overlay0
 	switch state {
 	case "done":
-		return "  " + paint("✓ "+text, green) + "\n"
+		symbol, color = "✓", green
 	case "now":
-		return "  " + paint("▸ "+text, mauve) + "\n"
+		symbol, color = "▸", mauve
 	case "skipped":
-		return "  " + paint("– "+text, yellow) + "\n"
-	default:
-		return "  " + paint("· "+text, overlay0) + "\n"
+		symbol, color = "–", yellow
 	}
+	return "  " + paint(strings.TrimPrefix(wrap(symbol+" "+text, setupCols-4, "    "), "    "), color) + "\n"
 }
 
 func (m setupModel) render() string {
@@ -267,7 +267,8 @@ func (m setupModel) render() string {
 	}
 	b.WriteString(step(fnState, fnLabel))
 	if m.stage == freeingFn && m.st.FnAction != nil {
-		b.WriteString(paint("      Tapping Fn opens "+*m.st.FnAction+". Bind it to dictation only? Y/n\n", text))
+		b.WriteString(paint(wrap("Tapping Fn opens "+*m.st.FnAction+". Bind it to dictation only? Y/n",
+			setupCols-6, "      ")+"\n", text))
 		b.WriteString(paint("      (mockingbird fn --undo puts it back)\n", subtext0))
 	}
 	dictLabel := "a test dictation"
