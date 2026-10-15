@@ -52,11 +52,11 @@ export function startEncoder({
     async finish(timeoutMs = 5000) {
       if (open) {
         open = false;
-        try {
-          await proc.stdin.end();
-        } catch {
-          // Already closed by ffmpeg exiting.
-        }
+        // Not awaited: ending can wait on a full pipe, and the timeout below
+        // has to cover that too. A rejection means ffmpeg already closed it.
+        Promise.resolve()
+          .then(() => proc.stdin.end())
+          .catch(() => {});
       }
       const late = Symbol();
       const first = await Promise.race([exited, Bun.sleep(timeoutMs).then(() => late)]);
