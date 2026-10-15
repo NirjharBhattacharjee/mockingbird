@@ -27,6 +27,7 @@ import {
   restoreMessage,
 } from "./fn-key.ts";
 import { main as listenMain } from "./listen.ts";
+import { mcpTools, serve } from "./mcp.ts";
 import { modelsCommand, pullModels } from "./models.ts";
 import { openPermissionPane, paneFor } from "./permissions.ts";
 import { DEFAULT_LLM_MODEL, mockingbirdHome } from "./runtime.ts";
@@ -581,6 +582,9 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
       return setup(rest);
     case "uninstall":
       return uninstallHere(rest);
+    case "mcp":
+      // Not in COMMANDS: it's started by an AI client, not typed (docs/MCP.md).
+      return serve(mcpTools(() => agentState(), log));
     default:
       throw new UsageError(`unknown command "${command}"`);
   }

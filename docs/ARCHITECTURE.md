@@ -60,6 +60,7 @@ it is not a design doc that gets abandoned once code exists.
 | 2026-10-14 | When recording starts in a browser, the session does one accessibility read of the caret and ignores the result (#32). The first such read switches Chrome's accessibility on, and Google Docs rebuilds its editor in response; in a fresh Doc, a dictation typed right after that first read was lost entirely. Doing it while the user speaks lets the editor settle before typing. `packages/context` gained `isBrowser`, a list of bundle IDs. This replaces a change typing one character per key event in browsers, which was reverted: Docs in Chrome takes 20-character events in full. |
 | 2026-10-14 | An interrupted model download continues where it stopped (#30): `models pull` keeps the `.part` file and asks for the rest with an HTTP `Range` request, and starts over if the server sends the whole file instead. Both hosts honour it (GitHub for the VAD model, Hugging Face for Whisper). The sha256 check is unchanged, so a damaged part is still thrown away. A first install also checks for about 5 GB free before downloading anything, and says it takes about 10 minutes. |
 | 2026-10-16 | Decided how to capture system audio, the other side of a call (#90): a Core Audio process tap, reached from `bun:ffi` and `objc_msgSend` with no Swift or Objective-C of ours. A spike built the tap and an aggregate device around it and recorded it with ffmpeg like a microphone, on macOS 26. Nothing ships yet; #89 builds it. Details in [§16](#16-known-gaps--scope-not-yet-decided). |
+| 2026-10-16 | `mockingbird mcp` (#88): an MCP server over stdin/stdout, hand-rolled (`initialize`, `ping`, `tools/list`, `tools/call`) rather than the SDK, which would be a dependency for about 60 lines of JSON-RPC. Its tools are `transcribe`, `frames`, `status`, `dictionary_list` and `dictionary_add`. `transcribe` splits a file at the VAD's speech segments into pieces of up to 30 seconds, sends each to Whisper, and timestamps lines from Whisper's word times (a new line at a sentence end after 20 s, always by 60 s). It skips the cleanup model, since the client's is stronger on a whole meeting. One-off runs (`transcribe`, `mcp`) now start their own whisper-server on a free port: on 8771 they had quietly shared the agent's, so a long file would have held up dictation. A 27-minute file took 262 s on an M3. |
 
 ---
 
@@ -464,6 +465,11 @@ verifiable, not just promised.
   default) for debugging/training-their-own-dictionary purposes.
 - **The IPC socket is a Unix domain socket with `0600` permissions**, not a
   TCP port — nothing on the network, even the local network, can reach it.
+- **The MCP server is the one way text leaves mockingbird, and only to the
+  user's own AI client.** `mockingbird mcp` speaks over stdin/stdout to a
+  client the user registered, with no port. If that client sends the text to
+  a cloud model, that's the client's network call, not mockingbird's
+  ([MCP.md](./MCP.md), [SECURITY_PRIVACY.md §3](./SECURITY_PRIVACY.md#3-network-policy)).
 - **Enforced, not just claimed:** the shipped binary requests no outbound
   network entitlement beyond what's needed for the explicit model-download
   command. Anyone can `lsof -i` while dictating and see nothing outbound.

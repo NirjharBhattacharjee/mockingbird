@@ -3,7 +3,7 @@ import { loadAudio } from "@mockingbird/audio";
 import type { DictionaryEntry } from "@mockingbird/llm";
 import { readDictionary } from "./dictionary.ts";
 import { describeTimings, runPipeline } from "./pipeline.ts";
-import { requireFile, startEngines } from "./runtime.ts";
+import { freePort, requireFile, startEngines } from "./runtime.ts";
 
 const USAGE = `Usage: bun run transcribe <audio-file> [--terminal] [--json]
 
@@ -18,7 +18,7 @@ Options:
 Environment:
   MOCKINGBIRD_HOME       default ~/.mockingbird (models are read from its models/)
   MOCKINGBIRD_ASR_MODEL  Whisper model file (default ggml-large-v3-q5_0.bin)
-  MOCKINGBIRD_ASR_PORT   default 8771
+  MOCKINGBIRD_ASR_PORT   default: a free port, not the agent's 8771
   MOCKINGBIRD_LLM_URL    default http://127.0.0.1:11434
   MOCKINGBIRD_LLM_MODEL  default qwen3:4b-instruct-2507-q4_K_M`;
 
@@ -59,6 +59,8 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
   } catch (error) {
     log(`warning: couldn't read the dictionary from data.db: ${error}`);
   }
+  // A whisper-server of its own, so the agent's stays free for dictation.
+  process.env.MOCKINGBIRD_ASR_PORT ??= String(freePort());
   const engines = await startEngines(log, dictionary);
   process.once("SIGINT", () => {
     void engines.close().finally(() => process.exit(130));
