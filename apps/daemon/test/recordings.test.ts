@@ -109,3 +109,14 @@ test.skipIf(!Bun.which("ffmpeg"))(
     expect(Number(probe.stdout.toString())).toBeGreaterThan(1);
   },
 );
+
+test("a stalled ffmpeg is killed rather than holding up a stop", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mb-enc-"));
+  // Ignores its input and never exits on its own.
+  const stalled = join(dir, "ffmpeg");
+  writeFileSync(stalled, "#!/bin/sh\nexec sleep 60\n", { mode: 0o755 });
+  const encoder = startEncoder({ path: join(dir, "a.m4a"), ffmpeg: stalled });
+  const t = performance.now();
+  await encoder.finish(200);
+  expect(performance.now() - t).toBeLessThan(2000);
+});

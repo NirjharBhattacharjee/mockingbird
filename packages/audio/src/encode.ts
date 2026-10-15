@@ -1,8 +1,11 @@
 export type Encoder = {
   /** Mono PCM16 at the encoder's sample rate. Ignored once ffmpeg has gone. */
   write(samples: Int16Array): void;
-  /** Ends the input and waits for ffmpeg to write the rest. */
-  finish(): Promise<number>;
+  /**
+   * Ends the input and waits for ffmpeg to write the rest; past `timeoutMs`
+   * it kills ffmpeg instead. The file plays up to its last fragment either way.
+   */
+  finish(timeoutMs?: number): Promise<number>;
   /** Resolves with ffmpeg's exit code, however it ended. */
   exited: Promise<number>;
 };
@@ -46,7 +49,7 @@ export function startEncoder({
         open = false; // ffmpeg went away; `exited` says how.
       }
     },
-    async finish() {
+    async finish(timeoutMs = 5000) {
       if (open) {
         open = false;
         try {
@@ -55,6 +58,10 @@ export function startEncoder({
           // Already closed by ffmpeg exiting.
         }
       }
+      const late = Symbol();
+      const first = await Promise.race([exited, Bun.sleep(timeoutMs).then(() => late)]);
+      if (first !== late) return first as number;
+      proc.kill("SIGKILL"); // a stalled ffmpeg mustn't hold up mockingbird stopping
       return exited;
     },
     exited,

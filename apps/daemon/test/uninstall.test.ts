@@ -111,13 +111,15 @@ describe("uninstall", () => {
     const m = installed();
     mkdirSync(join(m.mb, "recordings"));
     writeFileSync(join(m.mb, "recordings", "2026-10-15-1430.m4a"), "audio");
+    // Cut off by a crash, and still the user's.
+    writeFileSync(join(m.mb, "recordings", "2026-10-15-1600.m4a.part"), "more");
     mkdirSync(join(m.home, "mockingbird-recordings")); // an earlier uninstall's
     expect(await uninstall(["--yes"], m.deps)).toBe(0);
     expect(existsSync(m.mb)).toBe(false);
     expect(
       readFileSync(join(m.home, "mockingbird-recordings-2", "2026-10-15-1430.m4a"), "utf8"),
     ).toBe("audio");
-    expect(m.logged.some((l) => l.includes("1 recordings, which you'll be asked about"))).toBe(
+    expect(m.logged.some((l) => l.includes("2 recordings, which you'll be asked about"))).toBe(
       true,
     );
   });

@@ -177,7 +177,6 @@ export async function startSession(options: SessionOptions): Promise<Session> {
     log: options.log,
     cue: (kind) => playCue(kind),
   });
-  recordings.finishLeftovers();
   // Edits take effect on the next dictation.
   // ponytail: the socket needs data.db, so `mockingbird record` doesn't work when it can't open.
   const dictionaryEdits =
@@ -200,6 +199,9 @@ export async function startSession(options: SessionOptions): Promise<Session> {
         "GET /record": () => new Response(recordings.active ?? ""),
       },
     ));
+  // Only the socket's owner records, so only it may finish a crash's leftovers:
+  // a `listen` started beside the agent would rename the agent's live file.
+  if (dictionaryEdits) recordings.finishLeftovers();
 
   // Learns dictionary words from the user's own fixes to a dictation. Off with
   // MOCKINGBIRD_LEARN=0; apps in MOCKINGBIRD_LEARN_EXCLUDE (bundle ids, comma

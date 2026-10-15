@@ -120,7 +120,7 @@ export async function uninstall(args: string[], deps: UninstallDeps): Promise<nu
   // Recordings (#89) are kept unless the user says otherwise, asked below.
   const recordings = join(mb, "recordings");
   const recorded = existsSync(recordings)
-    ? readdirSync(recordings).filter((n) => n.endsWith(".m4a")).length
+    ? readdirSync(recordings).filter((n) => /\.m4a(\.part)?$/.test(n)).length
     : 0;
   if (recorded) items.push([`${recorded} recordings, which you'll be asked about`, recordings]);
   if (removeCode) items.push(["the code", root]);
