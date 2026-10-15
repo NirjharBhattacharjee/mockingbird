@@ -1,4 +1,4 @@
-export type CueKind = "start" | "stop" | "error";
+export type CueKind = "start" | "stop" | "error" | "record-start" | "record-stop";
 
 /**
  * macOS ships these, so nothing has to be bundled. Tink rises and Pop falls,
@@ -8,6 +8,9 @@ const SOUNDS: Record<CueKind, string> = {
   start: "/System/Library/Sounds/Tink.aiff",
   stop: "/System/Library/Sounds/Pop.aiff",
   error: "/System/Library/Sounds/Basso.aiff",
+  // A recording runs for minutes or hours, so its sounds differ from dictation's.
+  "record-start": "/System/Library/Sounds/Morse.aiff",
+  "record-stop": "/System/Library/Sounds/Submarine.aiff",
 };
 
 /** Quiet enough to sit under speech without being startling. */

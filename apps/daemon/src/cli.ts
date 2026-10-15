@@ -30,6 +30,7 @@ import { main as listenMain } from "./listen.ts";
 import { mcpTools, serve } from "./mcp.ts";
 import { modelsCommand, pullModels } from "./models.ts";
 import { openPermissionPane, paneFor } from "./permissions.ts";
+import { activeRecording, recordCommand } from "./recordings.ts";
 import { DEFAULT_LLM_MODEL, mockingbirdHome } from "./runtime.ts";
 import { main as transcribeMain } from "./transcribe.ts";
 import { main as typeMain } from "./type.ts";
@@ -47,6 +48,7 @@ export const COMMANDS: { name: string; summary: string }[] = [
       "bind Fn to dictation only, so macOS stops opening the picker\n(`mockingbird fn --undo` puts back the previous setting)",
   },
   { name: "dictionary", summary: "list, add and remove words it should spell right" },
+  { name: "record", summary: "record the microphone to a file; `record stop` ends it" },
   {
     name: "models",
     summary:
@@ -312,6 +314,7 @@ export async function agentState(
   run: Launchctl = runLaunchctl,
   logPath = agentPaths().logPath,
   fnUsage: () => Promise<FnUsage> = () => readFnUsage(),
+  recording: () => Promise<string | null> = () => activeRecording(),
 ) {
   const { state } = await agentStatus(process.getuid?.() ?? 0, run);
   // The whole log: the agent writes its checks once, at start, and trims the
@@ -327,6 +330,7 @@ export async function agentState(
   const fn = await fnUsage();
   return {
     agent: state,
+    recording: state === "running" ? await recording() : null,
     missing: state === "running" && line ? missingFrom(line) : null,
     fnAction:
       fn.kind === "taken"
@@ -519,6 +523,8 @@ async function status(run: Launchctl = runLaunchctl): Promise<number> {
     exited: "exited — see the log",
   };
   console.log(`agent:  ${described[state]}`);
+  const recording = state === "running" ? await activeRecording() : null;
+  if (recording) console.log(`● recording to ${recording}`);
   console.log(`label:  ${AGENT_LABEL}`);
   console.log(`logs:   ${paths.logPath}`);
 
@@ -572,6 +578,8 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
       return modelsCommand(rest, { restart: () => restart() });
     case "dictionary":
       return dictionaryMain(rest);
+    case "record":
+      return recordCommand(rest);
     case "listen":
       return listenMain(rest);
     case "transcribe":

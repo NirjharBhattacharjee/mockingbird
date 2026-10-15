@@ -8,7 +8,7 @@ import {
   mayRunCommands,
   readFocusedField,
 } from "@mockingbird/context";
-import { type Cue, cues } from "@mockingbird/cue";
+import { type Cue, cues, playCue } from "@mockingbird/cue";
 import { type HotkeyListener, startHotkeyListener } from "@mockingbird/hotkey";
 import { prepareForTyping, typeText } from "@mockingbird/inject";
 import type { AppStyle } from "@mockingbird/llm";
@@ -18,6 +18,7 @@ import { CorrectionWatcher, correctionsIn, learnFrom, markEnd, markStart } from 
 import { ListenController } from "./listen-controller.ts";
 import { describeTimings, type PipelineResult, runPipeline } from "./pipeline.ts";
 import { Recorder, type Recording } from "./recorder.ts";
+import { Recordings } from "./recordings.ts";
 import { mockingbirdHome, startEngines } from "./runtime.ts";
 import { decideSpacing, InputTracker, type LastTyped } from "./spacing.ts";
 import { Supervisor } from "./supervisor.ts";
@@ -171,7 +172,14 @@ export async function startSession(options: SessionOptions): Promise<Session> {
     store?.dictionary(),
     store?.setting(LLM_MODEL_SETTING),
   );
+  // Its sounds play even with cues off: a recording never starts silently.
+  const recordings = new Recordings(mockingbirdHome(), {
+    log: options.log,
+    cue: (kind) => playCue(kind),
+  });
+  recordings.finishLeftovers();
   // Edits take effect on the next dictation.
+  // ponytail: the socket needs data.db, so `mockingbird record` doesn't work when it can't open.
   const dictionaryEdits =
     store &&
     (await serveDictionary(
@@ -180,6 +188,17 @@ export async function startSession(options: SessionOptions): Promise<Session> {
         engines.deps.dictionary = dictionary;
       },
       options.log,
+      mockingbirdHome(),
+      {
+        "POST /record/start": () => new Response(recordings.start()),
+        "POST /record/stop": async () => {
+          const path = await recordings.stop();
+          return path
+            ? new Response(path)
+            : new Response("no recording is running", { status: 409 });
+        },
+        "GET /record": () => new Response(recordings.active ?? ""),
+      },
     ));
 
   // Learns dictionary words from the user's own fixes to a dictation. Off with
@@ -452,6 +471,7 @@ export async function startSession(options: SessionOptions): Promise<Session> {
         onSamples: (s) => {
           if (!heardSound && peak(s) > 0) heardSound = true;
           controller.onSamples(s);
+          recordings.push(s);
         },
       });
       return capture;
@@ -497,6 +517,7 @@ export async function startSession(options: SessionOptions): Promise<Session> {
         clearTimeout(settling);
         corrections.stop();
         await hotkey?.stop();
+        await recordings.stop("mockingbird is stopping");
         await supervisor.stop();
         await engines.close();
         dictionaryEdits?.stop();

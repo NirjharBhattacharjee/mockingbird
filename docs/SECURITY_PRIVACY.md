@@ -81,6 +81,7 @@ until it's explicitly closed.
 | User dictionary (names, jargon, codenames) | Medium–High — can include proper nouns like client/project names | `dictionary` table | Yes |
 | Correction history (word pairs from fixes you made to a dictation, e.g. "near jar" → "Nirjhar") | Medium — names and jargon, never the text around them | `correction` table | Yes, until `mockingbird dictionary forget` |
 | Settings (hotkey binding, model choice) | Low | `settings` table | Yes |
+| Recordings you start (`mockingbird record`) | High — whole conversations, and other people's voices | `~/.mockingbird/recordings/*.m4a` (folder `0700`) | **Yes**, until you delete them |
 | ASR/LLM model weights | None (public model files) | `~/.mockingbird/models/` | Yes, on disk |
 | Logs | Variable — see [§8](#8-known-privacy-issues--open-unresolved) | `~/.mockingbird/logs/` | Yes, rotated |
 
@@ -295,11 +296,22 @@ time. Both are tracked in [§9](#9-hardening-roadmap).
   training set). This is the one piece of the inventory in
   [§2](#2-data-inventory--what-mockingbird-actually-touches) that defaults
   to *not* persisting.
+- **Recordings are the one audio mockingbird keeps on purpose.**
+  `mockingbird record` starts one and `mockingbird record stop` ends it
+  (#89). It's the microphone stream dictation already reads, encoded to
+  `~/.mockingbird/recordings/<date>-<time>.m4a` in a `0700` folder, and kept
+  until you delete it: nothing expires or uploads it. A recording can't start
+  silently: its start and stop sounds play even with `MOCKINGBIRD_CUES=0`, a
+  reminder plays every 30 minutes, macOS shows its orange microphone dot, and
+  `mockingbird status` says `● recording`. It stops by itself after 3 hours
+  (`MOCKINGBIRD_RECORD_MAX_HOURS`). Recording people without their consent is
+  illegal in many places; the command says so when it starts.
 - **Uninstalling deletes it.** `mockingbird uninstall` removes
   `~/.mockingbird`, `data.db` included, after one question. The dictionary
   gets its own: the default keeps a copy of the words, as plain text in
   `~/mockingbird-dictionary.txt`, and only the words. Nothing else from
-  `data.db` is copied out.
+  `data.db` is copied out. Recordings get their own question too, and the
+  default moves them to `~/mockingbird-recordings`.
 - **The Unix socket is `0600`**, not a TCP port — only your own user account
   can connect to it, and it's deleted on clean daemon shutdown.
 - **Diagnostics export** (`mockingbird diagnostics export`, still

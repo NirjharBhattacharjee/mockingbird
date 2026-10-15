@@ -104,8 +104,11 @@ export function recordUses(store: Store, dictionary: DictionaryEntry[], text: st
  * Sends one request to the daemon over its socket in `home`, for commands
  * that change data.db. Rejects if no mockingbird is listening.
  */
-export const tellDaemon = (path: string, body: string, home = mockingbirdHome()) =>
+export const tellDaemon = (path: string, body?: string, home = mockingbirdHome()) =>
   ask(join(home, SOCKET), path, body);
+
+/** More of the daemon's socket, keyed "POST /record/start"; each gets the request body. */
+export type Routes = Record<string, (body: string) => Response | Promise<Response>>;
 
 /** Sends one request to the daemon's socket. Rejects if nothing is listening. */
 const ask = (socket: string, path: string, body?: string) =>
@@ -126,6 +129,7 @@ export async function serveDictionary(
   changed: (dictionary: DictionaryEntry[]) => void,
   log: (m: string) => void,
   home = mockingbirdHome(),
+  routes: Routes = {},
 ): Promise<{ stop(): void } | undefined> {
   const socket = join(home, SOCKET);
   if (
@@ -148,6 +152,8 @@ export async function serveDictionary(
       async fetch(request) {
         const { pathname } = new URL(request.url);
         if (request.method === "GET" && pathname === "/") return new Response("mockingbird");
+        const route = routes[`${request.method} ${pathname}`];
+        if (route) return route(await request.text());
         if (request.method !== "POST") return new Response("not found", { status: 404 });
         const body = await request.text();
         let reply: string;
