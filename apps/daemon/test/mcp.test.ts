@@ -13,6 +13,12 @@ const echo = {
 const call = (id: number, method: string, params?: object) =>
   handle({ jsonrpc: "2.0", id, method, ...(params && { params }) }, [echo]);
 
+test("offers its newest protocol version when the client's isn't one it speaks", async () => {
+  expect(await call(9, "initialize", { protocolVersion: "1999-01-01" })).toMatchObject({
+    result: { protocolVersion: "2025-06-18" },
+  });
+});
+
 test("answers initialize with the client's protocol version and a tools capability", async () => {
   expect(await call(1, "initialize", { protocolVersion: "2025-03-26" })).toEqual({
     jsonrpc: "2.0",

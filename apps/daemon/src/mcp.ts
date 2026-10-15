@@ -29,6 +29,9 @@ type Message = {
   params?: { protocolVersion?: string; name?: string; arguments?: Record<string, unknown> };
 };
 
+/** The MCP versions this server speaks, newest first. It uses nothing newer than tools. */
+const VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
+
 /** One JSON-RPC message in, its reply out; undefined for a notification. */
 export async function handle(message: Message, tools: Tool[]): Promise<object | undefined> {
   const { id, method, params } = message;
@@ -37,7 +40,9 @@ export async function handle(message: Message, tools: Tool[]): Promise<object | 
   switch (method) {
     case "initialize":
       return reply({
-        protocolVersion: params?.protocolVersion ?? "2025-06-18",
+        // The client's version if it's one this speaks, else the newest; the
+        // client then decides whether it can go on (MCP lifecycle).
+        protocolVersion: VERSIONS.find((v) => v === params?.protocolVersion) ?? VERSIONS[0],
         capabilities: { tools: {} },
         serverInfo: { name: "mockingbird", version: "1" },
       });
@@ -67,6 +72,9 @@ export async function handle(message: Message, tools: Tool[]): Promise<object | 
  * Groups VAD's speech segments into chunks of at most `maxSamples`, so a long
  * recording goes to Whisper a piece at a time: each piece keeps its place in
  * the file for timestamps, and long silences never reach Whisper at all.
+ * A single segment longer than that stays whole rather than being cut, which
+ * would split a word: Whisper reads long input in 30-second windows itself,
+ * and timedLines takes the timestamps from its word times.
  */
 export function chunks(segments: SpeechSegment[], maxSamples: number): SpeechSegment[] {
   const out: SpeechSegment[] = [];
@@ -114,7 +122,13 @@ const clock = (ms: number) => {
  */
 async function transcribe(path: string, log: (m: string) => void): Promise<string> {
   const audio: PcmAudio = await loadAudio(requireFile(path, "File"));
-  const dictionary = readDictionary();
+  let dictionary: ReturnType<typeof readDictionary> = [];
+  try {
+    dictionary = readDictionary();
+  } catch (error) {
+    // Names come out as heard; the transcript is still worth having.
+    log(`warning: couldn't read the dictionary from data.db: ${error}`);
+  }
   // A whisper-server of its own, so the agent's stays free for dictation.
   process.env.MOCKINGBIRD_ASR_PORT ??= String(freePort());
   const engines = await startEngines(log, dictionary);
@@ -245,14 +259,30 @@ export async function serve(tools: Tool[]): Promise<number> {
       );
       return;
     }
+    if (typeof message !== "object" || message === null || Array.isArray(message)) {
+      process.stdout.write(
+        `${JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "not a JSON-RPC message" } })}\n`,
+      );
+      return;
+    }
     const reply = await handle(message, tools);
     if (reply) process.stdout.write(`${JSON.stringify(reply)}\n`);
+  };
+  // Each request is answered when it's done, so a status call isn't stuck
+  // behind a long transcribe. Replies carry their id, so order doesn't matter.
+  // ponytail: notifications/cancelled is ignored; a cancelled call still runs and replies.
+  const inFlight = new Set<Promise<void>>();
+  const start = (line: string) => {
+    const p = answer(line).finally(() => inFlight.delete(p));
+    inFlight.add(p);
   };
   for await (const chunk of Bun.stdin.stream()) {
     const lines = (pending + decoder.decode(chunk, { stream: true })).split("\n");
     pending = lines.pop() ?? "";
-    for (const line of lines.filter((l) => l.trim())) await answer(line);
+    for (const line of lines.filter((l) => l.trim())) start(line);
   }
-  if (pending.trim()) await answer(pending);
+  if (pending.trim()) start(pending);
+  // The client closed stdin: finish what it asked for before exiting.
+  await Promise.all(inFlight);
   return 0;
 }

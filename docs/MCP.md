@@ -32,8 +32,10 @@ Any other client takes the same command. In a JSON config (Claude Desktop's
 { "mcpServers": { "mockingbird": { "command": "mockingbird", "args": ["mcp"] } } }
 ```
 
-If the client can't find `mockingbird`, use the full path: `~/.local/bin/mockingbird`
-after the curl install, or `$(brew --prefix)/bin/mockingbird` with Homebrew.
+If the client can't find `mockingbird`, give the full path. A JSON config
+won't expand `~` or `$(...)`, so write it out: `/Users/<you>/.local/bin/mockingbird`
+after the curl install, or `/opt/homebrew/bin/mockingbird` with Homebrew.
+`command -v mockingbird` prints it.
 
 ## Tools
 
