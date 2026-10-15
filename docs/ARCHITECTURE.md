@@ -848,12 +848,22 @@ actual decision before or during v1, not an assumption:
 
   Measured in a spike: with the Mac's output muted, the recording still
   held the speech at a mean of −17.7 dB, and transcribed word for word. The
-  tap and the device go away when the process that made them exits. Still
-  open, for #89: whether the agent, running from `mockingbird.app`, gets a
-  "System Audio Recording" prompt (the terminal in the spike got none) and
-  so needs `NSAudioCaptureUsageDescription` in its `Info.plist`. Before
-  macOS 14.2 the fallback is a BlackHole loopback device plus a Multi-Output
-  Device, set up by the user, which ffmpeg records as it is.
+  tap and the device go away when the process that made them exits.
+
+  Permission: Apple requires `NSAudioCaptureUsageDescription` in the
+  `Info.plist` of an app that captures system audio, so `mockingbird.app`
+  gets one when #89 ships. Still open for #89: which process macOS asks
+  about, the agent or its ffmpeg child, and what the "System Audio
+  Recording" prompt looks like. The terminal in the spike got no prompt.
+
+  Before macOS 14.2 there are no process taps. The fallback, set up by the
+  user:
+  1. `brew install blackhole-2ch`, which installs the BlackHole 2ch device.
+  2. In Audio MIDI Setup, **+** → Create Multi-Output Device, with the
+     speakers (or headphones) and BlackHole 2ch both ticked.
+  3. In System Settings → Sound → Output, pick that Multi-Output Device.
+
+  ffmpeg then records BlackHole 2ch with avfoundation, as it is.
 - **End-to-end latency target.** Each stage is timed (`vadMs`, `asrMs`,
   `llmMs`) and the changelog above records what those numbers were at each
   change, but nothing sets how long the whole release-to-typed-text path
