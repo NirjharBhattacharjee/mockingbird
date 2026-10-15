@@ -59,6 +59,7 @@ it is not a design doc that gets abandoned once code exists.
 | 2026-10-13 | A first install ends in `mockingbird setup` (#54): when the Go command is in place and the install's output is a terminal, `install.sh` runs it with the keyboard read from `/dev/tty`, since under `curl \| bash` stdin is the script. Updates, output to a file and installs without the Go command keep the printed ending. `fn` and `fn --undo` now say "log out of your Mac (Apple menu → Log Out)" and that `mockingbird restart` isn't enough: a tester read "restart" as the command. |
 | 2026-10-14 | When recording starts in a browser, the session does one accessibility read of the caret and ignores the result (#32). The first such read switches Chrome's accessibility on, and Google Docs rebuilds its editor in response; in a fresh Doc, a dictation typed right after that first read was lost entirely. Doing it while the user speaks lets the editor settle before typing. `packages/context` gained `isBrowser`, a list of bundle IDs. This replaces a change typing one character per key event in browsers, which was reverted: Docs in Chrome takes 20-character events in full. |
 | 2026-10-14 | An interrupted model download continues where it stopped (#30): `models pull` keeps the `.part` file and asks for the rest with an HTTP `Range` request, and starts over if the server sends the whole file instead. Both hosts honour it (GitHub for the VAD model, Hugging Face for Whisper). The sha256 check is unchanged, so a damaged part is still thrown away. A first install also checks for about 5 GB free before downloading anything, and says it takes about 10 minutes. |
+| 2026-10-16 | Decided how to capture system audio, the other side of a call (#90): a Core Audio process tap, reached from `bun:ffi` and `objc_msgSend` with no Swift or Objective-C of ours. A spike built the tap and an aggregate device around it and recorded it with ffmpeg like a microphone, on macOS 26. Nothing ships yet; #89 builds it. Details in [§16](#16-known-gaps--scope-not-yet-decided). |
 
 ---
 
@@ -833,6 +834,26 @@ actual decision before or during v1, not an assumption:
   `--device <n|name>` override it per run. Not yet decided: persisting the
   choice in `settings`, and following the system default when it changes
   while mockingbird is running (today that needs a restart).
+- **System audio (#90).** Decided, not built. A call's other voices come
+  through system audio, which ffmpeg can't capture. A Core Audio process tap
+  can (macOS 14.2+), and needs no driver:
+  1. `[[CATapDescription alloc] initStereoGlobalTapButExcludeProcesses:@[]]`
+     through `objc_msgSend`, left public and unmuted, then
+     `AudioHardwareCreateProcessTap`.
+  2. `AudioHardwareCreateAggregateDevice` with the tap in `taps`,
+     `tapautostart`, and the default output device as `master` and only
+     sub-device. Without that clock the tap records silence.
+  3. ffmpeg records the aggregate device with avfoundation, like a
+     microphone, so the capture code stays as it is.
+
+  Measured in a spike: with the Mac's output muted, the recording still
+  held the speech at a mean of −17.7 dB, and transcribed word for word. The
+  tap and the device go away when the process that made them exits. Still
+  open, for #89: whether the agent, running from `mockingbird.app`, gets a
+  "System Audio Recording" prompt (the terminal in the spike got none) and
+  so needs `NSAudioCaptureUsageDescription` in its `Info.plist`. Before
+  macOS 14.2 the fallback is a BlackHole loopback device plus a Multi-Output
+  Device, set up by the user, which ffmpeg records as it is.
 - **End-to-end latency target.** Each stage is timed (`vadMs`, `asrMs`,
   `llmMs`) and the changelog above records what those numbers were at each
   change, but nothing sets how long the whole release-to-typed-text path
