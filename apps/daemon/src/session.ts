@@ -434,12 +434,19 @@ export async function startSession(options: SessionOptions): Promise<Session> {
     );
   };
 
-  /** Fn+R. Only the socket's owner records, so a `listen` beside the agent doesn't start a second. */
+  /**
+   * Fn+R. Presses queue, so one made while a recording is still starting
+   * stops it once it has. Only the socket's owner records, so a `listen`
+   * beside the agent doesn't start a second.
+   */
+  let toggling: Promise<unknown> = Promise.resolve();
   const toggleRecording = () => {
     if (!dictionaryEdits) return notify("Fn+R: recordings belong to the mockingbird agent");
-    void (recordings.active ? recordings.stop("Fn+R") : recordings.start()).catch((error) =>
-      notify(`recording failed: ${error instanceof Error ? error.message : String(error)}`),
-    );
+    toggling = toggling
+      .then(() => (recordings.active ? recordings.stop("Fn+R") : recordings.start()))
+      .catch((error) =>
+        notify(`recording failed: ${error instanceof Error ? error.message : String(error)}`),
+      );
   };
 
   let hotkey: HotkeyListener | undefined;

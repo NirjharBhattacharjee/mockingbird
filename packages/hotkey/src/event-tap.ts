@@ -14,6 +14,7 @@ const kCGEventTapOptionDefault = 0;
 const kCGEventTapOptionListenOnly = 1;
 /** Sent instead of an event when macOS switches the tap off (it was slow, or by user input). */
 const kCGEventTapDisabledByTimeout = 0xfffffffe;
+const kCGKeyboardEventAutorepeat = 8;
 const kCGKeyboardEventKeycode = 9;
 const kCGEventSourceUserData = 42;
 const kCGEventFlagMaskSecondaryFn = 0x800000;
@@ -67,8 +68,8 @@ export const EVENT_TYPE_LEFT_MOUSE_DOWN = EVENT_LEFT_MOUSE_DOWN;
  */
 export class TapDecoder {
   private fnDown = false;
-  /** R went down while Fn was held and hasn't come up yet. */
-  private rHeld = false;
+  /** The R being held went down with Fn held: its repeats and release are Fn+R's too. */
+  private rChord = false;
   /** Set by decode(): the event is Fn+R's R, which the focused app shouldn't get. */
   hide = false;
 
@@ -78,6 +79,7 @@ export class TapDecoder {
     flags: number,
     at: number,
     userData = 0,
+    autorepeat = false,
   ): TapEvent | undefined {
     this.hide = false;
     if (MOUSE_DOWN.has(type)) return { type: "input", source: "click", at };
@@ -90,17 +92,18 @@ export class TapDecoder {
       return { type: down ? "fn-down" : "fn-up", at };
     }
     if (type === EVENT_KEY_DOWN || type === EVENT_KEY_UP) {
-      if (keycode === KEYCODE_R && userData !== TYPED_EVENT_MARK && (this.fnDown || this.rHeld)) {
-        // Fn+R: the press, its repeats and its release are all hidden (even if
-        // Fn comes up first), and only the first press is reported.
-        this.hide = true;
-        if (type === EVENT_KEY_UP) {
-          this.rHeld = false;
-          return undefined;
+      if (keycode === KEYCODE_R && userData !== TYPED_EVENT_MARK) {
+        // Whether it's Fn+R is settled by the press itself, not its repeats: an
+        // R held before Fn goes down stays an ordinary key.
+        const press = type === EVENT_KEY_DOWN && !autorepeat;
+        if (press) this.rChord = this.fnDown;
+        if (this.rChord) {
+          // The press, its repeats and its release are all hidden (even if Fn
+          // comes up first), and only the press is reported.
+          this.hide = true;
+          if (type === EVENT_KEY_UP) this.rChord = false;
+          return press ? { type: "key-down", keycode, at } : undefined;
         }
-        if (this.rHeld) return undefined;
-        this.rHeld = true;
-        return { type: "key-down", keycode, at };
       }
       if (keycode === KEYCODE_ESCAPE) {
         return { type: type === EVENT_KEY_DOWN ? "key-down" : "key-up", keycode, at };
@@ -200,7 +203,11 @@ export function createEventTap(onEvent: (event: TapEvent) => void): EventTap {
       const userData = Number(
         cg.symbols.CGEventGetIntegerValueField(event as never, kCGEventSourceUserData),
       );
-      const decoded = decoder.decode(type, keycode, flags, Date.now(), userData);
+      const autorepeat =
+        Number(
+          cg.symbols.CGEventGetIntegerValueField(event as never, kCGKeyboardEventAutorepeat),
+        ) !== 0;
+      const decoded = decoder.decode(type, keycode, flags, Date.now(), userData, autorepeat);
       if (decoded) onEvent(decoded);
       return decoder.hide ? null : event;
     },

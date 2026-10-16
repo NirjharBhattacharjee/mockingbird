@@ -258,6 +258,10 @@ stateDiagram-v2
 
 Fn+R starts or stops a recording (`mockingbird record`), whatever the press
 had begun: a dictation it started is discarded, and releasing Fn does nothing.
+A hands-free dictation already running is different: the Fn press stops it as
+usual, before R arrives, so its words are typed rather than lost. An R held
+from before Fn went down stays an ordinary key; whether it's Fn+R is settled by
+R's first press, not its repeats.
 `TAP_WAIT`'s 300ms window is what distinguishes a double-tap (lock mode) from
 two rapid push-to-talks. This FSM lives entirely on the daemon's main thread
 and is the single source of truth for what mockingbird is currently doing —
