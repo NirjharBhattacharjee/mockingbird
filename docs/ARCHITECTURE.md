@@ -62,6 +62,7 @@ it is not a design doc that gets abandoned once code exists.
 | 2026-10-16 | Decided how to capture system audio, the other side of a call (#90): a Core Audio process tap, reached from `bun:ffi` and `objc_msgSend` with no Swift or Objective-C of ours. A spike built the tap and an aggregate device around it and recorded it with ffmpeg like a microphone, on macOS 26. Nothing ships yet; #89 builds it. Details in [§16](#16-known-gaps--scope-not-yet-decided). |
 | 2026-10-16 | `mockingbird mcp` (#88): an MCP server over stdin/stdout, hand-rolled (`initialize`, `ping`, `tools/list`, `tools/call`) rather than the SDK, which would be a dependency for about 60 lines of JSON-RPC. Its tools are `transcribe`, `frames`, `status`, `dictionary_list` and `dictionary_add`. `transcribe` splits a file at the VAD's speech segments into pieces of up to 30 seconds, sends each to Whisper, and timestamps lines from Whisper's word times (a new line at a sentence end after 20 s, always by 60 s). It skips the cleanup model, since the client's is stronger on a whole meeting. One-off runs (`transcribe`, `mcp`) now start their own whisper-server on a free port: on 8771 they had quietly shared the agent's, so a long file would have held up dictation. A 27-minute file took 262 s on an M3. |
 | 2026-10-16 | Recordings (#89, the command half). `mockingbird record` and `record stop` ask the agent over its socket (`POST /record/start`, `/record/stop`, `GET /record`), since the agent owns the microphone. The agent copies the capture stream dictation already reads into an ffmpeg encoder (`startEncoder` in `packages/audio`), so dictating during a recording opens nothing new and cuts no gap. Files are fragmented MP4, flushed every packet: one cut off by a crash still plays, and the next start renames its `.part` file into place. A recording stops on `record stop`, after 3 hours, when ffmpeg exits, or when the agent stops. The Fn+R hotkey from the issue isn't built: the tap is listen-only, so Fn+R also types an "R" into the focused app. A key that types nothing comes later. |
+| 2026-10-16 | A recording has both sides of a call (#94). `mockingbird record` starts a system-audio tap in a child process (`startSystemAudio` in `packages/audio`) and the encoder mixes its device into the microphone with `amix`. A crash in the tap loses system audio, not dictation; a tap that won't start leaves the recording microphone only. `mockingbird.app` gains `NSAudioCaptureUsageDescription`, without which the tap records silence; adding it rebuilds the bundle, so an upgrade re-asks for the three permissions once. Details in [§16](#16-known-gaps--scope-not-yet-decided). |
 
 ---
 
@@ -841,9 +842,12 @@ actual decision before or during v1, not an assumption:
   `--device <n|name>` override it per run. Not yet decided: persisting the
   choice in `settings`, and following the system default when it changes
   while mockingbird is running (today that needs a restart).
-- **System audio (#90).** Decided, not built. A call's other voices come
+- **System audio (#90, built in #94).** A call's other voices come
   through system audio, which ffmpeg can't capture. A Core Audio process tap
-  can (macOS 14.2+), and needs no driver:
+  can (macOS 14.2+), and needs no driver. `packages/audio/src/system-tap.ts`
+  does this in a child process of its own, since a wrong Objective-C call
+  crashes the process that makes it, and `mockingbird record` mixes the
+  device into the microphone with ffmpeg's `amix`:
   1. `[[CATapDescription alloc] initStereoGlobalTapButExcludeProcesses:@[]]`
      through `objc_msgSend`, left public and unmuted, then
      `AudioHardwareCreateProcessTap`.
@@ -857,11 +861,14 @@ actual decision before or during v1, not an assumption:
   held the speech at a mean of −17.7 dB, and transcribed word for word. The
   tap and the device go away when the process that made them exits.
 
-  Permission: Apple requires `NSAudioCaptureUsageDescription` in the
-  `Info.plist` of an app that captures system audio, so `mockingbird.app`
-  gets one when #89 ships. Still open for #89: which process macOS asks
-  about, the agent or its ffmpeg child, and what the "System Audio
-  Recording" prompt looks like. The terminal in the spike got no prompt.
+  Permission, measured running as `mockingbird.app` (#94): without
+  `NSAudioCaptureUsageDescription` in its `Info.plist`, the tap hands over
+  silence and nothing asks. With it, reading the device is microphone
+  access, so the existing Microphone grant covers it, and no separate
+  "System Audio Recording" prompt appeared on macOS 26. Adding the key
+  rebuilds the bundle, so an upgrade asks for all three permissions once.
+  If the tap can't start (older macOS, a Core Audio error), the recording
+  carries on with the microphone only, and the agent's log says why.
 
   Before macOS 14.2 there are no process taps. The fallback, set up by the
   user:

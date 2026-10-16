@@ -136,7 +136,7 @@ about what each one actually means:
 
 | Permission | Why it's needed | What it *also* grants |
 |---|---|---|
-| **Microphone** | Capture audio for dictation | Nothing beyond mic access — the narrowest of the three |
+| **Microphone** | Capture audio for dictation, and system audio in `mockingbird record` (#94): reading the system-audio tap's device counts as microphone access, given `NSAudioCaptureUsageDescription` in `mockingbird.app` | During a recording, everything the Mac plays, other people's voices on a call included. Dictation alone never opens the tap |
 | **Accessibility** | Type dictated text into the focused app (`CGEventPost`), and read the one character before the cursor there, to decide on a space | Broad UI automation: the ability to synthesize any input into any app |
 | **Input Monitoring** | Global hotkey detection (CoreGraphics event tap via `bun:ffi`) | **System-wide keystroke observation** — the same class of access a keylogger needs |
 | macOS grants storage (which apps hold which TCC grants) | — | Lives in Apple's TCC database, **not** ours — see [state ownership map, ARCHITECTURE.md §8](./ARCHITECTURE.md#8-state-ownership-map) |
@@ -298,7 +298,9 @@ time. Both are tracked in [§9](#9-hardening-roadmap).
   to *not* persisting.
 - **Recordings are the one audio mockingbird keeps on purpose.**
   `mockingbird record` starts one and `mockingbird record stop` ends it
-  (#89). It's the microphone stream dictation already reads, encoded to
+  (#89). It's the microphone stream dictation already reads, mixed with
+  everything the Mac plays (#94): on a call, that's the other people's
+  voices too. It's encoded to
   `~/.mockingbird/recordings/<date>-<time>.m4a` in a `0700` folder, and kept
   until you delete it: nothing expires or uploads it. A recording can't start
   silently: its start and stop sounds play even with `MOCKINGBIRD_CUES=0`, a

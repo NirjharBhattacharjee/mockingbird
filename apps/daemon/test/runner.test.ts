@@ -36,6 +36,8 @@ describe("ensureRunner", () => {
     expect(info).toContain("<string>com.mockingbird.agent</string>");
     expect(info).toContain("<key>CFBundleIconFile</key>");
     expect(info).toContain("<key>NSMicrophoneUsageDescription</key>");
+    // Without it, system audio in `mockingbird record` is silence (#94).
+    expect(info).toContain("<key>NSAudioCaptureUsageDescription</key>");
     expect(existsSync(join(app, "Contents", "Resources", "AppIcon.icns"))).toBe(true);
   });
 

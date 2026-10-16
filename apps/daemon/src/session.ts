@@ -189,7 +189,7 @@ export async function startSession(options: SessionOptions): Promise<Session> {
       options.log,
       mockingbirdHome(),
       {
-        "POST /record/start": () => new Response(recordings.start()),
+        "POST /record/start": async () => new Response(await recordings.start()),
         "POST /record/stop": async () => {
           const path = await recordings.stop();
           return path

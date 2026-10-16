@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
-import { type Encoder, startEncoder } from "@mockingbird/audio";
+import { type Encoder, type SystemAudio, startEncoder, startSystemAudio } from "@mockingbird/audio";
 import type { Cue } from "@mockingbird/cue";
 import { tellDaemon } from "./dictionary.ts";
 
@@ -24,16 +24,24 @@ export function maxRecordingMs(env = process.env): number {
 }
 
 /**
- * Microphone recordings kept on purpose, in `<home>/recordings` (0700): one at
- * a time, fed the same samples dictation reads, so dictating during one cuts
- * no gap. Each stops when asked, after `maxMs`, when ffmpeg exits (the disk
- * filled, say), or when mockingbird stops. A crash leaves a `.part` file that
- * still plays; the next start finishes it.
+ * Recordings kept on purpose, in `<home>/recordings` (0700): one at a time,
+ * the microphone fed the same samples dictation reads, so dictating during one
+ * cuts no gap, mixed with system audio when the tap works (#94). Each stops
+ * when asked, after `maxMs`, when ffmpeg exits (the disk filled, say), or when
+ * mockingbird stops. A crash leaves a `.part` file that still plays; the next
+ * start finishes it.
  */
-type Running = { path: string; encoder: Encoder; timer: Timer; reminder: Timer };
+type Running = {
+  path: string;
+  encoder: Encoder;
+  system?: SystemAudio;
+  timer: Timer;
+  reminder: Timer;
+};
 
 export class Recordings {
   private current: Running | undefined;
+  private starting: Promise<string> | undefined;
   private saving: Promise<string | undefined> | undefined;
   readonly dir: string;
 
@@ -43,7 +51,9 @@ export class Recordings {
       log: (message: string) => void;
       cue: Cue;
       maxMs?: number;
-      encode?: (path: string) => Encoder;
+      encode?: (path: string, systemDevice?: string) => Encoder;
+      /** The other side of a call; undefined records the microphone only. */
+      systemAudio?: () => Promise<SystemAudio | undefined>;
       now?: () => Date;
     },
   ) {
@@ -55,9 +65,17 @@ export class Recordings {
     return this.current?.path;
   }
 
-  /** Starts a recording, or returns the one already running. */
-  start(): string {
-    if (this.current) return this.current.path;
+  /** Starts a recording, or returns the one already running or starting. */
+  start(): Promise<string> {
+    if (this.current) return Promise.resolve(this.current.path);
+    this.starting ??= this.begin().finally(() => {
+      this.starting = undefined;
+    });
+    return this.starting;
+  }
+
+  private async begin(): Promise<string> {
+    const system = await (this.options.systemAudio ?? (() => startSystemAudio(this.options.log)))();
     mkdirSync(this.dir, { recursive: true, mode: 0o700 });
     const name = recordingName((this.options.now ?? (() => new Date()))());
     let path = join(this.dir, name);
@@ -65,19 +83,21 @@ export class Recordings {
     for (let n = 2; existsSync(path) || existsSync(path + PART); n++) {
       path = join(this.dir, name.replace(/\.m4a$/, `-${n}.m4a`));
     }
-    const encoder = (this.options.encode ?? ((p) => startEncoder({ path: p })))(path + PART);
+    const encode =
+      this.options.encode ?? ((p, systemDevice) => startEncoder({ path: p, systemDevice }));
+    const encoder = encode(path + PART, system?.device);
     const maxMs = this.options.maxMs ?? maxRecordingMs();
     const timer = setTimeout(
       () => void this.stop(`it reached the ${maxMs / HOUR}-hour limit`),
       maxMs,
     );
     const reminder = setInterval(() => this.options.cue("record-start"), REMINDER_MS);
-    this.current = { path, encoder, timer, reminder };
+    this.current = { path, encoder, system, timer, reminder };
     void encoder.exited.then((code) => {
       if (this.current?.encoder === encoder) void this.stop(`ffmpeg exited with ${code}`);
     });
     this.options.cue("record-start");
-    this.options.log(`recording to ${path}`);
+    this.options.log(`recording to ${path}${system ? ", with system audio" : ""}`);
     return path;
   }
 
@@ -91,6 +111,9 @@ export class Recordings {
    * the user stops, say) gets that save's file too.
    */
   stop(why?: string): Promise<string | undefined> {
+    // Mid-start (waiting for the tap): let it finish, then stop that one, or a
+    // shutdown would leave a recording running with nothing to stop it.
+    if (this.starting) return this.starting.then(() => this.stop(why));
     const current = this.current;
     if (!current) return this.saving ?? Promise.resolve(undefined);
     this.current = undefined;
@@ -105,6 +128,7 @@ export class Recordings {
 
   private async save(current: Running, why?: string): Promise<string | undefined> {
     const code = await current.encoder.finish();
+    await current.system?.close();
     this.options.cue("record-stop");
     try {
       renameSync(current.path + PART, current.path);
@@ -137,7 +161,7 @@ export async function recordCommand(args: string[], home?: string): Promise<numb
   const [command = "start"] = args;
   if (command !== "start" && command !== "stop") {
     console.error(
-      "Usage: mockingbird record        start recording the microphone\n" +
+      "Usage: mockingbird record        start recording the microphone and system audio\n" +
         "       mockingbird record stop   stop, and print where the file is",
     );
     return command === "-h" || command === "--help" ? 0 : 2;
