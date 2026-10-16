@@ -1,6 +1,5 @@
 import {
   closeSync,
-  constants,
   copyFileSync,
   mkdtempSync,
   openSync,
@@ -360,15 +359,30 @@ function claim(file: string): boolean {
   }
 }
 
+/** The .srt that goes beside a video when ffmpeg can't draw the captions on. */
+const srtFor = (video: string) => join(dirname(video), `${basename(video, extname(video))}.srt`);
+
+/** Claims `video`, and its .srt too if `sidecar`; claims neither if either is taken. */
+function claimAll(video: string, sidecar: boolean): boolean {
+  if (!claim(video)) return false;
+  if (!sidecar || claim(srtFor(video))) return true;
+  rmSync(video);
+  return false;
+}
+
 /** `out`, or `<name>-short-N.mp4` next to the source with the first N that's free; claimed. */
-function outputFor(path: string, out?: string): string {
+function outputFor(path: string, out: string | undefined, sidecar: boolean): string {
   if (out) {
-    if (!claim(out)) throw new Error(`${out} already exists; give another \`out\`.`);
+    if (!claimAll(out, sidecar)) {
+      throw new Error(
+        `${out}${sidecar ? " or its .srt" : ""} already exists; give another \`out\`.`,
+      );
+    }
     return out;
   }
   const base = join(dirname(path), basename(path, extname(path)));
   for (let n = 1; ; n++) {
-    if (claim(`${base}-short-${n}.mp4`)) return `${base}-short-${n}.mp4`;
+    if (claimAll(`${base}-short-${n}.mp4`, sidecar)) return `${base}-short-${n}.mp4`;
   }
 }
 
@@ -396,14 +410,15 @@ async function render(
   const over = clips.find((c) => source.seconds && c.to > source.seconds);
   if (over)
     throw new Error(`A clip ends at ${over.to}s, after the end of ${path} (${source.seconds}s).`);
-  const target = outputFor(path, out);
+  const text = captions?.trim();
+  const burn = !!text && (await canBurn());
+  const target = outputFor(path, out, !!text && !burn);
 
   const dir = mkdtempSync(join(tmpdir(), "mockingbird-render-"));
   let made = false;
   try {
-    const srt = captions?.trim() ? join(dir, CAPTIONS) : undefined;
-    if (srt) writeFileSync(srt, `${captions?.trim()}\n`);
-    const burn = !!srt && (await canBurn());
+    const srt = text ? join(dir, CAPTIONS) : undefined;
+    if (srt) writeFileSync(srt, `${text}\n`);
     const graph = renderGraph(clips, { audio: source.audio, vertical, burn });
     const proc = Bun.spawn(
       [
@@ -427,17 +442,15 @@ async function render(
     const length = fineClock((await probe(target)).seconds * 1000);
     if (!srt) return `${target} (${length})`;
     if (burn) return `${target} (${length}), captions drawn on the picture`;
-    const note = `This ffmpeg can't draw them onto the picture (it has no libass); an editor such as CapCut can burn in an .srt.`;
-    const sidecar = join(dirname(target), `${basename(target, extname(target))}.srt`);
-    try {
-      copyFileSync(srt, sidecar, constants.COPYFILE_EXCL);
-    } catch {
-      return `${target} (${length}), captions as a subtitle track only: ${sidecar} already exists. ${note}`;
-    }
-    return `${target} (${length}), captions as a subtitle track and in ${sidecar}. ${note}`;
+    // Over the empty file outputFor claimed.
+    copyFileSync(srt, srtFor(target));
+    return `${target} (${length}), captions as a subtitle track and in ${srtFor(target)}. This ffmpeg can't draw them onto the picture (it has no libass); an editor such as CapCut can burn in the .srt.`;
   } finally {
-    // The claimed name stays only if ffmpeg made the video.
-    if (!made) rmSync(target, { force: true });
+    // The claimed names stay only if ffmpeg made the video.
+    if (!made) {
+      rmSync(target, { force: true });
+      if (text && !burn) rmSync(srtFor(target), { force: true });
+    }
     rmSync(dir, { recursive: true, force: true });
   }
 }
