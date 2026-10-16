@@ -273,7 +273,11 @@ export async function serve(tools: Tool[]): Promise<number> {
   // ponytail: notifications/cancelled is ignored; a cancelled call still runs and replies.
   const inFlight = new Set<Promise<void>>();
   const start = (line: string) => {
-    const p = answer(line).finally(() => inFlight.delete(p));
+    // A reply that can't be written (the client closed the pipe) ends that
+    // reply, not the session. stderr is the client's log, never the protocol.
+    const p = answer(line)
+      .catch((error) => console.error(`mcp: couldn't answer: ${error}`))
+      .finally(() => inFlight.delete(p));
     inFlight.add(p);
   };
   for await (const chunk of Bun.stdin.stream()) {
