@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { type Encoder, type SystemAudio, startEncoder, startSystemAudio } from "@mockingbird/audio";
 import type { Cue } from "@mockingbird/cue";
@@ -77,6 +77,8 @@ export class Recordings {
   private async begin(): Promise<string> {
     const system = await (this.options.systemAudio ?? (() => startSystemAudio(this.options.log)))();
     mkdirSync(this.dir, { recursive: true, mode: 0o700 });
+    // mkdir leaves a folder that already exists as it was, open or not.
+    chmodSync(this.dir, 0o700);
     const name = recordingName((this.options.now ?? (() => new Date()))());
     let path = join(this.dir, name);
     // Two in the same minute: 2026-10-15-1430-2.m4a.
