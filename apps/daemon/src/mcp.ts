@@ -1,6 +1,14 @@
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import {
+  closeSync,
+  copyFileSync,
+  mkdtempSync,
+  openSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import { type AsrWord, stripNonSpeech } from "@mockingbird/asr";
 import { loadAudio, type PcmAudio } from "@mockingbird/audio";
 import { correctNames } from "@mockingbird/llm";
@@ -22,6 +30,17 @@ type Tool = {
   run: (args: Record<string, unknown>) => Promise<string>;
 };
 
+/**
+ * A ready-made request the user can pick in their client, which tells the
+ * client's model how to use the tools for one job.
+ */
+type Prompt = {
+  name: string;
+  description: string;
+  arguments: { name: string; description: string; required: boolean }[];
+  text: (args: Record<string, unknown>) => string;
+};
+
 type Message = {
   jsonrpc: "2.0";
   id?: number | string;
@@ -29,11 +48,15 @@ type Message = {
   params?: { protocolVersion?: string; name?: string; arguments?: Record<string, unknown> };
 };
 
-/** The MCP versions this server speaks, newest first. It uses nothing newer than tools. */
+/** The MCP versions this server speaks, newest first. It uses nothing newer than tools and prompts. */
 const VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
 /** One JSON-RPC message in, its reply out; undefined for a notification. */
-export async function handle(message: Message, tools: Tool[]): Promise<object | undefined> {
+export async function handle(
+  message: Message,
+  tools: Tool[],
+  prompts: Prompt[] = [],
+): Promise<object | undefined> {
   const { id, method, params } = message;
   if (id === undefined) return undefined;
   const reply = (result: object) => ({ jsonrpc: "2.0", id, result });
@@ -43,11 +66,29 @@ export async function handle(message: Message, tools: Tool[]): Promise<object | 
         // The client's version if it's one this speaks, else the newest; the
         // client then decides whether it can go on (MCP lifecycle).
         protocolVersion: VERSIONS.find((v) => v === params?.protocolVersion) ?? VERSIONS[0],
-        capabilities: { tools: {} },
+        capabilities: { tools: {}, prompts: {} },
         serverInfo: { name: "mockingbird", version: "1" },
       });
     case "ping":
       return reply({});
+    case "prompts/list":
+      return reply({ prompts: prompts.map(({ text, ...prompt }) => prompt) });
+    case "prompts/get": {
+      const prompt = prompts.find((p) => p.name === params?.name);
+      const missing = prompt?.arguments.find((a) => a.required && !params?.arguments?.[a.name]);
+      if (!prompt || missing) {
+        const message = prompt
+          ? `${prompt.name} needs ${missing?.name}`
+          : `no prompt ${params?.name}`;
+        return { jsonrpc: "2.0", id, error: { code: -32602, message } };
+      }
+      return reply({
+        description: prompt.description,
+        messages: [
+          { role: "user", content: { type: "text", text: prompt.text(params?.arguments ?? {}) } },
+        ],
+      });
+    }
     case "tools/list":
       return reply({ tools: tools.map(({ run, ...tool }) => tool) });
     case "tools/call": {
@@ -107,6 +148,27 @@ export function timedLines(words: AsrWord[], offsetMs: number): { atMs: number; 
   return lines.map((l) => ({ atMs: l.atMs, text: stripNonSpeech(l.words.join("")) }));
 }
 
+/**
+ * Whisper's tokens as whole words, each with its start and end in the file.
+ * A token that doesn't start with a space carries on the word before it
+ * ("dict" + "ation", or a full stop).
+ */
+export function timedWords(words: AsrWord[], offsetMs: number): AsrWord[] {
+  const out: AsrWord[] = [];
+  for (const w of words) {
+    const last = out.at(-1);
+    if (last && !/^\s/.test(w.word)) {
+      last.word += w.word;
+      last.endMs = offsetMs + w.endMs;
+    } else {
+      out.push({ ...w, startMs: offsetMs + w.startMs, endMs: offsetMs + w.endMs });
+    }
+  }
+  return out
+    .map((w) => ({ ...w, word: stripNonSpeech(w.word) }))
+    .filter((w) => /[\p{L}\p{N}]/u.test(w.word));
+}
+
 const clock = (ms: number) => {
   const s = Math.floor(ms / 1000);
   const hh = Math.floor(s / 3600);
@@ -115,13 +177,35 @@ const clock = (ms: number) => {
   return hh ? `${hh}:${mm}:${ss}` : `${mm}:${ss}`;
 };
 
+/** A clock to the hundredth of a second, for cutting on a word: `01:23.48`. */
+export const fineClock = (ms: number) =>
+  `${clock(ms)}.${String(Math.floor((ms % 1000) / 10)).padStart(2, "0")}`;
+
 /**
  * An audio or video file as timestamped lines of Whisper's text, names fixed
  * from the dictionary. No cleanup model: the client's model does better with a
- * whole meeting than a 4B one does with each 30 seconds of it.
+ * whole meeting than a 4B one does with each 30 seconds of it. `from`/`to`
+ * (seconds) take one stretch of the file; `words` gives each word's start and
+ * end instead of lines, to cut a clip on.
  */
-async function transcribe(path: string, log: (m: string) => void): Promise<string> {
-  const audio: PcmAudio = await loadAudio(requireFile(path, "File"));
+async function transcribe(
+  path: string,
+  log: (m: string) => void,
+  { from, to }: { from?: number; to?: number } = {},
+  words = false,
+): Promise<string> {
+  const file: PcmAudio = await loadAudio(requireFile(path, "File"));
+  const rate = file.sampleRate;
+  const first = Math.max(0, Math.round((from ?? 0) * rate));
+  const last = Math.min(file.samples.length, Math.round((to ?? Infinity) * rate));
+  if (last <= first) {
+    const length = Math.round(file.samples.length / rate);
+    throw new Error(
+      `Nothing to transcribe from ${from ?? 0}s to ${to === undefined ? "the end" : `${to}s`}: ${path} is ${length}s.`,
+    );
+  }
+  const audio = { sampleRate: rate, samples: file.samples.subarray(first, last) };
+  const startMs = (first / rate) * 1000;
   let dictionary: ReturnType<typeof readDictionary> = [];
   try {
     dictionary = readDictionary();
@@ -134,23 +218,35 @@ async function transcribe(path: string, log: (m: string) => void): Promise<strin
   const engines = await startEngines(log, dictionary);
   try {
     const { detectSpeech, asr } = engines.deps;
-    const rate = audio.sampleRate;
     const lines: string[] = [];
     for (const c of chunks(await detectSpeech(audio), 30 * rate)) {
       const piece = {
         sampleRate: rate,
         samples: audio.samples.subarray(c.startSample, c.endSample),
       };
-      const { words } = await asr.transcribe(piece);
-      for (const line of timedLines(words, (c.startSample / rate) * 1000)) {
+      const heard = (await asr.transcribe(piece)).words;
+      const offsetMs = startMs + (c.startSample / rate) * 1000;
+      if (words) {
+        // ponytail: names are fixed one word at a time, so a name misheard as
+        // two words stays as heard; the line transcript fixes those.
+        for (const w of timedWords(heard, offsetMs)) {
+          const word = correctNames(w.word, dictionary);
+          lines.push(`[${fineClock(w.startMs)}-${fineClock(w.endMs)}] ${word}`);
+        }
+        continue;
+      }
+      for (const line of timedLines(heard, offsetMs)) {
         const text = correctNames(line.text, dictionary);
         if (text) lines.push(`[${clock(line.atMs)}] ${text}`);
       }
     }
-    const minutes = Math.round(audio.samples.length / rate / 60);
+    const span =
+      from === undefined && to === undefined
+        ? `${Math.round(audio.samples.length / rate / 60)} min`
+        : `${clock(startMs)}-${clock((last / rate) * 1000)}`;
     return lines.length
-      ? `${path} (${minutes} min)\n\n${lines.join("\n")}`
-      : `${path}: no speech found.`;
+      ? `${path} (${span})\n\n${lines.join("\n")}`
+      : `${path} (${span}): no speech found.`;
   } finally {
     await engines.close();
   }
@@ -188,15 +284,273 @@ async function frames(path: string, every: number): Promise<string> {
   return files.map((f, i) => `[${clock(i * every * 1000)}] ${join(dir, f)}`).join("\n");
 }
 
+/** The captions file's name in render's temp folder. */
+const CAPTIONS = "captions.srt";
+
+/** A stretch of the source to keep, in seconds. */
+export type Clip = { from: number; to: number };
+
+/**
+ * The ffmpeg filter graph that keeps `clips` in order and joins them, with
+ * the picture cropped to 9:16 if `vertical`, and `burn` drawing the captions
+ * in CAPTIONS onto it. Ends in [v], and [a] if the source has sound.
+ */
+export function renderGraph(
+  clips: Clip[],
+  { audio, vertical, burn = false }: { audio: boolean; vertical: boolean; burn?: boolean },
+): string {
+  const parts = clips.map(({ from, to }, i) => {
+    const v = `[0:v]trim=start=${from}:end=${to},setpts=PTS-STARTPTS[v${i}]`;
+    return audio ? `${v};[0:a]atrim=start=${from}:end=${to},asetpts=PTS-STARTPTS[a${i}]` : v;
+  });
+  const inputs = clips.map((_, i) => (audio ? `[v${i}][a${i}]` : `[v${i}]`)).join("");
+  const joined = `${inputs}concat=n=${clips.length}:v=1:a=${audio ? 1 : 0}[joined]${audio ? "[a]" : ""}`;
+  const look = [
+    // The middle of the frame, as wide as 9:16 allows, at the size Shorts and Reels take.
+    vertical && "crop='min(iw,ih*9/16)':'min(ih,iw*16/9)',scale=1080:1920,setsar=1",
+    // ffmpeg runs in the folder that holds it, so no path needs escaping in the graph.
+    burn && `subtitles=filename=${CAPTIONS}`,
+  ].filter(Boolean);
+  return [...parts, joined, `[joined]${look.join(",") || "null"}[v]`].join(";");
+}
+
+/** The streams in a media file, and how long it is. */
+async function probe(path: string): Promise<{ video: boolean; audio: boolean; seconds: number }> {
+  const proc = Bun.spawn(
+    [
+      "ffprobe",
+      ...["-v", "error", "-show_entries", "stream=codec_type:format=duration"],
+      ...["-of", "json", path],
+    ],
+    { stderr: "pipe" },
+  );
+  const out = await new Response(proc.stdout).text();
+  if ((await proc.exited) !== 0) {
+    throw new Error(
+      `ffprobe couldn't read ${path}: ${(await new Response(proc.stderr).text()).trim()}`,
+    );
+  }
+  const { streams = [], format } = JSON.parse(out);
+  const has = (type: string) => streams.some((s: { codec_type: string }) => s.codec_type === type);
+  return { video: has("video"), audio: has("audio"), seconds: Number(format?.duration ?? 0) };
+}
+
+/** Whether this ffmpeg can draw subtitles onto the picture. Homebrew's is built without libass. */
+let burnable: Promise<boolean> | undefined;
+const canBurn = () => {
+  burnable ??= (async () => {
+    const proc = Bun.spawn(["ffmpeg", "-hide_banner", "-filters"], { stderr: "ignore" });
+    return /\ssubtitles\s/.test(await new Response(proc.stdout).text());
+  })();
+  return burnable;
+};
+
+/**
+ * Creates `file` empty, or returns false if it exists. Calls run side by
+ * side, so the name is taken when it's chosen, not when ffmpeg writes it.
+ */
+function claim(file: string): boolean {
+  try {
+    closeSync(openSync(file, "wx"));
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+    throw error;
+  }
+}
+
+/** The .srt that goes beside a video when ffmpeg can't draw the captions on. */
+const srtFor = (video: string) => join(dirname(video), `${basename(video, extname(video))}.srt`);
+
+/** Claims `video`, and its .srt too if `sidecar`; claims neither if either is taken. */
+function claimAll(video: string, sidecar: boolean): boolean {
+  if (!claim(video)) return false;
+  let both = false;
+  try {
+    both = !sidecar || claim(srtFor(video));
+  } finally {
+    if (!both) rmSync(video, { force: true });
+  }
+  return both;
+}
+
+/** `out`, or `<name>-short-N.mp4` next to the source with the first N that's free; claimed. */
+function outputFor(path: string, out: string | undefined, sidecar: boolean): string {
+  if (out) {
+    if (!claimAll(out, sidecar)) {
+      throw new Error(
+        `${out}${sidecar ? " or its .srt" : ""} already exists; give another \`out\`.`,
+      );
+    }
+    return out;
+  }
+  const base = join(dirname(path), basename(path, extname(path)));
+  for (let n = 1; ; n++) {
+    if (claimAll(`${base}-short-${n}.mp4`, sidecar)) return `${base}-short-${n}.mp4`;
+  }
+}
+
+/**
+ * Cuts `clips` out of a video and joins them into one MP4, optionally 9:16
+ * with captions. The client chooses the clips and writes the captions; this
+ * only runs ffmpeg. Captions go onto the picture if this ffmpeg can draw
+ * them, otherwise into a subtitle track and an .srt beside the video.
+ */
+async function render(
+  path: string,
+  clips: Clip[],
+  { vertical = false, captions, out }: { vertical?: boolean; captions?: string; out?: string },
+): Promise<string> {
+  requireFile(path, "File");
+  if (!clips.length) throw new Error("No clips: give at least one { from, to } in seconds.");
+  for (const c of clips) {
+    if (!(Number.isFinite(c.from) && Number.isFinite(c.to) && c.from >= 0 && c.to > c.from)) {
+      throw new Error(`A clip needs 0 <= from < to, in seconds; got ${JSON.stringify(c)}.`);
+    }
+  }
+  const source = await probe(path);
+  if (!source.video) throw new Error(`${path} has no video, only audio.`);
+  // A clip past the end would come out short, and captions timed to it would drift.
+  const over = clips.find((c) => source.seconds && c.to > source.seconds);
+  if (over)
+    throw new Error(`A clip ends at ${over.to}s, after the end of ${path} (${source.seconds}s).`);
+  const text = captions?.trim();
+  const burn = !!text && (await canBurn());
+  const target = outputFor(path, out, !!text && !burn);
+
+  const dir = mkdtempSync(join(tmpdir(), "mockingbird-render-"));
+  let made = false;
+  try {
+    const srt = text ? join(dir, CAPTIONS) : undefined;
+    if (srt) writeFileSync(srt, `${text}\n`);
+    const graph = renderGraph(clips, { audio: source.audio, vertical, burn });
+    const proc = Bun.spawn(
+      [
+        "ffmpeg",
+        ...["-nostdin", "-y", "-loglevel", "error", "-i", path],
+        ...(srt && !burn ? ["-i", srt] : []),
+        ...["-filter_complex", graph, "-map", "[v]"],
+        ...(source.audio ? ["-map", "[a]", "-c:a", "aac", "-b:a", "160k"] : []),
+        ...(srt && !burn ? ["-map", "1:s", "-c:s", "mov_text"] : []),
+        ...["-c:v", "libx264", "-crf", "18", "-preset", "veryfast", "-pix_fmt", "yuv420p"],
+        ...["-movflags", "+faststart", target],
+      ],
+      { cwd: dir, stderr: "pipe" },
+    );
+    if ((await proc.exited) !== 0) {
+      throw new Error(
+        `ffmpeg couldn't render ${target}: ${(await new Response(proc.stderr).text()).trim()}`,
+      );
+    }
+    const length = fineClock((await probe(target)).seconds * 1000);
+    // Over the empty file outputFor claimed.
+    if (srt && !burn) copyFileSync(srt, srtFor(target));
+    made = true;
+    if (!srt) return `${target} (${length})`;
+    if (burn) return `${target} (${length}), captions drawn on the picture`;
+    return `${target} (${length}), captions as a subtitle track and in ${srtFor(target)}. This ffmpeg can't draw them onto the picture (it has no libass); an editor such as CapCut can burn in the .srt.`;
+  } finally {
+    // The claimed names stay only if the video and its .srt were both made.
+    if (!made) {
+      rmSync(target, { force: true });
+      if (text && !burn) rmSync(srtFor(target), { force: true });
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** A tool's seconds argument: absent stays absent, anything else must be a number. */
+const seconds = (value: unknown) => {
+  if (value === undefined || value === null) return undefined;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) throw new Error(`Not a time in seconds: ${value}`);
+  return n;
+};
+
+export const PROMPTS: Prompt[] = [
+  {
+    name: "make_short",
+    description:
+      "Cut a vertical Short or Reel, with captions, out of a longer video using mockingbird's tools.",
+    arguments: [{ name: "path", description: "Absolute path to the video", required: true }],
+    text: ({ path }) => `Make a vertical short from the video at ${path}, with mockingbird's tools.
+
+1. Call \`transcribe\` on it for an outline with timestamps. If what's on screen matters (slides, a demo), call \`frames\` too and look at the stills.
+2. Pick one to three moments of 15 to 60 seconds that make sense to someone who hasn't seen the rest: one idea, a clear start, a finished last sentence. Tell me which and why before going on, unless I already said what I want.
+3. For each moment, call \`transcribe\` with \`from\`/\`to\` a little either side of it and \`words: true\`. Put each cut just before a word starts and just after a sentence's last word ends. Cut out long pauses and false starts inside a moment by splitting it into several clips.
+4. Write captions as SRT: two to four words a cue, following the word times, timed to the finished video. A word at source time t in clip k lands at t - (clip k's from) + (the length of the clips before k). Fix names with \`dictionary_list\` if a word looks misheard.
+5. Call \`render\` with the clips, \`vertical: true\` and the captions. One call per short.
+6. Tell me where each file is, how long it is, what it covers, and whether the captions are drawn on or in a separate .srt.`,
+  },
+];
+
 export function mcpTools(status: () => Promise<object>, log: (m: string) => void): Tool[] {
   const path = { type: "string", description: "Absolute path to the file" };
   return [
     {
       name: "transcribe",
       description:
-        "Transcribe an audio or video file on this Mac (anything ffmpeg reads: m4a, mp3, wav, mp4, mov, mkv) with mockingbird's local Whisper. Returns the text in lines timestamped [mm:ss], with names fixed from the user's dictionary. Takes a few minutes for an hour of audio.",
-      inputSchema: { type: "object", properties: { path }, required: ["path"] },
-      run: (a) => transcribe(String(a.path), log),
+        "Transcribe an audio or video file on this Mac (anything ffmpeg reads: m4a, mp3, wav, mp4, mov, mkv) with mockingbird's local Whisper. Returns the text in lines timestamped [mm:ss], with names fixed from the user's dictionary. Takes a few minutes for an hour of audio. `from`/`to` (seconds) transcribe one stretch only; `words: true` gives every word's start and end ([mm:ss.cc-mm:ss.cc] word) to cut a clip on, so keep that to a few minutes at a time.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path,
+          from: { type: "number", description: "Start, in seconds from the start of the file" },
+          to: { type: "number", description: "End, in seconds from the start of the file" },
+          words: { type: "boolean", description: "One line per word, with start and end" },
+        },
+        required: ["path"],
+      },
+      run: (a) =>
+        transcribe(String(a.path), log, { from: seconds(a.from), to: seconds(a.to) }, !!a.words),
+    },
+    {
+      name: "render",
+      description:
+        "Cut clips out of a video and join them into one MP4, for a Short or Reel. You choose the clips (cut on word ends from `transcribe` with `words: true`) and write the captions; this runs ffmpeg on the Mac. Returns the new file's path and length. It never overwrites a file.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path,
+          clips: {
+            type: "array",
+            description: "Stretches of the source to keep, in order, in seconds",
+            items: {
+              type: "object",
+              properties: { from: { type: "number" }, to: { type: "number" } },
+              required: ["from", "to"],
+            },
+          },
+          vertical: {
+            type: "boolean",
+            description: "Crop the middle of the frame to 9:16 at 1080x1920",
+          },
+          captions: {
+            type: "string",
+            description:
+              "SRT text timed to the finished video, not the source: subtract each clip's start, and add the length of the clips before it. Drawn onto the picture if this ffmpeg can (libass); otherwise a subtitle track and an .srt file beside the video.",
+          },
+          out: {
+            type: "string",
+            description: "Absolute path for the MP4. Default: <source>-short-N.mp4 beside it",
+          },
+        },
+        required: ["path", "clips"],
+      },
+      // Absolute paths, since ffmpeg runs in a temp folder.
+      run: (a) =>
+        render(
+          resolve(String(a.path)),
+          (Array.isArray(a.clips) ? a.clips : []).map((c: { from?: unknown; to?: unknown }) => ({
+            from: seconds(c?.from) ?? Number.NaN,
+            to: seconds(c?.to) ?? Number.NaN,
+          })),
+          {
+            vertical: !!a.vertical,
+            captions: a.captions === undefined ? undefined : String(a.captions),
+            out: a.out === undefined ? undefined : resolve(String(a.out)),
+          },
+        ),
     },
     {
       name: "frames",
@@ -245,8 +599,8 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
   ];
 }
 
-/** Serves `tools` on stdin/stdout until stdin closes. Logs go to stderr only. */
-export async function serve(tools: Tool[]): Promise<number> {
+/** Serves `tools` and `prompts` on stdin/stdout until stdin closes. Logs go to stderr only. */
+export async function serve(tools: Tool[], prompts = PROMPTS): Promise<number> {
   const decoder = new TextDecoder();
   let pending = "";
   const answer = async (line: string) => {
@@ -265,7 +619,7 @@ export async function serve(tools: Tool[]): Promise<number> {
       );
       return;
     }
-    const reply = await handle(message, tools);
+    const reply = await handle(message, tools, prompts);
     if (reply) process.stdout.write(`${JSON.stringify(reply)}\n`);
   };
   // Each request is answered when it's done, so a status call isn't stuck

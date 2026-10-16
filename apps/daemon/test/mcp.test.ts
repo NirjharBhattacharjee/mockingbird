@@ -1,5 +1,13 @@
 import { expect, test } from "bun:test";
-import { chunks, handle, timedLines } from "../src/mcp.ts";
+import {
+  chunks,
+  fineClock,
+  handle,
+  PROMPTS,
+  renderGraph,
+  timedLines,
+  timedWords,
+} from "../src/mcp.ts";
 
 const echo = {
   name: "echo",
@@ -19,13 +27,13 @@ test("offers its newest protocol version when the client's isn't one it speaks",
   });
 });
 
-test("answers initialize with the client's protocol version and a tools capability", async () => {
+test("answers initialize with the client's protocol version, and tools and prompts", async () => {
   expect(await call(1, "initialize", { protocolVersion: "2025-03-26" })).toEqual({
     jsonrpc: "2.0",
     id: 1,
     result: {
       protocolVersion: "2025-03-26",
-      capabilities: { tools: {} },
+      capabilities: { tools: {}, prompts: {} },
       serverInfo: { name: "mockingbird", version: "1" },
     },
   });
@@ -91,4 +99,77 @@ test("long speech gets a new timestamped line at a sentence end after 20s, and a
     { atMs: 622_000, text: "Four five" },
     { atMs: 683_000, text: "six" },
   ]);
+});
+
+test("lists prompts without their text, and fills one in with its arguments", async () => {
+  const ask = (id: number, method: string, params?: object) =>
+    handle({ jsonrpc: "2.0", id, method, ...(params && { params }) }, [], PROMPTS);
+  expect(await ask(1, "prompts/list")).toMatchObject({
+    result: { prompts: [{ name: "make_short", arguments: [{ name: "path", required: true }] }] },
+  });
+  const got = await ask(2, "prompts/get", {
+    name: "make_short",
+    arguments: { path: "/a/talk.mp4" },
+  });
+  expect(got).toMatchObject({
+    result: { messages: [{ role: "user", content: { type: "text" } }] },
+  });
+  expect(JSON.stringify(got)).toContain("/a/talk.mp4");
+  expect(await ask(3, "prompts/get", { name: "make_short" })).toMatchObject({
+    error: { code: -32602, message: "make_short needs path" },
+  });
+  expect(await ask(4, "prompts/get", { name: "nope" })).toMatchObject({ error: { code: -32602 } });
+});
+
+test("joins Whisper's tokens into words with their times in the file, dropping non-speech", () => {
+  const t = (word: string, startMs: number, endMs: number) => ({
+    word,
+    startMs,
+    endMs,
+    probability: 1,
+  });
+  const tokens = [
+    t(" [BLANK_AUDIO]", 0, 400),
+    t(" Hello", 500, 800),
+    t(" dict", 900, 1100),
+    t("ation", 1100, 1300),
+    t(".", 1300, 1320),
+  ];
+  expect(timedWords(tokens, 60_000)).toEqual([
+    t("Hello", 60_500, 60_800),
+    t("dictation.", 60_900, 61_320),
+  ]);
+});
+
+test("a fine clock shows hundredths of a second", () => {
+  expect(fineClock(83_487)).toBe("01:23.48");
+  expect(fineClock(3_725_050)).toBe("1:02:05.05");
+});
+
+test("the render graph keeps each clip in order and joins them", () => {
+  expect(
+    renderGraph(
+      [
+        { from: 1, to: 2.5 },
+        { from: 10, to: 12 },
+      ],
+      { audio: true, vertical: false },
+    ),
+  ).toBe(
+    "[0:v]trim=start=1:end=2.5,setpts=PTS-STARTPTS[v0];[0:a]atrim=start=1:end=2.5,asetpts=PTS-STARTPTS[a0];" +
+      "[0:v]trim=start=10:end=12,setpts=PTS-STARTPTS[v1];[0:a]atrim=start=10:end=12,asetpts=PTS-STARTPTS[a1];" +
+      "[v0][a0][v1][a1]concat=n=2:v=1:a=1[joined][a];[joined]null[v]",
+  );
+});
+
+test("the render graph crops to 9:16, draws captions, and works without sound", () => {
+  const graph = renderGraph([{ from: 0, to: 5 }], {
+    audio: false,
+    vertical: true,
+    burn: true,
+  });
+  expect(graph).not.toContain("[0:a]");
+  expect(graph).toEndWith(
+    "[v0]concat=n=1:v=1:a=0[joined];[joined]crop='min(iw,ih*9/16)':'min(ih,iw*16/9)',scale=1080:1920,setsar=1,subtitles=filename=captions.srt[v]",
+  );
 });
