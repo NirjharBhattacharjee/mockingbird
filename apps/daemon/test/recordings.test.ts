@@ -114,6 +114,34 @@ test("system audio goes to the encoder, and its tap closes once the file is save
   expect(events).toEqual(["encode with tap 1", "encoder finished", "tap closed"]);
 });
 
+test("a stop while the tap is still starting stops that recording, not nothing", async () => {
+  const home = mkdtempSync(join(tmpdir(), "mb-rec-"));
+  let tapReady: () => void = () => {};
+  let closed = false;
+  const recordings = new Recordings(home, {
+    log: () => {},
+    cue: () => {},
+    encode: fakeEncoder,
+    systemAudio: () =>
+      new Promise((resolve) => {
+        tapReady = () =>
+          resolve({
+            device: "tap 1",
+            close: async () => {
+              closed = true;
+            },
+          });
+      }),
+  });
+  const starting = recordings.start();
+  const stopping = recordings.stop("mockingbird is stopping");
+  tapReady();
+  const path = await starting;
+  expect(await stopping).toBe(path);
+  expect(recordings.active).toBeUndefined();
+  expect(closed).toBe(true);
+});
+
 test("the encoder mixes the system device into the microphone, at full level", () => {
   const args = encoderArgs({
     path: "x.m4a",

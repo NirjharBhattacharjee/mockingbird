@@ -37,7 +37,9 @@ export async function startSystemAudio(
     Bun.sleep(timeoutMs).then(() => "timed out"),
   ]);
   if (!line.startsWith("ready ")) {
-    child.kill();
+    // SIGKILL: a child stuck in a native call may never act on SIGTERM. Its
+    // tap and device go with it. Stderr is read only when it already exited.
+    child.kill("SIGKILL");
     const why = line || (await new Response(child.stderr).text()).trim() || "no reason given";
     log(`recording the microphone only: no system audio (${why})`);
     return undefined;

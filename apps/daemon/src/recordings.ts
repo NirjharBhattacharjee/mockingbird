@@ -111,6 +111,9 @@ export class Recordings {
    * the user stops, say) gets that save's file too.
    */
   stop(why?: string): Promise<string | undefined> {
+    // Mid-start (waiting for the tap): let it finish, then stop that one, or a
+    // shutdown would leave a recording running with nothing to stop it.
+    if (this.starting) return this.starting.then(() => this.stop(why));
     const current = this.current;
     if (!current) return this.saving ?? Promise.resolve(undefined);
     this.current = undefined;
