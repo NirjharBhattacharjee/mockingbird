@@ -241,6 +241,22 @@ organise). Remove filler words. Return only the text.
 Sections you leave out stay as shipped. Your file replaces a whole section,
 so copy the shipped one and edit it rather than starting from nothing.
 
+### `mockingbird record`: record a meeting to a file
+
+```sh
+mockingbird record        # starts, with a sound, and prints where the file goes
+mockingbird record stop   # stops, and prints the file
+```
+
+Recordings go to `~/.mockingbird/recordings/`, as `2026-10-15-1430.m4a`
+(about 22 MB an hour), and stay until you delete them. Holding Fn still
+dictates while one runs. A reminder sound plays every 30 minutes, and a
+recording stops by itself after 3 hours (`MOCKINGBIRD_RECORD_MAX_HOURS`).
+`mockingbird status` shows one that's running. It's your microphone only, so
+on a call it hears your side. **Only record people who agreed to it:** in
+many places, recording a conversation without everyone's consent is
+illegal.
+
 ### `mockingbird listen`: talk live in a terminal
 
 | Key | Does |
@@ -371,6 +387,7 @@ Environment variables:
 | `MOCKINGBIRD_LEARN_EXCLUDE` (bundle ids, comma separated, never read to learn from) | none |
 | `MOCKINGBIRD_LLM_URL` | `http://127.0.0.1:11434` |
 | `MOCKINGBIRD_LLM_MODEL` | `qwen3:4b-instruct-2507-q4_K_M` |
+| `MOCKINGBIRD_RECORD_MAX_HOURS` (when a recording stops by itself) | `3` |
 
 The background agent reads them from the shell that last ran `mockingbird start`
 or `restart`, so run `mockingbird restart` after changing one.

@@ -7,6 +7,7 @@ export {
   parseAudioDevices,
   startCapture,
 } from "./capture.ts";
+export { type Encoder, startEncoder } from "./encode.ts";
 export { AudioDecodeError, type DecodeOptions, decodeWithFfmpeg, loadAudio } from "./load.ts";
 export {
   loudestWindowRms,

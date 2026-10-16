@@ -83,13 +83,15 @@ describe("mockingbird", () => {
       stderr: "",
     });
     expect(
-      await agentState(running, log, async () => ({
-        kind: "taken",
-        value: 2,
-        action: "Show Emoji & Symbols",
-      })),
+      await agentState(
+        running,
+        log,
+        async () => ({ kind: "taken", value: 2, action: "Show Emoji & Symbols" }),
+        async () => "/r/2026-10-15-1430.m4a",
+      ),
     ).toEqual({
       agent: "running",
+      recording: "/r/2026-10-15-1430.m4a",
       missing: ["Accessibility", "Microphone"],
       fnAction: "Show Emoji & Symbols",
     });
@@ -99,12 +101,26 @@ describe("mockingbird", () => {
       "09:00 permissions: Fn ok, typing ok\n09:00 checks: Fn MISSING, typing ok, microphone ok\n" +
         "09:10 permissions: Fn ok, typing ok\n",
     );
-    expect(await agentState(running, log, async () => ({ kind: "free" }))).toMatchObject({
+    expect(
+      await agentState(
+        running,
+        log,
+        async () => ({ kind: "free" }),
+        async () => null,
+      ),
+    ).toMatchObject({
       missing: null,
       fnAction: null,
     });
     // Never set: macOS opens its default, so setup must still offer `fn` (#31).
-    expect(await agentState(running, log, async () => ({ kind: "unset" }))).toMatchObject({
+    expect(
+      await agentState(
+        running,
+        log,
+        async () => ({ kind: "unset" }),
+        async () => null,
+      ),
+    ).toMatchObject({
       fnAction: "the macOS default (usually the emoji picker)",
     });
     const stopped: Launchctl = async () => ({

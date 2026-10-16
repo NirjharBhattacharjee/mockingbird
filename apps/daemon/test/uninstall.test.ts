@@ -107,6 +107,23 @@ describe("uninstall", () => {
     expect(m.calls).toContain("ollama rm qwen3:4b");
   });
 
+  test("asks about recordings, and keeps them by default", async () => {
+    const m = installed();
+    mkdirSync(join(m.mb, "recordings"));
+    writeFileSync(join(m.mb, "recordings", "2026-10-15-1430.m4a"), "audio");
+    // Cut off by a crash, and still the user's.
+    writeFileSync(join(m.mb, "recordings", "2026-10-15-1600.m4a.part"), "more");
+    mkdirSync(join(m.home, "mockingbird-recordings")); // an earlier uninstall's
+    expect(await uninstall(["--yes"], m.deps)).toBe(0);
+    expect(existsSync(m.mb)).toBe(false);
+    expect(
+      readFileSync(join(m.home, "mockingbird-recordings-2", "2026-10-15-1430.m4a"), "utf8"),
+    ).toBe("audio");
+    expect(m.logged.some((l) => l.includes("2 recordings, which you'll be asked about"))).toBe(
+      true,
+    );
+  });
+
   test("--yes keeps the shared model, and leaves a Homebrew or edited clone alone", async () => {
     const brew = installed({ root: "/opt/homebrew/Cellar/mockingbird/0.2.0/libexec" });
     expect(await uninstall(["--yes"], brew.deps)).toBe(0);

@@ -1,4 +1,12 @@
-import { existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { formatEntry, readDictionary } from "./dictionary.ts";
@@ -109,6 +117,12 @@ export async function uninstall(args: string[], deps: UninstallDeps): Promise<nu
     ["the background agent", deps.plistPath],
     ["models, logs, the agent's runner and your dictionary", mb],
   ];
+  // Recordings (#89) are kept unless the user says otherwise, asked below.
+  const recordings = join(mb, "recordings");
+  const recorded = existsSync(recordings)
+    ? readdirSync(recordings).filter((n) => /\.m4a(\.part)?$/.test(n)).length
+    : 0;
+  if (recorded) items.push([`${recorded} recordings, which you'll be asked about`, recordings]);
   if (removeCode) items.push(["the code", root]);
   if (ownShim) items.push(["the mockingbird command", shim]);
   for (const p of profiles) items.push(["the PATH line the installer added", p]);
@@ -144,25 +158,33 @@ export async function uninstall(args: string[], deps: UninstallDeps): Promise<nu
     }
   };
   attempt(deps.plistPath, () => rmSync(deps.plistPath, { force: true }));
-  let wordsSafe = true;
+  let dataSafe = true;
   if (
     words.length > 0 &&
     ask(`Keep a copy of your ${words.length} dictionary words? [Y/n]`, true)
   ) {
     const copy = freshName(join(home, "mockingbird-dictionary.txt"));
-    wordsSafe = attempt(copy, () => writeFileSync(copy, `${words.join("\n")}\n`));
-    if (wordsSafe) {
+    dataSafe = attempt(copy, () => writeFileSync(copy, `${words.join("\n")}\n`));
+    if (dataSafe) {
       log(
         `Your words are in ${copy}. To use them after a reinstall, move it to ` +
           "~/.mockingbird/dictionary.txt before `mockingbird start`.",
       );
     }
   }
+  if (recorded && ask(`Keep your ${recorded} recordings? [Y/n]`, true)) {
+    let kept = join(home, "mockingbird-recordings");
+    for (let n = 2; existsSync(kept); n++) kept = `${join(home, "mockingbird-recordings")}-${n}`;
+    dataSafe &&= attempt(kept, () => renameSync(recordings, kept));
+    if (dataSafe) log(`Your recordings are in ${kept}.`);
+  }
   // A copy that couldn't be written means the originals stay.
   const app = join(mb, "bin", "mockingbird.app");
-  if (wordsSafe) attempt(app, () => deps.unregisterApp(app));
-  const mbGone = wordsSafe && attempt(mb, () => rmSync(mb, { recursive: true, force: true }));
-  if (!wordsSafe) failed.push(`${mb} was kept, since your words couldn't be copied out of it`);
+  if (dataSafe) attempt(app, () => deps.unregisterApp(app));
+  const mbGone = dataSafe && attempt(mb, () => rmSync(mb, { recursive: true, force: true }));
+  if (!dataSafe) {
+    failed.push(`${mb} was kept, since your words or recordings couldn't be copied out of it`);
+  }
   // While anything of it is left, keep the command and the code that runs it,
   // so this can be run again.
   if (mbGone) {
