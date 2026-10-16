@@ -35,6 +35,8 @@ const ICON = join(import.meta.dir, "AppIcon.icns");
 /**
  * LSUIElement keeps it out of the Dock. The microphone line is the reason the
  * permission prompt shows; without one, macOS refuses the microphone outright.
+ * The audio-capture line does the same for system audio in `mockingbird
+ * record` (#94): without it the tap hands over silence, with no prompt.
  */
 const INFO_PLIST = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -54,6 +56,8 @@ const INFO_PLIST = `<?xml version="1.0" encoding="UTF-8"?>
     <true/>
     <key>NSMicrophoneUsageDescription</key>
     <string>mockingbird listens while you hold Fn, and types what you said.</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>mockingbird records what your Mac plays, like the other side of a call, while you run mockingbird record.</string>
   </dict>
 </plist>
 `;

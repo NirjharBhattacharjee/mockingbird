@@ -2,8 +2,11 @@ import { expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Encoder, startEncoder } from "@mockingbird/audio";
+import { type Encoder, encoderArgs, startEncoder } from "@mockingbird/audio";
 import { Recordings, recordingName } from "../src/recordings.ts";
+
+/** No system audio: tests never open a real tap. */
+const micOnly = async () => undefined;
 
 /** Writes what it's given to the file, and exits when told to or when `die` is called. */
 function fakeEncoder(path: string): Encoder & { die(code: number): void } {
@@ -35,10 +38,13 @@ test("a recording is a .part file until it stops, then the name it said", async 
       encoders.push(fakeEncoder(p));
       return encoders.at(-1) as Encoder;
     },
+    systemAudio: micOnly,
   });
-  const path = recordings.start();
+  // Two starts at once share one recording.
+  const [path, again] = await Promise.all([recordings.start(), recordings.start()]);
   expect(path).toBe(join(home, "recordings", "2026-10-15-1430.m4a"));
-  expect(recordings.start()).toBe(path); // one at a time
+  expect(again).toBe(path);
+  expect(await recordings.start()).toBe(path); // one at a time
   expect(statSync(join(home, "recordings")).mode & 0o777).toBe(0o700);
   recordings.push(new Int16Array([1, 2, 3]));
   expect(existsSync(`${path}.part`)).toBe(true);
@@ -48,7 +54,7 @@ test("a recording is a .part file until it stops, then the name it said", async 
   expect(await recordings.stop()).toBeUndefined();
 
   // A second one that minute gets its own name, and ffmpeg dying ends it.
-  const second = recordings.start();
+  const second = await recordings.start();
   expect(second).toEndWith("2026-10-15-1430-2.m4a");
   encoders.at(-1)?.die(1);
   await Bun.sleep(10);
@@ -73,11 +79,54 @@ test("a recording stops by itself at its limit", async () => {
     cue: () => {},
     maxMs: 20,
     encode: fakeEncoder,
+    systemAudio: micOnly,
   });
-  const path = recordings.start();
+  const path = await recordings.start();
   await Bun.sleep(60);
   expect(recordings.active).toBeUndefined();
   expect(existsSync(path)).toBe(true);
+});
+
+test("system audio goes to the encoder, and its tap closes once the file is saved", async () => {
+  const home = mkdtempSync(join(tmpdir(), "mb-rec-"));
+  const events: string[] = [];
+  const recordings = new Recordings(home, {
+    log: () => {},
+    cue: () => {},
+    encode: (p, systemDevice) => {
+      events.push(`encode with ${systemDevice}`);
+      const encoder = fakeEncoder(p);
+      return {
+        ...encoder,
+        finish: () => {
+          events.push("encoder finished");
+          return encoder.finish();
+        },
+      };
+    },
+    systemAudio: async () => ({
+      device: "tap 1",
+      close: async () => void events.push("tap closed"),
+    }),
+  });
+  await recordings.start();
+  await recordings.stop();
+  expect(events).toEqual(["encode with tap 1", "encoder finished", "tap closed"]);
+});
+
+test("the encoder mixes the system device into the microphone, at full level", () => {
+  const args = encoderArgs({
+    path: "x.m4a",
+    sampleRate: 16000,
+    ffmpeg: "ffmpeg",
+    systemDevice: "tap 1",
+  });
+  expect(args).toContain(":tap 1");
+  expect(args.join(" ")).toContain("amix=inputs=2:duration=first:normalize=0");
+  // Without one, the microphone alone, as before.
+  expect(encoderArgs({ path: "x.m4a", sampleRate: 16000, ffmpeg: "ffmpeg" })).not.toContain(
+    "-filter_complex",
+  );
 });
 
 test("names are local time, to the minute", () => {
