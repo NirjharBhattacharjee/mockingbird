@@ -166,10 +166,10 @@ test("the render graph crops to 9:16, draws captions, and works without sound", 
   const graph = renderGraph([{ from: 0, to: 5 }], {
     audio: false,
     vertical: true,
-    burn: "/tmp/x/captions.srt",
+    burn: true,
   });
   expect(graph).not.toContain("[0:a]");
   expect(graph).toEndWith(
-    "[v0]concat=n=1:v=1:a=0[joined];[joined]crop='min(iw,ih*9/16)':'min(ih,iw*16/9)',scale=1080:1920,setsar=1,subtitles=filename='/tmp/x/captions.srt'[v]",
+    "[v0]concat=n=1:v=1:a=0[joined];[joined]crop='min(iw,ih*9/16)':'min(ih,iw*16/9)',scale=1080:1920,setsar=1,subtitles=filename=captions.srt[v]",
   );
 });

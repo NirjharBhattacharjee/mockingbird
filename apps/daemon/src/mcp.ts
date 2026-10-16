@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, extname, join } from "node:path";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import { type AsrWord, stripNonSpeech } from "@mockingbird/asr";
 import { loadAudio, type PcmAudio } from "@mockingbird/audio";
 import { correctNames } from "@mockingbird/llm";
@@ -285,17 +285,20 @@ async function frames(path: string, every: number): Promise<string> {
   return files.map((f, i) => `[${clock(i * every * 1000)}] ${join(dir, f)}`).join("\n");
 }
 
+/** The captions file's name in render's temp folder. */
+const CAPTIONS = "captions.srt";
+
 /** A stretch of the source to keep, in seconds. */
 export type Clip = { from: number; to: number };
 
 /**
  * The ffmpeg filter graph that keeps `clips` in order and joins them, with
- * the picture cropped to 9:16 if `vertical`, and `burn` (an SRT file) drawn
- * onto it. Ends in [v], and [a] if the source has sound.
+ * the picture cropped to 9:16 if `vertical`, and `burn` drawing the captions
+ * in CAPTIONS onto it. Ends in [v], and [a] if the source has sound.
  */
 export function renderGraph(
   clips: Clip[],
-  { audio, vertical, burn }: { audio: boolean; vertical: boolean; burn?: string },
+  { audio, vertical, burn = false }: { audio: boolean; vertical: boolean; burn?: boolean },
 ): string {
   const parts = clips.map(({ from, to }, i) => {
     const v = `[0:v]trim=start=${from}:end=${to},setpts=PTS-STARTPTS[v${i}]`;
@@ -306,7 +309,8 @@ export function renderGraph(
   const look = [
     // The middle of the frame, as wide as 9:16 allows, at the size Shorts and Reels take.
     vertical && "crop='min(iw,ih*9/16)':'min(ih,iw*16/9)',scale=1080:1920,setsar=1",
-    burn && `subtitles=filename='${burn}'`,
+    // ffmpeg runs in the folder that holds it, so no path needs escaping in the graph.
+    burn && `subtitles=filename=${CAPTIONS}`,
   ].filter(Boolean);
   return [...parts, joined, `[joined]${look.join(",") || "null"}[v]`].join(";");
 }
@@ -388,14 +392,18 @@ async function render(
   }
   const source = await probe(path);
   if (!source.video) throw new Error(`${path} has no video, only audio.`);
+  // A clip past the end would come out short, and captions timed to it would drift.
+  const over = clips.find((c) => source.seconds && c.to > source.seconds);
+  if (over)
+    throw new Error(`A clip ends at ${over.to}s, after the end of ${path} (${source.seconds}s).`);
   const target = outputFor(path, out);
 
   const dir = mkdtempSync(join(tmpdir(), "mockingbird-render-"));
   let made = false;
   try {
-    const srt = captions?.trim() ? join(dir, "captions.srt") : undefined;
+    const srt = captions?.trim() ? join(dir, CAPTIONS) : undefined;
     if (srt) writeFileSync(srt, `${captions?.trim()}\n`);
-    const burn = srt && (await canBurn()) ? srt : undefined;
+    const burn = !!srt && (await canBurn());
     const graph = renderGraph(clips, { audio: source.audio, vertical, burn });
     const proc = Bun.spawn(
       [
@@ -408,7 +416,7 @@ async function render(
         ...["-c:v", "libx264", "-crf", "18", "-preset", "veryfast", "-pix_fmt", "yuv420p"],
         ...["-movflags", "+faststart", target],
       ],
-      { stderr: "pipe" },
+      { cwd: dir, stderr: "pipe" },
     );
     if ((await proc.exited) !== 0) {
       throw new Error(
@@ -512,17 +520,18 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
         },
         required: ["path", "clips"],
       },
+      // Absolute paths, since ffmpeg runs in a temp folder.
       run: (a) =>
         render(
-          String(a.path),
+          resolve(String(a.path)),
           (Array.isArray(a.clips) ? a.clips : []).map((c: { from?: unknown; to?: unknown }) => ({
-            from: Number(c?.from),
-            to: Number(c?.to),
+            from: seconds(c?.from) ?? Number.NaN,
+            to: seconds(c?.to) ?? Number.NaN,
           })),
           {
             vertical: !!a.vertical,
             captions: a.captions === undefined ? undefined : String(a.captions),
-            out: a.out === undefined ? undefined : String(a.out),
+            out: a.out === undefined ? undefined : resolve(String(a.out)),
           },
         ),
     },
