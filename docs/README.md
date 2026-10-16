@@ -255,9 +255,11 @@ has Accessibility. Recordings go to `~/.mockingbird/recordings/`, as `2026-10-15
 dictates while one runs. A reminder sound plays every 30 minutes, and a
 recording stops by itself after 3 hours (`MOCKINGBIRD_RECORD_MAX_HOURS`).
 `mockingbird status` shows one that's running. It records your microphone
-and what the Mac plays, so on a call it has both sides. **Only record people who agreed to it:** in
-many places, recording a conversation without everyone's consent is
-illegal.
+and what the Mac plays, so on a call it has both sides; if system audio
+can't start, it records the microphone alone, and the log's `recording to`
+line leaves out "with system audio". **Only record people who agreed to
+it:** in many places, recording a conversation without everyone's consent
+is illegal.
 
 ### `mockingbird listen`: talk live in a terminal
 

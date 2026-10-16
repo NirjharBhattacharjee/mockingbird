@@ -82,6 +82,7 @@ works in clients that have no shell.
 ## Recording a meeting
 
 Press Fn+R (or run `mockingbird record`) to start, and again (or
-`mockingbird record stop`) to stop. The recording has both sides of a call
-and is saved under `~/.mockingbird/recordings/`; hand its path to
-`transcribe`.
+`mockingbird record stop`) to stop. The recording is saved under
+`~/.mockingbird/recordings/`; hand its path to `transcribe`. It has both
+sides of a call when system audio starts, and only your microphone when it
+doesn't: the log says `recording to … , with system audio` for the first.
