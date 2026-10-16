@@ -366,7 +366,7 @@ Environment variables:
 | `MOCKINGBIRD_HOME` (where `models/` is) | `~/.mockingbird` |
 | `MOCKINGBIRD_ASR_MODEL` (a file in `models/`, or a path) | `ggml-large-v3-q5_0.bin` |
 | `MOCKINGBIRD_ASR_VOCABULARY` (read the dictionary to Whisper; can distort other names) | off |
-| `MOCKINGBIRD_ASR_PORT` | `8771` |
+| `MOCKINGBIRD_ASR_PORT` | `8771` for the agent; `transcribe` and `mcp` pick a free port, so a long file never holds up dictation |
 | `MOCKINGBIRD_LEARN` (`0`: don't learn dictionary words from your corrections) | on |
 | `MOCKINGBIRD_LEARN_EXCLUDE` (bundle ids, comma separated, never read to learn from) | none |
 | `MOCKINGBIRD_LLM_URL` | `http://127.0.0.1:11434` |
@@ -457,6 +457,9 @@ see [AGENTS.md](../AGENTS.md).
   privacy-first by belief, not just by design. Read this before proposing
   anything that touches monetization, access, or inclusion — for humans and
   AI agents alike.
+- **[MCP.md](./MCP.md)** — give an AI client (Claude Code, Claude Desktop,
+  Cursor) mockingbird's transcription and dictionary as tools, and where the
+  text goes when you do.
 - **[ARCHITECTURE.md](./ARCHITECTURE.md)** — the bible. Stack, architecture, state
   ownership, packaging, deployment, CI/CD, and open scope. Every architectural
   decision should end up reflected here before or shortly after it lands in code.

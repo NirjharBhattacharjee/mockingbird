@@ -84,6 +84,20 @@ export const mockingbirdHome = (env = process.env) =>
   env.MOCKINGBIRD_HOME ?? join(homedir(), ".mockingbird");
 
 /**
+ * A free port on this Mac, for a whisper-server of its own. The agent's is on
+ * 8771; a one-off run (`transcribe`, `mcp`) that started its own there would
+ * fail to bind, get its health check answered by the agent's, and quietly
+ * keep that server busy, so dictation would wait behind a long file.
+ */
+export function freePort(): number {
+  // ponytail: another process could take it before whisper-server does; rare on one Mac.
+  const probe = Bun.serve({ port: 0, fetch: () => new Response() });
+  const port = probe.port as number;
+  probe.stop(true);
+  return port;
+}
+
+/**
  * Which cleanup model to run: MOCKINGBIRD_LLM_MODEL if set, then the one
  * `mockingbird models use` saved, then the default.
  */

@@ -105,6 +105,15 @@ mechanical guarantee, per [ARCHITECTURE.md §9](./ARCHITECTURE.md#9-everything-i
   print the exact URL being fetched (Hugging Face / ggml repos), and never
   run silently in the background (this rules out silent auto-update checks
   too — see [§16 of ARCHITECTURE.md](./ARCHITECTURE.md#16-known-gaps--scope-not-yet-decided)).
+- **`mockingbird mcp` hands text to an AI client, and the client decides
+  where it goes** ([MCP.md](./MCP.md)). The server opens no port: the client
+  starts it and talks over stdin/stdout. It runs only when the user has
+  registered it with a client, and mockingbird itself still calls no model.
+  But a transcript it returns to a client backed by a cloud model goes to
+  that model's provider, as if the user had pasted it there. That's the
+  user's choice in their own tool, not a network call mockingbird makes, and
+  the docs say so where the server is set up. Its `transcribe` reads any file
+  path the client passes; the client can already read those files itself.
 - **The stack rule in [ARCHITECTURE.md §3](./ARCHITECTURE.md#3-technology-stack)
   is itself a security control**: every dependency is either code we wrote
   (auditable) or a binary we `fetch()`/`spawn()`/load as a prebuilt module
