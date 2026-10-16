@@ -30,8 +30,11 @@ export function maxRecordingMs(env = process.env): number {
  * filled, say), or when mockingbird stops. A crash leaves a `.part` file that
  * still plays; the next start finishes it.
  */
+type Running = { path: string; encoder: Encoder; timer: Timer; reminder: Timer };
+
 export class Recordings {
-  private current: { path: string; encoder: Encoder; timer: Timer; reminder: Timer } | undefined;
+  private current: Running | undefined;
+  private saving: Promise<string | undefined> | undefined;
   readonly dir: string;
 
   constructor(
@@ -82,13 +85,25 @@ export class Recordings {
     this.current?.encoder.write(samples);
   }
 
-  /** Stops the running recording and returns its file, or undefined if none was running. */
-  async stop(why?: string): Promise<string | undefined> {
+  /**
+   * Stops the running recording and returns its file, or undefined if none was
+   * running. A stop that comes while one is saving (the time limit firing as
+   * the user stops, say) gets that save's file too.
+   */
+  stop(why?: string): Promise<string | undefined> {
     const current = this.current;
-    if (!current) return undefined;
+    if (!current) return this.saving ?? Promise.resolve(undefined);
     this.current = undefined;
     clearTimeout(current.timer);
     clearInterval(current.reminder);
+    const saving = this.save(current, why).finally(() => {
+      if (this.saving === saving) this.saving = undefined;
+    });
+    this.saving = saving;
+    return saving;
+  }
+
+  private async save(current: Running, why?: string): Promise<string | undefined> {
     const code = await current.encoder.finish();
     this.options.cue("record-stop");
     try {

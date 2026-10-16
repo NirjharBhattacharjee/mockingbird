@@ -42,7 +42,8 @@ test("a recording is a .part file until it stops, then the name it said", async 
   expect(statSync(join(home, "recordings")).mode & 0o777).toBe(0o700);
   recordings.push(new Int16Array([1, 2, 3]));
   expect(existsSync(`${path}.part`)).toBe(true);
-  expect(await recordings.stop()).toBe(path);
+  // Two stops at once (the limit firing as the user stops): both get the file.
+  expect(await Promise.all([recordings.stop(), recordings.stop()])).toEqual([path, path]);
   expect(statSync(path).size).toBe(6);
   expect(await recordings.stop()).toBeUndefined();
 
