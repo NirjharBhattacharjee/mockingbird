@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { KEYCODE_ESCAPE, KEYCODE_FN } from "@mockingbird/hotkey";
+import { KEYCODE_ESCAPE, KEYCODE_FN, KEYCODE_R } from "@mockingbird/hotkey";
 import { HotkeyFsm } from "../src/hotkey-fsm.ts";
 
 const fnDown = (at: number) => ({ type: "fn-down", at }) as const;
 const fnUp = (at: number) => ({ type: "fn-up", at }) as const;
 const escapeKey = (at: number) => ({ type: "key-down", keycode: KEYCODE_ESCAPE, at }) as const;
+const rKey = (at: number) => ({ type: "key-down", keycode: KEYCODE_R, at }) as const;
 
 describe("HotkeyFsm", () => {
   test("hold to talk: recording starts on press and stops on release", () => {
@@ -72,6 +73,27 @@ describe("HotkeyFsm", () => {
     fsm.handle(fnDown(1_250));
     expect(fsm.state).toBe("CAPTURE_LOCK");
     expect(fsm.handle(escapeKey(2_000))).toBe("cancel");
+    expect(fsm.state).toBe("IDLE");
+  });
+
+  test("Fn+R toggles a recording and drops the dictation the press began", () => {
+    const fsm = new HotkeyFsm();
+    // R inside the tap window: the press was armed, never a dictation.
+    fsm.handle(fnDown(0));
+    expect(fsm.handle(rKey(100))).toBe("record");
+    expect(fsm.recording).toBe(false);
+    // Releasing Fn neither stops a dictation nor counts as a tap.
+    expect(fsm.handle(fnUp(150))).toBeUndefined();
+    expect(fsm.state).toBe("IDLE");
+    expect(fsm.handle(fnDown(250))).toBe("start");
+    expect(fsm.state).toBe("ARMED");
+
+    // R after the press became a hold: same.
+    fsm.tick(500);
+    expect(fsm.state).toBe("CAPTURE_PTT");
+    expect(fsm.handle(rKey(800))).toBe("record");
+    expect(fsm.recording).toBe(false);
+    expect(fsm.handle(fnUp(900))).toBeUndefined();
     expect(fsm.state).toBe("IDLE");
   });
 

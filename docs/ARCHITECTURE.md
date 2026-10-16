@@ -64,6 +64,7 @@ it is not a design doc that gets abandoned once code exists.
 | 2026-10-16 | Recordings (#89, the command half). `mockingbird record` and `record stop` ask the agent over its socket (`POST /record/start`, `/record/stop`, `GET /record`), since the agent owns the microphone. The agent copies the capture stream dictation already reads into an ffmpeg encoder (`startEncoder` in `packages/audio`), so dictating during a recording opens nothing new and cuts no gap. Files are fragmented MP4, flushed every packet: one cut off by a crash still plays, and the next start renames its `.part` file into place. A recording stops on `record stop`, after 3 hours, when ffmpeg exits, or when the agent stops. The Fn+R hotkey from the issue isn't built: the tap is listen-only, so Fn+R also types an "R" into the focused app. A key that types nothing comes later. |
 | 2026-10-16 | A recording has both sides of a call (#94). `mockingbird record` starts a system-audio tap in a child process (`startSystemAudio` in `packages/audio`) and the encoder mixes its device into the microphone with `amix`. A crash in the tap loses system audio, not dictation; a tap that won't start leaves the recording microphone only. `mockingbird.app` gains `NSAudioCaptureUsageDescription`, without which the tap records silence; adding it rebuilds the bundle, so an upgrade re-asks for the three permissions once. Details in [§16](#16-known-gaps--scope-not-yet-decided). |
 | 2026-10-16 | Shorts over MCP (#95). `transcribe` takes `from`/`to` and `words` (each word's start and end, from Whisper's word times), a new `render` tool cuts and joins clips with one ffmpeg run, crops to 9:16 and adds captions, and a `make_short` prompt (MCP prompts, so `initialize` now declares `prompts`) tells the client how to use them together. The client picks the moments and writes the captions; mockingbird makes no editing choices. Homebrew's ffmpeg has no libass, so `render` checks `ffmpeg -filters` and, without `subtitles`, adds the captions as a `mov_text` track plus an `.srt` instead of drawing them on. Output names are claimed with an exclusive create, because tool calls run side by side and two renders could otherwise write the same file. |
+| 2026-10-16 | Fn+R starts and stops a recording (#89). The tap now reports R while Fn is held, and only then, and drops that R (press, repeats, release) so the focused app never types it. Dropping needs a tap that can block keys, which needs Accessibility; without it the tap falls back to listen-only and logs that Fn+R types an "r" as well. Blocking costs nothing per key: the callback runs on the tap's own worker, which does nothing else. The tap also switches itself back on when macOS turns it off for being slow. Measured with synthetic events and a second tap appended after ours: on `main`, both the Fn+R and a plain R reached apps; on this branch only the plain R did. In the FSM (§5), R moves any state to `CHORD`, which drops a dictation the press began and makes the release do nothing. |
 
 ---
 
@@ -250,8 +251,17 @@ stateDiagram-v2
     ARMED --> IDLE: Esc (abort)
     CAPTURE_PTT --> IDLE: Esc (abort, discard)
     CAPTURE_LOCK --> IDLE: Esc (abort, discard)
+    ARMED --> CHORD: R (Fn+R: start or stop a recording)
+    CAPTURE_PTT --> CHORD: R (dictation discarded)
+    CHORD --> IDLE: fn↑ (nothing to stop)
 ```
 
+Fn+R starts or stops a recording (`mockingbird record`), whatever the press
+had begun: a dictation it started is discarded, and releasing Fn does nothing.
+A hands-free dictation already running is different: the Fn press stops it as
+usual, before R arrives, so its words are typed rather than lost. An R held
+from before Fn went down stays an ordinary key; whether it's Fn+R is settled by
+R's first press, not its repeats.
 `TAP_WAIT`'s 300ms window is what distinguishes a double-tap (lock mode) from
 two rapid push-to-talks. This FSM lives entirely on the daemon's main thread
 and is the single source of truth for what mockingbird is currently doing —

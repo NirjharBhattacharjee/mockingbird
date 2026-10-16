@@ -105,6 +105,7 @@ Accessibility, Microphone). Grant them to **mockingbird**, then run
 |---|---|
 | **Fn** (hold) | Record while held |
 | **Fn** (double-tap) | Record hands-free until you press **Fn** again |
+| **Fn+R** | Start or stop recording a meeting to a file ([more](docs/README.md#mockingbird-record-record-a-meeting-to-a-file)) |
 
 A rising **tink** means it's recording, a falling **pop** means it's
 transcribing, and a low **basso** means it couldn't type the text.

@@ -434,6 +434,21 @@ export async function startSession(options: SessionOptions): Promise<Session> {
     );
   };
 
+  /**
+   * Fn+R. Presses queue, so one made while a recording is still starting
+   * stops it once it has. Only the socket's owner records, so a `listen`
+   * beside the agent doesn't start a second.
+   */
+  let toggling: Promise<unknown> = Promise.resolve();
+  const toggleRecording = () => {
+    if (!dictionaryEdits) return notify("Fn+R: recordings belong to the mockingbird agent");
+    toggling = toggling
+      .then(() => (recordings.active ? recordings.stop("Fn+R") : recordings.start()))
+      .catch((error) =>
+        notify(`recording failed: ${error instanceof Error ? error.message : String(error)}`),
+      );
+  };
+
   let hotkey: HotkeyListener | undefined;
   if (hotkeyAllowed) {
     hotkey = startHotkeyListener({
@@ -448,14 +463,20 @@ export async function startSession(options: SessionOptions): Promise<Session> {
         if (action === "start") controller.startRecording();
         else if (action === "stop") controller.stopRecording();
         else if (action === "cancel") controller.cancelRecording();
+        else if (action === "record") {
+          controller.cancelRecording();
+          capturing = false; // the recording's own sound plays instead of the stop beep
+          toggleRecording();
+        }
         syncCue();
         scheduleTick();
       },
       onError: (error) => notify(`Fn key unavailable: ${error.message}`),
     });
     try {
-      await hotkey.ready;
+      const { hidesKeys } = await hotkey.ready;
       watchingInput = true;
+      if (!hidesKeys) notify("Fn+R types an r as well: switch on Accessibility to stop it");
     } catch (error) {
       notify(`Fn key unavailable: ${error instanceof Error ? error.message : String(error)}`);
       await hotkey.stop();

@@ -79,7 +79,10 @@ prints the cleaned-up text with no timestamps. The MCP server adds the
 timestamps, word times, the video stills, cutting and the dictionary, and
 works in clients that have no shell.
 
-## Not yet
+## Recording a meeting
 
-Recording a meeting with mockingbird itself (Fn+R, #89), and capturing the
-other side of a call (system audio, #90).
+Press Fn+R (or run `mockingbird record`) to start, and again (or
+`mockingbird record stop`) to stop. The recording is saved under
+`~/.mockingbird/recordings/`; hand its path to `transcribe`. It has both
+sides of a call when system audio starts, and only your microphone when it
+doesn't: the log says `recording to … , with system audio` for the first.
