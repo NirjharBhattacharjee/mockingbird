@@ -11,6 +11,7 @@ export {
   KEYCODE_ESCAPE,
   KEYCODE_FN,
   KEYCODE_GLOBE,
+  KEYCODE_R,
   requestInputMonitoring,
   TapDecoder,
   type TapEvent,

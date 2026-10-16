@@ -149,12 +149,16 @@ something the OS permission model itself prevents. Anyone auditing this
 project for trust should start at `packages/hotkey/src/event-tap.ts`, the most
 security-sensitive file in the repo. As implemented today, that file:
 
-- creates the tap with `kCGEventTapOptionListenOnly`, so events are observed
-  and never modified or swallowed;
-- **drops the keycode of every key except Fn and Esc inside the tap
-  callback**, so no other key's identity is ever passed on, stored, or
-  logged: the filter is one function (`TapDecoder.decode`), deliberately easy
-  to verify;
+- creates the tap with `kCGEventTapOptionDefault`, which may drop events, and
+  drops exactly one: R while Fn is held (Fn+R starts or stops a recording),
+  so the focused app doesn't type it. Every other event passes through
+  unmodified. Without Accessibility, which a blocking tap needs, it falls back
+  to `kCGEventTapOptionListenOnly` and Fn+R types an "r" as well;
+- **drops the keycode of every key except Fn, Esc, and R while Fn is held
+  inside the tap callback**, so no other key's identity is ever passed on,
+  stored, or logged, and an "r" typed without Fn is as anonymous as any other
+  key: the filter is one function (`TapDecoder.decode`), deliberately easy to
+  verify;
 - reduces every other key press and every mouse click to a bare "input
   happened" with a timestamp and whether it was a key or a click, and no key,
   character, or position. A key press within 300ms of Fn is taken as part of
@@ -162,7 +166,7 @@ security-sensitive file in the repo. As implemented today, that file:
   use is deciding whether the text cursor may have moved since the last
   dictation (see below). Fn, the 🌐 key, and the key events mockingbird types
   itself (marked with `TYPED_EVENT_MARK`) don't count;
-- never records typed characters, only Fn/Esc identity and timing.
+- never records typed characters, only Fn/Esc/Fn+R identity and timing.
 
 Typing into other apps (Accessibility) is the mirror image of that risk, and
 lives in `packages/inject/src/typing.ts`. As implemented today it:

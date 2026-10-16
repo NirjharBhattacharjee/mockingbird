@@ -1,4 +1,4 @@
-import { KEYCODE_ESCAPE, type TapEvent } from "@mockingbird/hotkey";
+import { KEYCODE_ESCAPE, KEYCODE_R, type TapEvent } from "@mockingbird/hotkey";
 
 export type HotkeyState =
   | "IDLE"
@@ -7,9 +7,12 @@ export type HotkeyState =
   /** Waiting to see if a second tap arrives, which means lock mode. */
   | "TAP_WAIT"
   | "CAPTURE_PTT"
-  | "CAPTURE_LOCK";
+  | "CAPTURE_LOCK"
+  /** Fn is still down after Fn+R; its release does nothing. */
+  | "CHORD";
 
-export type HotkeyAction = "start" | "stop" | "cancel";
+/** `record` starts or stops a recording (Fn+R); a dictation it interrupted is dropped. */
+export type HotkeyAction = "start" | "stop" | "cancel" | "record";
 
 export type HotkeyFsmOptions = {
   /** Fn held at least this long is a hold, not a tap. */
@@ -58,6 +61,13 @@ export class HotkeyFsm {
       return "cancel";
     }
 
+    // The tap reports R only while Fn is held, so a hold or tap that R joins
+    // was never meant as dictation.
+    if (event.type === "key-down" && event.keycode === KEYCODE_R) {
+      this.enter("CHORD", event.at);
+      return "record";
+    }
+
     if (event.type === "fn-down") {
       switch (this.current) {
         case "IDLE":
@@ -88,6 +98,9 @@ export class HotkeyFsm {
         case "CAPTURE_PTT":
           this.enter("IDLE", event.at);
           return "stop";
+        case "CHORD":
+          this.enter("IDLE", event.at);
+          return undefined;
         default:
           return undefined;
       }

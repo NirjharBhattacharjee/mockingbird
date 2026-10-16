@@ -10,7 +10,7 @@ self.addEventListener("message", (event: MessageEvent) => {
 
 try {
   const tap = createEventTap((tapEvent: TapEvent) => self.postMessage(tapEvent));
-  self.postMessage({ type: "ready" });
+  self.postMessage({ type: "ready", hidesKeys: tap.hidesKeys });
   while (running) tap.poll(0.25);
   tap.close();
 } catch (error) {

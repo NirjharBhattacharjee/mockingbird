@@ -1,8 +1,11 @@
 import { EventTapError, type TapEvent } from "./event-tap.ts";
 
 export type HotkeyListener = {
-  /** Resolves once the tap is watching, or rejects if macOS refused. */
-  ready: Promise<void>;
+  /**
+   * Resolves once the tap is watching, or rejects if macOS refused.
+   * `hidesKeys` is false when Fn+R's R reaches the focused app too.
+   */
+  ready: Promise<{ hidesKeys: boolean }>;
   stop(): Promise<void>;
 };
 
@@ -23,8 +26,9 @@ export function startHotkeyListener({
 }: HotkeyListenerOptions): HotkeyListener {
   const worker = new Worker(new URL("./tap.worker.ts", import.meta.url).href, { type: "module" });
 
-  let settle: { resolve: () => void; reject: (error: Error) => void } | undefined;
-  const ready = new Promise<void>((resolve, reject) => {
+  type Ready = { hidesKeys: boolean };
+  let settle: { resolve: (ready: Ready) => void; reject: (error: Error) => void } | undefined;
+  const ready = new Promise<Ready>((resolve, reject) => {
     settle = { resolve, reject };
   });
   const timer = setTimeout(() => {
@@ -33,10 +37,13 @@ export function startHotkeyListener({
   }, readyTimeoutMs);
 
   worker.addEventListener("message", (event: MessageEvent) => {
-    const data = event.data as TapEvent | { type: "ready" } | { type: "error"; message: string };
+    const data = event.data as
+      | TapEvent
+      | ({ type: "ready" } & Ready)
+      | { type: "error"; message: string };
     if (data.type === "ready") {
       clearTimeout(timer);
-      settle?.resolve();
+      settle?.resolve({ hidesKeys: data.hidesKeys });
       settle = undefined;
     } else if (data.type === "error") {
       const error = new EventTapError(data.message);

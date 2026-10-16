@@ -8,8 +8,12 @@ const IOKIT = "/System/Library/Frameworks/IOKit.framework/IOKit";
 
 const kCGSessionEventTap = 1;
 const kCGHeadInsertEventTap = 0;
-/** Listen-only: events are observed, never modified or swallowed. */
+/** May drop events (Fn+R's R); needs Accessibility. */
+const kCGEventTapOptionDefault = 0;
+/** Events are observed, never dropped: the fallback when Accessibility is off. */
 const kCGEventTapOptionListenOnly = 1;
+/** Sent instead of an event when macOS switches the tap off (it was slow, or by user input). */
+const kCGEventTapDisabledByTimeout = 0xfffffffe;
 const kCGKeyboardEventKeycode = 9;
 const kCGEventSourceUserData = 42;
 const kCGEventFlagMaskSecondaryFn = 0x800000;
@@ -32,6 +36,8 @@ export const KEYCODE_FN = 63;
 /** The 🌐 key on newer Apple keyboards, which a quick Fn tap can also produce. */
 export const KEYCODE_GLOBE = 179;
 export const KEYCODE_ESCAPE = 53;
+/** R, reported only while Fn is held: Fn+R starts and stops a recording. */
+export const KEYCODE_R = 15;
 
 export type TapEvent =
   | { type: "fn-down" | "fn-up"; at: number }
@@ -52,15 +58,19 @@ export const EVENT_TYPE_FLAGS_CHANGED = EVENT_FLAGS_CHANGED;
 export const EVENT_TYPE_LEFT_MOUSE_DOWN = EVENT_LEFT_MOUSE_DOWN;
 
 /**
- * Decides which raw macOS events become hotkey events. Fn and Esc are passed
- * on; every other key press and mouse click becomes a bare `input` with its
- * keycode and position dropped here, so which key was pressed is never passed
- * on, stored, or logged (docs/SECURITY_PRIVACY.md §4). Fn, 🌐, and the key
- * events mockingbird types itself don't count as input. Kept separate from the
- * FFI callback so it can be tested.
+ * Decides which raw macOS events become hotkey events. Fn, Esc, and R while Fn
+ * is held are passed on; every other key press and mouse click becomes a bare
+ * `input` with its keycode and position dropped here, so which key was pressed
+ * is never passed on, stored, or logged (docs/SECURITY_PRIVACY.md §4). Fn, 🌐,
+ * and the key events mockingbird types itself don't count as input. Kept
+ * separate from the FFI callback so it can be tested.
  */
 export class TapDecoder {
   private fnDown = false;
+  /** R went down while Fn was held and hasn't come up yet. */
+  private rHeld = false;
+  /** Set by decode(): the event is Fn+R's R, which the focused app shouldn't get. */
+  hide = false;
 
   decode(
     type: number,
@@ -69,6 +79,7 @@ export class TapDecoder {
     at: number,
     userData = 0,
   ): TapEvent | undefined {
+    this.hide = false;
     if (MOUSE_DOWN.has(type)) return { type: "input", source: "click", at };
     if (type === EVENT_FLAGS_CHANGED) {
       if (keycode !== KEYCODE_FN) return undefined;
@@ -79,6 +90,18 @@ export class TapDecoder {
       return { type: down ? "fn-down" : "fn-up", at };
     }
     if (type === EVENT_KEY_DOWN || type === EVENT_KEY_UP) {
+      if (keycode === KEYCODE_R && userData !== TYPED_EVENT_MARK && (this.fnDown || this.rHeld)) {
+        // Fn+R: the press, its repeats and its release are all hidden (even if
+        // Fn comes up first), and only the first press is reported.
+        this.hide = true;
+        if (type === EVENT_KEY_UP) {
+          this.rHeld = false;
+          return undefined;
+        }
+        if (this.rHeld) return undefined;
+        this.rHeld = true;
+        return { type: "key-down", keycode, at };
+      }
       if (keycode === KEYCODE_ESCAPE) {
         return { type: type === EVENT_KEY_DOWN ? "key-down" : "key-up", keycode, at };
       }
@@ -146,20 +169,30 @@ export type EventTap = {
   /** Runs the macOS run loop for up to `seconds`, delivering events to the callback. */
   poll(seconds: number): void;
   close(): void;
+  /** Whether Fn+R's R is kept from the focused app; false without Accessibility. */
+  hidesKeys: boolean;
 };
 
 /**
- * Creates a listen-only keyboard and mouse tap that reports the Fn key, Esc,
- * and that some other input happened, without which. The caller drives it with poll(), which blocks the current
- * thread — run it on a worker, not the main thread.
+ * Creates a keyboard and mouse tap that reports the Fn key, Esc, R while Fn is
+ * held, and that some other input happened, without which. It drops Fn+R's R
+ * and passes every other event through untouched; without Accessibility it
+ * falls back to listening only, and the R is typed too. The caller drives it
+ * with poll(), which blocks the current thread — run it on a worker, not the
+ * main thread.
  */
 export function createEventTap(onEvent: (event: TapEvent) => void): EventTap {
   const cf = loadCoreFoundation();
   const cg = loadApplicationServices();
   const decoder = new TapDecoder();
+  let tap: ReturnType<typeof cg.symbols.CGEventTapCreate> = null;
 
   const callback = new JSCallback(
     (_proxy: number, type: number, event: number) => {
+      if (type >= kCGEventTapDisabledByTimeout) {
+        if (tap) cg.symbols.CGEventTapEnable(tap, true);
+        return event;
+      }
       const keycode = Number(
         cg.symbols.CGEventGetIntegerValueField(event as never, kCGKeyboardEventKeycode),
       );
@@ -169,19 +202,23 @@ export function createEventTap(onEvent: (event: TapEvent) => void): EventTap {
       );
       const decoded = decoder.decode(type, keycode, flags, Date.now(), userData);
       if (decoded) onEvent(decoded);
-      return event;
+      return decoder.hide ? null : event;
     },
     { args: [FFIType.ptr, FFIType.u32, FFIType.ptr, FFIType.ptr], returns: FFIType.ptr },
   );
 
-  const tap = cg.symbols.CGEventTapCreate(
-    kCGSessionEventTap,
-    kCGHeadInsertEventTap,
-    kCGEventTapOptionListenOnly,
-    EVENT_MASK,
-    callback.ptr as never,
-    null,
-  );
+  const create = (option: number) =>
+    cg.symbols.CGEventTapCreate(
+      kCGSessionEventTap,
+      kCGHeadInsertEventTap,
+      option,
+      EVENT_MASK,
+      callback.ptr as never,
+      null,
+    );
+  tap = create(kCGEventTapOptionDefault);
+  const hidesKeys = Boolean(tap);
+  tap ??= create(kCGEventTapOptionListenOnly);
   if (!tap) {
     callback.close();
     cf.close();
@@ -206,11 +243,12 @@ export function createEventTap(onEvent: (event: TapEvent) => void): EventTap {
   cg.symbols.CGEventTapEnable(tap, true);
 
   return {
+    hidesKeys,
     poll(seconds: number) {
       cf.symbols.CFRunLoopRunInMode(mode as never, seconds, false);
     },
     close() {
-      cg.symbols.CGEventTapEnable(tap, false);
+      if (tap) cg.symbols.CGEventTapEnable(tap, false);
       callback.close();
       cf.close();
       cg.close();

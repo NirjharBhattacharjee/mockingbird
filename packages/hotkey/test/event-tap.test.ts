@@ -9,6 +9,7 @@ import {
   KEYCODE_ESCAPE,
   KEYCODE_FN,
   KEYCODE_GLOBE,
+  KEYCODE_R,
   TapDecoder,
 } from "../src/index.ts";
 
@@ -67,6 +68,31 @@ describe("TapDecoder", () => {
     });
   });
 
+  test("Fn+R is reported once and its R hidden, press to release", () => {
+    const decoder = new TapDecoder();
+    const r = (type: number, at: number, userData = 0) =>
+      decoder.decode(type, KEYCODE_R, FLAGS_FN_DOWN, at, userData);
+    decoder.decode(EVENT_TYPE_FLAGS_CHANGED, KEYCODE_FN, FLAGS_FN_DOWN, 1);
+    expect(r(EVENT_TYPE_KEY_DOWN, 2)).toEqual({ type: "key-down", keycode: KEYCODE_R, at: 2 });
+    expect(decoder.hide).toBe(true);
+    // A held R repeats: hidden, but not a second toggle.
+    expect(r(EVENT_TYPE_KEY_DOWN, 3)).toBeUndefined();
+    expect(decoder.hide).toBe(true);
+    // Fn released before R: the R's release is still kept from the app.
+    decoder.decode(EVENT_TYPE_FLAGS_CHANGED, KEYCODE_FN, FLAGS_FN_UP, 4);
+    expect(decoder.hide).toBe(false);
+    expect(r(EVENT_TYPE_KEY_UP, 5)).toBeUndefined();
+    expect(decoder.hide).toBe(true);
+
+    // Without Fn, R is ordinary typing.
+    expect(r(EVENT_TYPE_KEY_DOWN, 6)).toEqual({ type: "input", source: "key", at: 6 });
+    expect(decoder.hide).toBe(false);
+    // An "r" mockingbird types while Fn happens to be held goes through.
+    decoder.decode(EVENT_TYPE_FLAGS_CHANGED, KEYCODE_FN, FLAGS_FN_DOWN, 7);
+    expect(r(EVENT_TYPE_KEY_DOWN, 8, TYPED_EVENT_MARK)).toBeUndefined();
+    expect(decoder.hide).toBe(false);
+  });
+
   test("never passes on which other key was pressed", () => {
     const decoder = new TapDecoder();
     // Letters, digits, punctuation, modifiers, function keys: a password typed
@@ -79,6 +105,7 @@ describe("TapDecoder", () => {
         source: "key",
         at: keycode,
       });
+      expect(decoder.hide).toBe(false);
       expect(decoder.decode(EVENT_TYPE_KEY_UP, keycode, 0, keycode)).toBeUndefined();
     }
   });

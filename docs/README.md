@@ -248,12 +248,14 @@ mockingbird record        # starts, with a sound, and prints where the file goes
 mockingbird record stop   # stops, and prints the file
 ```
 
-Recordings go to `~/.mockingbird/recordings/`, as `2026-10-15-1430.m4a`
+Or press **Fn+R** to start, and **Fn+R** again to stop; the file is named in
+the log. The "r" isn't typed into the app in front, as long as mockingbird
+has Accessibility. Recordings go to `~/.mockingbird/recordings/`, as `2026-10-15-1430.m4a`
 (about 22 MB an hour), and stay until you delete them. Holding Fn still
 dictates while one runs. A reminder sound plays every 30 minutes, and a
 recording stops by itself after 3 hours (`MOCKINGBIRD_RECORD_MAX_HOURS`).
-`mockingbird status` shows one that's running. It's your microphone only, so
-on a call it hears your side. **Only record people who agreed to it:** in
+`mockingbird status` shows one that's running. It records your microphone
+and what the Mac plays, so on a call it has both sides. **Only record people who agreed to it:** in
 many places, recording a conversation without everyone's consent is
 illegal.
 
