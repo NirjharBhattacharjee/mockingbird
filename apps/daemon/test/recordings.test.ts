@@ -1,5 +1,13 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Encoder, encoderArgs, startEncoder } from "@mockingbird/audio";
@@ -28,7 +36,9 @@ function fakeEncoder(path: string): Encoder & { die(code: number): void } {
 
 test("a recordings folder made open before is made private on the next start", async () => {
   const home = mkdtempSync(join(tmpdir(), "mb-rec-"));
-  mkdirSync(join(home, "recordings"), { mode: 0o755 });
+  mkdirSync(join(home, "recordings"));
+  chmodSync(join(home, "recordings"), 0o755); // whatever the umask
+  expect(statSync(join(home, "recordings")).mode & 0o777).toBe(0o755);
   const recordings = new Recordings(home, {
     log: () => {},
     cue: () => {},
