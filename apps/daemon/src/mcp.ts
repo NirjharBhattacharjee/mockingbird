@@ -365,9 +365,13 @@ const srtFor = (video: string) => join(dirname(video), `${basename(video, extnam
 /** Claims `video`, and its .srt too if `sidecar`; claims neither if either is taken. */
 function claimAll(video: string, sidecar: boolean): boolean {
   if (!claim(video)) return false;
-  if (!sidecar || claim(srtFor(video))) return true;
-  rmSync(video);
-  return false;
+  let both = false;
+  try {
+    both = !sidecar || claim(srtFor(video));
+  } finally {
+    if (!both) rmSync(video, { force: true });
+  }
+  return both;
 }
 
 /** `out`, or `<name>-short-N.mp4` next to the source with the first N that's free; claimed. */
@@ -438,15 +442,15 @@ async function render(
         `ffmpeg couldn't render ${target}: ${(await new Response(proc.stderr).text()).trim()}`,
       );
     }
-    made = true;
     const length = fineClock((await probe(target)).seconds * 1000);
+    // Over the empty file outputFor claimed.
+    if (srt && !burn) copyFileSync(srt, srtFor(target));
+    made = true;
     if (!srt) return `${target} (${length})`;
     if (burn) return `${target} (${length}), captions drawn on the picture`;
-    // Over the empty file outputFor claimed.
-    copyFileSync(srt, srtFor(target));
     return `${target} (${length}), captions as a subtitle track and in ${srtFor(target)}. This ffmpeg can't draw them onto the picture (it has no libass); an editor such as CapCut can burn in the .srt.`;
   } finally {
-    // The claimed names stay only if ffmpeg made the video.
+    // The claimed names stay only if the video and its .srt were both made.
     if (!made) {
       rmSync(target, { force: true });
       if (text && !burn) rmSync(srtFor(target), { force: true });
