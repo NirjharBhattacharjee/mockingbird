@@ -306,7 +306,10 @@ time. Both are tracked in [§9](#9-hardening-roadmap).
   everything the Mac plays (#94): on a call, that's the other people's
   voices too. It's encoded to
   `~/.mockingbird/recordings/<date>-<time>.m4a` in a `0700` folder, and kept
-  until you delete it: nothing expires or uploads it. A recording can't start
+  until you delete it: nothing expires or uploads it. Every start sets the
+  folder to `0700`, including one that already existed with looser
+  permissions (`Recordings.begin()`), since `mkdir` leaves an existing
+  folder as it was. A recording can't start
   silently: its start and stop sounds play even with `MOCKINGBIRD_CUES=0`, a
   reminder plays every 30 minutes, macOS shows its orange microphone dot, and
   `mockingbird status` says `● recording`. It stops by itself after 3 hours
