@@ -47,14 +47,21 @@ const FALLBACK_ASR_MODELS = [
   "ggml-base.en.bin",
 ];
 
+/** A Whisper model file in models/: `ggml-*.bin`, a name and not a path. */
+export const isWhisperFile = (name: string) =>
+  /^ggml-[^/]+\.bin$/.test(name) && !name.includes("..");
+
 /**
  * The Whisper model to load. One named in MOCKINGBIRD_ASR_MODEL has to exist;
- * without it, the default, or else the best earlier default that's installed.
+ * without it, the one `mockingbird models use speech` saved, then the default,
+ * or else the best earlier default that's installed. A saved file that's since
+ * been deleted falls through with a warning: dictation shouldn't stop over it.
  */
 export function findAsrModel(
   models: string,
   configured: string | undefined,
   log: (message: string) => void,
+  saved?: string,
 ): string {
   if (configured) {
     return requireFile(
@@ -62,6 +69,10 @@ export function findAsrModel(
       "Whisper model",
       SETUP_HINT,
     );
+  }
+  if (saved) {
+    if (isWhisperFile(saved) && existsSync(join(models, saved))) return join(models, saved);
+    log(`warning: the transcription model you picked, ${saved}, isn't in ${models} anymore.`);
   }
   const preferred = join(models, DEFAULT_ASR_MODEL);
   if (existsSync(preferred)) return preferred;
@@ -135,12 +146,13 @@ export async function startEngines(
   log: (message: string) => void,
   dictionary: DictionaryEntry[] = [],
   savedModel?: string,
+  savedAsrModel?: string,
 ): Promise<Engines> {
   const env = process.env;
   const models = join(mockingbirdHome(env), "models");
   // MOCKINGBIRD_ASR_MODEL takes a path, or a file name inside models/, so a
   // smaller model can be used on a slower Mac without touching the code.
-  const whisperModel = findAsrModel(models, env.MOCKINGBIRD_ASR_MODEL, log);
+  const whisperModel = findAsrModel(models, env.MOCKINGBIRD_ASR_MODEL, log, savedAsrModel);
   const vadModel = requireFile(join(models, "silero_vad.onnx"), "Silero VAD model", SETUP_HINT);
   const llmUrl = env.MOCKINGBIRD_LLM_URL ?? "http://127.0.0.1:11434";
   const llm = new OllamaProvider(llmUrl, cleanupModel(savedModel, env), 60_000);

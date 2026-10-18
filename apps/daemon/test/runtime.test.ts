@@ -35,6 +35,27 @@ describe("findAsrModel", () => {
     );
   });
 
+  test("the saved choice comes before the default; a deleted one falls back, with a warning", () => {
+    const models = modelsWith(DEFAULT_ASR_MODEL, "ggml-base.en.bin");
+    const logged: string[] = [];
+    expect(findAsrModel(models, undefined, (m) => logged.push(m), "ggml-base.en.bin")).toBe(
+      join(models, "ggml-base.en.bin"),
+    );
+    // The environment still wins over it.
+    expect(findAsrModel(models, DEFAULT_ASR_MODEL, () => {}, "ggml-base.en.bin")).toBe(
+      join(models, DEFAULT_ASR_MODEL),
+    );
+    expect(findAsrModel(models, undefined, (m) => logged.push(m), "ggml-gone.bin")).toBe(
+      join(models, DEFAULT_ASR_MODEL),
+    );
+    expect(logged).toEqual([expect.stringContaining("ggml-gone.bin, isn't in")]);
+    // A saved value that isn't a Whisper file is ignored too.
+    writeFileSync(join(models, "silero_vad.onnx"), "");
+    expect(findAsrModel(models, undefined, () => {}, "silero_vad.onnx")).toBe(
+      join(models, DEFAULT_ASR_MODEL),
+    );
+  });
+
   test("a model asked for by name has to exist", () => {
     const models = modelsWith("ggml-base.en.bin");
     expect(() => findAsrModel(models, "ggml-small.en-q5_1.bin", () => {})).toThrow("not found");

@@ -239,6 +239,29 @@ home screen. Neither needs the IPC socket.
 - Not built yet (#50): the install ending on this screen, which needs #49 to
   put the Go command in place first.
 
+### Model picker (built)
+- Opens when `mockingbird models` runs with no other arguments in a terminal
+  of at least 52×16 (`apps/cli/models.go`). Smaller, piped, or an engine
+  without `models --json` gets the plain list instead.
+- Two tabs, **Cleanup** and **Transcription**, the active one `mauve`, the
+  other `overlay0`. Cleanup lists the models Ollama has that write text, best
+  measured first; Transcription lists the Whisper files in
+  `~/.mockingbird/models`, largest first, named `large-v3-turbo Q8_0` rather
+  than by file. Only installed models are listed: the picker downloads
+  nothing. No eval scores are shown; MODELS.md §7a has them.
+- Each row has the name, the size, `● in use` in `green` and `default` in
+  `subtext0`. Each tab's cursor starts on the model in use.
+- `←`/`→`, `h`/`l` or `Tab` switch tabs; `↑`/`↓` or `k`/`j` move; `Enter`
+  switches to the model under the cursor by running `models use <name>` or
+  `models use speech <file>`, which saves it through the agent and restarts
+  it. A busy line in `sky` says so, and the engine's reply follows in `green`
+  (or `red` if it failed); the list then reloads. `Enter` on the model in use
+  does nothing, and on the default row it sends `--default`, clearing the
+  choice so a later release's default still applies. `q`, `Esc` or `Ctrl+C`
+  quit, and the picker erases itself.
+- An empty tab says why: Ollama not answering (`mockingbird start` starts it),
+  or no Whisper file yet (`mockingbird models pull`).
+
 ### Guided setup (built)
 - `mockingbird setup`, in a terminal of at least 80×20, or `setup` from the
   home screen. Smaller terminals and piped output get the same steps as text.

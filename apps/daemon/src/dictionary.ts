@@ -7,8 +7,14 @@ import { mockingbirdHome } from "./runtime.ts";
 /** Where the daemon listens for dictionary edits, inside the mockingbird home. */
 const SOCKET = "mockingbird.sock";
 
-/** The settings key `mockingbird models use` writes. */
+/** The settings keys `mockingbird models use` writes. */
 export const LLM_MODEL_SETTING = "llm_model";
+export const ASR_MODEL_SETTING = "asr_model";
+/** What each one is called in the reply. */
+const MODEL_SETTINGS: Record<string, string> = {
+  [LLM_MODEL_SETTING]: "cleanup model",
+  [ASR_MODEL_SETTING]: "transcription model",
+};
 
 const USAGE = `Usage: mockingbird dictionary [list | add <entry> | remove <term> | forget]
 
@@ -171,11 +177,15 @@ export async function serveDictionary(
         } else if (pathname === "/dictionary/forget") {
           const forgotten = store.forgetLearned();
           reply = `forgot ${forgotten} learned word${forgotten === 1 ? "" : "s"} and every correction`;
-        } else if (pathname === `/settings/${LLM_MODEL_SETTING}`) {
+        } else if (
+          pathname.startsWith("/settings/") &&
+          Object.hasOwn(MODEL_SETTINGS, pathname.slice(10))
+        ) {
           // Only settings a command writes; the model applies on the next start.
+          const key = pathname.slice(10);
           const model = body.trim() || undefined;
-          store.setSetting(LLM_MODEL_SETTING, model);
-          return new Response(model ? `cleanup model: ${model}` : "cleanup model: the default");
+          store.setSetting(key, model);
+          return new Response(`${MODEL_SETTINGS[key]}: ${model ?? "the default"}`);
         } else {
           return new Response("not found", { status: 404 });
         }

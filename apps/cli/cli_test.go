@@ -354,3 +354,91 @@ func TestSetupOffersFnWhenUnset(t *testing.T) {
 		t.Errorf("freeing an unset Fn doesn't end on the log out:\n%s", screen)
 	}
 }
+
+// TestModelsPicker feeds the picker what `models --json` would say and walks
+// it with the keys. No engine command runs: the commands the model returns
+// are never executed, so Enter is checked by what it sets busy to.
+func TestModelsPicker(t *testing.T) {
+	list := modelListing{
+		Cleanup: []modelEntry{
+			{Name: "qwen3:4b-instruct-2507-q4_K_M", Size: 2_500_000_000, IsDefault: true},
+			{Name: "gemma3:1b", Size: 800_000_000, InUse: true},
+		},
+		Transcription: []modelEntry{
+			{Name: "large-v3 Q5_0", File: "ggml-large-v3-q5_0.bin", Size: 1_081_000_000, InUse: true, IsDefault: true},
+			{Name: "base.en", File: "ggml-base.en.bin", Size: 148_000_000},
+		},
+	}
+	feed := func(m tea.Model, msg tea.Msg) modelsModel { m, _ = m.Update(msg); return m.(modelsModel) }
+	key := func(code rune) tea.Msg { return tea.KeyPressMsg{Code: code} }
+
+	m := feed(newModels([]string{"bun", "cli.ts"}, list), tea.WindowSizeMsg{Width: modelsCols, Height: modelsRows})
+	screen := escapes.ReplaceAllString(m.render(), "")
+	if m.cursor != [2]int{1, 0} {
+		t.Errorf("cursors %v, want each tab's on the model in use", m.cursor)
+	}
+	if !strings.Contains(screen, "▸ gemma3:1b") || strings.Contains(screen, "/37") {
+		t.Errorf("cleanup tab doesn't point at the model in use, or shows scores:\n%s", screen)
+	}
+
+	// Enter on the model in use does nothing.
+	if m = feed(m, key(tea.KeyEnter)); m.busy != "" {
+		t.Errorf("enter on the model in use started %q", m.busy)
+	}
+	// Up to the default, Enter switches to it.
+	m = feed(feed(m, key(tea.KeyUp)), key(tea.KeyEnter))
+	if !strings.Contains(m.busy, "switching to qwen3") {
+		t.Errorf("enter on another model: busy %q", m.busy)
+	}
+	// Keys wait while it switches; the reply then shows, and the list reloads.
+	m = feed(m, key(tea.KeyRight))
+	if m.tab != 0 {
+		t.Error("a tab switch got through while busy")
+	}
+	m = feed(m, switchedMsg{"cleanup model: qwen3:4b-instruct-2507-q4_K_M", true})
+	list.Cleanup[0].InUse, list.Cleanup[1].InUse = true, false
+	m = feed(m, listingMsg(list))
+	if m.busy != "" || m.cursor[0] != 0 || !strings.Contains(m.render(), "cleanup model: qwen3") {
+		t.Errorf("after the switch: busy %q, cursor %d", m.busy, m.cursor[0])
+	}
+
+	// The Transcription tab, its Enter naming the file.
+	m = feed(m, key(tea.KeyRight))
+	screen = escapes.ReplaceAllString(m.render(), "")
+	if m.tab != 1 || !strings.Contains(screen, "▸ large-v3 Q5_0") || !strings.Contains(screen, "● in use") {
+		t.Errorf("transcription tab:\n%s", screen)
+	}
+	m = feed(feed(m, key(tea.KeyDown)), key(tea.KeyEnter))
+	if !strings.Contains(m.busy, "switching to base.en") {
+		t.Errorf("enter on base.en: busy %q", m.busy)
+	}
+	// A failed switch says so, and leaves the keys free.
+	m = feed(m, switchedMsg{"mockingbird isn't running, so the choice can't be saved.", false})
+	if m.busy != "" || !m.noteBad {
+		t.Errorf("a failed switch: busy %q, bad %v", m.busy, m.noteBad)
+	}
+	for _, line := range strings.Split(escapes.ReplaceAllString(m.render(), ""), "\n") {
+		if n := len([]rune(line)); n > modelsCols {
+			t.Errorf("%d columns: %q", n, line)
+		}
+	}
+
+	// Ollama down: the cleanup tab says why, the other still works.
+	down := feed(newModels([]string{"bun", "cli.ts"}, modelListing{
+		CleanupError:  "Ollama isn't answering at http://127.0.0.1:11434. `mockingbird start` starts it.",
+		Transcription: list.Transcription,
+	}), tea.WindowSizeMsg{Width: 60})
+	if screen := escapes.ReplaceAllString(down.render(), ""); !strings.Contains(screen, "Ollama isn't answering") {
+		t.Errorf("Ollama down doesn't say so:\n%s", screen)
+	}
+	// ↓ on the empty tab, then a reload with models but none in use: the
+	// cursor stays in range, and Enter neither panics nor does nothing odd.
+	down = feed(down, key(tea.KeyDown))
+	if down = feed(down, key(tea.KeyEnter)); down.busy != "" || down.cursor[0] != 0 {
+		t.Errorf("enter on an empty tab: busy %q, cursor %d", down.busy, down.cursor[0])
+	}
+	down = feed(down, listingMsg(modelListing{Cleanup: []modelEntry{{Name: "gemma3:1b"}}}))
+	if down = feed(down, key(tea.KeyEnter)); !strings.Contains(down.busy, "switching to gemma3:1b") {
+		t.Errorf("after the reload, enter: busy %q", down.busy)
+	}
+}

@@ -4,13 +4,14 @@ import {
   existsSync,
   mkdirSync,
   openSync,
+  readdirSync,
   renameSync,
   rmSync,
   statSync,
   writeSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import {
   isLocalUrl,
   listOllamaModels,
@@ -19,8 +20,15 @@ import {
   startOllamaServer,
 } from "@mockingbird/llm";
 import { openStore } from "@mockingbird/store";
-import { LLM_MODEL_SETTING, tellDaemon } from "./dictionary.ts";
-import { cleanupModel, DEFAULT_ASR_MODEL, DEFAULT_LLM_MODEL, mockingbirdHome } from "./runtime.ts";
+import { ASR_MODEL_SETTING, LLM_MODEL_SETTING, tellDaemon } from "./dictionary.ts";
+import {
+  cleanupModel,
+  DEFAULT_ASR_MODEL,
+  DEFAULT_LLM_MODEL,
+  findAsrModel,
+  isWhisperFile,
+  mockingbirdHome,
+} from "./runtime.ts";
 
 /** `name` is what the progress line calls it. */
 export type ModelFile = { name: string; file: string; url: string; sha256: string };
@@ -274,14 +282,14 @@ export const MEASURED: Record<string, { dev: number; holdout: number }> = {
   "gemma3:1b": { dev: 26, holdout: 10 },
 };
 
-/** The model `mockingbird models use` saved, read without writing to data.db. */
-export function savedModel(home = mockingbirdHome()): string | undefined {
+/** A model `mockingbird models use` saved, read without writing to data.db. */
+export function savedModel(home = mockingbirdHome(), key = LLM_MODEL_SETTING): string | undefined {
   const path = join(home, "data.db");
   if (!existsSync(path)) return undefined;
   try {
     const store = openStore(path, { readonly: true });
     try {
-      return store.setting(LLM_MODEL_SETTING);
+      return store.setting(key);
     } finally {
       store.close();
     }
@@ -296,6 +304,9 @@ export type ModelsDeps = {
   list?: (url: string) => Promise<{ name: string; size: number; writes: boolean }[]>;
   tell?: (path: string, body: string) => Promise<Response>;
   saved?: () => string | undefined;
+  savedSpeech?: () => string | undefined;
+  /** Where the Whisper files are; `~/.mockingbird/models` by default. */
+  modelsDir?: string;
   out?: (line: string) => void;
   log?: (message: string) => void;
   env?: Record<string, string | undefined>;
@@ -303,63 +314,164 @@ export type ModelsDeps = {
 
 const gb = (bytes: number) => `${(bytes / 1e9).toFixed(1)} GB`;
 
+/** `ggml-large-v3-turbo-q8_0.bin` → `large-v3-turbo Q8_0`. */
+export function speechName(file: string): string {
+  return file
+    .replace(/^ggml-/, "")
+    .replace(/\.bin$/, "")
+    .replace(/-(q\d\w*|f16)$/i, (_, quant: string) => ` ${quant.toUpperCase()}`);
+}
+
+export type ModelListing = {
+  cleanup: { name: string; size: number; inUse: boolean; isDefault: boolean }[];
+  transcription: { name: string; file: string; size: number; inUse: boolean; isDefault: boolean }[];
+  /** Why the cleanup list is empty, when Ollama couldn't be asked. */
+  cleanupError?: string;
+};
+
 /**
- * `mockingbird models` lists the cleanup models Ollama has; `models use
- * <name>` switches the agent to one, and `models use --default` back.
+ * Both kinds of model on this Mac, for the picker and the plain list. Cleanup
+ * models are the ones Ollama has that write text, best measured first; speech
+ * models are the Whisper files in models/. The one in use is what the agent
+ * picks at start: the environment, then the saved choice, then the default.
+ */
+export async function listModels(deps: ModelsDeps): Promise<ModelListing> {
+  const env = deps.env ?? process.env;
+  const url = env.MOCKINGBIRD_LLM_URL ?? "http://127.0.0.1:11434";
+  const cleanupInUse = cleanupModel((deps.saved ?? savedModel)(), env);
+  let cleanup: ModelListing["cleanup"] = [];
+  let cleanupError: string | undefined;
+  try {
+    const rank = (n: string) => MEASURED[n]?.dev ?? -1;
+    cleanup = (await (deps.list ?? listOllamaModels)(url))
+      .filter((m) => m.writes)
+      .sort((a, b) => rank(b.name) - rank(a.name) || a.name.localeCompare(b.name))
+      .map(({ name, size }) => ({
+        name,
+        size,
+        inUse: name === cleanupInUse,
+        isDefault: name === DEFAULT_LLM_MODEL,
+      }));
+  } catch {
+    cleanupError = `Ollama isn't answering at ${url}. \`mockingbird start\` starts it.`;
+  }
+
+  const dir = deps.modelsDir ?? join(mockingbirdHome(env), "models");
+  let files: string[] = [];
+  try {
+    files = readdirSync(dir).filter(isWhisperFile);
+  } catch {
+    // No models folder yet: `mockingbird models pull` makes it.
+  }
+  let speechInUse: string | undefined;
+  try {
+    const saved = (deps.savedSpeech ?? (() => savedModel(undefined, ASR_MODEL_SETTING)))();
+    speechInUse = basename(findAsrModel(dir, env.MOCKINGBIRD_ASR_MODEL, () => {}, saved));
+  } catch {
+    // None installed: nothing is in use.
+  }
+  // Largest first, so the most accurate leads.
+  // An entry that can't be read (a broken link, a file deleted meanwhile) is
+  // left out rather than failing the whole list.
+  const transcription = files
+    .flatMap((file) => {
+      try {
+        return [{ file, size: statSync(join(dir, file)).size }];
+      } catch {
+        return [];
+      }
+    })
+    .map(({ file, size }) => ({
+      name: speechName(file),
+      file,
+      size,
+      inUse: file === speechInUse,
+      isDefault: file === DEFAULT_ASR_MODEL,
+    }))
+    .sort((a, b) => b.size - a.size);
+  return { cleanup, transcription, ...(cleanupError ? { cleanupError } : {}) };
+}
+
+/**
+ * `mockingbird models` lists both kinds of model (`--json` for the Go
+ * command's picker); `models use <name>` switches the cleanup model, `models
+ * use speech <file>` the transcription model, and `--default` goes back.
  */
 export async function modelsCommand(args: string[], deps: ModelsDeps): Promise<number> {
   const env = deps.env ?? process.env;
   const out = deps.out ?? ((l: string) => console.log(l));
   const log = deps.log ?? ((m: string) => console.error(m));
-  const url = env.MOCKINGBIRD_LLM_URL ?? "http://127.0.0.1:11434";
-  const inUse = cleanupModel((deps.saved ?? savedModel)(), env);
-  const list = async () => {
-    try {
-      return await (deps.list ?? listOllamaModels)(url);
-    } catch {
-      log(`Ollama isn't answering at ${url}. \`mockingbird start\` starts it.`);
-      return undefined;
-    }
-  };
 
-  if (args.length === 0) {
-    const models = (await list())?.filter((m) => m.writes);
-    if (!models) return 1;
-    const rank = (n: string) => MEASURED[n]?.dev ?? -1;
-    models.sort((a, b) => rank(b.name) - rank(a.name) || a.name.localeCompare(b.name));
-    const width = Math.max(13, ...models.map((m) => m.name.length)) + 2;
-    out(`${"cleanup model".padEnd(width)}${"size".padEnd(9)}dev    held-out`);
-    for (const { name, size } of models) {
-      const m = MEASURED[name];
-      const score = m
-        ? `${`${m.dev}/37`.padEnd(7)}${`${m.holdout}/16`.padEnd(9)}`
-        : "not measured".padEnd(16);
-      const row = `${name.padEnd(width)}${gb(size).padEnd(9)}${score}${name === inUse ? "in use" : ""}`;
-      out(row.trimEnd());
+  if (args.length === 0 || (args.length === 1 && args[0] === "--json")) {
+    const listing = await listModels(deps);
+    if (args[0] === "--json") {
+      out(JSON.stringify(listing));
+      return 0;
     }
-    if (!models.some((m) => m.name === inUse)) {
-      out(`\nIn use: ${inUse}, which isn't in Ollama yet. \`mockingbird models pull\` gets it.`);
+    const mark = (m: { inUse: boolean; isDefault: boolean }) =>
+      [m.inUse && "in use", m.isDefault && "default"].filter(Boolean).join(", ");
+    const table = (
+      title: string,
+      rows: { name: string; size: number; inUse: boolean; isDefault: boolean }[],
+    ) => {
+      const width = Math.max(title.length, ...rows.map((r) => r.name.length)) + 2;
+      out(`${title.padEnd(width)}size`);
+      for (const r of rows)
+        out(`${r.name.padEnd(width)}${gb(r.size).padEnd(9)}${mark(r)}`.trimEnd());
+    };
+    if (listing.cleanupError) log(listing.cleanupError);
+    else table("cleanup model", listing.cleanup);
+    const inUse = cleanupModel((deps.saved ?? savedModel)(), env);
+    if (!listing.cleanupError && !listing.cleanup.some((m) => m.inUse)) {
+      out(`In use: ${inUse}, which isn't in Ollama yet. \`mockingbird models pull\` gets it.`);
+    }
+    out("");
+    if (listing.transcription.length === 0) {
+      out("No transcription model yet. `mockingbird models pull` downloads one.");
+    } else {
+      table(
+        "transcription model",
+        listing.transcription.map((t) => ({ ...t, name: t.file })),
+      );
     }
     out(
-      `\nSwitch with \`mockingbird models use <name>\`; \`--default\` goes back to ${DEFAULT_LLM_MODEL}.`,
+      "\nSwitch with `mockingbird models use <name>` or `mockingbird models use speech <file>`;" +
+        " `--default` goes back. In a terminal, `mockingbird models` lets you pick instead.",
     );
     return 0;
   }
 
   const [verb, name, ...extra] = args;
-  if (verb !== "use" || !name || extra.length > 0) {
-    log("usage: mockingbird models | models use <name> | models use --default | models pull");
+  const speech = verb === "use" && name === "speech";
+  const choice = speech ? extra[0] : name;
+  if (verb !== "use" || !choice || extra.length > (speech ? 1 : 0)) {
+    log(
+      "usage: mockingbird models | models use <name> | models use speech <file> | models use [speech] --default | models pull",
+    );
     return 2;
   }
   let model: string | undefined;
-  if (name !== "--default") {
-    const models = await list();
-    if (!models) return 1;
+  if (speech && choice !== "--default") {
+    const dir = deps.modelsDir ?? join(mockingbirdHome(env), "models");
+    if (!isWhisperFile(choice) || !existsSync(join(dir, choice))) {
+      log(`${choice} isn't in ${dir}. \`mockingbird models\` lists the ones that are.`);
+      return 1;
+    }
+    model = choice;
+  } else if (!speech && choice !== "--default") {
+    let models: Awaited<ReturnType<NonNullable<ModelsDeps["list"]>>>;
+    const url = env.MOCKINGBIRD_LLM_URL ?? "http://127.0.0.1:11434";
+    try {
+      models = await (deps.list ?? listOllamaModels)(url);
+    } catch {
+      log(`Ollama isn't answering at ${url}. \`mockingbird start\` starts it.`);
+      return 1;
+    }
     // "gemma3" means what Ollama calls "gemma3:latest".
-    const found = models.find((m) => m.name === name || m.name === `${name}:latest`);
+    const found = models.find((m) => m.name === choice || m.name === `${choice}:latest`);
     if (!found) {
       log(
-        `Ollama doesn't have ${name}. Pull it with \`ollama pull ${name}\`, then run this again.`,
+        `Ollama doesn't have ${choice}. Pull it with \`ollama pull ${choice}\`, then run this again.`,
       );
       return 1;
     }
@@ -374,7 +486,7 @@ export async function modelsCommand(args: string[], deps: ModelsDeps): Promise<n
   let reply: Response;
   try {
     reply = await (deps.tell ?? ((p, b) => tellDaemon(p, b)))(
-      `/settings/${LLM_MODEL_SETTING}`,
+      `/settings/${speech ? ASR_MODEL_SETTING : LLM_MODEL_SETTING}`,
       model ?? "",
     );
   } catch {
@@ -388,9 +500,10 @@ export async function modelsCommand(args: string[], deps: ModelsDeps): Promise<n
     return 1;
   }
   log(await reply.text());
-  if (env.MOCKINGBIRD_LLM_MODEL) {
+  const override = speech ? "MOCKINGBIRD_ASR_MODEL" : "MOCKINGBIRD_LLM_MODEL";
+  if (env[override]) {
     log(
-      `note: MOCKINGBIRD_LLM_MODEL=${env.MOCKINGBIRD_LLM_MODEL} is set in this shell and wins ` +
+      `note: ${override}=${env[override]} is set in this shell and wins ` +
         "over this choice. Unset it, then `mockingbird restart`.",
     );
   }

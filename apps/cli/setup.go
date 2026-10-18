@@ -59,7 +59,12 @@ func newSetup(engine []string) setupModel {
 
 // call runs one engine command and hands its output to f as a message.
 func (m setupModel) call(f func(out []byte, err error) tea.Msg, args ...string) tea.Cmd {
-	engine := m.engine
+	return callEngine(m.engine, f, args...)
+}
+
+// callEngine runs one engine command (engine is bun and the engine's cli.ts)
+// and hands its output to f as a message.
+func callEngine(engine []string, f func(out []byte, err error) tea.Msg, args ...string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()

@@ -12,7 +12,13 @@ import { type Cue, cues, playCue } from "@mockingbird/cue";
 import { type HotkeyListener, startHotkeyListener } from "@mockingbird/hotkey";
 import { prepareForTyping, typeText } from "@mockingbird/inject";
 import type { AppStyle } from "@mockingbird/llm";
-import { LLM_MODEL_SETTING, openDaemonStore, recordUses, serveDictionary } from "./dictionary.ts";
+import {
+  ASR_MODEL_SETTING,
+  LLM_MODEL_SETTING,
+  openDaemonStore,
+  recordUses,
+  serveDictionary,
+} from "./dictionary.ts";
 import { HotkeyFsm } from "./hotkey-fsm.ts";
 import { CorrectionWatcher, correctionsIn, learnFrom, markEnd, markStart } from "./learn.ts";
 import { ListenController } from "./listen-controller.ts";
@@ -171,6 +177,7 @@ export async function startSession(options: SessionOptions): Promise<Session> {
     options.log,
     store?.dictionary(),
     store?.setting(LLM_MODEL_SETTING),
+    store?.setting(ASR_MODEL_SETTING),
   );
   // Its sounds play even with cues off: a recording never starts silently.
   const recordings = new Recordings(mockingbirdHome(), {
