@@ -10,6 +10,7 @@ import {
   pullFile,
   pullModels,
   sha256Of,
+  speechName,
 } from "../src/models.ts";
 
 const tempDir = () => mkdtempSync(join(tmpdir(), "mockingbird-pull-"));
@@ -356,11 +357,22 @@ describe("modelsCommand", () => {
     { name: "qwen3:4b-instruct-2507-q4_K_M", size: 2.5e9, writes: true },
   ];
   /** Deps that answer like a running mockingbird and Ollama, and record what they're told. */
-  function fake(saved?: string, env: Record<string, string | undefined> = {}) {
+  function fake(
+    saved?: string,
+    env: Record<string, string | undefined> = {},
+    savedSpeech?: string,
+  ) {
     const lines: string[] = [];
     const told: string[] = [];
     let restarted = 0;
+    // Two Whisper files, sizes in bytes as written, and the VAD model, which isn't one.
+    const modelsDir = tempDir();
+    writeFileSync(join(modelsDir, "ggml-large-v3-q5_0.bin"), "x".repeat(30));
+    writeFileSync(join(modelsDir, "ggml-base.en.bin"), "x".repeat(10));
+    writeFileSync(join(modelsDir, "silero_vad.onnx"), "x");
     const deps = {
+      modelsDir,
+      savedSpeech: () => savedSpeech,
       restart: async () => {
         restarted++;
         return 0;
@@ -378,7 +390,7 @@ describe("modelsCommand", () => {
     return { deps, lines, told, restarts: () => restarted };
   }
 
-  test("lists the measured models first, with scores, and marks the one in use", async () => {
+  test("lists both kinds, best first, marks the one in use, and shows no scores", async () => {
     const f = fake("gemma3:1b");
     expect(await modelsCommand([], f.deps)).toBe(0);
     expect(f.lines.slice(1, 4).map((l) => l.split(/\s+/)[0])).toEqual([
@@ -386,9 +398,66 @@ describe("modelsCommand", () => {
       "gemma3:1b",
       "mistral:instruct",
     ]);
-    expect(f.lines[2]).toMatch(/26\/37\s+10\/16\s+in use$/);
-    expect(f.lines[3]).toContain("not measured");
-    expect(f.lines.join("\n")).not.toContain("nomic-embed-text");
+    expect(f.lines[1]).toMatch(/default$/);
+    expect(f.lines[2]).toMatch(/in use$/);
+    const all = f.lines.join("\n");
+    expect(all).not.toContain("nomic-embed-text");
+    expect(all).not.toMatch(/\/37|\/16|held-out|not measured/);
+    // The default Whisper file is in use, since nothing else was picked.
+    expect(all).toMatch(/ggml-large-v3-q5_0\.bin\s+0\.0 GB\s+in use, default/);
+    expect(all).toContain("ggml-base.en.bin");
+    expect(all).not.toContain("silero_vad");
+  });
+
+  test("--json gives the picker both lists, with names it can show", async () => {
+    const f = fake(undefined, {}, "ggml-base.en.bin");
+    expect(await modelsCommand(["--json"], f.deps)).toBe(0);
+    const listing = JSON.parse(f.lines[0] as string);
+    expect(listing.cleanup.map((m: { name: string }) => m.name)[0]).toBe(
+      "qwen3:4b-instruct-2507-q4_K_M",
+    );
+    expect(listing.transcription).toEqual([
+      {
+        name: "large-v3 Q5_0",
+        file: "ggml-large-v3-q5_0.bin",
+        size: 30,
+        inUse: false,
+        isDefault: true,
+      },
+      { name: "base.en", file: "ggml-base.en.bin", size: 10, inUse: true, isDefault: false },
+    ]);
+  });
+
+  test("with Ollama down, the transcription models still list", async () => {
+    const f = fake();
+    f.deps.list = async () => {
+      throw new Error("ECONNREFUSED");
+    };
+    expect(await modelsCommand(["--json"], f.deps)).toBe(0);
+    const listing = JSON.parse(f.lines[0] as string);
+    expect(listing.cleanup).toEqual([]);
+    expect(listing.cleanupError).toContain("`mockingbird start`");
+    expect(listing.transcription).toHaveLength(2);
+  });
+
+  test("use speech saves the transcription model, and refuses a file that isn't there", async () => {
+    const f = fake();
+    expect(await modelsCommand(["use", "speech", "ggml-base.en.bin"], f.deps)).toBe(0);
+    expect(f.told).toEqual(["/settings/asr_model ggml-base.en.bin"]);
+    expect(f.restarts()).toBe(1);
+    expect(await modelsCommand(["use", "speech", "--default"], f.deps)).toBe(0);
+    expect(f.told.at(-1)).toBe("/settings/asr_model ");
+
+    const missing = fake();
+    expect(await modelsCommand(["use", "speech", "ggml-tiny.bin"], missing.deps)).toBe(1);
+    expect(await modelsCommand(["use", "speech", "../data.db"], missing.deps)).toBe(1);
+    expect(missing.told).toEqual([]);
+  });
+
+  test("names Whisper files the way a person would", () => {
+    expect(speechName("ggml-large-v3-turbo-q8_0.bin")).toBe("large-v3-turbo Q8_0");
+    expect(speechName("ggml-small.en-q5_1.bin")).toBe("small.en Q5_1");
+    expect(speechName("ggml-large-v3.bin")).toBe("large-v3");
   });
 
   test("use saves the choice through the daemon and restarts the agent", async () => {

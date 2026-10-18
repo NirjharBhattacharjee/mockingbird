@@ -61,6 +61,14 @@ func run(args []string) int {
 		}
 		return 0
 	}
+	if len(args) == 1 && args[0] == "models" && fits(modelsCols, modelsRows) {
+		if list, err := loadModels(argv[:2]); err == nil {
+			if _, err := tea.NewProgram(newModels(argv[:2], list)).Run(); err != nil {
+				return fail(err)
+			}
+			return 0
+		}
+	}
 	if len(args) == 1 && args[0] == "start" && canAnimate() {
 		return startWithSplash(argv)
 	}
@@ -140,6 +148,15 @@ const (
 const (
 	homeCols = 40
 	homeRows = 20
+)
+
+// The model picker: the title, the tabs, a row per model (seven Whisper files
+// at most so far), a note and the key hints. 52 columns fit a row's size and
+// both marks with a 16-column name, and the key hints. Smaller, the engine
+// prints the plain list.
+const (
+	modelsCols = 52
+	modelsRows = 16
 )
 
 // fits is whether stdin and stdout are a terminal of at least cols×rows.

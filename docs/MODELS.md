@@ -331,19 +331,22 @@ everything else in this file). Tracked as undecided, not silently assumed.
   `onnxruntime-node` is treated as a fixed part of the pipeline, not a
   configurable choice, since its cost/accuracy profile isn't a tradeoff most
   users need to tune.
-- **The cleanup model is picked with `mockingbird models`.** On its own it
-  lists the models Ollama has that can write text (embedding models are left
-  out), with the eval's pass counts from §7a for the ones measured, and marks
-  the one in use. `mockingbird models use <name>` saves the choice as
-  `llm_model` in the `settings` table, through the daemon (the only writer to
-  `data.db`), and restarts the agent; `--default` deletes it.
-  `MOCKINGBIRD_LLM_MODEL`, when set, still wins, and `models use` says so.
-  `mockingbird models pull` pulls whichever model is in use. A model nobody
-  has evaluated works the same way: it shows as "not measured", and running
-  `bun run eval:cleanup` with it set gives its numbers.
-- The Whisper model has no command yet: it's `MOCKINGBIRD_ASR_MODEL`. A
-  `models use speech <model>` is planned once there's more than one speech
-  backend ([#51](https://github.com/NirjharBhattacharjee/mockingbird/issues/51), #56).
+- **Both models are picked with `mockingbird models`.** In a terminal it's a
+  picker with a Cleanup tab and a Transcription tab (TUI.md §5); otherwise it
+  prints both lists. Cleanup lists the models Ollama has that can write text
+  (embedding models are left out), best measured first; Transcription lists
+  the Whisper files in `~/.mockingbird/models`. Only installed models show,
+  and no scores: those are in §7a.
+- `mockingbird models use <name>` saves the cleanup model as `llm_model`, and
+  `mockingbird models use speech <file>` the transcription model as
+  `asr_model`, in the `settings` table, through the daemon (the only writer to
+  `data.db`); each restarts the agent, and `--default` deletes the choice.
+  `MOCKINGBIRD_LLM_MODEL` and `MOCKINGBIRD_ASR_MODEL`, when set, still win,
+  and `models use` says so. A saved Whisper file that's since been deleted
+  falls back to the default, with a warning in the log.
+- `mockingbird models pull` pulls whichever cleanup model is in use, and the
+  default Whisper model. A cleanup model nobody has evaluated works the same
+  way; running `bun run eval:cleanup` with it set gives its numbers.
 
 ### 7a. Which models, measured (2026-10-03)
 

@@ -52,7 +52,7 @@ export const COMMANDS: { name: string; summary: string }[] = [
   {
     name: "models",
     summary:
-      "the cleanup models Ollama has, with their scores\n(`mockingbird models use <name>` switches)",
+      "pick the cleanup and transcription models\n(`models use <name>`, `models use speech <file>` without a terminal)",
   },
   {
     name: "models pull",
