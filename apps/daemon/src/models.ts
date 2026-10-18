@@ -371,11 +371,20 @@ export async function listModels(deps: ModelsDeps): Promise<ModelListing> {
     // None installed: nothing is in use.
   }
   // Largest first, so the most accurate leads.
+  // An entry that can't be read (a broken link, a file deleted meanwhile) is
+  // left out rather than failing the whole list.
   const transcription = files
-    .map((file) => ({
+    .flatMap((file) => {
+      try {
+        return [{ file, size: statSync(join(dir, file)).size }];
+      } catch {
+        return [];
+      }
+    })
+    .map(({ file, size }) => ({
       name: speechName(file),
       file,
-      size: statSync(join(dir, file)).size,
+      size,
       inUse: file === speechInUse,
       isDefault: file === DEFAULT_ASR_MODEL,
     }))

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -438,6 +438,17 @@ describe("modelsCommand", () => {
     expect(listing.cleanup).toEqual([]);
     expect(listing.cleanupError).toContain("`mockingbird start`");
     expect(listing.transcription).toHaveLength(2);
+  });
+
+  test("a Whisper entry that can't be read is left out, not the whole list", async () => {
+    const f = fake();
+    symlinkSync(join(f.deps.modelsDir, "nowhere"), join(f.deps.modelsDir, "ggml-broken.bin"));
+    expect(await modelsCommand(["--json"], f.deps)).toBe(0);
+    const listing = JSON.parse(f.lines[0] as string);
+    expect(listing.transcription.map((t: { file: string }) => t.file)).toEqual([
+      "ggml-large-v3-q5_0.bin",
+      "ggml-base.en.bin",
+    ]);
   });
 
   test("use speech saves the transcription model, and refuses a file that isn't there", async () => {
