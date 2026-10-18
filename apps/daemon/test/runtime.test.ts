@@ -49,6 +49,11 @@ describe("findAsrModel", () => {
       join(models, DEFAULT_ASR_MODEL),
     );
     expect(logged).toEqual([expect.stringContaining("ggml-gone.bin, isn't in")]);
+    // A saved value that isn't a Whisper file is ignored too.
+    writeFileSync(join(models, "silero_vad.onnx"), "");
+    expect(findAsrModel(models, undefined, () => {}, "silero_vad.onnx")).toBe(
+      join(models, DEFAULT_ASR_MODEL),
+    );
   });
 
   test("a model asked for by name has to exist", () => {

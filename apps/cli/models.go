@@ -78,7 +78,10 @@ func newModels(engine []string, list modelListing) modelsModel {
 func (m *modelsModel) setList(list modelListing) {
 	m.list = list
 	for tab := range modelTabs {
-		for i, e := range m.entries(tab) {
+		rows := m.entries(tab)
+		// A shorter list after a reload mustn't leave the cursor past its end.
+		m.cursor[tab] = max(0, min(m.cursor[tab], len(rows)-1))
+		for i, e := range rows {
 			if e.InUse {
 				m.cursor[tab] = i
 			}
@@ -140,9 +143,9 @@ func (m modelsModel) key(k string) (tea.Model, tea.Cmd) {
 	case "up", "k":
 		m.cursor[m.tab] = max(0, m.cursor[m.tab]-1)
 	case "down", "j":
-		m.cursor[m.tab] = min(len(rows)-1, m.cursor[m.tab]+1)
+		m.cursor[m.tab] = max(0, min(len(rows)-1, m.cursor[m.tab]+1))
 	case "enter":
-		if len(rows) == 0 || rows[m.cursor[m.tab]].InUse {
+		if m.cursor[m.tab] >= len(rows) || rows[m.cursor[m.tab]].InUse {
 			return m, nil
 		}
 		chosen := rows[m.cursor[m.tab]]

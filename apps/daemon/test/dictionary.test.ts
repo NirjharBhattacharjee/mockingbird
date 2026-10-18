@@ -150,6 +150,11 @@ test("the socket saves the cleanup model choice, and an empty one clears it", as
     expect(savedModel(home)).toBe("gemma3:1b");
     await tellDaemon("/settings/llm_model", "", home);
     expect(savedModel(home)).toBeUndefined();
+    // The transcription model saves the same way; an inherited name isn't a setting.
+    expect(await (await tellDaemon("/settings/asr_model", "ggml-base.en.bin", home)).text()).toBe(
+      "transcription model: ggml-base.en.bin",
+    );
+    expect((await tellDaemon("/settings/toString", "x", home)).status).toBe(404);
   } finally {
     server?.stop();
     store.close();

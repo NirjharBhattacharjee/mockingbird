@@ -451,6 +451,8 @@ describe("modelsCommand", () => {
     const missing = fake();
     expect(await modelsCommand(["use", "speech", "ggml-tiny.bin"], missing.deps)).toBe(1);
     expect(await modelsCommand(["use", "speech", "../data.db"], missing.deps)).toBe(1);
+    // There, but not a Whisper model: whisper-server would fail on it at start.
+    expect(await modelsCommand(["use", "speech", "silero_vad.onnx"], missing.deps)).toBe(1);
     expect(missing.told).toEqual([]);
   });
 

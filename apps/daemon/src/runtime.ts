@@ -47,6 +47,10 @@ const FALLBACK_ASR_MODELS = [
   "ggml-base.en.bin",
 ];
 
+/** A Whisper model file in models/: `ggml-*.bin`, a name and not a path. */
+export const isWhisperFile = (name: string) =>
+  /^ggml-[^/]+\.bin$/.test(name) && !name.includes("..");
+
 /**
  * The Whisper model to load. One named in MOCKINGBIRD_ASR_MODEL has to exist;
  * without it, the one `mockingbird models use speech` saved, then the default,
@@ -67,7 +71,7 @@ export function findAsrModel(
     );
   }
   if (saved) {
-    if (existsSync(join(models, saved))) return join(models, saved);
+    if (isWhisperFile(saved) && existsSync(join(models, saved))) return join(models, saved);
     log(`warning: the transcription model you picked, ${saved}, isn't in ${models} anymore.`);
   }
   const preferred = join(models, DEFAULT_ASR_MODEL);

@@ -431,7 +431,14 @@ func TestModelsPicker(t *testing.T) {
 	if screen := escapes.ReplaceAllString(down.render(), ""); !strings.Contains(screen, "Ollama isn't answering") {
 		t.Errorf("Ollama down doesn't say so:\n%s", screen)
 	}
-	if down = feed(down, key(tea.KeyEnter)); down.busy != "" {
-		t.Error("enter on an empty tab did something")
+	// ↓ on the empty tab, then a reload with models but none in use: the
+	// cursor stays in range, and Enter neither panics nor does nothing odd.
+	down = feed(down, key(tea.KeyDown))
+	if down = feed(down, key(tea.KeyEnter)); down.busy != "" || down.cursor[0] != 0 {
+		t.Errorf("enter on an empty tab: busy %q, cursor %d", down.busy, down.cursor[0])
+	}
+	down = feed(down, listingMsg(modelListing{Cleanup: []modelEntry{{Name: "gemma3:1b"}}}))
+	if down = feed(down, key(tea.KeyEnter)); !strings.Contains(down.busy, "switching to gemma3:1b") {
+		t.Errorf("after the reload, enter: busy %q", down.busy)
 	}
 }

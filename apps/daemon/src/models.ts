@@ -26,6 +26,7 @@ import {
   DEFAULT_ASR_MODEL,
   DEFAULT_LLM_MODEL,
   findAsrModel,
+  isWhisperFile,
   mockingbirdHome,
 } from "./runtime.ts";
 
@@ -358,7 +359,7 @@ export async function listModels(deps: ModelsDeps): Promise<ModelListing> {
   const dir = deps.modelsDir ?? join(mockingbirdHome(env), "models");
   let files: string[] = [];
   try {
-    files = readdirSync(dir).filter((f) => f.startsWith("ggml-") && f.endsWith(".bin"));
+    files = readdirSync(dir).filter(isWhisperFile);
   } catch {
     // No models folder yet: `mockingbird models pull` makes it.
   }
@@ -443,7 +444,7 @@ export async function modelsCommand(args: string[], deps: ModelsDeps): Promise<n
   let model: string | undefined;
   if (speech && choice !== "--default") {
     const dir = deps.modelsDir ?? join(mockingbirdHome(env), "models");
-    if (!existsSync(join(dir, choice)) || choice.includes("/")) {
+    if (!isWhisperFile(choice) || !existsSync(join(dir, choice))) {
       log(`${choice} isn't in ${dir}. \`mockingbird models\` lists the ones that are.`);
       return 1;
     }

@@ -177,7 +177,10 @@ export async function serveDictionary(
         } else if (pathname === "/dictionary/forget") {
           const forgotten = store.forgetLearned();
           reply = `forgot ${forgotten} learned word${forgotten === 1 ? "" : "s"} and every correction`;
-        } else if (pathname.startsWith("/settings/") && pathname.slice(10) in MODEL_SETTINGS) {
+        } else if (
+          pathname.startsWith("/settings/") &&
+          Object.hasOwn(MODEL_SETTINGS, pathname.slice(10))
+        ) {
           // Only settings a command writes; the model applies on the next start.
           const key = pathname.slice(10);
           const model = body.trim() || undefined;
