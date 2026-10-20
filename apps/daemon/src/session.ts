@@ -275,7 +275,8 @@ export async function startSession(options: SessionOptions): Promise<Session> {
       // A terminal isn't read (its text is the scrollback, not a field), so it
       // goes by our own last dictation, like an app that hides its text: a
       // space only right after it, with no key pressed since. Enter in a shell
-      // counts as a key, so a new command never starts with a space.
+      // counts as a key, so a new command starts without one, unless Enter
+      // came within 300ms of Fn (FN_WINDOW_MS); the command still runs.
       const terminal = isTerminal(now);
       const read = terminal ? undefined : charBeforeCaret();
       const decision = decideSpacing({
