@@ -272,17 +272,19 @@ export async function startSession(options: SessionOptions): Promise<Session> {
       }
       // A second sentence shouldn't run into the first. Checked now rather
       // than when recording started, so anything typed meanwhile counts.
-      // Terminals are left alone: their text is the scrollback, not a field.
+      // A terminal isn't read (its text is the scrollback, not a field), so it
+      // goes by our own last dictation, like an app that hides its text: a
+      // space only right after it, with no key pressed since. Enter in a shell
+      // counts as a key, so a new command starts without one, unless Enter
+      // came within 300ms of Fn (FN_WINDOW_MS); the command still runs.
       const terminal = isTerminal(now);
       const read = terminal ? undefined : charBeforeCaret();
-      const decision = terminal
-        ? { space: false, why: "terminals are left alone" }
-        : decideSpacing({
-            read,
-            last: lastTyped,
-            bundleId: now.bundleId,
-            inputSince: watchingInput ? inputs.hasInput() : undefined,
-          });
+      const decision = decideSpacing({
+        read,
+        last: lastTyped,
+        bundleId: now.bundleId,
+        inputSince: watchingInput ? inputs.hasInput() : undefined,
+      });
       lastTyped = undefined;
       if (learning && !terminal && !excluded.has(now.bundleId)) mark = readFocusedField(markStart);
       open = {
