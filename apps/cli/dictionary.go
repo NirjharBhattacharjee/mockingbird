@@ -252,14 +252,24 @@ func (m dictModel) render() string {
 	b.WriteString("\n\n")
 
 	rows := m.shown()
+	// The footer first, so the table knows how many lines it leaves: the
+	// filter, add prompt and a wrapped note all take some.
+	foot := m.footer(rows)
 	if len(m.rows) == 0 {
 		b.WriteString(paint(wrap("The dictionary is empty. Press a to add a word, or fix a misheard name in a dictation and it learns it.", m.width-4, "  "), yellow) + "\n")
 	} else if len(rows) == 0 {
 		b.WriteString(paint("  Nothing matches “"+m.filter+"”.", yellow) + "\n")
 	} else {
-		b.WriteString(m.table(rows))
+		// Title and the gaps around it 3, column header 1, the ↑/↓ markers 2.
+		b.WriteString(m.table(rows, m.height-6-strings.Count(foot, "\n")))
 	}
+	return b.String() + foot
+}
 
+// footer is everything under the table: the mode's line, the last reply, and
+// the key hints.
+func (m dictModel) footer(rows []dictRow) string {
+	var b strings.Builder
 	switch {
 	case m.mode == filtering:
 		b.WriteString("\n  " + paint("/", mauve) + " " + m.filter + paint("▏", mauve))
@@ -296,7 +306,8 @@ func (m dictModel) render() string {
 
 // table lays the rows out to the width: the word is never cut, HEARD AS
 // shrinks to its longest entry (at most 16), and NOTE takes what's left.
-func (m dictModel) table(rows []dictRow) string {
+// room is how many rows fit under the header; it scrolls past that.
+func (m dictModel) table(rows []dictRow, room int) string {
 	wordW, heardW := len("WORD"), len("HEARD AS")
 	for _, r := range rows {
 		wordW = max(wordW, len([]rune(r.Term)))
@@ -313,10 +324,10 @@ func (m dictModel) table(rows []dictRow) string {
 	head := fmt.Sprintf("    %-*s  %-*s  %-*s  %*s  %s", wordW, "WORD", heardW, "HEARD AS", noteW, "NOTE", dictUsesW, "USES", "ADDED")
 	b.WriteString(paint(head, overlay0) + "\n")
 
-	// Keep the cursor's row on screen: the rest of the screen takes 9 lines.
+	// Keep the cursor's row on screen.
 	visible := len(rows)
 	if m.height > 0 {
-		visible = max(3, m.height-9)
+		visible = max(3, room)
 	}
 	top := max(0, m.cursor-visible+1)
 	if top > 0 {

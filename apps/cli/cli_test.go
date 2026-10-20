@@ -551,4 +551,11 @@ func TestDictionaryTable(t *testing.T) {
 	if screen := escapes.ReplaceAllString(long.render(), ""); !strings.Contains(screen, "▸ word20") || !strings.Contains(screen, "more") {
 		t.Errorf("the cursor's row isn't on screen:\n%s", screen)
 	}
+	// The add prompt and a long note take lines too: the whole screen still fits.
+	long = feed(long, dictDoneMsg{"mockingbird isn't running, so the dictionary can't be changed. Start it with mockingbird start, then try again.", false})
+	long = feed(long, key('a'))
+	screen = strings.TrimSuffix(escapes.ReplaceAllString(long.render(), ""), "\n")
+	if n := strings.Count(screen, "\n") + 1; n > dictRows || !strings.Contains(screen, "▸ word20") {
+		t.Errorf("%d lines in a %d-row window, or the cursor scrolled off:\n%s", n, dictRows, screen)
+	}
 }
