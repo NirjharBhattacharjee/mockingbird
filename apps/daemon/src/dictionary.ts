@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { type DictionaryEntry, mentions, parseDictionary } from "@mockingbird/llm";
-import { openStore, type Store, type StoredEntry } from "@mockingbird/store";
+import { type DictionaryRow, openStore, type Store, type StoredEntry } from "@mockingbird/store";
 import { mockingbirdHome } from "./runtime.ts";
 
 /** Where the daemon listens for dictionary edits, inside the mockingbird home. */
@@ -90,11 +90,20 @@ export function openDaemonStore(home: string, log: (m: string) => void): Store |
 
 /** The dictionary for a process that only reads it: every one but the daemon. */
 export function readDictionary(home = mockingbirdHome()): StoredEntry[] {
+  return readOnly(home, (store) => store.dictionary());
+}
+
+/** Every column, for the Go command's dictionary screen (`list --json`). */
+export function readDictionaryTable(home = mockingbirdHome()): DictionaryRow[] {
+  return readOnly(home, (store) => store.table());
+}
+
+function readOnly<T>(home: string, read: (store: Store) => T[]): T[] {
   const path = join(home, "data.db");
   if (!existsSync(path)) return [];
   const store = openStore(path, { readonly: true });
   try {
-    return store.dictionary();
+    return read(store);
   } finally {
     store.close();
   }
@@ -215,6 +224,10 @@ export async function main(args: string[], home = mockingbirdHome()): Promise<nu
   const value = rest.join(" ").trim();
   if (command === "-h" || command === "--help") {
     console.log(USAGE);
+    return 0;
+  }
+  if (command === "list" && value === "--json") {
+    console.log(JSON.stringify(readDictionaryTable(home)));
     return 0;
   }
   if (command === "list" && !value) {

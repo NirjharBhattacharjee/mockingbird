@@ -17,6 +17,31 @@ describe("dictionary", () => {
     store.close();
   });
 
+  test("table gives every column, most used first, empty ones null", () => {
+    const store = openStore(dbPath());
+    const before = Date.now();
+    store.addTerms([{ term: "Catppuccin", heard: "cat puck", hint: "a colour theme" }]);
+    store.addTerms([{ term: "Ollama" }], { learned: true });
+    store.countUses(["ollama", "ollama"]);
+    const [first, second] = store.table();
+    expect(first).toMatchObject({
+      term: "Ollama",
+      heard: null,
+      hint: null,
+      uses: 2,
+      learned: true,
+    });
+    expect(second).toMatchObject({
+      term: "Catppuccin",
+      heard: "cat puck",
+      hint: "a colour theme",
+      uses: 0,
+      learned: false,
+    });
+    expect(second?.createdAt).toBeGreaterThanOrEqual(before);
+    store.close();
+  });
+
   test("lists the most used first", () => {
     const store = openStore(dbPath());
     store.addTerms([{ term: "Alpha" }, { term: "Beta" }]);

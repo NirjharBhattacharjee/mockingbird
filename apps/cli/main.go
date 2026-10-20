@@ -69,6 +69,14 @@ func run(args []string) int {
 			return 0
 		}
 	}
+	if len(args) == 1 && args[0] == "dictionary" && fits(dictCols, dictRows) {
+		if rows, err := loadDictionary(argv[:2]); err == nil {
+			if _, err := tea.NewProgram(newDictionary(argv[:2], rows)).Run(); err != nil {
+				return fail(err)
+			}
+			return 0
+		}
+	}
 	if len(args) == 1 && args[0] == "start" && canAnimate() {
 		return startWithSplash(argv)
 	}
@@ -157,6 +165,14 @@ const (
 const (
 	modelsCols = 52
 	modelsRows = 16
+)
+
+// The dictionary table: 64 columns fit the key hints and a short word, heard
+// and note; 14 rows leave room for a few entries under the title and header.
+// Smaller, the engine prints the plain list.
+const (
+	dictCols = 64
+	dictRows = 14
 )
 
 // fits is whether stdin and stdout are a terminal of at least cols×rows.
