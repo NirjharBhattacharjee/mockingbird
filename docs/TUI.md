@@ -342,16 +342,35 @@ home screen. Neither needs the IPC socket.
   screen.
 - This screen reads `data.db` **directly**, read-only — not through IPC.
 
-### Dictionary editor
-- Add/edit/delete `dictionary` rows (term, hint) — see
-  [DATABASE.md §5](./DATABASE.md#5-dictionary).
-- Shows `uses` count per term, sortable, so a user can see which entries the
-  LLM Gate is actually drawing on.
-- This is the one screen that **writes** — but it writes by asking the
-  daemon to write (over IPC), not by opening `data.db` itself, preserving
-  the single-writer rule in
+### Dictionary editor (partly built, #102)
+- Built: `mockingbird dictionary` in a terminal of at least 64×14
+  (`apps/cli/dictionary.go`) shows the `dictionary` table
+  ([DATABASE.md §5](./DATABASE.md#5-dictionary)) as columns: WORD, HEARD AS,
+  NOTE, USES and ADDED ("by you" or "learned"). Empty cells stay blank. The
+  title counts the words and how many were learned. Smaller terminals, piped
+  output and an engine without `dictionary list --json` get the plain list.
+- Sorted by `uses` first, the order the cleanup prompt reads them in, so the
+  top is what dictation leans on. `s` cycles uses, A–Z and newest.
+- The word is never cut. HEARD AS takes its longest entry, up to 16
+  columns; NOTE takes the rest and is cut with `…`. A list longer than the
+  window scrolls with the cursor and says how many rows are above or below.
+- Learned rows are `subtext0`, dimmer than ones you added (`text`), and say
+  "learned", so they read without color too. The selected row is `mauve`
+  with a `▸`.
+- `/` filters as you type, on the word, what it's heard as and the note;
+  `Enter` keeps the filter, `Esc` clears it. `a` takes an entry the way
+  `dictionary add` does (`word`, `heard => word`, `word (note)`); `d` asks
+  `remove <word>? y/n`. Both run the engine's `dictionary add`/`remove`,
+  which ask the daemon to write over the socket; the reply shows in `green`,
+  or `red` when the agent isn't running, and the table reloads. `q`, `Esc`
+  or `Ctrl+C` quit.
+- The screen reads through the engine's `dictionary list --json`, which
+  opens `data.db` read-only, and every write goes to the daemon (IPC),
+  preserving the single-writer rule in
   [DATABASE.md §1](./DATABASE.md#1-design-goals-for-this-schema). The TUI
   never opens a write transaction against `data.db` directly.
+- Not built yet: editing a row in place (changing a word's heard-as or note
+  without removing and re-adding it).
 
 ### Latency waterfall
 - Aggregate, historical view of per-stage timings across utterances —

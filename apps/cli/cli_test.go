@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -440,5 +441,114 @@ func TestModelsPicker(t *testing.T) {
 	down = feed(down, listingMsg(modelListing{Cleanup: []modelEntry{{Name: "gemma3:1b"}}}))
 	if down = feed(down, key(tea.KeyEnter)); !strings.Contains(down.busy, "switching to gemma3:1b") {
 		t.Errorf("after the reload, enter: busy %q", down.busy)
+	}
+}
+
+// TestDictionaryTable feeds the table what `dictionary list --json` would say
+// and walks it with the keys. No engine command runs: the commands the model
+// returns are never executed, so add and remove are checked by `busy`.
+func TestDictionaryTable(t *testing.T) {
+	s := func(v string) *string { return &v }
+	rows := []dictRow{
+		{Term: "Ollama", Heard: s("o llama"), Uses: 0, Learned: true, CreatedAt: 3},
+		{Term: "Catppuccin", Heard: s("cat puck"), Hint: s("a colour theme"), Uses: 14, CreatedAt: 1},
+		{Term: "Kubernetes", Uses: 9, CreatedAt: 2},
+	}
+	feed := func(m tea.Model, msg tea.Msg) dictModel { m, _ = m.Update(msg); return m.(dictModel) }
+	key := func(code rune) tea.Msg { return tea.KeyPressMsg{Code: code} }
+	typed := func(m dictModel, s string) dictModel {
+		for _, r := range s {
+			m = feed(m, tea.KeyPressMsg{Code: r, Text: string(r)})
+		}
+		return m
+	}
+	termsOf := func(m dictModel) []string {
+		var out []string
+		for _, r := range m.shown() {
+			out = append(out, r.Term)
+		}
+		return out
+	}
+
+	m := feed(newDictionary([]string{"bun", "cli.ts"}, rows), tea.WindowSizeMsg{Width: dictCols, Height: 30})
+	screen := escapes.ReplaceAllString(m.render(), "")
+	if got := termsOf(m); strings.Join(got, ",") != "Catppuccin,Kubernetes,Ollama" {
+		t.Errorf("default order %v, want most used first", got)
+	}
+	if !strings.Contains(screen, "3 words · 1 learned") || strings.Contains(screen, "null") {
+		t.Errorf("title or blank cells wrong:\n%s", screen)
+	}
+	if !strings.Contains(screen, "learned") || !strings.Contains(screen, "by you") {
+		t.Errorf("who added each word isn't shown:\n%s", screen)
+	}
+	for _, line := range strings.Split(screen, "\n") {
+		if n := len([]rune(line)); n > dictCols {
+			t.Errorf("%d columns: %q", n, line)
+		}
+	}
+
+	// s: A–Z, then newest, then back to uses.
+	if m = feed(m, key('s')); strings.Join(termsOf(m), ",") != "Catppuccin,Kubernetes,Ollama" {
+		t.Errorf("A–Z: %v", termsOf(m))
+	}
+	if m = feed(m, key('s')); strings.Join(termsOf(m), ",") != "Ollama,Kubernetes,Catppuccin" {
+		t.Errorf("newest: %v", termsOf(m))
+	}
+	m = feed(m, key('s'))
+
+	// /: filters on the word, what it's heard as, and the note.
+	m = typed(feed(m, key('/')), "colour")
+	if got := termsOf(m); len(got) != 1 || got[0] != "Catppuccin" {
+		t.Errorf("filter on the note: %v", got)
+	}
+	m = feed(m, key(tea.KeyEscape))
+	if m.filter != "" || len(m.shown()) != 3 || m.mode != browsing {
+		t.Errorf("esc should clear the filter: %q, %d rows", m.filter, len(m.shown()))
+	}
+
+	// a: types an entry and adds it through the engine.
+	m = typed(feed(m, key('a')), "jira (the tracker)")
+	if m = feed(m, key(tea.KeyEnter)); !strings.Contains(m.busy, "adding jira (the tracker)") {
+		t.Errorf("add: busy %q", m.busy)
+	}
+	m = feed(m, dictDoneMsg{"added jira", true})
+	m = feed(m, dictListMsg(append(rows, dictRow{Term: "jira", Hint: s("the tracker"), CreatedAt: 4})))
+	if m.busy != "" || len(m.rows) != 4 {
+		t.Errorf("after the add: busy %q, %d rows", m.busy, len(m.rows))
+	}
+
+	// d: asks first; anything but y keeps it, y removes the row under the cursor.
+	m = feed(m, key('d'))
+	if m.mode != removing || !strings.Contains(m.render(), "remove Catppuccin? y/n") {
+		t.Errorf("d should ask:\n%s", m.render())
+	}
+	if m = feed(m, key('n')); m.mode != browsing || m.busy != "" {
+		t.Error("n should keep it")
+	}
+	m = feed(feed(m, key('d')), key('y'))
+	if !strings.Contains(m.busy, "removing Catppuccin") {
+		t.Errorf("remove: busy %q", m.busy)
+	}
+	// A stopped agent can't change it: shown, and the keys free again.
+	m = feed(m, dictDoneMsg{"mockingbird isn't running, so the dictionary can't be changed.", false})
+	if m.busy != "" || !m.noteBad {
+		t.Errorf("a failed change: busy %q, bad %v", m.busy, m.noteBad)
+	}
+
+	// Empty, and a long list in a short window keeps the cursor in view.
+	empty := feed(newDictionary([]string{"bun", "cli.ts"}, nil), tea.WindowSizeMsg{Width: dictCols, Height: dictRows})
+	if !strings.Contains(escapes.ReplaceAllString(empty.render(), ""), "The dictionary is empty") {
+		t.Error("an empty dictionary doesn't say so")
+	}
+	var many []dictRow
+	for i := range 30 {
+		many = append(many, dictRow{Term: fmt.Sprintf("word%02d", i), Uses: 30 - i})
+	}
+	long := feed(newDictionary([]string{"bun", "cli.ts"}, many), tea.WindowSizeMsg{Width: dictCols, Height: dictRows})
+	for range 20 {
+		long = feed(long, key(tea.KeyDown))
+	}
+	if screen := escapes.ReplaceAllString(long.render(), ""); !strings.Contains(screen, "▸ word20") || !strings.Contains(screen, "more") {
+		t.Errorf("the cursor's row isn't on screen:\n%s", screen)
 	}
 }

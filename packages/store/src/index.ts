@@ -36,9 +36,22 @@ const MIGRATIONS = [
 /** A dictionary entry, and whether it was learned rather than added by the user. */
 export type StoredEntry = DictionaryEntry & { learned?: true };
 
+/** A dictionary row as a person sees it: every column, empty ones null. */
+export type DictionaryRow = {
+  term: string;
+  heard: string | null;
+  hint: string | null;
+  uses: number;
+  learned: boolean;
+  /** Milliseconds since the epoch. */
+  createdAt: number;
+};
+
 export type Store = {
   /** Every term, most used first. */
   dictionary(): StoredEntry[];
+  /** The same terms with their counts and dates, for showing the dictionary. */
+  table(): DictionaryRow[];
   /**
    * Adds terms, or updates the ones already there; a missing heard or hint
    * keeps the old one. A term the user adds stops counting as learned.
@@ -113,6 +126,13 @@ export function openStore(path: string, { readonly = false } = {}): Store {
           ...(hint && { hint }),
           ...(learned && { learned: true as const }),
         })),
+    table: () =>
+      db
+        .query<Omit<DictionaryRow, "learned"> & { learned: number }, []>(
+          "SELECT term, heard, hint, uses, learned, created_at AS createdAt FROM dictionary ORDER BY uses DESC, term",
+        )
+        .all()
+        .map((row) => ({ ...row, learned: row.learned === 1 })),
     addTerms: db.transaction((entries: DictionaryEntry[], { learned = false } = {}) => {
       const now = Date.now();
       for (const { term, heard, hint } of entries) {

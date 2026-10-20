@@ -196,8 +196,10 @@ It stays off, including after a reboot, until the next `mockingbird start`.
 | `mockingbird fn` | Bind Fn to dictation only, so tapping it stops opening the emoji picker. Changes a system-wide setting, so it's never done for you |
 | `mockingbird fn --undo` | Put back the Fn setting `mockingbird fn` replaced |
 | `mockingbird uninstall` | Remove mockingbird and what it installed, after asking |
-| `mockingbird models` | The cleanup models Ollama has, with their eval scores and which is in use |
-| `mockingbird models use <name>` | Switch to another cleanup model and restart (`--default` goes back) |
+| `mockingbird models` | Pick the cleanup and transcription models with the arrow keys (two tabs); without a terminal, lists both |
+| `mockingbird models use <name>` | Switch to another cleanup model and restart (`--default` goes back); `models use speech <file>` for the Whisper model |
+| `mockingbird dictionary` | The words it should get right, as a table: what each is heard as, its note, how often dictation used it, and whether you added it or it learned it. `/` searches, `s` sorts, `a` adds, `d` removes. Without a terminal, one word per line |
+| `mockingbird dictionary add "cat puck => Catppuccin (a colour theme)"` | Add a word, what it's misheard as, and a note for the cleanup model; `remove <word>`, and `forget` drops every learned word |
 
 Dictate a list — "I'm going for groceries, I'll get onions, toilet paper and
 rice" — and it's typed as a list, one item per line. The line breaks are sent
@@ -206,7 +208,8 @@ terminals keep getting a single line.
 
 Dictating after text that's already there adds a space first, so "One." then
 "Two." comes out as "One. Two." It doesn't add one at the start of a line or
-after "(". Terminals are left as they are. Each dictation also starts with a
+after "(". In a terminal it adds the space only right after its own last
+dictation there, so pressing Enter in between means none. Each dictation also starts with a
 capital letter and ends with a period, or a question mark when it sounds like
 a question.
 
