@@ -43,7 +43,7 @@ after the curl install, or `/opt/homebrew/bin/mockingbird` with Homebrew.
 |---|---|
 | `transcribe(path, from, to, words)` | An audio or video file (anything ffmpeg reads: m4a, mp3, wav, mp4, mov, mkv) as text, in lines timestamped `[mm:ss]`, with names fixed from your dictionary. Uses its own whisper-server, so dictation keeps working meanwhile. No cleanup model: the client's model does that better with a whole meeting. `from` and `to` (seconds) take one stretch of the file. `words: true` gives one line per word with its start and end, `[01:23.48-01:23.71] Catppuccin`, to cut a clip on; names are fixed one word at a time there, so a name misheard as two words stays as heard. |
 | `frames(path, every)` | Stills from a video, one every `every` seconds (default 60), saved to a temp folder; returns their paths with `[mm:ss]` times, so a client that reads images can see slides and screen shares. |
-| `render(path, clips, vertical, captions, out)` | Cuts `clips` (`[{ from, to }]`, in seconds) out of a video and joins them into one MP4 with ffmpeg. `vertical` crops the middle of the frame to 9:16 at 1080x1920. `captions` is SRT text the client writes, timed to the finished video. Saves to `out`, or `<name>-short-N.mp4` beside the source, and never overwrites a file. |
+| `render(path, clips, vertical, captions, out)` | Cuts `clips` (`[{ from, to }]`, in seconds) out of a video and joins them into one MP4 with ffmpeg. `vertical` crops the middle of the frame to 9:16 at 1080x1920. `captions` is SRT text the client writes, timed to the finished video, and drawn onto the picture. Saves to `out`, or `<name>-short-N.mp4` beside the source, and never overwrites a file. |
 | `status` | Whether the background agent is running, which permissions it's missing, and whether macOS still has the Fn key. |
 | `dictionary_list` | Your dictionary: the names, places and jargon mockingbird spells a particular way. |
 | `dictionary_add(entry)` | Adds a word, like `mockingbird dictionary add`: `"Catppuccin"`, `"Catppuccin (a colour theme)"`, or `"cat puck => Catppuccin"`. Needs mockingbird running. |
@@ -64,10 +64,14 @@ cut on word boundaries, write captions timed to the result, and `render`.
 mockingbird makes none of those choices. It transcribes and runs ffmpeg; which
 moments are worth keeping and what the captions say are up to the client.
 
-Captions need an ffmpeg built with libass to be drawn onto the picture.
-Homebrew's `ffmpeg` isn't, so with it `render` puts them in a subtitle track
-instead and writes an `.srt` beside the video, which an editor such as CapCut
-can burn in. `ffmpeg -filters | grep subtitles` shows whether yours can.
+Captions are drawn onto the picture: white bold text with a black outline,
+centred a little below the middle, wrapped to fit. mockingbird draws each cue
+as an image with macOS's own text engine (Core Text) and ffmpeg lays it over
+the video, so this works with Homebrew's `ffmpeg`, which has no libass. Emoji
+and non-Latin scripts come out as macOS draws them anywhere else. If the
+images can't be drawn, `render` falls back to ffmpeg's `subtitles` filter
+when your ffmpeg has libass, and otherwise to a subtitle track plus an `.srt`
+beside the video, which an editor such as CapCut can burn in.
 
 On an M3, `render` took 1.3 seconds, including starting the server, to make a
 9.5-second 1080x1920 short from two clips of a 1080p video.

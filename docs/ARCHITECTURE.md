@@ -68,6 +68,7 @@ it is not a design doc that gets abandoned once code exists.
 | 2026-10-18 | `mockingbird models` is a picker (TUI.md §5): Cleanup and Transcription tabs, arrow keys and Enter. The engine gained `models --json` and `models use speech <file>`; the transcription model is saved as `asr_model` in `settings` through the agent, like the cleanup model, and loaded at start after `MOCKINGBIRD_ASR_MODEL` and before the default. A saved file that's been deleted falls back to the default with a warning. The plain list drops the eval scores and lists both kinds. |
 | 2026-10-20 | A dictation into a terminal now gets a space when it follows mockingbird's own last dictation there, with no key pressed or click since: `session.ts` sends terminals through `decideSpacing` with nothing read, like an app that hides its text. Before, terminals never got one, so consecutive dictations into Claude Code in Ghostty ran together ("the bugRun the tests"). The terminal is still never read, and Enter counts as a key, so a new shell command starts without a space. The exception is Enter pressed within 300ms of Fn, which the tracker excuses as part of the Fn tap (`FN_WINDOW_MS`); the command then gets one leading space and still runs. Telling Enter apart in the event tap would close that, but the tap deliberately reports no key identity beyond Fn, Escape and R. |
 | 2026-10-20 | `mockingbird dictionary` is a table in a terminal (#102, TUI.md §5): WORD, HEARD AS, NOTE, USES and ADDED, sorted by uses, with `/` to filter, `s` to sort, and `a`/`d` to add and remove through the engine. The store gained `table()` (every column, for display; `dictionary()` stays what the pipeline reads), and the engine `dictionary list --json`, read-only. The Go command still never writes `data.db`. |
+| 2026-10-25 | `render` draws captions onto the picture with Homebrew's ffmpeg (#111). The new `packages/captions` parses the SRT and draws each cue as a transparent PNG with Core Text and Core Graphics through `bun:ffi` (white bold system font, black outline, wrapped at 90% of the short side); `render` lays the images over the video with ffmpeg's `overlay`, one per cue, enabled for its time. No dependency and no download, so #111's plan to fetch a libass ffmpeg isn't needed. ffmpeg's `subtitles` filter, then the `mov_text` track and `.srt`, stay as fallbacks for when the images can't be drawn (off macOS, or a Core Text failure). A 9-second, five-cue short rendered in about the same time as before (2.2–2.7 s on an M3 against 2.2–2.5 s for the subtitle track). |
 
 ---
 
@@ -518,6 +519,7 @@ mockingbird/
 ├── packages/
 │   ├── protocol/                shared IPC types + zod schemas
 │   ├── audio/                   ring buffer, ffmpeg capture + file decoding, per-OS args
+│   ├── captions/                SRT parsing, captions drawn as PNGs with Core Text via bun:ffi
 │   ├── vad/                     Silero ONNX wrapper
 │   ├── asr/                     engine interface + whisper-server adapter
 │   ├── llm/                     provider interface + adapters (Ollama,
