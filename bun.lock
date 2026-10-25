@@ -15,6 +15,7 @@
       "dependencies": {
         "@mockingbird/asr": "workspace:*",
         "@mockingbird/audio": "workspace:*",
+        "@mockingbird/captions": "workspace:*",
         "@mockingbird/context": "workspace:*",
         "@mockingbird/cue": "workspace:*",
         "@mockingbird/hotkey": "workspace:*",
@@ -32,6 +33,9 @@
     },
     "packages/audio": {
       "name": "@mockingbird/audio",
+    },
+    "packages/captions": {
+      "name": "@mockingbird/captions",
     },
     "packages/context": {
       "name": "@mockingbird/context",
@@ -87,6 +91,8 @@
     "@mockingbird/asr": ["@mockingbird/asr@workspace:packages/asr"],
 
     "@mockingbird/audio": ["@mockingbird/audio@workspace:packages/audio"],
+
+    "@mockingbird/captions": ["@mockingbird/captions@workspace:packages/captions"],
 
     "@mockingbird/context": ["@mockingbird/context@workspace:packages/context"],
 

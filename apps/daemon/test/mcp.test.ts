@@ -173,3 +173,20 @@ test("the render graph crops to 9:16, draws captions, and works without sound", 
     "[v0]concat=n=1:v=1:a=0[joined];[joined]crop='min(iw,ih*9/16)':'min(ih,iw*16/9)',scale=1080:1920,setsar=1,subtitles=filename=captions.srt[v]",
   );
 });
+
+test("the render graph lays each caption image over the picture for its cue", () => {
+  const graph = renderGraph([{ from: 0, to: 5 }], {
+    audio: false,
+    vertical: false,
+    overlays: [
+      { start: 0, end: 1.5 },
+      { start: 1.5, end: 3 },
+    ],
+  });
+  const at = "x=(main_w-overlay_w)/2:y=main_h*0.7-overlay_h/2";
+  expect(graph).toEndWith(
+    "[joined]null[c0];" +
+      `[c0][1:v]overlay=${at}:enable='gte(t,0)*lt(t,1.5)'[c1];` +
+      `[c1][2:v]overlay=${at}:enable='gte(t,1.5)*lt(t,3)'[v]`,
+  );
+});

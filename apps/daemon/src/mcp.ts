@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { type AsrWord, stripNonSpeech } from "@mockingbird/asr";
 import { loadAudio, type PcmAudio } from "@mockingbird/audio";
+import { type Cue, drawCaptions, parseSrt } from "@mockingbird/captions";
 import { correctNames } from "@mockingbird/llm";
 import type { SpeechSegment } from "@mockingbird/vad";
 import { formatEntry, readDictionary, tellDaemon } from "./dictionary.ts";
@@ -293,11 +294,18 @@ export type Clip = { from: number; to: number };
 /**
  * The ffmpeg filter graph that keeps `clips` in order and joins them, with
  * the picture cropped to 9:16 if `vertical`, and `burn` drawing the captions
- * in CAPTIONS onto it. Ends in [v], and [a] if the source has sound.
+ * in CAPTIONS onto it. `overlays` lays inputs 1, 2, … (captions drawn as
+ * images) over the picture, each for its stretch of the finished video, in
+ * seconds. Ends in [v], and [a] if the source has sound.
  */
 export function renderGraph(
   clips: Clip[],
-  { audio, vertical, burn = false }: { audio: boolean; vertical: boolean; burn?: boolean },
+  {
+    audio,
+    vertical,
+    burn = false,
+    overlays = [],
+  }: { audio: boolean; vertical: boolean; burn?: boolean; overlays?: Omit<Cue, "text">[] },
 ): string {
   const parts = clips.map(({ from, to }, i) => {
     const v = `[0:v]trim=start=${from}:end=${to},setpts=PTS-STARTPTS[v${i}]`;
@@ -311,15 +319,23 @@ export function renderGraph(
     // ffmpeg runs in the folder that holds it, so no path needs escaping in the graph.
     burn && `subtitles=filename=${CAPTIONS}`,
   ].filter(Boolean);
-  return [...parts, joined, `[joined]${look.join(",") || "null"}[v]`].join(";");
+  const label = (i: number) => (i === overlays.length ? "[v]" : `[c${i}]`);
+  const laid = overlays.map(
+    ({ start, end }, i) =>
+      // Centred, a little below the middle, where Shorts and Reels leave room for text.
+      `${label(i)}[${i + 1}:v]overlay=x=(main_w-overlay_w)/2:y=main_h*0.7-overlay_h/2:enable='gte(t,${start})*lt(t,${end})'${label(i + 1)}`,
+  );
+  return [...parts, joined, `[joined]${look.join(",") || "null"}${label(0)}`, ...laid].join(";");
 }
 
-/** The streams in a media file, and how long it is. */
-async function probe(path: string): Promise<{ video: boolean; audio: boolean; seconds: number }> {
+/** The streams in a media file, how long it is, and the short side of its picture. */
+async function probe(
+  path: string,
+): Promise<{ video: boolean; audio: boolean; seconds: number; side: number }> {
   const proc = Bun.spawn(
     [
       "ffprobe",
-      ...["-v", "error", "-show_entries", "stream=codec_type:format=duration"],
+      ...["-v", "error", "-show_entries", "stream=codec_type,width,height:format=duration"],
       ...["-of", "json", path],
     ],
     { stderr: "pipe" },
@@ -331,8 +347,15 @@ async function probe(path: string): Promise<{ video: boolean; audio: boolean; se
     );
   }
   const { streams = [], format } = JSON.parse(out);
-  const has = (type: string) => streams.some((s: { codec_type: string }) => s.codec_type === type);
-  return { video: has("video"), audio: has("audio"), seconds: Number(format?.duration ?? 0) };
+  type Stream = { codec_type: string; width?: number; height?: number };
+  const has = (type: string) => streams.some((s: Stream) => s.codec_type === type);
+  const picture: Stream | undefined = streams.find((s: Stream) => s.codec_type === "video");
+  return {
+    video: has("video"),
+    audio: has("audio"),
+    seconds: Number(format?.duration ?? 0),
+    side: Math.min(picture?.width ?? 0, picture?.height ?? 0),
+  };
 }
 
 /** Whether this ffmpeg can draw subtitles onto the picture. Homebrew's is built without libass. */
@@ -393,8 +416,9 @@ function outputFor(path: string, out: string | undefined, sidecar: boolean): str
 /**
  * Cuts `clips` out of a video and joins them into one MP4, optionally 9:16
  * with captions. The client chooses the clips and writes the captions; this
- * only runs ffmpeg. Captions go onto the picture if this ffmpeg can draw
- * them, otherwise into a subtitle track and an .srt beside the video.
+ * only runs ffmpeg. Captions are drawn as images with Core Text and laid over
+ * the picture; failing that, drawn by ffmpeg if it has libass; failing that,
+ * put in a subtitle track and an .srt beside the video.
  */
 async function render(
   path: string,
@@ -415,23 +439,40 @@ async function render(
   if (over)
     throw new Error(`A clip ends at ${over.to}s, after the end of ${path} (${source.seconds}s).`);
   const text = captions?.trim();
-  const burn = !!text && (await canBurn());
-  const target = outputFor(path, out, !!text && !burn);
+  const cues = text ? parseSrt(text) : [];
 
   const dir = mkdtempSync(join(tmpdir(), "mockingbird-render-"));
+  let target: string | undefined;
+  let sidecar = false;
   let made = false;
   try {
-    const srt = text ? join(dir, CAPTIONS) : undefined;
+    const images = cues.length
+      ? drawCaptions(
+          cues.map((c) => c.text),
+          dir,
+          vertical ? 1080 : source.side,
+        )
+      : undefined;
+    const burn = !!text && !images && (await canBurn());
+    sidecar = !!text && !images && !burn;
+    target = outputFor(path, out, sidecar);
+    const srt = text && !images ? join(dir, CAPTIONS) : undefined;
     if (srt) writeFileSync(srt, `${text}\n`);
-    const graph = renderGraph(clips, { audio: source.audio, vertical, burn });
+    const graph = renderGraph(clips, {
+      audio: source.audio,
+      vertical,
+      burn,
+      overlays: images && cues,
+    });
     const proc = Bun.spawn(
       [
         "ffmpeg",
         ...["-nostdin", "-y", "-loglevel", "error", "-i", path],
-        ...(srt && !burn ? ["-i", srt] : []),
+        ...(images ?? []).flatMap((image) => ["-i", image]),
+        ...(sidecar ? ["-i", CAPTIONS] : []),
         ...["-filter_complex", graph, "-map", "[v]"],
         ...(source.audio ? ["-map", "[a]", "-c:a", "aac", "-b:a", "160k"] : []),
-        ...(srt && !burn ? ["-map", "1:s", "-c:s", "mov_text"] : []),
+        ...(sidecar ? ["-map", "1:s", "-c:s", "mov_text"] : []),
         ...["-c:v", "libx264", "-crf", "18", "-preset", "veryfast", "-pix_fmt", "yuv420p"],
         ...["-movflags", "+faststart", target],
       ],
@@ -444,16 +485,16 @@ async function render(
     }
     const length = fineClock((await probe(target)).seconds * 1000);
     // Over the empty file outputFor claimed.
-    if (srt && !burn) copyFileSync(srt, srtFor(target));
+    if (srt && sidecar) copyFileSync(srt, srtFor(target));
     made = true;
-    if (!srt) return `${target} (${length})`;
-    if (burn) return `${target} (${length}), captions drawn on the picture`;
-    return `${target} (${length}), captions as a subtitle track and in ${srtFor(target)}. This ffmpeg can't draw them onto the picture (it has no libass); an editor such as CapCut can burn in the .srt.`;
+    if (!text) return `${target} (${length})`;
+    if (!sidecar) return `${target} (${length}), captions drawn on the picture`;
+    return `${target} (${length}), captions as a subtitle track and in ${srtFor(target)}. They couldn't be drawn onto the picture here; an editor such as CapCut can burn in the .srt.`;
   } finally {
     // The claimed names stay only if the video and its .srt were both made.
-    if (!made) {
+    if (!made && target) {
       rmSync(target, { force: true });
-      if (text && !burn) rmSync(srtFor(target), { force: true });
+      if (sidecar) rmSync(srtFor(target), { force: true });
     }
     rmSync(dir, { recursive: true, force: true });
   }
@@ -528,7 +569,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
           captions: {
             type: "string",
             description:
-              "SRT text timed to the finished video, not the source: subtract each clip's start, and add the length of the clips before it. Drawn onto the picture if this ffmpeg can (libass); otherwise a subtitle track and an .srt file beside the video.",
+              "SRT text timed to the finished video, not the source: subtract each clip's start, and add the length of the clips before it. Drawn onto the picture, white with a black outline, a little below the middle; if that can't be done here, a subtitle track and an .srt file beside the video.",
           },
           out: {
             type: "string",
