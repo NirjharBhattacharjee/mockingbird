@@ -54,6 +54,18 @@ describe.if(process.platform === "darwin")("drawCaptions", () => {
     }
   });
 
+  test("breaks text with no spaces between characters instead of cutting it off", () => {
+    const dir = mkdtempSync(join(tmpdir(), "captions-test-"));
+    try {
+      const japanese = "チュートリアルを見るのをやめて今日から自分で何かを作り始めましょう";
+      const files = drawCaptions(["見る", japanese], dir, 1080);
+      const [one, many] = (files ?? []).map(pngSize);
+      expect(many?.height ?? 0).toBeGreaterThan(1.5 * (one?.height ?? 0));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("gives up instead of throwing when it can't draw", () => {
     expect(drawCaptions(["hi"], "/nonexistent/folder", 1080)).toBeUndefined();
   });

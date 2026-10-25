@@ -123,6 +123,10 @@ export function drawCaptions(texts: string[], dir: string, side: number): string
     owned.push(handle);
     return handle;
   };
+  /** Releases what was owned after `mark`, newest first. */
+  const releaseTo = (mark: number) => {
+    for (const ref of owned.splice(mark).reverse()) cf.symbols.CFRelease(ref);
+  };
   /** A constant a framework exports, like kCFBooleanTrue. */
   const constant = (name: string): bigint => {
     const address = libc.symbols.dlsym(RTLD_DEFAULT, cString(name));
@@ -156,22 +160,53 @@ export function drawCaptions(texts: string[], dir: string, side: number): string
       const ref = own(ct.symbols.CTLineCreateWithAttributedString(attributed));
       return { ref, width: ct.symbols.CTLineGetTypographicBounds(ref, null, null, null) };
     };
-    /** Words onto as few lines as fit; a word too long for a line gets one to itself. */
-    const wrap = (text: string) =>
-      text.split("\n").flatMap((paragraph) => {
-        const lines: string[] = [];
-        for (const word of paragraph.split(/\s+/).filter(Boolean)) {
-          const last = lines.at(-1);
-          if (last !== undefined && line(`${last} ${word}`).width <= side * LINE_WIDTH) {
-            lines[lines.length - 1] = `${last} ${word}`;
-          } else {
-            lines.push(word);
-          }
+    const fits = (text: string) => {
+      const mark = owned.length;
+      try {
+        return line(text).width <= side * LINE_WIDTH;
+      } finally {
+        releaseTo(mark);
+      }
+    };
+    /** `pieces` joined with `gap`, as many to a line as fit. */
+    const pack = (pieces: string[], gap: string) => {
+      const lines: string[] = [];
+      for (const piece of pieces) {
+        const last = lines.at(-1);
+        if (last !== undefined && fits(`${last}${gap}${piece}`)) {
+          lines[lines.length - 1] = `${last}${gap}${piece}`;
+        } else {
+          lines.push(piece);
         }
-        return lines;
-      });
+      }
+      return lines;
+    };
+    const characters = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+    /**
+     * Words onto as few lines as fit. A word too long for a line, like a
+     * Chinese or Japanese sentence with no spaces, breaks between characters.
+     */
+    const wrap = (text: string) =>
+      text.split("\n").flatMap((paragraph) =>
+        pack(
+          paragraph
+            .split(/\s+/)
+            .filter(Boolean)
+            .flatMap((word) =>
+              fits(word)
+                ? [word]
+                : pack(
+                    [...characters.segment(word)].map((c) => c.segment),
+                    "",
+                  ),
+            ),
+          " ",
+        ),
+      );
 
     const files = texts.map((text, n) => {
+      // This cue's bitmap and lines go as soon as its PNG is saved.
+      const mark = owned.length;
       const lines = wrap(text).map(line);
       const height = Math.ceil(lines.length * lineHeight + 2 * outline);
       const context = own(
@@ -212,6 +247,7 @@ export function drawCaptions(texts: string[], dir: string, side: number): string
       );
       if (!io.symbols.CGImageDestinationFinalize(destination))
         throw new Error(`couldn't write ${file}`);
+      releaseTo(mark);
       return file;
     });
     return files;
