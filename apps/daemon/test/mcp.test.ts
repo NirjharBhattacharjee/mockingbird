@@ -186,7 +186,7 @@ test("the render graph lays each caption image over the picture for its cue", ()
   const at = "x=(main_w-overlay_w)/2:y=main_h*0.7-overlay_h/2";
   expect(graph).toEndWith(
     "[joined]null[c0];" +
-      `[c0][1:v]overlay=${at}:enable='between(t,0,1.5)'[c1];` +
-      `[c1][2:v]overlay=${at}:enable='between(t,1.5,3)'[v]`,
+      `[c0][1:v]overlay=${at}:enable='gte(t,0)*lt(t,1.5)'[c1];` +
+      `[c1][2:v]overlay=${at}:enable='gte(t,1.5)*lt(t,3)'[v]`,
   );
 });

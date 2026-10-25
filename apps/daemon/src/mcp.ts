@@ -323,7 +323,7 @@ export function renderGraph(
   const laid = overlays.map(
     ({ start, end }, i) =>
       // Centred, a little below the middle, where Shorts and Reels leave room for text.
-      `${label(i)}[${i + 1}:v]overlay=x=(main_w-overlay_w)/2:y=main_h*0.7-overlay_h/2:enable='between(t,${start},${end})'${label(i + 1)}`,
+      `${label(i)}[${i + 1}:v]overlay=x=(main_w-overlay_w)/2:y=main_h*0.7-overlay_h/2:enable='gte(t,${start})*lt(t,${end})'${label(i + 1)}`,
   );
   return [...parts, joined, `[joined]${look.join(",") || "null"}${label(0)}`, ...laid].join(";");
 }
