@@ -346,6 +346,15 @@ export async function startSession(options: SessionOptions): Promise<Session> {
   const transcribe = async ({ audio, truncated }: Recording) => {
     const target = await targetLookup;
     if (peak(audio.samples) === 0) {
+      if (captureHeard) {
+        // This ffmpeg had sound earlier, so permission is fine: its stream
+        // went dead, as it can after days of sleep and wake, and only a new
+        // ffmpeg brings it back. One that's silent from the start isn't
+        // restarted again, so a dead microphone can't loop.
+        notify("the recording was completely silent, so the microphone is restarting. Try again.");
+        void capture?.stop();
+        return;
+      }
       notify(
         "the recording was completely silent. If macOS didn't ask for microphone access, turn it on\n" +
           "in System Settings → Privacy & Security → Microphone, then start again.",
@@ -496,12 +505,15 @@ export async function startSession(options: SessionOptions): Promise<Session> {
   let capture: CaptureProcess | undefined;
   let lastDetail: string | undefined;
   let heardSound = false;
+  /** Whether the current ffmpeg has produced any sound. */
+  let captureHeard = false;
   const supervisor = new Supervisor(
     () => {
+      captureHeard = false;
       capture = startCapture({
         inputArgs,
         onSamples: (s) => {
-          if (!heardSound && peak(s) > 0) heardSound = true;
+          if (!captureHeard && peak(s) > 0) heardSound = captureHeard = true;
           controller.onSamples(s);
           recordings.push(s);
         },
