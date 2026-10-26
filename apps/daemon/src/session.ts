@@ -115,6 +115,40 @@ export function leadIn(
   return space ? " " : "";
 }
 
+/**
+ * Tells a microphone whose stream went dead from one that never worked. One
+ * ffmpeg captures until it exits; each gets a run number.
+ */
+export class MicRuns {
+  run = 0;
+  heardSound = false;
+  private heardRun = 0;
+
+  /** A new ffmpeg has started. */
+  started(): void {
+    this.run++;
+  }
+
+  samples(s: Int16Array): void {
+    if (this.heardRun !== this.run && peak(s) > 0) {
+      this.heardRun = this.run;
+      this.heardSound = true;
+    }
+  }
+
+  /**
+   * What a completely silent recording from `run` calls for. A run that had
+   * sound earlier went dead and needs restarting; one that's silent from the
+   * start is permission or a dead input, and restarting it again would only
+   * trip the supervisor's give-up. A run that's already been replaced needs
+   * nothing.
+   */
+  silent(run: number): "restart" | "replaced" | "permission" {
+    if (run !== this.run) return "replaced";
+    return this.heardRun === run ? "restart" : "permission";
+  }
+}
+
 export type SessionOptions = {
   /** ffmpeg input arguments, from `inputArgsFor`. */
   inputArgs: string[];
@@ -344,8 +378,18 @@ export async function startSession(options: SessionOptions): Promise<Session> {
   };
 
   const transcribe = async ({ audio, truncated }: Recording) => {
+    // Before the wait, so silence is blamed on the ffmpeg that recorded it.
+    const run = mic.run;
     const target = await targetLookup;
     if (peak(audio.samples) === 0) {
+      // A dead stream, as one can be after days of sleep and wake: only a
+      // new ffmpeg brings the sound back.
+      const action = mic.silent(run);
+      if (action !== "permission") {
+        notify("the recording was completely silent, so the microphone is restarting. Try again.");
+        if (action === "restart") void capture?.stop();
+        return;
+      }
       notify(
         "the recording was completely silent. If macOS didn't ask for microphone access, turn it on\n" +
           "in System Settings → Privacy & Security → Microphone, then start again.",
@@ -495,13 +539,14 @@ export async function startSession(options: SessionOptions): Promise<Session> {
 
   let capture: CaptureProcess | undefined;
   let lastDetail: string | undefined;
-  let heardSound = false;
+  const mic = new MicRuns();
   const supervisor = new Supervisor(
     () => {
+      mic.started();
       capture = startCapture({
         inputArgs,
         onSamples: (s) => {
-          if (!heardSound && peak(s) > 0) heardSound = true;
+          mic.samples(s);
           controller.onSamples(s);
           recordings.push(s);
         },
@@ -535,7 +580,7 @@ export async function startSession(options: SessionOptions): Promise<Session> {
   return {
     controller,
     get heardSound() {
-      return heardSound;
+      return mic.heardSound;
     },
     ended,
     hotkeyActive: hotkey !== undefined,
