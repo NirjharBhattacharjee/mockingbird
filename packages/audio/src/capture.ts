@@ -35,6 +35,9 @@ export function micInputArgs(device = "default"): string[] {
   return ["-f", "avfoundation", "-i", `:${device}`];
 }
 
+/** How long ffmpeg gets to exit on SIGTERM before it's killed. */
+const STOP_GRACE_MS = 1000;
+
 export type CaptureProcess = {
   exited: Promise<number>;
   stop(): Promise<void>;
@@ -97,7 +100,10 @@ export function startCapture({
     exited,
     stop: async () => {
       proc.kill();
+      // One stuck in CoreAudio ignores SIGTERM and spins a core until killed.
+      const kill = setTimeout(() => proc.kill("SIGKILL"), STOP_GRACE_MS);
       await exited;
+      clearTimeout(kill);
     },
     stderrTail: () => tail.trim(),
   };

@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   concatSamples,
@@ -46,6 +48,21 @@ describe("startCapture", () => {
     const capture = startCapture({ onSamples: () => {}, ffmpeg: "/nonexistent/ffmpeg" });
     expect(await capture.exited).toBe(-1);
     expect(capture.stderrTail()).toContain("could not run");
+  });
+
+  test("stop() kills an ffmpeg that ignores SIGTERM, as one stuck in CoreAudio does", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "capture-test-"));
+    try {
+      const stuck = join(dir, "ffmpeg");
+      const script = "trap '' TERM\necho ready >&2\nwhile :; do sleep 0.1; done\n";
+      writeFileSync(stuck, `#!/bin/sh\n${script}`, { mode: 0o755 });
+      const capture = startCapture({ onSamples: () => {}, ffmpeg: stuck });
+      while (!capture.stderrTail().includes("ready")) await Bun.sleep(10);
+      await capture.stop();
+      expect(await capture.exited).not.toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
