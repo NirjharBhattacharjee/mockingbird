@@ -288,7 +288,7 @@ func (m calibModel) score(width int) string {
 	var b strings.Builder
 	b.WriteString(paint(wrap(fmt.Sprintf("%s got %d%% of your words right.", model, pct), width, "  "), green) + "\n")
 	b.WriteString(paint(wrap(fmt.Sprintf("%d words in %d sentence%s.", total, len(m.results), plural(len(m.results))), width, "  "), subtext0) + "\n\n")
-	b.WriteString(paint(wrap("Your readings are kept in ~/.mockingbird/calibration, so later runs can tune mockingbird to your voice. `mockingbird calibrate --forget` deletes them.", width, "  "), subtext0) + "\n\n  ")
+	b.WriteString(paint(wrap("Your readings are kept in ~/.mockingbird/calibration. `mockingbird calibrate tune` compares your models on them and tunes speech detection to your voice; `mockingbird calibrate --forget` deletes them.", width, "  "), subtext0) + "\n\n  ")
 	b.WriteString(paint("enter or q to close", overlay0) + "\n")
 	return b.String()
 }

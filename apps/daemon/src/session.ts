@@ -19,6 +19,7 @@ import {
   openDaemonStore,
   recordUses,
   serveDictionary,
+  VAD_THRESHOLD_SETTING,
 } from "./dictionary.ts";
 import { HotkeyFsm } from "./hotkey-fsm.ts";
 import { CorrectionWatcher, correctionsIn, learnFrom, markEnd, markStart } from "./learn.ts";
@@ -213,6 +214,7 @@ export async function startSession(options: SessionOptions): Promise<Session> {
     store?.dictionary(),
     store?.setting(LLM_MODEL_SETTING),
     store?.setting(ASR_MODEL_SETTING),
+    store?.setting(VAD_THRESHOLD_SETTING),
   );
   // Its sounds play even with cues off: a recording never starts silently.
   const recordings = new Recordings(mockingbirdHome(), {

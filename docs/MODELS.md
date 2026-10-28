@@ -330,7 +330,25 @@ everything else in this file). Tracked as undecided, not silently assumed.
 - **VAD is not currently designed as swappable** — Silero via
   `onnxruntime-node` is treated as a fixed part of the pipeline, not a
   configurable choice, since its cost/accuracy profile isn't a tradeoff most
-  users need to tune.
+  users need to tune. Its threshold is the exception: `mockingbird calibrate
+  tune` (#107) can lower it for one voice, below.
+- **`mockingbird calibrate tune` measures both for one voice** (#107). It
+  takes the user's latest `mockingbird calibrate` run and has every installed
+  Whisper file hear its sentences, each on its own whisper-server (port 8795,
+  or `MOCKINGBIRD_TUNE_PORT`) beside the agent's, one at a time. For each it
+  prints the share of words right and the median time per sentence, then
+  recommends the fastest within a point of the best. It never switches
+  model by itself: the user does that in `mockingbird models`. A few hundred
+  words of read script can't tell two models a point apart, and reading is
+  easier than dictating, so this is advice for that voice, not a ranking.
+- It then has the model in use hear the same sentences at VAD thresholds
+  0.5 (the default), 0.4, 0.3 and 0.2, and saves the best as `vad_threshold`
+  only if it hears at least two more words than the default, and at least 1%
+  more. Below that, a lower threshold only lets in more of the room. Running
+  it again when the default is best clears the saved value. The agent reads
+  it at start, so it applies after `mockingbird restart`. It also reports
+  clipping, and speech too quiet for `normalizeLoudness` to bring up (it stops
+  at 20×).
 - **Both models are picked with `mockingbird models`.** In a terminal it's a
   picker with a Cleanup tab and a Transcription tab (TUI.md §5); otherwise it
   prints both lists. Cleanup lists the models Ollama has that can write text

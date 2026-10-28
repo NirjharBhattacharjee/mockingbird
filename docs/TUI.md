@@ -339,7 +339,7 @@ home screen. Neither needs the IPC socket.
   that take.
 - After the last sentence: `large-v3-turbo got 94% of your words right.` in
   `green`, rounded down so one missed word never shows as 100%, with the word
-  and sentence count and where the readings are kept. That screen stays in
+  and sentence count, where the readings are kept, and `calibrate tune`, which compares the models on them (MODELS.md §7). That screen stays in
   the scrollback; quitting earlier erases the screen, and the takes read so
   far are already saved.
 - With the agent not running, `Enter` shows the engine's message in `red`

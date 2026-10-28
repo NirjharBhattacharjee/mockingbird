@@ -7,6 +7,7 @@ import scriptMarkdown from "./calibration.md" with { type: "text" };
 import { type Routes, tellDaemon } from "./dictionary.ts";
 import { hear, type PipelineDeps } from "./pipeline.ts";
 import { mockingbirdHome } from "./runtime.ts";
+import { tuneCommand } from "./tune.ts";
 
 /** The sentences the user reads: the `- ` lines of calibration.md. */
 export const SCRIPT = scriptMarkdown
@@ -147,6 +148,8 @@ model heard in data.db, so later runs can tune mockingbird to your voice.
 Nothing leaves this Mac.
 
   mockingbird calibrate            your past runs, in a small window
+  mockingbird calibrate tune       compare your models on your latest run, and
+                                   tune speech detection to your voice
   mockingbird calibrate --forget   delete every take and its audio`;
 
 /** Percent of words right, rounded down so 99.6% never shows as 100%. */
@@ -165,6 +168,7 @@ export async function calibrateCommand(args: string[], home = mockingbirdHome())
     console.log(USAGE);
     return 0;
   }
+  if (command === "tune" && !rest.length) return tuneCommand({ home });
   if (command === "script" && rest[0] === "--json") {
     console.log(JSON.stringify({ sentences: SCRIPT }));
     return 0;

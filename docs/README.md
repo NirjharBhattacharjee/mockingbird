@@ -278,8 +278,12 @@ Q5_0 got 94% of your words right." It takes about three minutes and needs
 the background agent running. Run it again after a new microphone, or
 whenever dictation feels off.
 
-Your readings stay in `~/.mockingbird/calibration/`, so later versions can
-tune mockingbird to your voice. Nothing leaves your Mac.
+Your readings stay in `~/.mockingbird/calibration/`. Nothing leaves your Mac.
+Then run `mockingbird calibrate tune`. In a few minutes, every Whisper model
+you have hears your readings, and it tells you which one is fastest while
+still getting your words right (switch with `mockingbird models`). If your
+voice is quiet or your room noisy, it can also make mockingbird listen more
+closely, after a `mockingbird restart`.
 
 ### `mockingbird listen`: talk live in a terminal
 

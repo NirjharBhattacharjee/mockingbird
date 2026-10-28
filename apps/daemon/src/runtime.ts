@@ -141,12 +141,19 @@ export function readCleanupRules(home: string, log: (message: string) => void): 
   return text;
 }
 
+/** A saved VAD threshold, if it's one detectSpeech can use; otherwise its default applies. */
+export function vadThreshold(saved: string | undefined): number | undefined {
+  const n = Number(saved);
+  return saved && n > 0 && n < 1 ? n : undefined;
+}
+
 /** Checks the models, loads VAD, starts whisper-server, and checks Ollama. */
 export async function startEngines(
   log: (message: string) => void,
   dictionary: DictionaryEntry[] = [],
   savedModel?: string,
   savedAsrModel?: string,
+  savedVadThreshold?: string,
 ): Promise<Engines> {
   const env = process.env;
   const models = join(mockingbirdHome(env), "models");
@@ -158,6 +165,12 @@ export async function startEngines(
   const llm = new OllamaProvider(llmUrl, cleanupModel(savedModel, env), 60_000);
 
   const vad = await SileroVad.load(vadModel);
+  const threshold = vadThreshold(savedVadThreshold);
+  if (threshold !== undefined) {
+    log(
+      `speech detection: threshold ${threshold}, tuned to your voice (mockingbird calibrate tune)`,
+    );
+  }
   let closing: Promise<void> | undefined;
   let stopWhisper = async () => {};
   let stopOllama = async () => {};
@@ -211,7 +224,7 @@ export async function startEngines(
     return {
       deps: {
         detectSpeech: (audio) => {
-          const run = vadTurn.then(() => detectSpeech(vad, audio));
+          const run = vadTurn.then(() => detectSpeech(vad, audio, { threshold }));
           vadTurn = run.catch(() => {});
           return run;
         },

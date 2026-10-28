@@ -10,10 +10,13 @@ const SOCKET = "mockingbird.sock";
 /** The settings keys `mockingbird models use` writes. */
 export const LLM_MODEL_SETTING = "llm_model";
 export const ASR_MODEL_SETTING = "asr_model";
+/** The VAD threshold `mockingbird calibrate tune` saves for this voice. */
+export const VAD_THRESHOLD_SETTING = "vad_threshold";
 /** What each one is called in the reply. */
 const MODEL_SETTINGS: Record<string, string> = {
   [LLM_MODEL_SETTING]: "cleanup model",
   [ASR_MODEL_SETTING]: "transcription model",
+  [VAD_THRESHOLD_SETTING]: "speech detection threshold",
 };
 
 const USAGE = `Usage: mockingbird dictionary [list | add <entry> | remove <term> | forget]
@@ -190,7 +193,7 @@ export async function serveDictionary(
           pathname.startsWith("/settings/") &&
           Object.hasOwn(MODEL_SETTINGS, pathname.slice(10))
         ) {
-          // Only settings a command writes; the model applies on the next start.
+          // Only settings a command writes; each applies on the next start.
           const key = pathname.slice(10);
           const model = body.trim() || undefined;
           store.setSetting(key, model);
