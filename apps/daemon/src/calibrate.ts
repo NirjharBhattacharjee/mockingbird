@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type WordDiff, wordDiff } from "@mockingbird/asr";
 import { concatSamples, encodeWav } from "@mockingbird/audio";
@@ -32,6 +32,8 @@ type HearDeps = Parameters<typeof hear>[1] & Pick<PipelineDeps, "asr">;
 export class Calibration {
   private take: Int16Array[] | undefined;
   private timer: Timer | undefined;
+  /** Goes up on every forget, so a take heard across one isn't saved after it. */
+  private forgets = 0;
   readonly dir: string;
 
   constructor(
@@ -66,15 +68,22 @@ export class Calibration {
     const text = SCRIPT[sentence];
     if (!take || text === undefined) return undefined;
     const audio = { sampleRate: SAMPLE_RATE, samples: concatSamples(take) };
+    const forgets = this.forgets;
+    const deps = this.deps();
+    // Heard before anything is written: if Whisper fails, a sentence read
+    // before keeps its audio and its row, which still describe each other.
+    const heard = (await hear(audio, deps)).asr?.text.trim() ?? "";
+    const diff = wordDiff(text, heard);
+    const model = deps.asr.model;
+    if (forgets !== this.forgets) return { ...diff, heard, model };
     mkdirSync(this.dir, { recursive: true, mode: 0o700 });
     // mkdir leaves a folder that already exists as it was, open or not.
     chmodSync(this.dir, 0o700);
     // Reading a sentence again replaces its file, as it replaces its row.
-    writeFileSync(join(this.dir, `${run}-${sentence}.wav`), encodeWav(audio), { mode: 0o600 });
-    const deps = this.deps();
-    const heard = (await hear(audio, deps)).asr?.text.trim() ?? "";
-    const diff = wordDiff(text, heard);
-    const model = deps.asr.model;
+    // Renamed into place, so a crash never leaves half a file under the name.
+    const path = join(this.dir, `${run}-${sentence}.wav`);
+    writeFileSync(`${path}.part`, encodeWav(audio), { mode: 0o600 });
+    renameSync(`${path}.part`, path);
     this.store.saveTake({
       run,
       sentence,
@@ -89,6 +98,7 @@ export class Calibration {
 
   /** Deletes every take, files and rows; returns how many rows went. */
   forget(): number {
+    this.forgets++;
     this.cancel();
     rmSync(this.dir, { recursive: true, force: true });
     return this.store.forgetCalibration();
@@ -141,7 +151,7 @@ Nothing leaves this Mac.
 
 /** Percent of words right, rounded down so 99.6% never shows as 100%. */
 export const percentRight = (edits: number, words: number) =>
-  words ? Math.max(0, Math.floor(100 * (1 - edits / words))) : 0;
+  words ? Math.max(0, Math.floor((100 * (words - edits)) / words)) : 0;
 
 /**
  * `mockingbird calibrate`. The screen is the Go command's; these are the

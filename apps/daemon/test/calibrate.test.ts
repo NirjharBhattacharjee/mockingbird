@@ -83,4 +83,43 @@ test("percent right rounds down, so a single miss never shows as 100%", () => {
   expect(percentRight(0, 300)).toBe(100);
   expect(percentRight(5, 3)).toBe(0);
   expect(percentRight(0, 0)).toBe(0);
+  // Whole numbers stay whole: 100 * (1 - 4 / 5) is 19.999…
+  expect(percentRight(4, 5)).toBe(20);
+});
+
+test("a take heard while forget runs isn't saved after it", async () => {
+  const { home, store, calibration, call } = setup("Thank you for helping me set this up today.");
+  await call("start");
+  calibration.push(new Int16Array(1600).fill(500));
+  const stopping = call("stop", JSON.stringify({ run: 1, sentence: 0 }));
+  await call("forget");
+  expect((await stopping).status).toBe(200);
+  expect(existsSync(join(home, "calibration"))).toBe(false);
+  expect(store.calibrationRuns()).toEqual([]);
+});
+
+test("if Whisper fails, a sentence read before keeps its audio and its row", async () => {
+  const { home, store, calibration, call } = setup("Thank you for helping me set this up today.");
+  await call("start");
+  calibration.push(new Int16Array(1600).fill(500));
+  await call("stop", JSON.stringify({ run: 1, sentence: 0 }));
+  const wav = join(home, "calibration", "1-0.wav");
+  const before = statSync(wav).mtimeMs;
+  const failing = new Calibration(home, store, () => ({
+    detectSpeech: async () => [{ startSample: 0, endSample: 1600 }],
+    asr: {
+      model: "fake-asr",
+      transcribe: async () => {
+        throw new Error("whisper-server is down");
+      },
+      health: async () => false,
+    },
+  }));
+  failing.start();
+  failing.push(new Int16Array(3200).fill(900));
+  expect(failing.stop(1, 0)).rejects.toThrow("whisper-server is down");
+  await Bun.sleep(10);
+  expect(statSync(wav).mtimeMs).toBe(before);
+  expect(existsSync(`${wav}.part`)).toBe(false);
+  expect(store.calibrationRuns()).toMatchObject([{ run: 1, edits: 0 }]);
 });

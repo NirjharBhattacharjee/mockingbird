@@ -40,7 +40,7 @@ TUI is part of the **Go `mockingbird` command**, a separate, optional process th
 a Unix socket (NDJSON protocol) for live state, and reads `data.db`
 **directly, read-only**, for history/dictionary browsing (WAL mode makes
 this safe concurrently with the daemon writing — see
-[DATABASE.md §12](./DATABASE.md#13-wal-mode--concurrency)). It holds no
+[DATABASE.md §13](./DATABASE.md#13-wal-mode--concurrency)). It holds no
 source of truth of its own beyond tiny local view-state (scroll position,
 active tab) that doesn't need to survive a restart.
 
@@ -326,6 +326,10 @@ home screen. Neither needs the IPC socket.
   key line turns into `● recording` in `red`. `Enter` again stops it
   (`calibrate stop <run> <sentence>`), and `listening back…` shows in `sky`
   while the agent hears it. `Esc` cancels the take; `s` skips the sentence.
+  While a start or cancel is on its way to the agent, `waiting for
+  mockingbird…` shows in `sky` and the keys wait, so a quick `s` can't move
+  past a take that's starting. A quit pressed then cancels the take, if it
+  started, before the screen closes.
 - The agent records from the microphone it already has open, hears the take
   the way it hears a dictation (the VAD and Whisper, no cleanup), saves it,
   and compares it with the sentence. The screen then shows `you read` and
@@ -360,7 +364,7 @@ home screen. Neither needs the IPC socket.
 
 ### History browser
 - Lists `utterance` rows, most recent first
-  (`idx_utterance_created_at`, [DATABASE.md §10](./DATABASE.md#11-indexes)).
+  (`idx_utterance_created_at`, [DATABASE.md §11](./DATABASE.md#11-indexes)).
 - **Full-text search** over `final_text` via `utterance_fts`
   ([DATABASE.md §4](./DATABASE.md#4-utterance_fts)).
 - **Filter by app** (`app_bundle`), backed by `idx_utterance_app_bundle`.

@@ -35,6 +35,7 @@ type calibState int
 
 const (
 	calibReading   calibState = iota // the sentence is up, waiting for Enter
+	calibWaiting                     // a start or cancel is on its way to the agent
 	calibRecording                   // a take is running
 	calibHearing                     // the agent is transcribing it
 	calibScored                      // what it heard is up
@@ -51,6 +52,7 @@ type (
 		out    string
 		ok     bool
 	}
+	takeCancelledMsg struct{}
 )
 
 type calibModel struct {
@@ -64,6 +66,9 @@ type calibModel struct {
 	note    string             // what went wrong, in red
 	width   int
 	closed  bool
+	// quitting is a quit pressed while waiting: it happens once the agent
+	// answers, so a take that did start is cancelled rather than left running.
+	quitting bool
 }
 
 // loadScript asks the engine for the sentences. An engine without
@@ -96,11 +101,22 @@ func (m calibModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 	case takeStartedMsg:
-		if msg.ok {
+		switch {
+		case m.quitting && msg.ok:
+			m.closed = true
+			return m, tea.Sequence(m.cancel(), tea.Quit)
+		case m.quitting:
+			return m.quit()
+		case msg.ok:
 			m.state = calibRecording
-		} else {
+		default:
 			m.state, m.note = calibReading, firstLine(msg.out)
 		}
+	case takeCancelledMsg:
+		if m.quitting {
+			return m.quit()
+		}
+		m.state = calibReading
 	case takeHeardMsg:
 		if !msg.ok {
 			m.state, m.note = calibReading, firstLine(msg.out)
@@ -117,6 +133,10 @@ func (m calibModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m calibModel) key(k string) (tea.Model, tea.Cmd) {
 	quit := k == "q" || k == "esc" || k == "ctrl+c"
 	switch m.state {
+	case calibWaiting:
+		if quit {
+			m.quitting = true
+		}
 	case calibReading:
 		switch {
 		case quit:
@@ -138,7 +158,7 @@ func (m calibModel) key(k string) (tea.Model, tea.Cmd) {
 				return takeHeardMsg{r, string(out), err == nil}
 			}, "calibrate", "stop", fmt.Sprint(m.run), fmt.Sprint(m.at))
 		case k == "esc":
-			m.state = calibReading
+			m.state = calibWaiting
 			return m, m.cancel()
 		case quit:
 			m.closed = true
@@ -167,14 +187,14 @@ func (m calibModel) key(k string) (tea.Model, tea.Cmd) {
 }
 
 func (m calibModel) start() (tea.Model, tea.Cmd) {
-	m.note = ""
+	m.note, m.state = "", calibWaiting
 	return m, callEngine(m.engine, func(out []byte, err error) tea.Msg {
 		return takeStartedMsg{string(out), err == nil}
 	}, "calibrate", "start")
 }
 
 func (m calibModel) cancel() tea.Cmd {
-	return callEngine(m.engine, func([]byte, error) tea.Msg { return nil }, "calibrate", "cancel")
+	return callEngine(m.engine, func([]byte, error) tea.Msg { return takeCancelledMsg{} }, "calibrate", "cancel")
 }
 
 func (m calibModel) next() (tea.Model, tea.Cmd) {
@@ -187,7 +207,7 @@ func (m calibModel) next() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// quit erases the screen: takes are saved as they're calibScored, so nothing is lost.
+// quit erases the screen: takes are saved as they're scored, so nothing is lost.
 func (m calibModel) quit() (tea.Model, tea.Cmd) {
 	m.closed = true
 	return m, tea.Quit
@@ -241,6 +261,8 @@ func (m calibModel) render() string {
 		b.WriteString(paint("enter start reading · s skip · q quit", overlay0))
 	case calibRecording:
 		b.WriteString(paint("● recording", red) + paint(" · enter when you're done · esc cancel", overlay0))
+	case calibWaiting:
+		b.WriteString(paint("waiting for mockingbird…", sky))
 	case calibHearing:
 		b.WriteString(paint("listening back…", sky))
 	case calibScored:

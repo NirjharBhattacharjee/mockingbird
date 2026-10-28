@@ -615,11 +615,23 @@ func TestCalibrate(t *testing.T) {
 	}
 	fitsScreen(m)
 
-	// r reads it again; Enter moves on. The long sentence fits.
-	if m = feed(m, key('r')); m.state != calibScored {
-		t.Errorf("r changed the state before the agent answered: %d", m.state)
+	// r reads it again: keys wait for the agent, and a cancelled take
+	// leaves the same sentence up. Enter then moves on.
+	if m = feed(m, key('r')); m.state != calibWaiting || !strings.Contains(plain(m), "waiting for mockingbird") {
+		t.Errorf("r: state %d\n%s", m.state, plain(m))
 	}
-	m = feed(m, key(tea.KeyEnter))
+	if m = feed(feed(m, key(tea.KeyEnter)), key('s')); m.state != calibWaiting || m.at != 0 {
+		t.Errorf("keys got through while waiting: state %d, at %d", m.state, m.at)
+	}
+	m = feed(feed(m, takeStartedMsg{"recording", true}), key(tea.KeyEscape))
+	if m.state != calibWaiting {
+		t.Errorf("esc while recording: state %d, want waiting for the cancel", m.state)
+	}
+	if m = feed(m, takeCancelledMsg{}); m.state != calibReading || m.at != 0 {
+		t.Errorf("after the cancel: state %d, at %d", m.state, m.at)
+	}
+	m = feed(feed(feed(m, key(tea.KeyEnter)), takeStartedMsg{"recording", true}), key(tea.KeyEnter))
+	m = feed(feed(m, takeHeardMsg{result: heard, ok: true}), key(tea.KeyEnter))
 	if m.at != 1 || m.state != calibReading {
 		t.Errorf("enter after a score: at %d, state %d", m.at, m.state)
 	}
@@ -632,11 +644,13 @@ func TestCalibrate(t *testing.T) {
 	m = feed(m, takeHeardMsg{result: takeResult{Model: "large-v3-turbo", Words: len(longWords), Reference: longWords, Hypothesis: longWords}, ok: true})
 	fitsScreen(m)
 
-	// Esc cancels a take; s skips the last sentence and the run ends.
-	m = feed(m, key(tea.KeyEnter))
-	m = feed(feed(feed(m, key(tea.KeyEnter)), takeStartedMsg{"recording", true}), key(tea.KeyEscape))
-	if m.state != calibReading {
-		t.Errorf("esc while recording: state %d", m.state)
+	// On the last sentence, s pressed while a start is on its way doesn't
+	// move past the script (it used to, and the start's reply then drew a
+	// sentence that isn't there). s once it's back skips, and the run ends.
+	m = feed(feed(m, key(tea.KeyEnter)), key(tea.KeyEnter))
+	m = feed(feed(m, key('s')), takeStartedMsg{"error: a take is already recording", false})
+	if m.at != 2 || m.state != calibReading || !strings.Contains(plain(m), "already recording") {
+		t.Errorf("s while starting on the last sentence: at %d, state %d\n%s", m.at, m.state, plain(m))
 	}
 	m = feed(m, key('s'))
 	s := plain(m)
@@ -646,6 +660,17 @@ func TestCalibrate(t *testing.T) {
 		t.Errorf("done, want %q:\n%s", want, s)
 	}
 	fitsScreen(m)
+
+	// q while a start is on its way: once the agent says it started, the
+	// take is cancelled before the screen goes.
+	q := feed(feed(newCalibrate([]string{"bun", "cli.ts"}, script), key(tea.KeyEnter)), key('q'))
+	if q.closed {
+		t.Error("q while waiting closed the screen before the agent answered")
+	}
+	next, cmd := q.Update(takeStartedMsg{"recording", true})
+	if !next.(calibModel).closed || cmd == nil {
+		t.Error("the started take wasn't cancelled on the way out")
+	}
 
 	// Skipping everything scores nothing.
 	none := newCalibrate([]string{"bun", "cli.ts"}, script[:1])

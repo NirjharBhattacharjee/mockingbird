@@ -56,7 +56,7 @@ a systems level) and
   neither has a natural one.
 - **Foreign keys are documented even where SQLite won't enforce them**, so
   the *intent* of the relationship is never in question even where a soft
-  reference is the deliberate choice — see [§9](#10-keys--relationships-summary)
+  reference is the deliberate choice — see [§10](#10-keys--relationships-summary)
   for exactly which relationships are hard-enforced vs. soft.
 
 ## 2. Entity-relationship diagram
@@ -162,7 +162,7 @@ CREATE TABLE utterance (
   instant as the DB write), and ULIDs sort chronologically as plain text,
   which keeps `ORDER BY id` and `ORDER BY created_at` equivalent without a
   second index.
-- **`app_bundle` is a *soft* foreign key** — see [§9](#10-keys--relationships-summary)
+- **`app_bundle` is a *soft* foreign key** — see [§10](#10-keys--relationships-summary)
   for why it isn't `NOT NULL` or hard-enforced.
 - **`llm_skipped` is a real column, not inferred from `t_llm_ms IS NULL`.**
   Both facts happen to correlate today, but making "was cleanup skipped"
@@ -294,7 +294,7 @@ CREATE TABLE correction (
   increments each time the same correction pattern is observed again; it
   does **not** store a row per correction event, and it does **not** link
   back to the specific `utterance` row(s) it was learned from. See
-  [§14](#15-open-schema-decisions) for whether that traceability is worth
+  [§15](#15-open-schema-decisions) for whether that traceability is worth
   adding later.
 - `UNIQUE(from_text, to_text)` is what makes "increment count" an upsert
   (`INSERT ... ON CONFLICT DO UPDATE SET count = count + 1`) instead of a
@@ -366,7 +366,7 @@ Only one real cross-table relationship exists in this schema
 (`utterance.app_bundle → app_profile.bundle`), and it's intentionally soft.
 Everything else is a flat, independent table — this schema is closer to a
 handful of related logs/dictionaries than a normalized relational model, on
-purpose, matching the "six tables, no more" goal in [§1](#1-design-goals-for-this-schema).
+purpose, matching the "seven tables, no more" goal in [§1](#1-design-goals-for-this-schema).
 
 ## 11. Indexes
 
@@ -397,7 +397,7 @@ one this doc assumes unless superseded: numbered plain-SQL files
 daemon startup, tracked in a small `_migrations(version INTEGER PRIMARY
 KEY, applied_at INTEGER)` table — no ORM, consistent with
 `bun:sqlite` being used directly rather than through a query builder.
-Flagged as **proposed, not decided** — see [§14](#15-open-schema-decisions).
+Flagged as **proposed, not decided** — see [§15](#15-open-schema-decisions).
 
 ## 13. WAL mode & concurrency
 
@@ -416,7 +416,7 @@ PRAGMA busy_timeout = 5000;
   colliding (e.g. a manual `sqlite3 data.db` session open during a crash
   investigation) rather than surfacing `SQLITE_BUSY` immediately.
 - `PRAGMA foreign_keys` is deliberately **not** turned on globally — the one
-  FK relationship in this schema ([§9](#10-keys--relationships-summary)) is
+  FK relationship in this schema ([§10](#10-keys--relationships-summary)) is
   soft by design, and there's no second FK that would benefit from the
   pragma today. Worth revisiting if that changes.
 
@@ -439,7 +439,7 @@ Named explicitly, matching the project's convention of flagging gaps rather
 than silently deciding them (see
 [ARCHITECTURE.md §16](./ARCHITECTURE.md#16-known-gaps--scope-not-yet-decided)):
 
-- **Migration mechanism** — [§11](#12-migrations)'s numbered-SQL-files
+- **Migration mechanism** — [§12](#12-migrations)'s numbered-SQL-files
   approach is a proposal, not a decision.
 - **`correction` traceability** — should a correction row link back to the
   `utterance.id` it was learned from (e.g. a `last_utterance_id` column), to
