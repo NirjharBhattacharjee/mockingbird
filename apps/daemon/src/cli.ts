@@ -14,6 +14,7 @@ import {
 } from "./agent/launchctl.ts";
 import { AGENT_LABEL, agentPaths, plistFor } from "./agent/plist.ts";
 import { appPath, ensureRunner, unregisterApp } from "./agent/runner.ts";
+import { calibrateCommand } from "./calibrate.ts";
 import { main as dictionaryMain } from "./dictionary.ts";
 import {
   claimFnKey,
@@ -49,6 +50,7 @@ export const COMMANDS: { name: string; summary: string }[] = [
   },
   { name: "dictionary", summary: "list, add and remove words it should spell right" },
   { name: "record", summary: "record the microphone to a file; `record stop` ends it" },
+  { name: "calibrate", summary: "read a script aloud and see how well it hears your voice" },
   {
     name: "models",
     summary:
@@ -580,6 +582,8 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
       return dictionaryMain(rest);
     case "record":
       return recordCommand(rest);
+    case "calibrate":
+      return calibrateCommand(rest);
     case "listen":
       return listenMain(rest);
     case "transcribe":

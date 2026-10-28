@@ -73,13 +73,14 @@ export function describeTimings(result: PipelineResult): string {
  */
 export type OnText = (piece: string) => Promise<void>;
 
-export async function runPipeline(
-  { audio, style = "default" }: { audio: PcmAudio; style?: AppStyle },
-  deps: PipelineDeps,
-  onText?: OnText,
-): Promise<PipelineResult> {
-  const base = { durationMs: durationMs(audio), asrModel: deps.asr.model };
-
+/**
+ * The VAD and Whisper, before any cleanup: what the model heard. `asr` is
+ * undefined when there was no speech.
+ */
+export async function hear(
+  audio: PcmAudio,
+  deps: Pick<PipelineDeps, "detectSpeech" | "asr" | "dictionary" | "vocabularyHint">,
+): Promise<{ asr?: AsrResult; vadMs: number; asrMs: number | null }> {
   // A quiet voice is missed by both the VAD and Whisper, so the level is
   // brought up before either sees it.
   const heard = normalizeLoudness(audio);
@@ -89,24 +90,34 @@ export async function runPipeline(
   const vadMs = elapsed(t);
 
   // Whisper hallucinates text ("Thank you.") on silence, so never send it any.
-  if (segments.length === 0) {
-    return {
-      ...base,
-      rawText: "",
-      finalText: "",
-      vadMs,
-      asrMs: null,
-      llmMs: null,
-      llmOutcome: "skipped",
-      llmModel: null,
-    };
-  }
+  if (segments.length === 0) return { vadMs, asrMs: null };
 
   t = performance.now();
   const asr = await deps.asr.transcribe(trimToSpeech(heard, segments), {
     vocabulary: deps.vocabularyHint ? buildVocabularyPrompt(deps.dictionary ?? []) : undefined,
   });
-  const asrMs = elapsed(t);
+  return { asr, vadMs, asrMs: elapsed(t) };
+}
+
+export async function runPipeline(
+  { audio, style = "default" }: { audio: PcmAudio; style?: AppStyle },
+  deps: PipelineDeps,
+  onText?: OnText,
+): Promise<PipelineResult> {
+  const base = { durationMs: durationMs(audio), asrModel: deps.asr.model };
+  const { asr, vadMs, asrMs } = await hear(audio, deps);
+  if (!asr) {
+    return {
+      ...base,
+      rawText: "",
+      finalText: "",
+      vadMs,
+      asrMs,
+      llmMs: null,
+      llmOutcome: "skipped",
+      llmModel: null,
+    };
+  }
   return { ...base, rawText: asr.text, vadMs, asrMs, ...(await cleanUp(asr, deps, style, onText)) };
 }
 

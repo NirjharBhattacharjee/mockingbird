@@ -1,4 +1,5 @@
 export type { AsrEngine, AsrResult, AsrWord, TranscribeOptions } from "./engine.ts";
+export { type DiffWord, type WordDiff, wordDiff } from "./wer.ts";
 export {
   AsrRequestError,
   parseVerboseJson,

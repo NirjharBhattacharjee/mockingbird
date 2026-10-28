@@ -205,9 +205,16 @@ export async function startEngines(
       readyTimeoutMs: 60_000,
     });
     stopWhisper = whisper.stop;
+    // Silero carries state from one window to the next, so a calibration take
+    // and a dictation heard at once would mix. One recording at a time.
+    let vadTurn: Promise<unknown> = Promise.resolve();
     return {
       deps: {
-        detectSpeech: (audio) => detectSpeech(vad, audio),
+        detectSpeech: (audio) => {
+          const run = vadTurn.then(() => detectSpeech(vad, audio));
+          vadTurn = run.catch(() => {});
+          return run;
+        },
         asr: whisper.engine,
         llm,
         dictionary,

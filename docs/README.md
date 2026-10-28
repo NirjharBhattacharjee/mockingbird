@@ -264,6 +264,23 @@ line leaves out "with system audio". **Only record people who agreed to
 it:** in many places, recording a conversation without everyone's consent
 is illegal.
 
+### `mockingbird calibrate`: see how well it hears your voice
+
+```sh
+mockingbird calibrate            # read 25 short sentences aloud
+mockingbird calibrate --forget   # delete every reading
+```
+
+It shows one sentence at a time. Press **Enter**, read it, and press
+**Enter** again. You see what mockingbird heard, with the words it got wrong
+in red, and at the end how many of your words it got right, like "large-v3
+Q5_0 got 94% of your words right." It takes about three minutes and needs
+the background agent running. Run it again after a new microphone, or
+whenever dictation feels off.
+
+Your readings stay in `~/.mockingbird/calibration/`, so later versions can
+tune mockingbird to your voice. Nothing leaves your Mac.
+
 ### `mockingbird listen`: talk live in a terminal
 
 | Key | Does |

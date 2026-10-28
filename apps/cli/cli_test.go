@@ -559,3 +559,122 @@ func TestDictionaryTable(t *testing.T) {
 		t.Errorf("%d lines in a %d-row window, or the cursor scrolled off:\n%s", n, dictRows, screen)
 	}
 }
+
+// TestCalibrate walks the calibration screen with the replies the engine
+// would give. The commands the model returns are never run.
+func TestCalibrate(t *testing.T) {
+	long := "It was a long journey, and by the time we reached the village, everyone was tired, hungry and ready to sleep."
+	script := []string{"Thank you for helping me set this up today.", long, "Six sticky skeletons stood silently in the street."}
+	feed := func(m tea.Model, msg tea.Msg) calibModel { m, _ = m.Update(msg); return m.(calibModel) }
+	key := func(code rune) tea.Msg { return tea.KeyPressMsg{Code: code} }
+	plain := func(m calibModel) string { return escapes.ReplaceAllString(m.render(), "") }
+	fitsScreen := func(m calibModel) {
+		t.Helper()
+		screen := plain(m)
+		for _, line := range strings.Split(screen, "\n") {
+			if n := len([]rune(line)); n > calibCols {
+				t.Errorf("%d columns: %q", n, line)
+			}
+		}
+		if n := strings.Count(screen, "\n") + 1; n > calibRows {
+			t.Errorf("%d rows, more than calibRows %d:\n%s", n, calibRows, screen)
+		}
+	}
+
+	m := feed(newCalibrate([]string{"bun", "cli.ts"}, script), tea.WindowSizeMsg{Width: calibCols, Height: calibRows})
+	if s := plain(m); !strings.Contains(s, "sentence 1 of 3") || !strings.Contains(s, script[0]) {
+		t.Errorf("first sentence:\n%s", s)
+	}
+
+	// The agent isn't running: Enter says so and the sentence stays up.
+	m = feed(feed(m, key(tea.KeyEnter)), takeStartedMsg{"mockingbird isn't running. Start it with `mockingbird start`, then try again.\n", false})
+	if m.state != calibReading || !strings.Contains(plain(m), "isn't running") {
+		t.Errorf("failed start: state %d\n%s", m.state, plain(m))
+	}
+
+	// Enter, read, Enter: the scored sentence shows the misses.
+	m = feed(feed(m, key(tea.KeyEnter)), takeStartedMsg{"recording", true})
+	if m.state != calibRecording || !strings.Contains(plain(m), "● recording") || strings.Contains(plain(m), "isn't running") {
+		t.Errorf("recording: state %d\n%s", m.state, plain(m))
+	}
+	m = feed(m, key(tea.KeyEnter))
+	if m.state != calibHearing {
+		t.Errorf("after the second enter: state %d", m.state)
+	}
+	heard := takeResult{
+		Heard: "Thank you for helping me set this up to day.", Model: "large-v3-turbo", Edits: 2, Words: 9,
+		Reference:  []diffWord{{"Thank", true}, {"you", true}, {"for", true}, {"helping", true}, {"me", true}, {"set", true}, {"this", true}, {"up", true}, {"today", false}},
+		Hypothesis: []diffWord{{"Thank", true}, {"you", true}, {"for", true}, {"helping", true}, {"me", true}, {"set", true}, {"this", true}, {"up", true}, {"to", false}, {"day", false}},
+	}
+	m = feed(m, takeHeardMsg{result: heard, ok: true})
+	if s := plain(m); m.state != calibScored || !strings.Contains(s, "7 of 9 words right") || !strings.Contains(s, "up to day") {
+		t.Errorf("scored:\n%s", s)
+	}
+	if !strings.Contains(m.render(), paint("today", red)) {
+		t.Error("the missed word isn't red")
+	}
+	fitsScreen(m)
+
+	// r reads it again: keys wait for the agent, and a cancelled take
+	// leaves the same sentence up. Enter then moves on.
+	if m = feed(m, key('r')); m.state != calibWaiting || !strings.Contains(plain(m), "waiting for mockingbird") {
+		t.Errorf("r: state %d\n%s", m.state, plain(m))
+	}
+	if m = feed(feed(m, key(tea.KeyEnter)), key('s')); m.state != calibWaiting || m.at != 0 {
+		t.Errorf("keys got through while waiting: state %d, at %d", m.state, m.at)
+	}
+	m = feed(feed(m, takeStartedMsg{"recording", true}), key(tea.KeyEscape))
+	if m.state != calibWaiting {
+		t.Errorf("esc while recording: state %d, want waiting for the cancel", m.state)
+	}
+	if m = feed(m, takeCancelledMsg{}); m.state != calibReading || m.at != 0 {
+		t.Errorf("after the cancel: state %d, at %d", m.state, m.at)
+	}
+	m = feed(feed(feed(m, key(tea.KeyEnter)), takeStartedMsg{"recording", true}), key(tea.KeyEnter))
+	m = feed(feed(m, takeHeardMsg{result: heard, ok: true}), key(tea.KeyEnter))
+	if m.at != 1 || m.state != calibReading {
+		t.Errorf("enter after a score: at %d, state %d", m.at, m.state)
+	}
+	fitsScreen(m)
+	longWords := []diffWord{}
+	for _, w := range strings.Fields(long) {
+		longWords = append(longWords, diffWord{strings.Trim(w, ",."), true})
+	}
+	m = feed(feed(feed(m, key(tea.KeyEnter)), takeStartedMsg{"recording", true}), key(tea.KeyEnter))
+	m = feed(m, takeHeardMsg{result: takeResult{Model: "large-v3-turbo", Words: len(longWords), Reference: longWords, Hypothesis: longWords}, ok: true})
+	fitsScreen(m)
+
+	// On the last sentence, s pressed while a start is on its way doesn't
+	// move past the script (it used to, and the start's reply then drew a
+	// sentence that isn't there). s once it's back skips, and the run ends.
+	m = feed(feed(m, key(tea.KeyEnter)), key(tea.KeyEnter))
+	m = feed(feed(m, key('s')), takeStartedMsg{"error: a take is already recording", false})
+	if m.at != 2 || m.state != calibReading || !strings.Contains(plain(m), "already recording") {
+		t.Errorf("s while starting on the last sentence: at %d, state %d\n%s", m.at, m.state, plain(m))
+	}
+	m = feed(m, key('s'))
+	s := plain(m)
+	// 2 wrong of 9 + 21 words.
+	want := fmt.Sprintf("large-v3-turbo got %d%% of your words right.", 100*(9+len(longWords)-2)/(9+len(longWords)))
+	if m.state != calibDone || !strings.Contains(s, want) || !strings.Contains(s, "in 2 sentences.") {
+		t.Errorf("done, want %q:\n%s", want, s)
+	}
+	fitsScreen(m)
+
+	// q while a start is on its way: once the agent says it started, the
+	// take is cancelled before the screen goes.
+	q := feed(feed(newCalibrate([]string{"bun", "cli.ts"}, script), key(tea.KeyEnter)), key('q'))
+	if q.closed {
+		t.Error("q while waiting closed the screen before the agent answered")
+	}
+	next, cmd := q.Update(takeStartedMsg{"recording", true})
+	if !next.(calibModel).closed || cmd == nil {
+		t.Error("the started take wasn't cancelled on the way out")
+	}
+
+	// Skipping everything scores nothing.
+	none := newCalibrate([]string{"bun", "cli.ts"}, script[:1])
+	if none = feed(none, key('s')); !strings.Contains(plain(none), "nothing to score") {
+		t.Errorf("all skipped:\n%s", plain(none))
+	}
+}
