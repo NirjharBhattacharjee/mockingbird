@@ -1,13 +1,13 @@
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { type AsrEngine, startWhisperServer, wordDiff } from "@mockingbird/asr";
 import { loudestWindowRms, type PcmAudio, peak, readWavFile } from "@mockingbird/audio";
 import { openStore, type Take } from "@mockingbird/store";
-import { detectSpeech, SileroVad } from "@mockingbird/vad";
+import { detectSpeech, SileroVad, type SpeechSegment } from "@mockingbird/vad";
 import { ASR_MODEL_SETTING, tellDaemon, VAD_THRESHOLD_SETTING } from "./dictionary.ts";
-import { listModels } from "./models.ts";
+import { listModels, speechName } from "./models.ts";
 import { hear } from "./pipeline.ts";
-import { mockingbirdHome } from "./runtime.ts";
+import { findAsrModel, freePort, mockingbirdHome } from "./runtime.ts";
 
 /** detectSpeech's default first, then lower ones, for voices it hears too little of. */
 export const THRESHOLDS = [0.5, 0.4, 0.3, 0.2];
@@ -107,19 +107,33 @@ export type TuneDeps = {
   home?: string;
   out?: (line: string) => void;
   tell?: typeof tellDaemon;
-  /** Starts a model's whisper-server; the real one by default. */
+  env?: Record<string, string | undefined>;
+  /** Starts a model's whisper-server; the real one, on a free port, by default. */
   whisper?: (modelPath: string) => Promise<{ engine: AsrEngine; stop: () => Promise<void> }>;
+  /** Finds speech at a threshold; Silero, from the models folder, by default. */
+  vad?: () => Promise<{
+    detect: (audio: PcmAudio, threshold: number) => Promise<SpeechSegment[]>;
+    close: () => Promise<void>;
+  }>;
 };
 
 const pct = (s: { edits: number; words: number }) => `${(100 * (1 - rate(s))).toFixed(1)}% right`;
+
+async function loadSilero(models: string) {
+  const silero = await SileroVad.load(join(models, "silero_vad.onnx"));
+  return {
+    detect: (a: PcmAudio, threshold: number) => detectSpeech(silero, a, { threshold }),
+    close: () => silero.close(),
+  };
+}
 
 /**
  * `mockingbird calibrate tune`: the latest calibration run, heard again by
  * every installed Whisper model and at lower VAD thresholds. It recommends a
  * model (the user switches in `mockingbird models`; it never switches by
  * itself) and saves a threshold only when one measurably helps. Each model
- * gets its own whisper-server for the comparison, one at a time, beside the
- * agent's.
+ * gets its own whisper-server on a free port for the comparison, one at a
+ * time, beside the agent's.
  */
 export async function tuneCommand(deps: TuneDeps = {}): Promise<number> {
   const home = deps.home ?? mockingbirdHome();
@@ -152,22 +166,36 @@ export async function tuneCommand(deps: TuneDeps = {}): Promise<number> {
   out("Loudness");
   for (const note of loudnessNotes(audio)) out(`  ${note}`);
 
+  const env = deps.env ?? process.env;
   const models = join(home, "models");
   const listing = await listModels({
     restart: async () => 0,
     list: async () => [],
     modelsDir: models,
     savedSpeech: () => savedSpeech,
+    env,
   });
-  const vad = await SileroVad.load(join(models, "silero_vad.onnx"));
+  // The one in use, found the way the agent finds it: MOCKINGBIRD_ASR_MODEL
+  // can name a file outside the models folder, which the listing leaves out.
+  let inUsePath: string | undefined;
+  try {
+    inUsePath = findAsrModel(models, env.MOCKINGBIRD_ASR_MODEL, () => {}, savedSpeech);
+  } catch {
+    // No Whisper file at all: the comparison below says so.
+  }
+  const candidates = listing.transcription.map(({ name, file }) => ({
+    name,
+    path: join(models, file),
+  }));
+  if (inUsePath && !candidates.some((c) => c.path === inUsePath)) {
+    candidates.unshift({ name: speechName(basename(inUsePath)), path: inUsePath });
+  }
+
   const whisper =
     deps.whisper ??
     ((modelPath: string) =>
-      startWhisperServer({
-        modelPath,
-        port: Number(process.env.MOCKINGBIRD_TUNE_PORT ?? 8795),
-        readyTimeoutMs: 120_000,
-      }));
+      startWhisperServer({ modelPath, port: freePort(), readyTimeoutMs: 120_000 }));
+  const vad = await (deps.vad ?? (() => loadSilero(models)))();
   out(
     `\nTranscription models, each hearing your ${wavs.length} sentences (this takes a few minutes)`,
   );
@@ -175,76 +203,91 @@ export async function tuneCommand(deps: TuneDeps = {}): Promise<number> {
   const scores: ModelScore[] = [];
   const byThreshold = new Map<number, number>();
   let inUseName: string | undefined;
-  for (const model of listing.transcription) {
-    let server: Awaited<ReturnType<typeof whisper>>;
-    try {
-      server = await whisper(join(models, model.file));
-    } catch (error) {
-      out(
-        `  ${model.name.padEnd(22)} couldn't start: ${error instanceof Error ? error.message : error}`,
-      );
-      continue;
-    }
-    try {
-      // Each clip's transcript, by where the speech starts and ends: two
-      // thresholds that find the same span hear the same thing.
-      const heard = new Map<string, string>();
-      const score = async (threshold: number, times?: number[]) => {
-        let edits = 0;
-        for (const [i, { take }] of wavs.entries()) {
-          let span = "";
-          const result = await hear(audio[i] as PcmAudio, {
-            detectSpeech: async (a) => {
-              const segments = await detectSpeech(vad, a, { threshold });
-              span = `${i}:${segments[0]?.startSample}-${segments.at(-1)?.endSample}`;
-              return segments;
-            },
-            asr: {
-              model: server.engine.model,
-              health: () => server.engine.health(),
-              transcribe: async (a, o) => {
-                const known = heard.get(span);
-                if (known !== undefined) return { text: known, confidence: 1, words: [] };
-                const t = performance.now();
-                const r = await server.engine.transcribe(a, o);
-                times?.push(performance.now() - t);
-                heard.set(span, r.text);
-                return r;
-              },
-            },
-          });
-          edits += wordDiff(take.text, result.asr?.text ?? "").edits;
-        }
-        return edits;
-      };
-      const first = audio[0];
-      if (first) await server.engine.transcribe(first); // warm
-      const times: number[] = [];
-      const edits = await score(THRESHOLDS[0] as number, times);
-      times.sort((a, b) => a - b);
-      const s = {
-        name: model.name,
-        inUse: model.inUse,
-        edits,
-        words,
-        medianMs: times[Math.floor(times.length / 2)] ?? 0,
-      };
-      scores.push(s);
-      out(
-        `  ${model.name.padEnd(22)} ${pct(s).padStart(12)}   ${(s.medianMs / 1000).toFixed(1)} s a sentence${model.inUse ? "   ● in use" : ""}`,
-      );
-      if (model.inUse) {
-        inUseName = model.name;
-        byThreshold.set(THRESHOLDS[0] as number, edits);
-        for (const t of THRESHOLDS.slice(1)) byThreshold.set(t, await score(t));
+  try {
+    for (const model of candidates) {
+      const inUse = model.path === inUsePath;
+      const label = `  ${model.name.padEnd(22)}`;
+      let server: Awaited<ReturnType<typeof whisper>>;
+      try {
+        server = await whisper(model.path);
+      } catch (error) {
+        out(`${label} couldn't start: ${error instanceof Error ? error.message : error}`);
+        continue;
       }
-    } finally {
-      // Always, so a failing model doesn't leave a server on the port for the next.
-      await server.stop();
+      try {
+        // Each clip's transcript, by where the speech starts and ends: two
+        // thresholds that find the same span hear the same thing.
+        const heard = new Map<string, string>();
+        const score = async (threshold: number, times?: number[]) => {
+          let edits = 0;
+          for (const [i, { take }] of wavs.entries()) {
+            let span = "";
+            const result = await hear(audio[i] as PcmAudio, {
+              detectSpeech: async (a) => {
+                const segments = await vad.detect(a, threshold);
+                span = `${i}:${segments[0]?.startSample}-${segments.at(-1)?.endSample}`;
+                return segments;
+              },
+              asr: {
+                model: server.engine.model,
+                health: () => server.engine.health(),
+                transcribe: async (a, o) => {
+                  const known = heard.get(span);
+                  if (known !== undefined) return { text: known, confidence: 1, words: [] };
+                  const t = performance.now();
+                  const r = await server.engine.transcribe(a, o);
+                  times?.push(performance.now() - t);
+                  heard.set(span, r.text);
+                  return r;
+                },
+              },
+            });
+            edits += wordDiff(take.text, result.asr?.text ?? "").edits;
+          }
+          return edits;
+        };
+        const first = audio[0];
+        if (first) await server.engine.transcribe(first); // warm
+        const times: number[] = [];
+        const edits = await score(THRESHOLDS[0] as number, times);
+        times.sort((a, b) => a - b);
+        const s = {
+          name: model.name,
+          inUse,
+          edits,
+          words,
+          medianMs: times[Math.floor(times.length / 2)] ?? 0,
+        };
+        // The thresholds first, so a model that fails partway has no score.
+        const atThreshold = new Map([[THRESHOLDS[0] as number, edits]]);
+        if (inUse) for (const t of THRESHOLDS.slice(1)) atThreshold.set(t, await score(t));
+        scores.push(s);
+        out(
+          `${label} ${pct(s).padStart(12)}   ${(s.medianMs / 1000).toFixed(1)} s a sentence${inUse ? "   ● in use" : ""}`,
+        );
+        if (inUse) {
+          inUseName = model.name;
+          for (const [t, e] of atThreshold) byThreshold.set(t, e);
+        }
+      } catch (error) {
+        // One model failing (whisper-server dying mid-run) leaves the others.
+        out(`${label} failed: ${error instanceof Error ? error.message : error}`);
+      } finally {
+        // Always, so a failing model doesn't leave its server running.
+        await server.stop();
+      }
     }
+  } finally {
+    await vad.close();
   }
-  await vad.close();
 
+  if (!scores.length) {
+    out(
+      "→ No model could be measured. `mockingbird models pull` downloads one; " +
+        "`mockingbird models` lists what's installed.",
+    );
+    return 1;
+  }
   const pick = recommend(scores);
   if (pick?.inUse) {
     out(`→ ${pick.name}, the one in use, is already the best choice for your voice.`);
@@ -279,6 +322,13 @@ export async function tuneCommand(deps: TuneDeps = {}): Promise<number> {
       value,
       home,
     );
+    if (response.status === 404) {
+      // An agent from before this setting.
+      out(
+        "→ Couldn't save it: the running mockingbird is older than tune. Run `mockingbird restart`, then run this again.",
+      );
+      return 1;
+    }
     if (!response.ok) throw new Error(await response.text());
   } catch {
     out("→ Couldn't save it: mockingbird isn't running. Start it, then run this again.");

@@ -1,7 +1,9 @@
-import { expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { encodeWav } from "@mockingbird/audio";
+import { openStore } from "@mockingbird/store";
 import { vadThreshold } from "../src/runtime.ts";
 import { loudnessNotes, pickThreshold, recommend, tuneCommand } from "../src/tune.ts";
 
@@ -111,4 +113,154 @@ test("with no calibration, tune says to run one and changes nothing", async () =
   });
   expect(code).toBe(1);
   expect(lines).toEqual(["No calibration to tune with yet. Run `mockingbird calibrate` first."]);
+});
+
+describe("tuneCommand, end to end with fakes", () => {
+  const SENTENCE = "one two three four five";
+  /** A home with a two-sentence run, its WAVs, and these Whisper files. */
+  const home = (files = ["ggml-large-v3-q5_0.bin", "ggml-base.en.bin"], saved?: string) => {
+    const dir = mkdtempSync(join(tmpdir(), "tune-test-"));
+    mkdirSync(join(dir, "models"));
+    mkdirSync(join(dir, "calibration"));
+    for (const f of files) writeFileSync(join(dir, "models", f), "");
+    const store = openStore(join(dir, "data.db"));
+    for (const sentence of [0, 1]) {
+      store.saveTake({
+        run: 9,
+        sentence,
+        text: SENTENCE,
+        heard: SENTENCE,
+        edits: 0,
+        words: 5,
+        model: "x",
+      });
+      const samples = Int16Array.from({ length: 16000 }, (_, i) => (i % 2 ? 3000 : -3000));
+      writeFileSync(
+        join(dir, "calibration", `9-${sentence}.wav`),
+        encodeWav({ sampleRate: 16000, samples }),
+      );
+    }
+    if (saved) store.setSetting("vad_threshold", saved);
+    store.close();
+    return dir;
+  };
+  /** Whisper servers that hear `SENTENCE` right only with the large model. */
+  const servers = (fail?: (path: string) => boolean) => {
+    const log = { started: 0, stopped: 0 };
+    const whisper = async (path: string) => {
+      log.started++;
+      return {
+        engine: {
+          model: path,
+          health: async () => true,
+          transcribe: async () => {
+            if (fail?.(path)) throw new Error("whisper-server died");
+            return {
+              text: path.includes("large") || path.includes("custom") ? SENTENCE : "one too",
+              confidence: 1,
+              words: [],
+            };
+          },
+        },
+        stop: async () => {
+          log.stopped++;
+        },
+      };
+    };
+    return { whisper, log };
+  };
+  /** Speech found only at or below `below`. */
+  const vad =
+    (below = 1) =>
+    async () => ({
+      detect: async (a: { samples: Int16Array }, threshold: number) =>
+        threshold <= below ? [{ startSample: 0, endSample: a.samples.length }] : [],
+      close: async () => {},
+    });
+  const daemon = (status = 200) => {
+    const calls: [string, string | undefined][] = [];
+    const tell = async (path: string, body?: string) => {
+      calls.push([path, body]);
+      return new Response("ok", { status });
+    };
+    return { tell, calls };
+  };
+  const run = async (deps: Parameters<typeof tuneCommand>[0]) => {
+    const lines: string[] = [];
+    const code = await tuneCommand({ env: {}, out: (l) => lines.push(l), ...deps });
+    return { code, text: lines.join("\n") };
+  };
+
+  test("saves a lower threshold that hears clearly more, and recommends the model that hears best", async () => {
+    const { whisper, log } = servers();
+    const { tell, calls } = daemon();
+    const { code, text } = await run({ home: home(), whisper, vad: vad(0.3), tell });
+    expect(code).toBe(0);
+    expect(text).toContain("large-v3 Q5_0, the one in use, is already the best choice");
+    expect(text).toContain("threshold 0.3           100.0% right");
+    expect(calls).toEqual([["/settings/vad_threshold", "0.3"]]);
+    expect(text).toContain("0.3 heard 10 more of your words than the default: saved.");
+    expect(log.stopped).toBe(log.started);
+  });
+
+  test("clears a saved threshold once the default hears as well", async () => {
+    const { whisper } = servers();
+    const { tell, calls } = daemon();
+    const { text } = await run({ home: home(undefined, "0.3"), whisper, vad: vad(), tell });
+    expect(calls).toEqual([["/settings/vad_threshold", ""]]);
+    expect(text).toContain("the saved threshold is cleared");
+  });
+
+  test("one model failing mid-run leaves the rest, and stops its server", async () => {
+    const { whisper, log } = servers((path) => path.includes("base"));
+    const { text, code } = await run({ home: home(), whisper, vad: vad(), tell: daemon().tell });
+    expect(code).toBe(0);
+    expect(text).toMatch(/base\.en +failed: whisper-server died/);
+    expect(text).toContain("large-v3 Q5_0, the one in use");
+    expect(log.stopped).toBe(log.started);
+  });
+
+  test("a failing model in use saves no threshold", async () => {
+    const { whisper } = servers((path) => path.includes("large"));
+    const { tell, calls } = daemon();
+    const { text } = await run({ home: home(), whisper, vad: vad(0.3), tell });
+    expect(calls).toEqual([]);
+    expect(text).not.toContain("Speech detection");
+  });
+
+  test("nothing measured is an error, with what to do", async () => {
+    const whisper = async () => {
+      throw new Error("no model");
+    };
+    const { code, text } = await run({ home: home(), whisper, vad: vad() });
+    expect(code).toBe(1);
+    expect(text).toContain("No model could be measured. `mockingbird models pull`");
+  });
+
+  test("an agent from before the setting is told to restart, not to start", async () => {
+    const { whisper } = servers();
+    const { code, text } = await run({
+      home: home(),
+      whisper,
+      vad: vad(0.3),
+      tell: daemon(404).tell,
+    });
+    expect(code).toBe(1);
+    expect(text).toContain("older than tune. Run `mockingbird restart`");
+  });
+
+  test("a model outside the models folder (MOCKINGBIRD_ASR_MODEL) is the one tuned", async () => {
+    const outside = join(mkdtempSync(join(tmpdir(), "tune-model-")), "ggml-custom.bin");
+    writeFileSync(outside, "");
+    const { whisper } = servers();
+    const { text } = await run({
+      home: home(["ggml-base.en.bin"]),
+      env: { MOCKINGBIRD_ASR_MODEL: outside },
+      whisper,
+      vad: vad(),
+      tell: daemon().tell,
+    });
+    expect(text).toMatch(/custom +100\.0% right .*● in use/);
+    expect(text).toContain("Speech detection, with custom");
+  });
 });
