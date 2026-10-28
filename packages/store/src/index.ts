@@ -99,6 +99,8 @@ export type Store = {
   saveTake(take: Take): void;
   /** Each calibration run's totals, newest first. */
   calibrationRuns(): CalibrationRun[];
+  /** One run's takes, in script order. */
+  takes(run: number): Take[];
   /** Deletes every take; returns how many went. */
   forgetCalibration(): number;
   /** A setting, or undefined if it was never set (or the schema predates settings). */
@@ -224,6 +226,13 @@ export function openStore(path: string, { readonly = false } = {}): Store {
         return [];
       }
     },
+    takes: (run) =>
+      db
+        .query<Take, [number]>(
+          `SELECT run, sentence, text, heard, edits, words, model
+           FROM calibration WHERE run = ? ORDER BY sentence`,
+        )
+        .all(run),
     forgetCalibration: () => db.run("DELETE FROM calibration").changes,
     setting: (key) => {
       try {

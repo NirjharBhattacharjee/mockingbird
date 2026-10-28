@@ -310,9 +310,11 @@ CREATE TABLE settings (
 );
 ```
 
-Built in migration 3. Two keys so far: `llm_model`, the cleanup model
-`mockingbird models use` picked, and `asr_model`, the Whisper file
-`mockingbird models use speech` picked. Each is absent for the default. The
+Built in migration 3. Three keys so far: `llm_model`, the cleanup model
+`mockingbird models use` picked, `asr_model`, the Whisper file
+`mockingbird models use speech` picked, and `vad_threshold`, the speech
+detection threshold `mockingbird calibrate tune` saved for this voice (#107).
+Each is absent for the default. The
 daemon writes them when the command asks over the socket, and reads them at
 start.
 

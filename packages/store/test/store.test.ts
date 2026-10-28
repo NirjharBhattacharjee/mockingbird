@@ -153,6 +153,10 @@ describe("calibration", () => {
       { run: 2, model: "large-v3-turbo", edits: 4, words: 4, takes: 1 },
       { run: 1, model: "large-v3-turbo", edits: 1, words: 8, takes: 2 },
     ]);
+    expect(store.takes(1).map((t) => [t.sentence, t.edits])).toEqual([
+      [0, 0],
+      [1, 1],
+    ]);
     expect(store.forgetCalibration()).toBe(3);
     expect(store.calibrationRuns()).toEqual([]);
     store.close();
