@@ -334,8 +334,10 @@ everything else in this file). Tracked as undecided, not silently assumed.
   tune` (#107) can lower it for one voice, below.
 - **`mockingbird calibrate tune` measures both for one voice** (#107). It
   takes the user's latest `mockingbird calibrate` run and has every installed
-  Whisper file hear its sentences, each on its own whisper-server (port 8795,
-  or `MOCKINGBIRD_TUNE_PORT`) beside the agent's, one at a time. For each it
+  Whisper file hear its sentences, each on its own whisper-server (on a free
+  port) beside the agent's, one at a time. With `MOCKINGBIRD_ASR_MODEL` set to
+  a file outside the models folder, that file is the one in use and is
+  compared too. For each it
   prints the share of words right and the median time per sentence, then
   recommends the fastest within a point of the best. It never switches
   model by itself: the user does that in `mockingbird models`. A few hundred
