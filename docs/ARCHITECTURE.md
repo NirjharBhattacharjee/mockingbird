@@ -71,6 +71,7 @@ it is not a design doc that gets abandoned once code exists.
 | 2026-10-25 | `render` draws captions onto the picture with Homebrew's ffmpeg (#111). The new `packages/captions` parses the SRT and draws each cue as a transparent PNG with Core Text and Core Graphics through `bun:ffi` (white bold system font, black outline, wrapped at 90% of the short side); `render` lays the images over the video with ffmpeg's `overlay`, one per cue, enabled from its start until just before its end, so back-to-back cues never overlap. No dependency and no download, so #111's plan to fetch a libass ffmpeg isn't needed. ffmpeg's `subtitles` filter, then the `mov_text` track and `.srt`, stay as fallbacks for when the images can't be drawn (off macOS, or a Core Text failure). A 9-second, five-cue short rendered in about the same time as before (2.2–2.7 s on an M3 against 2.2–2.5 s for the subtitle track). |
 | 2026-10-26 | A dictation that comes back completely silent restarts the microphone's ffmpeg when that ffmpeg had sound earlier. One ffmpeg captures for the agent's whole life, and after six days of sleep and wake one kept running while sending only zeros, so every Fn press was silent until `mockingbird restart`. An ffmpeg that's silent from its first sample isn't restarted: that's permission or a dead input, and restarting it again would only trip the supervisor's give-up. |
 | 2026-10-27 | Stopping the microphone's ffmpeg sends SIGKILL if it hasn't exited 1 s after SIGTERM. The ffmpeg behind the silent dictations was stuck at 100% CPU for six days and ignored SIGTERM, so the restart above waited on it forever, and `mockingbird restart` left it running as an orphan after launchd killed the hung agent. |
+| 2026-10-28 | `mockingbird calibrate` (#106, TUI.md §5): the user reads 25 sentences (`apps/daemon/src/calibration.md`) one at a time and sees what Whisper heard, with the misses marked, then the share of their words it got right. The agent records each take from the microphone it already has open, so calibrate needs no second capture and no new permission. It hears the take with `hear()`, the VAD and Whisper half of `runPipeline` split out so calibration and dictation hear the same way. Takes are saved as `~/.mockingbird/calibration/<run>-<sentence>.wav` and as rows in the new `calibration` table (DATABASE.md §9), written by the daemon over the socket. `wordDiff` (`packages/asr`) aligns the words and replaces bench's own counter, so bench's numbers don't change. A synthetic Indian English voice (`say -v Rishi`) through the real screen and `large-v3-q5_0` scored 99% of 300 words; the one real miss was "chef" heard as "shape". |
 
 ---
 
@@ -512,6 +513,8 @@ mockingbird/
 │   │       ├── supervisor.ts    child process lifecycle + restart policy
 │   │       ├── recorder.ts      ring buffer → recordings, with pre-roll and a length cap
 │   │       ├── pipeline.ts      VAD → ASR → LLM gate → format
+│   │       ├── calibrate.ts     `mockingbird calibrate`'s takes, heard and scored
+│   │       ├── calibration.md   the script it asks the user to read
 │   │       ├── runtime.ts       model checks, engine startup shared by the CLIs
 │   │       ├── transcribe.ts    `bun run transcribe <file>` CLI
 │   │       ├── listen.ts        `bun run listen` CLI (keyboard push-to-talk)
@@ -523,7 +526,7 @@ mockingbird/
 │   ├── audio/                   ring buffer, ffmpeg capture + file decoding, per-OS args
 │   ├── captions/                SRT parsing, captions drawn as PNGs with Core Text via bun:ffi
 │   ├── vad/                     Silero ONNX wrapper
-│   ├── asr/                     engine interface + whisper-server adapter
+│   ├── asr/                     engine interface + whisper-server adapter, word diff (WER)
 │   ├── llm/                     provider interface + adapters (Ollama,
 │   │                            llama-server), prompt assembly, per-app
 │   │                            profiles, caching

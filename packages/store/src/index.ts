@@ -31,6 +31,19 @@ const MIGRATIONS = [
      key    TEXT PRIMARY KEY,
      value  TEXT NOT NULL
    )`,
+  // Voice calibration (#106): each sentence the user read, what the model
+  // heard, and how many words it got wrong. The audio is a file per take.
+  `CREATE TABLE calibration (
+     run         INTEGER NOT NULL,
+     sentence    INTEGER NOT NULL,
+     text        TEXT NOT NULL,
+     heard       TEXT NOT NULL,
+     edits       INTEGER NOT NULL,
+     words       INTEGER NOT NULL,
+     model       TEXT NOT NULL,
+     created_at  INTEGER NOT NULL,
+     PRIMARY KEY (run, sentence)
+   )`,
 ];
 
 /** A dictionary entry, and whether it was learned rather than added by the user. */
@@ -46,6 +59,23 @@ export type DictionaryRow = {
   /** Milliseconds since the epoch. */
   createdAt: number;
 };
+
+/** One sentence read during calibration, and how well it was heard. */
+export type Take = {
+  /** When the run started, in milliseconds since the epoch. */
+  run: number;
+  /** The sentence's place in the script. */
+  sentence: number;
+  text: string;
+  heard: string;
+  /** Words wrong, missing or extra, out of `words` in the sentence. */
+  edits: number;
+  words: number;
+  model: string;
+};
+
+/** A calibration run's totals. */
+export type CalibrationRun = Pick<Take, "run" | "model" | "edits" | "words"> & { takes: number };
 
 export type Store = {
   /** Every term, most used first. */
@@ -65,6 +95,12 @@ export type Store = {
   forgetLearned(): number;
   /** One more use for each of these terms. */
   countUses(terms: string[]): void;
+  /** Saves a take; reading the same sentence again in a run replaces it. */
+  saveTake(take: Take): void;
+  /** Each calibration run's totals, newest first. */
+  calibrationRuns(): CalibrationRun[];
+  /** Deletes every take; returns how many went. */
+  forgetCalibration(): number;
   /** A setting, or undefined if it was never set (or the schema predates settings). */
   setting(key: string): string | undefined;
   /** Sets a setting; undefined deletes it, so the default applies again. */
@@ -157,6 +193,38 @@ export function openStore(path: string, { readonly = false } = {}): Store {
     countUses: db.transaction((terms: string[]) => {
       for (const term of terms) use.run(term);
     }),
+    saveTake: (take) => {
+      db.run(
+        `INSERT OR REPLACE INTO calibration
+           (run, sentence, text, heard, edits, words, model, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          take.run,
+          take.sentence,
+          take.text,
+          take.heard,
+          take.edits,
+          take.words,
+          take.model,
+          Date.now(),
+        ],
+      );
+    },
+    calibrationRuns: () => {
+      try {
+        return db
+          .query<CalibrationRun, []>(
+            `SELECT run, max(model) AS model, sum(edits) AS edits, sum(words) AS words,
+                    count(*) AS takes
+             FROM calibration GROUP BY run ORDER BY run DESC`,
+          )
+          .all();
+      } catch {
+        // A read-only open of a data.db the daemon hasn't migrated yet.
+        return [];
+      }
+    },
+    forgetCalibration: () => db.run("DELETE FROM calibration").changes,
     setting: (key) => {
       try {
         return (

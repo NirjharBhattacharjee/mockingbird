@@ -12,6 +12,7 @@ import { type Cue, cues, playCue } from "@mockingbird/cue";
 import { type HotkeyListener, startHotkeyListener } from "@mockingbird/hotkey";
 import { prepareForTyping, typeText } from "@mockingbird/inject";
 import type { AppStyle } from "@mockingbird/llm";
+import { Calibration } from "./calibrate.ts";
 import {
   ASR_MODEL_SETTING,
   LLM_MODEL_SETTING,
@@ -218,6 +219,8 @@ export async function startSession(options: SessionOptions): Promise<Session> {
     log: options.log,
     cue: (kind) => playCue(kind),
   });
+  // `mockingbird calibrate`'s takes, from the same microphone.
+  const calibration = store && new Calibration(mockingbirdHome(), store, () => engines.deps);
   // Edits take effect on the next dictation.
   // ponytail: the socket needs data.db, so `mockingbird record` doesn't work when it can't open.
   const dictionaryEdits =
@@ -238,6 +241,7 @@ export async function startSession(options: SessionOptions): Promise<Session> {
             : new Response("no recording is running", { status: 409 });
         },
         "GET /record": () => new Response(recordings.active ?? ""),
+        ...calibration?.routes(),
       },
     ));
   // Only the socket's owner records, so only it may finish a crash's leftovers:
@@ -547,6 +551,7 @@ export async function startSession(options: SessionOptions): Promise<Session> {
         inputArgs,
         onSamples: (s) => {
           mic.samples(s);
+          calibration?.push(s);
           controller.onSamples(s);
           recordings.push(s);
         },

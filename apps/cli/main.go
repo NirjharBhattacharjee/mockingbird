@@ -77,6 +77,14 @@ func run(args []string) int {
 			return 0
 		}
 	}
+	if len(args) == 1 && args[0] == "calibrate" && fits(calibCols, calibRows) {
+		if script, err := loadScript(argv[:2]); err == nil {
+			if _, err := tea.NewProgram(newCalibrate(argv[:2], script)).Run(); err != nil {
+				return fail(err)
+			}
+			return 0
+		}
+	}
 	if len(args) == 1 && args[0] == "start" && canAnimate() {
 		return startWithSplash(argv)
 	}
@@ -173,6 +181,14 @@ const (
 const (
 	dictCols = 64
 	dictRows = 14
+)
+
+// The calibration screen: the title, the line under it, the longest sentence
+// and what was heard, each wrapped to two or three lines at 64 columns, the
+// score and the key hints. Smaller, the engine prints its usage and past runs.
+const (
+	calibCols = 64
+	calibRows = 16
 )
 
 // fits is whether stdin and stdout are a terminal of at least cols×rows.

@@ -82,6 +82,7 @@ until it's explicitly closed.
 | Correction history (word pairs from fixes you made to a dictation, e.g. "near jar" → "Nirjhar") | Medium — names and jargon, never the text around them | `correction` table | Yes, until `mockingbird dictionary forget` |
 | Settings (hotkey binding, model choice) | Low | `settings` table | Yes |
 | Recordings you start (`mockingbird record`) | High — whole conversations, and other people's voices | `~/.mockingbird/recordings/*.m4a` (folder `0700`) | **Yes**, until you delete them |
+| Calibration readings (`mockingbird calibrate`) | High — your voice reading a fixed script, about 3 minutes a run | `~/.mockingbird/calibration/*.wav` (folder `0700`, files `0600`), with what was heard in the `calibration` table | **Yes**, until `mockingbird calibrate --forget` |
 | ASR/LLM model weights | None (public model files) | `~/.mockingbird/models/` | Yes, on disk |
 | Logs | Variable — see [§8](#8-known-privacy-issues--open-unresolved) | `~/.mockingbird/logs/` | Yes, rotated |
 
@@ -315,6 +316,15 @@ time. Both are tracked in [§9](#9-hardening-roadmap).
   `mockingbird status` says `● recording`. It stops by itself after 3 hours
   (`MOCKINGBIRD_RECORD_MAX_HOURS`). Recording people without their consent is
   illegal in many places; the command says so when it starts.
+- **Calibration keeps your voice reading the script.** Each sentence read in
+  `mockingbird calibrate` (#106) is saved as
+  `~/.mockingbird/calibration/<run>-<sentence>.wav`, `0600` in a `0700`
+  folder, and what Whisper heard goes in `data.db`'s `calibration` table.
+  They're kept so later runs can tune mockingbird to your voice (#107):
+  that's a fixed script, never what you dictate. Only you start a take, by
+  pressing Enter on the calibrate screen, and a take nobody stops is dropped
+  after a minute. `mockingbird calibrate --forget` deletes the files and the
+  rows, and uninstalling deletes them with the rest of `~/.mockingbird`.
 - **Uninstalling deletes it.** `mockingbird uninstall` removes
   `~/.mockingbird`, `data.db` included, after one question. The dictionary
   gets its own: the default keeps a copy of the words, as plain text in

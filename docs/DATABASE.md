@@ -28,12 +28,13 @@ a systems level) and
 6. [`app_profile`](#6-app_profile)
 7. [`correction`](#7-correction)
 8. [`settings`](#8-settings)
-9. [Keys & relationships summary](#9-keys--relationships-summary)
-10. [Indexes](#10-indexes)
-11. [Migrations](#11-migrations)
-12. [WAL mode & concurrency](#12-wal-mode--concurrency)
-13. [Retention & data lifecycle](#13-retention--data-lifecycle)
-14. [Open schema decisions](#14-open-schema-decisions)
+9. [`calibration`](#9-calibration)
+10. [Keys & relationships summary](#10-keys--relationships-summary)
+11. [Indexes](#11-indexes)
+12. [Migrations](#12-migrations)
+13. [WAL mode & concurrency](#13-wal-mode--concurrency)
+14. [Retention & data lifecycle](#14-retention--data-lifecycle)
+15. [Open schema decisions](#15-open-schema-decisions)
 
 ---
 
@@ -43,8 +44,9 @@ a systems level) and
   any future client read only — see
   [state ownership map, ARCHITECTURE.md §8](./ARCHITECTURE.md#8-state-ownership-map).
   Nothing in this schema assumes multi-writer safety, on purpose.
-- **Six tables, no more.** `utterance`, `utterance_fts`, `dictionary`,
-  `app_profile`, `correction`, `settings`. Every table here earns its place
+- **Seven tables, no more.** `utterance`, `utterance_fts`, `dictionary`,
+  `app_profile`, `correction`, `settings`, and `calibration`, which
+  `mockingbird calibrate` writes and per-voice tuning (#107) will read. Every table here earns its place
   by being read from a specific TUI screen or pipeline stage — see
   [DATABASE.md §2](#2-entity-relationship-diagram)'s cross-references and
   [TUI.md](./TUI.md) for who reads what.
@@ -54,7 +56,7 @@ a systems level) and
   neither has a natural one.
 - **Foreign keys are documented even where SQLite won't enforce them**, so
   the *intent* of the relationship is never in question even where a soft
-  reference is the deliberate choice — see [§9](#9-keys--relationships-summary)
+  reference is the deliberate choice — see [§9](#10-keys--relationships-summary)
   for exactly which relationships are hard-enforced vs. soft.
 
 ## 2. Entity-relationship diagram
@@ -110,9 +112,19 @@ erDiagram
         text key PK
         text value "JSON-encoded if non-scalar"
     }
+    CALIBRATION {
+        integer run PK "run start, unix ms"
+        integer sentence PK "place in the script"
+        text text
+        text heard
+        integer edits
+        integer words
+        text model
+        integer created_at
+    }
 ```
 
-`dictionary`, `correction`, and `settings` have no foreign keys in or out —
+`dictionary`, `correction`, `settings` and `calibration` have no foreign keys in or out —
 they're independent dimension/config tables, read directly by the LLM
 prompt-assembly step and the TUI, never joined against `utterance` at the
 database level. (The LLM Gate reads `dictionary` and `app_profile` rows at
@@ -150,7 +162,7 @@ CREATE TABLE utterance (
   instant as the DB write), and ULIDs sort chronologically as plain text,
   which keeps `ORDER BY id` and `ORDER BY created_at` equivalent without a
   second index.
-- **`app_bundle` is a *soft* foreign key** — see [§9](#9-keys--relationships-summary)
+- **`app_bundle` is a *soft* foreign key** — see [§9](#10-keys--relationships-summary)
   for why it isn't `NOT NULL` or hard-enforced.
 - **`llm_skipped` is a real column, not inferred from `t_llm_ms IS NULL`.**
   Both facts happen to correlate today, but making "was cleanup skipped"
@@ -282,7 +294,7 @@ CREATE TABLE correction (
   increments each time the same correction pattern is observed again; it
   does **not** store a row per correction event, and it does **not** link
   back to the specific `utterance` row(s) it was learned from. See
-  [§14](#14-open-schema-decisions) for whether that traceability is worth
+  [§14](#15-open-schema-decisions) for whether that traceability is worth
   adding later.
 - `UNIQUE(from_text, to_text)` is what makes "increment count" an upsert
   (`INSERT ... ON CONFLICT DO UPDATE SET count = count + 1`) instead of a
@@ -311,7 +323,34 @@ start.
   pairs rather than each getting a dedicated column that requires a
   migration to add.
 
-## 9. Keys & relationships summary
+## 9. `calibration`
+
+```sql
+CREATE TABLE calibration (
+  run         INTEGER NOT NULL,  -- when the run started, ms since the epoch
+  sentence    INTEGER NOT NULL,  -- the sentence's place in the script
+  text        TEXT NOT NULL,     -- the sentence, as the script had it then
+  heard       TEXT NOT NULL,     -- what Whisper heard, before any cleanup
+  edits       INTEGER NOT NULL,  -- words wrong, missing or extra
+  words       INTEGER NOT NULL,  -- words in the sentence
+  model       TEXT NOT NULL,     -- the Whisper model that heard it
+  created_at  INTEGER NOT NULL,
+  PRIMARY KEY (run, sentence)
+);
+```
+
+Built in migration 4 (#106). One row per sentence read in
+`mockingbird calibrate`. Reading a sentence again in the same run replaces
+its row, and its audio, `~/.mockingbird/calibration/<run>-<sentence>.wav`.
+The daemon writes it when the command asks over the socket.
+
+- The sentence's text is kept, not just its number, so editing the script
+  (`apps/daemon/src/calibration.md`) doesn't change what old rows mean.
+- `edits / words`, summed over a run, is that run's word error rate.
+  `mockingbird calibrate` with no screen lists each run's.
+- `mockingbird calibrate --forget` deletes every row and the audio folder.
+
+## 10. Keys & relationships summary
 
 | Table | Primary key | Foreign key | References | Enforcement |
 |---|---|---|---|---|
@@ -321,6 +360,7 @@ start.
 | `app_profile` | `bundle` (TEXT) | — | — | n/a |
 | `correction` | `id` (INTEGER, autoincrement) | — | — | n/a |
 | `settings` | `key` (TEXT) | — | — | n/a |
+| `calibration` | `(run, sentence)` | — | — | n/a |
 
 Only one real cross-table relationship exists in this schema
 (`utterance.app_bundle → app_profile.bundle`), and it's intentionally soft.
@@ -328,7 +368,7 @@ Everything else is a flat, independent table — this schema is closer to a
 handful of related logs/dictionaries than a normalized relational model, on
 purpose, matching the "six tables, no more" goal in [§1](#1-design-goals-for-this-schema).
 
-## 10. Indexes
+## 11. Indexes
 
 ```sql
 CREATE INDEX idx_utterance_created_at ON utterance(created_at DESC);
@@ -346,7 +386,7 @@ CREATE INDEX idx_utterance_app_bundle ON utterance(app_bundle);
 - Full-text search is served by `utterance_fts` itself ([§4](#4-utterance_fts)),
   not a B-tree index.
 
-## 11. Migrations
+## 12. Migrations
 
 Not yet built — `packages/store` is scoped to own "`bun:sqlite`,
 migrations, FTS5, sqlite-vec" per
@@ -357,9 +397,9 @@ one this doc assumes unless superseded: numbered plain-SQL files
 daemon startup, tracked in a small `_migrations(version INTEGER PRIMARY
 KEY, applied_at INTEGER)` table — no ORM, consistent with
 `bun:sqlite` being used directly rather than through a query builder.
-Flagged as **proposed, not decided** — see [§14](#14-open-schema-decisions).
+Flagged as **proposed, not decided** — see [§14](#15-open-schema-decisions).
 
-## 12. WAL mode & concurrency
+## 13. WAL mode & concurrency
 
 Restating [ARCHITECTURE.md §7](./ARCHITECTURE.md#7-where-sqlite-fits) at the
 mechanical level:
@@ -376,11 +416,11 @@ PRAGMA busy_timeout = 5000;
   colliding (e.g. a manual `sqlite3 data.db` session open during a crash
   investigation) rather than surfacing `SQLITE_BUSY` immediately.
 - `PRAGMA foreign_keys` is deliberately **not** turned on globally — the one
-  FK relationship in this schema ([§9](#9-keys--relationships-summary)) is
+  FK relationship in this schema ([§9](#10-keys--relationships-summary)) is
   soft by design, and there's no second FK that would benefit from the
   pragma today. Worth revisiting if that changes.
 
-## 13. Retention & data lifecycle
+## 14. Retention & data lifecycle
 
 This schema has no expiry, TTL, or automatic pruning — everything in
 `utterance`, `dictionary`, `correction`, and `app_profile` accumulates
@@ -393,13 +433,13 @@ item 2, and the roadmap item in
 schema doc doesn't resolve it, just makes explicit that nothing at the
 schema level currently limits growth.
 
-## 14. Open schema decisions
+## 15. Open schema decisions
 
 Named explicitly, matching the project's convention of flagging gaps rather
 than silently deciding them (see
 [ARCHITECTURE.md §16](./ARCHITECTURE.md#16-known-gaps--scope-not-yet-decided)):
 
-- **Migration mechanism** — [§11](#11-migrations)'s numbered-SQL-files
+- **Migration mechanism** — [§11](#12-migrations)'s numbered-SQL-files
   approach is a proposal, not a decision.
 - **`correction` traceability** — should a correction row link back to the
   `utterance.id` it was learned from (e.g. a `last_utterance_id` column), to

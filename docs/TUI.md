@@ -40,7 +40,7 @@ TUI is part of the **Go `mockingbird` command**, a separate, optional process th
 a Unix socket (NDJSON protocol) for live state, and reads `data.db`
 **directly, read-only**, for history/dictionary browsing (WAL mode makes
 this safe concurrently with the daemon writing — see
-[DATABASE.md §12](./DATABASE.md#12-wal-mode--concurrency)). It holds no
+[DATABASE.md §12](./DATABASE.md#13-wal-mode--concurrency)). It holds no
 source of truth of its own beyond tiny local view-state (scroll position,
 active tab) that doesn't need to survive a restart.
 
@@ -313,6 +313,36 @@ home screen. Neither needs the IPC socket.
   Both need checking on a real Mac first: #54 asks for the first to come from
   real cases, and the second is untested.
 
+### Voice calibration (built, #106)
+- `mockingbird calibrate`, in a terminal of at least 64×16
+  (`apps/cli/calibrate.go`), or `calibrate` from the home screen. Smaller or
+  piped, the engine prints the command's usage and each past run's score.
+- The script is `apps/daemon/src/calibration.md`: 25 sentences, about three
+  minutes of reading, with hard sounds, numbers and long sentences. It's
+  fetched once with `calibrate script --json`. The title line says
+  `sentence 3 of 25` in `overlay0`.
+- Each sentence shows in `text` under a `subtext0` line saying to read it the
+  way you'd normally talk. `Enter` starts a take (`calibrate start`), and the
+  key line turns into `● recording` in `red`. `Enter` again stops it
+  (`calibrate stop <run> <sentence>`), and `listening back…` shows in `sky`
+  while the agent hears it. `Esc` cancels the take; `s` skips the sentence.
+- The agent records from the microphone it already has open, hears the take
+  the way it hears a dictation (the VAD and Whisper, no cleanup), saves it,
+  and compares it with the sentence. The screen then shows `you read` and
+  `mockingbird heard` in `overlay0`, each over its words, the ones that
+  didn't match in `red`, and `7 of 9 words right`: `green` when all are,
+  `yellow` otherwise. `Enter` moves on; `r` reads it again, which replaces
+  that take.
+- After the last sentence: `large-v3-turbo got 94% of your words right.` in
+  `green`, rounded down so one missed word never shows as 100%, with the word
+  and sentence count and where the readings are kept. That screen stays in
+  the scrollback; quitting earlier erases the screen, and the takes read so
+  far are already saved.
+- With the agent not running, `Enter` shows the engine's message in `red`
+  (start it with `mockingbird start`), and the sentence stays up.
+- Not built yet: the page where you type and read your own names (#108),
+  and calibrate as a step in the first-run guide (#54).
+
 ### Dashboard (default view)
 - **Live hotkey FSM state** ([ARCHITECTURE.md §5](./ARCHITECTURE.md#5-the-hotkey-state-machine)),
   streamed over the IPC socket, colored per [§4](#4-semantic-color-mapping).
@@ -330,7 +360,7 @@ home screen. Neither needs the IPC socket.
 
 ### History browser
 - Lists `utterance` rows, most recent first
-  (`idx_utterance_created_at`, [DATABASE.md §10](./DATABASE.md#10-indexes)).
+  (`idx_utterance_created_at`, [DATABASE.md §10](./DATABASE.md#11-indexes)).
 - **Full-text search** over `final_text` via `utterance_fts`
   ([DATABASE.md §4](./DATABASE.md#4-utterance_fts)).
 - **Filter by app** (`app_bundle`), backed by `idx_utterance_app_bundle`.

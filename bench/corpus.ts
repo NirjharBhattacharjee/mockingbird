@@ -7,6 +7,7 @@
  */
 import { existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { wordDiff } from "../packages/asr/src/index.ts";
 
 /** `cleaned` is what the cleanup should make of `text`, where that isn't `text` itself. */
 export type Sentence = { text: string; names: string[]; cleaned?: string };
@@ -86,33 +87,13 @@ export function corpus(): Clip[] {
   return clips;
 }
 
-const words = (text: string) => text.toLowerCase().match(/[\p{L}\p{N}']+/gu) ?? [];
-
-/**
- * Word-level edits (substitutions, insertions, deletions) between a reference
- * and a hypothesis, and the reference's length. Sum both over a corpus for
- * its word error rate: averaging per-sentence rates would weight short
- * sentences more.
- */
+/** Word edits against the reference, and its length: see wordDiff. */
 export function wordErrors(
   reference: string,
   hypothesis: string,
 ): { edits: number; words: number } {
-  const r = words(reference);
-  const h = words(hypothesis);
-  let row = Array.from({ length: h.length + 1 }, (_, j) => j);
-  for (let i = 1; i <= r.length; i++) {
-    const next = [i];
-    for (let j = 1; j <= h.length; j++) {
-      next[j] = Math.min(
-        (row[j] ?? 0) + 1,
-        (next[j - 1] ?? 0) + 1,
-        (row[j - 1] ?? 0) + (r[i - 1] === h[j - 1] ? 0 : 1),
-      );
-    }
-    row = next;
-  }
-  return { edits: row[h.length] ?? 0, words: r.length };
+  const { edits, words } = wordDiff(reference, hypothesis);
+  return { edits, words };
 }
 
 /** The value at fraction `p` (0.5 is the median) of `ns`. */

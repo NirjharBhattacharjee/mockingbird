@@ -131,3 +131,30 @@ describe("settings", () => {
     expect(reader.setting("llm_model")).toBeUndefined();
   });
 });
+
+describe("calibration", () => {
+  const take = (sentence: number, edits: number, run = 1) => ({
+    run,
+    sentence,
+    text: "one two three four",
+    heard: "one two three four",
+    edits,
+    words: 4,
+    model: "large-v3-turbo",
+  });
+
+  test("totals each run, newest first, and a sentence read again replaces the first take", () => {
+    const store = openStore(dbPath());
+    store.saveTake(take(0, 2));
+    store.saveTake(take(0, 0)); // read again
+    store.saveTake(take(1, 1));
+    store.saveTake(take(0, 4, 2));
+    expect(store.calibrationRuns()).toEqual([
+      { run: 2, model: "large-v3-turbo", edits: 4, words: 4, takes: 1 },
+      { run: 1, model: "large-v3-turbo", edits: 1, words: 8, takes: 2 },
+    ]);
+    expect(store.forgetCalibration()).toBe(3);
+    expect(store.calibrationRuns()).toEqual([]);
+    store.close();
+  });
+});
