@@ -23,6 +23,7 @@ providers:
         transcript: "{{prompt}}"
         style: "{{style}}"
         confidence: "{{confidence}}"
+        language: "{{language}}"
       transformResponse: json.output
 
 defaultTest:
@@ -30,6 +31,8 @@ defaultTest:
     style: default
     # A typical Whisper confidence; cases set their own where it matters.
     confidence: 0.85
+    # MOCKINGBIRD_LANGUAGE; the cases in other languages set their own.
+    language: en
   assert:
     - type: javascript
       value: "output.trim().length > 0"

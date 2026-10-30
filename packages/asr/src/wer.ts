@@ -11,7 +11,7 @@ export type WordDiff = {
 };
 
 /** Words as written, without punctuation: `7:45` is two, `don't` one. */
-const words = (text: string) => text.match(/[\p{L}\p{N}']+/gu) ?? [];
+const words = (text: string) => text.match(/[\p{L}\p{M}\p{N}']+/gu) ?? [];
 
 /**
  * The fewest word edits that turn `reference` into `hypothesis`, ignoring

@@ -257,3 +257,28 @@ describe("runPipeline with onText", () => {
     expect(pieces).toEqual(["Yes please."]);
   });
 });
+
+describe("outside English", () => {
+  test("names aren't matched by English sounds, but a replacement still applies", async () => {
+    const result = await runPipeline(
+      { audio },
+      deps({
+        asr: fakeAsr({ text: "compré una marca nueva para mock in bird", confidence: 0.9 }),
+        llm: fakeLlm("Compré una marca nueva para mock in bird."),
+        dictionary: [{ term: "Marco" }, { term: "mockingbird", heard: "mock in bird" }],
+        language: "es",
+      }),
+    );
+    expect(result.finalText).toBe("Compré una marca nueva para mockingbird.");
+  });
+
+  test("a short, confident dictation still goes to the model, for its punctuation", async () => {
+    const llm = fakeLlm("¿Cómo estás?");
+    const result = await runPipeline(
+      { audio },
+      deps({ asr: fakeAsr({ text: "cómo estás", confidence: 0.95 }), llm, language: "es" }),
+    );
+    expect(llm.calls).toBe(1);
+    expect(result.finalText).toBe("¿Cómo estás?");
+  });
+});

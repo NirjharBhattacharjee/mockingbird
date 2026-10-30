@@ -5,6 +5,7 @@ export {
   bulletize,
   formatText,
   type GateOptions,
+  isEnglish,
   looksClean,
   looksLikeList,
   shouldSkipLlm,

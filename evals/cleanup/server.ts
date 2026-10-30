@@ -15,6 +15,8 @@ export type CleanupRequest = {
   /** What Whisper reported; the gate skips cleanup for confident, clean text. */
   confidence?: number;
   dictionary?: DictionaryEntry[];
+  /** A Whisper language code, as MOCKINGBIRD_LANGUAGE sets it; English if left out. */
+  language?: string;
 };
 
 const llmUrl = process.env.MOCKINGBIRD_LLM_URL ?? "http://127.0.0.1:11434";
@@ -38,7 +40,7 @@ export function startCleanupServer(port: number) {
       let firstTextMs: number | undefined;
       const result = await cleanUp(
         { text: body.transcript, confidence: Number(body.confidence ?? 0.9) },
-        { llm, dictionary: body.dictionary },
+        { llm, dictionary: body.dictionary, language: body.language },
         body.style === "terminal" ? "terminal" : "default",
         async (piece) => {
           firstTextMs ??= Math.round(performance.now() - started);

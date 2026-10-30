@@ -22,15 +22,28 @@ const SHIPPED = sectionsOf(cleanupMarkdown);
 export const unknownSections = (markdown: string): string[] =>
   Object.keys(sectionsOf(markdown)).filter((heading) => !(heading in SHIPPED));
 
+/** Whether text in `language` (a Whisper code, or "auto") is known to be English. */
+export const isEnglish = (language = "en") => language === "en";
+
+/** "German" for "de"; the prompt names the language rather than its code. */
+const languageName = (language: string) =>
+  language === "auto"
+    ? "whichever language the transcript is in"
+    : (new Intl.DisplayNames(["en"], { type: "language", fallback: "none" }).of(language) ??
+      language);
+
 export function buildCleanupPrompt({
   text,
   dictionary = [],
   style = "default",
+  language = "en",
   custom,
 }: {
   text: string;
   dictionary?: DictionaryEntry[];
   style?: AppStyle;
+  /** A Whisper language code, or "auto". The examples are English, so any other gets told to stay in its own. */
+  language?: string;
   /** The user's own rules, in the shipped file's format: each section replaces the one with its heading. */
   custom?: string;
 }): CompletionRequest {
@@ -42,6 +55,8 @@ export function buildCleanupPrompt({
     return body;
   };
   const parts = [section("Rules")];
+  if (!isEnglish(language))
+    parts.push(section("Language").replace("{language}", languageName(language)));
   // Terminal text is never a list: a line break there runs the command.
   if (style === "terminal") parts.push(section("Terminal"));
   else if (looksLikeList(text)) parts.push(section("Lists"));
@@ -59,7 +74,7 @@ export type GateOptions = {
   minCleanConfidence?: number;
 };
 
-/** Filler words and hedges the cleanup model exists to remove. */
+/** English filler words and hedges the cleanup model exists to remove. */
 const FILLER = /\b(um+|uh+|erm|hmm+|you know|i mean|sort of|kind of)\b[,.]?/gi;
 /** A word said twice in a row: "I I think", "the the file". */
 const STUTTER = /\b([\p{L}']+)\s+\1\b/giu;
@@ -135,13 +150,22 @@ export function shouldSkipLlm(
   { text, confidence }: { text: string; confidence: number },
   // Provisional: tuned on synthetic speech only; retune on the bench/ corpus.
   { maxWords = 4, minConfidence = 0.7, minCleanConfidence = 0.8 }: GateOptions = {},
+  language = "en",
 ): boolean {
+  // The checks below, and formatText's question mark, only know English: in
+  // another language "cómo estás" would be typed "Cómo estás.".
+  if (!isEnglish(language)) return false;
   // Only the model can resolve these, however short or confident the transcript.
   if (looksLikeList(text) || CORRECTION.test(text) || SPOKEN_SYMBOL.test(text)) return false;
   const words = text.split(/\s+/).filter(Boolean).length;
   if (words <= maxWords && confidence >= minConfidence) return true;
   return confidence >= minCleanConfidence && looksClean(text);
 }
+
+const WORDS = new Intl.Segmenter("und", { granularity: "word" });
+/** Words, lowercased, in any script: Japanese and Chinese have no spaces between them. */
+const wordsOf = (text: string) =>
+  [...WORDS.segment(text.toLowerCase())].filter((s) => s.isWordLike).map((s) => s.segment);
 
 /** Past this length, a cleanup that loses a fifth of the words is dropping content. */
 const LONG_TEXT = 120;
@@ -153,10 +177,20 @@ const LONG_TEXT = 120;
  * long one coming back much shorter means sentences were dropped — which is
  * how a long dictation loses words.
  */
-export function acceptCleanup(raw: string, cleaned: string): boolean {
+export function acceptCleanup(raw: string, cleaned: string, language = "en"): boolean {
   if (!cleaned || /<\/?transcript>/i.test(cleaned)) return false;
+  if (!isEnglish(language)) {
+    // The prompt's English pulls a small model into English: "Übersetze das
+    // ins Englische: guten Morgen zusammen" came back as "Translate that into
+    // English: good morning everyone". A cleanup only takes words out, so at
+    // least half of what it writes was said; a list's new heading is the rest.
+    const said = new Set(wordsOf(raw));
+    const written = wordsOf(cleaned);
+    if (written.filter((w) => said.has(w)).length < written.length / 2) return false;
+  }
   FILLER.lastIndex = 0;
-  const rawLength = raw.replace(FILLER, "").trim().length;
+  // "um" is Portuguese for "a": the English fillers mean nothing elsewhere.
+  const rawLength = (isEnglish(language) ? raw.replace(FILLER, "") : raw).trim().length;
   if (rawLength === 0) return false;
   const ratio = cleaned.length / rawLength;
   // A list is meant to lose length: "I will get onions" becomes "- onions".
