@@ -19,6 +19,12 @@ export const TYPED_EVENT_MARK = 0x6d6b6264;
 /** macOS accepts only a short string per event; 20 UTF-16 units is the usual limit. */
 const MAX_UNITS_PER_EVENT = 20;
 
+/**
+ * For apps that take only one character per event (Qt, #117). They drop most
+ * of the text with no pause at all; 1ms typed 439 characters cleanly in Anki.
+ */
+export const ONE_CHARACTER_AT_A_TIME = { maxUnitsPerEvent: 1, chunkDelayMs: 1 } as const;
+
 export class TypingError extends Error {
   override name = "TypingError";
 }

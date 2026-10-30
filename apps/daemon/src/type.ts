@@ -1,6 +1,11 @@
 import { parseArgs } from "node:util";
-import { charBeforeCaret, frontmostApp, needsLeadingSpace } from "@mockingbird/context";
-import { checkTypingAccess, requestTypingAccess, typeText } from "@mockingbird/inject";
+import { charBeforeCaret, frontmostApp, isQtApp, needsLeadingSpace } from "@mockingbird/context";
+import {
+  checkTypingAccess,
+  ONE_CHARACTER_AT_A_TIME,
+  requestTypingAccess,
+  typeText,
+} from "@mockingbird/inject";
 
 const USAGE = `Usage: bun run type [--delay 3] "text to type"
        bun run type --check [--delay 3]
@@ -76,7 +81,7 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
   }
 
   const now = await frontmostApp();
-  await typeText(text);
+  await typeText(text, isQtApp(now) ? ONE_CHARACTER_AT_A_TIME : {});
   log(`typed ${text.length} characters into ${now?.name ?? "the app in front"}`);
   return 0;
 }

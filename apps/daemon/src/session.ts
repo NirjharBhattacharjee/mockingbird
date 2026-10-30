@@ -4,13 +4,14 @@ import {
   type FrontmostApp,
   frontmostApp,
   isBrowser,
+  isQtApp,
   isTerminal,
   mayRunCommands,
   readFocusedField,
 } from "@mockingbird/context";
 import { type Cue, cues, playCue } from "@mockingbird/cue";
 import { type HotkeyListener, startHotkeyListener } from "@mockingbird/hotkey";
-import { prepareForTyping, typeText } from "@mockingbird/inject";
+import { ONE_CHARACTER_AT_A_TIME, prepareForTyping, typeText } from "@mockingbird/inject";
 import type { AppStyle } from "@mockingbird/llm";
 import { Calibration } from "./calibrate.ts";
 import {
@@ -343,6 +344,7 @@ export async function startSession(options: SessionOptions): Promise<Session> {
         const prefix = open ? separator(piece, open.lineBreaks) : await start(piece);
         if (!open || prefix === undefined) return;
         const result = await typeText(piece, {
+          ...(isQtApp(open.now) && ONE_CHARACTER_AT_A_TIME),
           prefix,
           lineBreaks: open.lineBreaks,
           stillWanted: open.watch.stillThere,
