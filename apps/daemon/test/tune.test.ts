@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { encodeWav } from "@mockingbird/audio";
 import { openStore } from "@mockingbird/store";
 import { vadThreshold } from "../src/runtime.ts";
-import { loudnessNotes, pickThreshold, recommend, tuneCommand } from "../src/tune.ts";
+import { loudnessNotes, missedWords, pickThreshold, recommend, tuneCommand } from "../src/tune.ts";
 
 const model = (name: string, edits: number, medianMs: number, inUse = false) => ({
   name,
@@ -95,6 +95,16 @@ test("loudness notes catch clipping, speech too quiet to bring up, and a loud ro
   expect(loudnessNotes([take(0.1, 0.05), take(0.1, 0.05)])).toEqual([
     "The room is nearly as loud as your voice (6 dB apart). Move somewhere quieter, or closer to the microphone.",
   ]);
+});
+
+test("only words missed in two takes or more are reported, most missed first", () => {
+  const takes = [
+    { text: "Very few wolves were seen.", heard: "Berry few walls were seen." },
+    { text: "The wolves howled very late.", heard: "The walls howled berry late." },
+    { text: "The wolves came back.", heard: "The walls came back." },
+  ];
+  expect(missedWords(takes)).toEqual(["wolves", "very"]);
+  expect(missedWords(takes.slice(0, 1))).toEqual([]);
 });
 
 test("a saved threshold is used only if it's one detectSpeech can take", () => {
@@ -262,5 +272,19 @@ describe("tuneCommand, end to end with fakes", () => {
     });
     expect(text).toMatch(/custom +100\.0% right .*● in use/);
     expect(text).toContain("Speech detection, with custom");
+  });
+
+  test("the model in use, named by another path to the same file, runs once", async () => {
+    const dir = home(["ggml-base.en.bin"]);
+    const { whisper, log } = servers();
+    const { text } = await run({
+      home: dir,
+      env: { MOCKINGBIRD_ASR_MODEL: join(dir, "models", ".", "ggml-base.en.bin") },
+      whisper,
+      vad: vad(),
+      tell: daemon().tell,
+    });
+    expect(log.started).toBe(1);
+    expect(text).toMatch(/base\.en +.*● in use/);
   });
 });

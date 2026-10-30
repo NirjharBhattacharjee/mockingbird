@@ -344,8 +344,22 @@ home screen. Neither needs the IPC socket.
   far are already saved.
 - With the agent not running, `Enter` shows the engine's message in `red`
   (start it with `mockingbird start`), and the sentence stays up.
-- Not built yet: the page where you type and read your own names (#108),
-  and calibrate as a step in the first-run guide (#54).
+- The names page (#108): `n` on that last screen, or `mockingbird calibrate
+  names`. The title line says `your names` in `overlay0`. You type a name or
+  term after `name:` in `mauve`, under a `subtext0` line saying what to type.
+  Every key is text there, so `esc` ends the page. `Enter` starts a take,
+  and the keys from there are the script's. `Enter` again stops it with
+  `calibrate term <name>`. The agent hears it, adds the name to the
+  dictionary, and checks whether dictation would write it from what was heard
+  (the dictionary's own fixes, with the name in it). The screen shows `you
+  said` and `mockingbird heard`, then one of: `Dictation writes this right`
+  (`green`); added with what was heard, as `heard => name` (`green`); or, when
+  what was heard is too far off to keep (ordinary English, or three words
+  more than the name), added alone, with `r` to say it again (`yellow`).
+  `Enter` clears the field for the next name. `esc` ends the page, listing
+  each name added once (said again, the last take counts), and that list
+  stays in the scrollback.
+- Not built yet: calibrate as a step in the first-run guide (#54).
 
 ### Dashboard (default view)
 - **Live hotkey FSM state** ([ARCHITECTURE.md §5](./ARCHITECTURE.md#5-the-hotkey-state-machine)),

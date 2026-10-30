@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
@@ -16,6 +17,11 @@ import (
 // stop` has the agent hear it, save it and score it; this shows the sentence
 // with the words the model missed, what it heard instead, and at the end how
 // many of the user's words it got right.
+//
+// Then, or straight away with `mockingbird calibrate names`, the names page:
+// the user types a name or term of their own and says it. The engine's
+// `calibrate term` adds it to the dictionary, with what the model heard when
+// dictation still wouldn't write it from that (#108).
 
 type diffWord struct {
 	Word string `json:"word"`
@@ -31,10 +37,17 @@ type takeResult struct {
 	Hypothesis []diffWord `json:"hypothesis"`
 }
 
+type termResult struct {
+	Term  string `json:"term"`
+	Heard string `json:"heard"`
+	Right bool   `json:"right"`
+	Saved string `json:"saved"`
+}
+
 type calibState int
 
 const (
-	calibReading   calibState = iota // the sentence is up, waiting for Enter
+	calibReading   calibState = iota // the sentence is up (or a name is being typed), waiting for Enter
 	calibWaiting                     // a start or cancel is on its way to the agent
 	calibRecording                   // a take is running
 	calibHearing                     // the agent is transcribing it
@@ -52,6 +65,11 @@ type (
 		out    string
 		ok     bool
 	}
+	termHeardMsg struct {
+		result termResult
+		out    string
+		ok     bool
+	}
 	takeCancelledMsg struct{}
 )
 
@@ -64,6 +82,10 @@ type calibModel struct {
 	result  takeResult
 	results map[int]takeResult // this run's takes, by sentence
 	note    string             // what went wrong, in red
+	names   bool               // on the names page
+	input   string             // the name being typed
+	term    termResult         // the name just read
+	added   []termResult       // what the names page saved, a name said again once
 	width   int
 	closed  bool
 	// quitting is a quit pressed while waiting: it happens once the agent
@@ -92,6 +114,12 @@ func loadScript(engine []string) ([]string, error) {
 
 func newCalibrate(engine []string, script []string) calibModel {
 	return calibModel{engine: engine, script: script, run: time.Now().UnixMilli(), results: map[int]takeResult{}}
+}
+
+func newNames(engine []string) calibModel {
+	m := newCalibrate(engine, nil)
+	m.names = true
+	return m
 }
 
 func (m calibModel) Init() tea.Cmd { return nil }
@@ -124,13 +152,21 @@ func (m calibModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.state, m.result = calibScored, msg.result
 		m.results[m.at] = msg.result
+	case termHeardMsg:
+		if !msg.ok {
+			m.state, m.note = calibReading, firstLine(msg.out)
+			return m, nil
+		}
+		m.state, m.term = calibScored, msg.result
+		m.added = slices.DeleteFunc(m.added, func(t termResult) bool { return strings.EqualFold(t.Term, msg.result.Term) })
+		m.added = append(m.added, msg.result)
 	case tea.KeyPressMsg:
-		return m.key(msg.String())
+		return m.key(msg.String(), msg.Text)
 	}
 	return m, nil
 }
 
-func (m calibModel) key(k string) (tea.Model, tea.Cmd) {
+func (m calibModel) key(k, text string) (tea.Model, tea.Cmd) {
 	quit := k == "q" || k == "esc" || k == "ctrl+c"
 	switch m.state {
 	case calibWaiting:
@@ -138,6 +174,9 @@ func (m calibModel) key(k string) (tea.Model, tea.Cmd) {
 			m.quitting = true
 		}
 	case calibReading:
+		if m.names {
+			return m.typeName(k, text)
+		}
 		switch {
 		case quit:
 			return m.quit()
@@ -148,6 +187,15 @@ func (m calibModel) key(k string) (tea.Model, tea.Cmd) {
 		}
 	case calibRecording:
 		switch {
+		case k == "enter" && m.names:
+			m.state = calibHearing
+			return m, callEngine(m.engine, func(out []byte, err error) tea.Msg {
+				var r termResult
+				if err == nil {
+					err = json.Unmarshal(out, &r)
+				}
+				return termHeardMsg{r, string(out), err == nil}
+			}, "calibrate", "term", strings.TrimSpace(m.input))
 		case k == "enter":
 			m.state = calibHearing
 			return m, callEngine(m.engine, func(out []byte, err error) tea.Msg {
@@ -170,18 +218,47 @@ func (m calibModel) key(k string) (tea.Model, tea.Cmd) {
 		}
 	case calibScored:
 		switch {
+		case m.names && (k == "esc" || k == "q"):
+			m.state = calibDone
 		case quit:
 			return m.quit()
+		case k == "enter" && m.names:
+			m.input, m.state = "", calibReading
 		case k == "enter":
 			return m.next()
 		case k == "r":
 			return m.start()
 		}
 	case calibDone:
+		if k == "n" && !m.names {
+			m.names, m.state = true, calibReading
+			return m, nil
+		}
 		if quit || k == "enter" {
 			// The score stays in the scrollback.
 			return m, tea.Quit
 		}
+	}
+	return m, nil
+}
+
+// typeName edits the name being typed; enter has it said aloud, esc ends the page.
+func (m calibModel) typeName(k, text string) (tea.Model, tea.Cmd) {
+	switch k {
+	case "ctrl+c":
+		return m.quit()
+	case "esc":
+		m.state = calibDone
+	case "enter":
+		if strings.TrimSpace(m.input) != "" {
+			return m.start()
+		}
+	case "backspace":
+		if r := []rune(m.input); len(r) > 0 {
+			m.input = string(r[:len(r)-1])
+		}
+	default:
+		m.input += text
 	}
 	return m, nil
 }
@@ -223,13 +300,21 @@ func (m calibModel) View() tea.View {
 func (m calibModel) render() string {
 	var b strings.Builder
 	b.WriteString("\n  " + paint("mockingbird calibrate", mauve))
-	if m.state != calibDone {
+	if m.names && m.state != calibDone {
+		b.WriteString(paint("   your names", overlay0))
+	} else if m.state != calibDone {
 		b.WriteString(paint(fmt.Sprintf("   sentence %d of %d", m.at+1, len(m.script)), overlay0))
 	}
 	b.WriteString("\n\n")
 	width := m.width - 4
+	if m.state == calibDone && m.names {
+		return b.String() + m.namesAdded(width)
+	}
 	if m.state == calibDone {
 		return b.String() + m.score(width)
+	}
+	if m.names {
+		return b.String() + m.namePage(width)
 	}
 
 	if m.state == calibScored {
@@ -289,8 +374,71 @@ func (m calibModel) score(width int) string {
 	b.WriteString(paint(wrap(fmt.Sprintf("%s got %d%% of your words right.", model, pct), width, "  "), green) + "\n")
 	b.WriteString(paint(wrap(fmt.Sprintf("%d words in %d sentence%s.", total, len(m.results), plural(len(m.results))), width, "  "), subtext0) + "\n\n")
 	b.WriteString(paint(wrap("Your readings are kept in ~/.mockingbird/calibration. `mockingbird calibrate tune` compares your models on them and tunes speech detection to your voice; `mockingbird calibrate --forget` deletes them.", width, "  "), subtext0) + "\n\n  ")
-	b.WriteString(paint("enter or q to close", overlay0) + "\n")
+	b.WriteString(paint("n add your names · enter or q to close", overlay0) + "\n")
 	return b.String()
+}
+
+// namePage is a name being typed, said, or what was heard of it.
+func (m calibModel) namePage(width int) string {
+	var b strings.Builder
+	switch m.state {
+	case calibReading:
+		b.WriteString(paint(wrap("Type a name or term you'll dictate (yours, a colleague's, a product), press enter, then say it.", width, "  "), subtext0) + "\n\n")
+		b.WriteString("  " + paint("name: ", mauve) + m.input + paint("▏", mauve) + "\n")
+	case calibScored:
+		b.WriteString("  " + paint("you said", overlay0) + "\n  " + paint(m.term.Term, text) + "\n\n")
+		b.WriteString("  " + paint("mockingbird heard", overlay0) + "\n  ")
+		if m.term.Heard == "" {
+			b.WriteString(paint("(heard nothing)", red))
+		} else {
+			b.WriteString(paint(m.term.Heard, subtext0))
+		}
+		b.WriteString("\n\n")
+		switch {
+		case m.term.Right:
+			b.WriteString(paint(wrap("Dictation writes this right. Added to your dictionary: "+m.term.Saved, width, "  "), green))
+		case strings.Contains(m.term.Saved, "=>"):
+			b.WriteString(paint(wrap("Added with what the model heard, so dictation writes it right from now on: "+m.term.Saved, width, "  "), green))
+		default:
+			b.WriteString(paint(wrap("Added "+m.term.Saved+", but what was heard was too far off to keep as its mishearing. Press r to say it again.", width, "  "), yellow))
+		}
+		b.WriteString("\n")
+	default:
+		b.WriteString(paint(wrap("Say it the way you would in a sentence.", width, "  "), subtext0) + "\n\n")
+		b.WriteString(paint(wrap(strings.TrimSpace(m.input), width, "  "), text) + "\n")
+	}
+	if m.note != "" {
+		b.WriteString("\n" + paint(wrap(m.note, width, "  "), red) + "\n")
+	}
+	b.WriteString("\n  ")
+	switch m.state {
+	case calibReading:
+		b.WriteString(paint("enter say it · esc done", overlay0))
+	case calibRecording:
+		b.WriteString(paint("● recording", red) + paint(" · enter when you're done · esc cancel", overlay0))
+	case calibWaiting:
+		b.WriteString(paint("waiting for mockingbird…", sky))
+	case calibHearing:
+		b.WriteString(paint("listening back…", sky))
+	case calibScored:
+		b.WriteString(paint("enter next name · r say it again · esc done", overlay0))
+	}
+	return b.String() + "\n"
+}
+
+// namesAdded is what the names page put in the dictionary.
+func (m calibModel) namesAdded(width int) string {
+	var b strings.Builder
+	if len(m.added) == 0 {
+		b.WriteString(paint(wrap("No names added.", width, "  "), subtext0) + "\n")
+	} else {
+		b.WriteString(paint(wrap(fmt.Sprintf("Added %d to your dictionary:", len(m.added)), width, "  "), green) + "\n")
+		for _, t := range m.added {
+			b.WriteString(paint(wrap(t.Saved, width, "    "), text) + "\n")
+		}
+		b.WriteString("\n" + paint(wrap("`mockingbird dictionary` lists and edits them.", width, "  "), subtext0) + "\n")
+	}
+	return b.String() + "\n  " + paint("enter or q to close", overlay0) + "\n"
 }
 
 // words wraps a diff's words to width, in color, with the ones that didn't

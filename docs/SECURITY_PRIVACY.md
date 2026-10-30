@@ -325,6 +325,10 @@ time. Both are tracked in [§9](#9-hardening-roadmap).
   pressing Enter on the calibrate screen, and a take nobody stops is dropped
   after a minute. `mockingbird calibrate --forget` deletes the files and the
   rows, and uninstalling deletes them with the rest of `~/.mockingbird`.
+  The names page (#108) keeps no audio: a name you say there is heard and
+  thrown away, and only the dictionary entry it makes is kept (the name, and
+  what Whisper heard if that's needed to spell it), like a word you add with
+  `mockingbird dictionary add`.
 - **Uninstalling deletes it.** `mockingbird uninstall` removes
   `~/.mockingbird`, `data.db` included, after one question. The dictionary
   gets its own: the default keeps a copy of the words, as plain text in

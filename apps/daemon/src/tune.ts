@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { type AsrEngine, startWhisperServer, wordDiff } from "@mockingbird/asr";
 import { loudestWindowRms, type PcmAudio, peak, readWavFile } from "@mockingbird/audio";
 import { openStore, type Take } from "@mockingbird/store";
@@ -50,6 +50,26 @@ export function pickThreshold(edits: Map<number, number>, words: number): number
     }
   }
   return chosen;
+}
+
+/**
+ * Script words this voice keeps losing: missed in two takes or more, over
+ * every run, most missed first. Only reported. A fix learned for an ordinary
+ * word would rewrite it everywhere (learn.ts), so these are left to the model
+ * and the threshold.
+ */
+export function missedWords(takes: Pick<Take, "text" | "heard">[]): string[] {
+  const missed = new Map<string, number>();
+  for (const { text, heard } of takes) {
+    for (const { word, ok } of wordDiff(text, heard).reference) {
+      const key = word.toLowerCase();
+      if (!ok) missed.set(key, (missed.get(key) ?? 0) + 1);
+    }
+  }
+  return [...missed]
+    .filter(([, n]) => n >= 2)
+    .sort((a, b) => b[1] - a[1])
+    .map(([word]) => word);
 }
 
 const db = (x: number) => (x > 0 ? `${Math.round(20 * Math.log10(x))} dB` : "silence");
@@ -141,11 +161,14 @@ export async function tuneCommand(deps: TuneDeps = {}): Promise<number> {
   const path = join(home, "data.db");
   const store = existsSync(path) ? openStore(path, { readonly: true }) : undefined;
   let takes: Take[];
+  let everyTake: Take[];
   let saved: string | undefined;
   let savedSpeech: string | undefined;
   try {
-    const run = store?.calibrationRuns()[0]?.run;
+    const runs = store?.calibrationRuns() ?? [];
+    const run = runs[0]?.run;
     takes = run === undefined ? [] : (store?.takes(run) ?? []);
+    everyTake = runs.flatMap((r) => store?.takes(r.run) ?? []);
     saved = store?.setting(VAD_THRESHOLD_SETTING);
     savedSpeech = store?.setting(ASR_MODEL_SETTING);
   } finally {
@@ -165,6 +188,11 @@ export async function tuneCommand(deps: TuneDeps = {}): Promise<number> {
 
   out("Loudness");
   for (const note of loudnessNotes(audio)) out(`  ${note}`);
+  const missed = missedWords(everyTake);
+  if (missed.length) {
+    out(`\nWords the model often misses in your voice: ${missed.join(", ")}.`);
+    out("  They're ordinary words, so they're left to the model and speech detection below.");
+  }
 
   const env = deps.env ?? process.env;
   const models = join(home, "models");
@@ -179,13 +207,14 @@ export async function tuneCommand(deps: TuneDeps = {}): Promise<number> {
   // can name a file outside the models folder, which the listing leaves out.
   let inUsePath: string | undefined;
   try {
-    inUsePath = findAsrModel(models, env.MOCKINGBIRD_ASR_MODEL, () => {}, savedSpeech);
+    // Resolved, so `models/./x.bin` is the same file as the listing's `models/x.bin`.
+    inUsePath = resolve(findAsrModel(models, env.MOCKINGBIRD_ASR_MODEL, () => {}, savedSpeech));
   } catch {
     // No Whisper file at all: the comparison below says so.
   }
   const candidates = listing.transcription.map(({ name, file }) => ({
     name,
-    path: join(models, file),
+    path: resolve(models, file),
   }));
   if (inUsePath && !candidates.some((c) => c.path === inUsePath)) {
     candidates.unshift({ name: speechName(basename(inUsePath)), path: inUsePath });

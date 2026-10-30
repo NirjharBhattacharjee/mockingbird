@@ -1,10 +1,19 @@
-import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { type WordDiff, wordDiff } from "@mockingbird/asr";
 import { concatSamples, encodeWav } from "@mockingbird/audio";
+import { applyCorrections, correctNames, type DictionaryEntry, mentions } from "@mockingbird/llm";
 import { openStore, type Store } from "@mockingbird/store";
 import scriptMarkdown from "./calibration.md" with { type: "text" };
-import { type Routes, tellDaemon } from "./dictionary.ts";
+import { formatEntry, type Routes, tellDaemon } from "./dictionary.ts";
 import { hear, type PipelineDeps } from "./pipeline.ts";
 import { mockingbirdHome } from "./runtime.ts";
 import { tuneCommand } from "./tune.ts";
@@ -21,6 +30,34 @@ const SAMPLE_RATE = 16_000;
 
 /** What `stop` answers: the sentence and what was heard, word by word. */
 export type TakeResult = WordDiff & { heard: string; model: string };
+
+/**
+ * What `term` answers: what Whisper heard the user say, whether dictation
+ * would have written the term from that, and the entry saved.
+ */
+export type TermResult = { term: string; heard: string; right: boolean; saved: string };
+
+/** A name misheard as this many more words than it has is something else. */
+const MAX_EXTRA_WORDS = 2;
+
+/** macOS's English word list. */
+const WORDS = "/usr/share/dict/words";
+let english: Set<string> | undefined;
+
+/**
+ * Whether every word of `text` is an English word (or one with an s on the
+ * end). Kept as a mishearing, "Childhood => Tadhg" would rewrite every
+ * "childhood" anyone dictates, the way learn.ts warns of. With no word list,
+ * everything counts as English, so nothing is kept.
+ */
+export function isEnglish(text: string): boolean {
+  english ??= new Set(
+    existsSync(WORDS) ? readFileSync(WORDS, "utf8").toLowerCase().split("\n") : [],
+  );
+  const known = english;
+  const words = text.toLowerCase().match(/[\p{L}']+/gu) ?? [];
+  return !known.size || words.every((w) => known.has(w) || known.has(w.replace(/s$/, "")));
+}
 
 type HearDeps = Parameters<typeof hear>[1] & Pick<PipelineDeps, "asr">;
 
@@ -41,6 +78,7 @@ export class Calibration {
     home: string,
     private readonly store: Store,
     private readonly deps: () => HearDeps,
+    private readonly changed: (dictionary: DictionaryEntry[]) => void = () => {},
   ) {
     this.dir = join(home, "calibration");
   }
@@ -97,6 +135,40 @@ export class Calibration {
     return { ...diff, heard, model };
   }
 
+  /**
+   * Ends a take of the user reading one of their own names or terms, and adds
+   * it to the dictionary. If dictation still wouldn't write it from what
+   * Whisper heard, even with the term in the dictionary, what it heard is
+   * kept as the term's mishearing (`heard => term`), unless that's ordinary
+   * English. Its audio isn't kept.
+   */
+  async stopTerm(term: string): Promise<TermResult | undefined> {
+    const take = this.take;
+    this.cancel();
+    if (!take) return undefined;
+    const deps = this.deps();
+    const audio = { sampleRate: SAMPLE_RATE, samples: concatSamples(take) };
+    const heard = (await hear(audio, deps)).asr?.text.trim() ?? "";
+    // What a dictation would write: the dictionary's fixes, with the term in it.
+    const entry: DictionaryEntry = { term };
+    const others = (deps.dictionary ?? []).filter(
+      (e) => e.term.toLowerCase() !== term.toLowerCase(),
+    );
+    const dictionary = [...others, entry];
+    const right =
+      mentions(correctNames(applyCorrections(heard, dictionary), dictionary), [entry]).length > 0;
+    // The take is only the term, so all of it is what the term was heard as.
+    const said = heard.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+    const words = (text: string) => text.split(/\s+/).filter(Boolean).length;
+    // Anything longer is the user saying more, or Whisper making it up.
+    const misheard =
+      !right && said && words(said) <= words(term) + MAX_EXTRA_WORDS && !isEnglish(said);
+    const saved: DictionaryEntry = misheard ? { term, heard: said } : entry;
+    this.store.addTerms([saved]);
+    this.changed(this.store.dictionary());
+    return { term, heard, right, saved: formatEntry(saved) };
+  }
+
   /** Deletes every take, files and rows; returns how many rows went. */
   forget(): number {
     this.forgets++;
@@ -125,6 +197,14 @@ export class Calibration {
           ? Response.json(result)
           : new Response("no take is recording", { status: 409 });
       },
+      "POST /calibrate/term": async (body) => {
+        const term = body.trim();
+        if (!term) return new Response("term needs the word you read", { status: 400 });
+        const result = await this.stopTerm(term);
+        return result
+          ? Response.json(result)
+          : new Response("no take is recording", { status: 409 });
+      },
       "POST /calibrate/cancel": () => {
         this.cancel();
         return new Response("cancelled");
@@ -148,6 +228,8 @@ model heard in data.db, so later runs can tune mockingbird to your voice.
 Nothing leaves this Mac.
 
   mockingbird calibrate            your past runs, in a small window
+  mockingbird calibrate names      read your own names and terms aloud, so the
+                                   dictionary learns how the model hears them
   mockingbird calibrate tune       compare your models on your latest run, and
                                    tune speech detection to your voice
   mockingbird calibrate --forget   delete every take and its audio`;
@@ -158,9 +240,9 @@ export const percentRight = (edits: number, words: number) =>
 
 /**
  * `mockingbird calibrate`. The screen is the Go command's; these are the
- * calls it makes: `script --json`, `start`, `stop <run> <sentence>` and
- * `cancel`, each but the first answered by the agent, which has the
- * microphone and is the only writer to data.db.
+ * calls it makes: `script --json`, `start`, `stop <run> <sentence>`,
+ * `term <words>` and `cancel`, each but the first answered by the agent,
+ * which has the microphone and is the only writer to data.db.
  */
 export async function calibrateCommand(args: string[], home = mockingbirdHome()): Promise<number> {
   const [command = "", ...rest] = args;
@@ -186,15 +268,31 @@ export async function calibrateCommand(args: string[], home = mockingbirdHome())
     }
     return 0;
   }
-  const route = { start: "start", cancel: "cancel", stop: "stop", "--forget": "forget" }[command];
+  if (command === "names") {
+    console.error("`mockingbird calibrate names` needs a terminal window at least 64×16.");
+    return 1;
+  }
+  const route = {
+    start: "start",
+    cancel: "cancel",
+    stop: "stop",
+    term: "term",
+    "--forget": "forget",
+  }[command];
   const [run, sentence] = rest.map(Number);
-  if (!route || (route === "stop" && (rest.length !== 2 || !Number.isInteger(sentence)))) {
+  const term = rest.join(" ").trim();
+  if (
+    !route ||
+    (route === "stop" && (rest.length !== 2 || !Number.isInteger(sentence))) ||
+    (route === "term" && !term)
+  ) {
     console.error(`error: unknown \`mockingbird calibrate ${args.join(" ")}\`\n\n${USAGE}`);
     return 2;
   }
   let response: Response;
   try {
-    const body = route === "stop" ? JSON.stringify({ run, sentence }) : "";
+    const body =
+      route === "stop" ? JSON.stringify({ run, sentence }) : route === "term" ? term : "";
     response = await tellDaemon(`/calibrate/${route}`, body, home);
   } catch {
     console.error("mockingbird isn't running. Start it with `mockingbird start`, then try again.");

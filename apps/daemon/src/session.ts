@@ -223,7 +223,16 @@ export async function startSession(options: SessionOptions): Promise<Session> {
     cue: (kind) => playCue(kind),
   });
   // `mockingbird calibrate`'s takes, from the same microphone.
-  const calibration = store && new Calibration(mockingbirdHome(), store, () => engines.deps);
+  const calibration =
+    store &&
+    new Calibration(
+      mockingbirdHome(),
+      store,
+      () => engines.deps,
+      (dictionary) => {
+        engines.deps.dictionary = dictionary;
+      },
+    );
   // Edits take effect on the next dictation.
   // ponytail: the socket needs data.db, so `mockingbird record` doesn't work when it can't open.
   const dictionaryEdits =
