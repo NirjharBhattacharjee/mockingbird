@@ -678,3 +678,62 @@ func TestCalibrate(t *testing.T) {
 		t.Errorf("all skipped:\n%s", plain(none))
 	}
 }
+
+// TestCalibrateNames walks the names page: type a name, say it, see what was
+// saved, say it again, and the end lists each name once.
+func TestCalibrateNames(t *testing.T) {
+	feed := func(m tea.Model, msg tea.Msg) calibModel { m, _ = m.Update(msg); return m.(calibModel) }
+	key := func(code rune) tea.Msg { return tea.KeyPressMsg{Code: code} }
+	typed := func(m calibModel, s string) calibModel {
+		for _, r := range s {
+			m = feed(m, tea.KeyPressMsg{Code: r, Text: string(r)})
+		}
+		return m
+	}
+	plain := func(m calibModel) string { return escapes.ReplaceAllString(m.render(), "") }
+
+	m := feed(newNames([]string{"bun", "cli.ts"}), tea.WindowSizeMsg{Width: calibCols, Height: calibRows})
+	// Enter with nothing typed does nothing; q is a letter here, not quit.
+	if m = feed(m, key(tea.KeyEnter)); m.state != calibReading {
+		t.Errorf("enter on an empty name: state %d", m.state)
+	}
+	m = typed(m, "Siobhqx")
+	m = feed(feed(m, key(tea.KeyBackspace)), key(tea.KeyBackspace))
+	m = typed(m, "an")
+	if s := plain(m); m.closed || !strings.Contains(s, "name: Siobhan") || !strings.Contains(s, "your names") {
+		t.Errorf("typing:\n%s", s)
+	}
+	m = feed(feed(feed(m, key(tea.KeyEnter)), takeStartedMsg{"recording", true}), key(tea.KeyEnter))
+	if m.state != calibHearing {
+		t.Errorf("after saying it: state %d", m.state)
+	}
+	misheard := termResult{Term: "Siobhan", Heard: "Shivon.", Saved: "Shivon => Siobhan"}
+	m = feed(m, termHeardMsg{result: misheard, ok: true})
+	if s := plain(m); m.state != calibScored || !strings.Contains(s, "Shivon => Siobhan") || !strings.Contains(s, "from now on") {
+		t.Errorf("misheard:\n%s", s)
+	}
+	// r says it again, and this time dictation gets it from the start.
+	m = feed(feed(feed(m, key('r')), takeStartedMsg{"recording", true}), key(tea.KeyEnter))
+	m = feed(m, termHeardMsg{result: termResult{Term: "Siobhan", Heard: "Siobhan.", Right: true, Saved: "Siobhan"}, ok: true})
+	if s := plain(m); !strings.Contains(s, "Dictation writes this right") {
+		t.Errorf("right:\n%s", s)
+	}
+	// Enter clears the field for the next name; a failed say leaves the name up.
+	m = typed(feed(m, key(tea.KeyEnter)), "Catppuccin")
+	m = feed(feed(feed(m, key(tea.KeyEnter)), takeStartedMsg{"recording", true}), key(tea.KeyEnter))
+	m = feed(m, termHeardMsg{out: "error: no take is recording\n", ok: false})
+	if s := plain(m); m.state != calibReading || !strings.Contains(s, "no take is recording") || !strings.Contains(s, "name: Catppuccin") {
+		t.Errorf("failed:\n%s", s)
+	}
+	m = feed(m, key(tea.KeyEscape))
+	if s := plain(m); m.state != calibDone || !strings.Contains(s, "Added 1 to your dictionary") || strings.Contains(s, "Shivon") {
+		t.Errorf("done:\n%s", s)
+	}
+
+	// From the end of the script, n opens the names page.
+	done := newCalibrate([]string{"bun", "cli.ts"}, []string{"One."})
+	done = feed(done, key('s'))
+	if done = feed(done, key('n')); !done.names || done.state != calibReading {
+		t.Errorf("n after the script: names %v, state %d", done.names, done.state)
+	}
+}

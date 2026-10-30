@@ -268,6 +268,7 @@ is illegal.
 
 ```sh
 mockingbird calibrate            # read 25 short sentences aloud
+mockingbird calibrate names      # say your own names and terms
 mockingbird calibrate --forget   # delete every reading
 ```
 
@@ -278,8 +279,22 @@ Q5_0 got 94% of your words right." It takes about three minutes and needs
 the background agent running. Run it again after a new microphone, or
 whenever dictation feels off.
 
-Your readings stay in `~/.mockingbird/calibration/`, so later versions can
-tune mockingbird to your voice. Nothing leaves your Mac.
+Your readings stay in `~/.mockingbird/calibration/`. Nothing leaves your Mac.
+Then run `mockingbird calibrate tune`. In a few minutes, every Whisper model
+you have hears your readings, and it tells you which one is fastest while
+still getting your words right (switch with `mockingbird models`). If your
+voice is quiet or your room noisy, it can also make mockingbird listen more
+closely, after a `mockingbird restart`. It also lists the script words it
+keeps getting wrong in your voice.
+
+At the end of the script, press **n** (or run `mockingbird calibrate names`)
+to teach it the names you dictate, like the people you write to or your
+product. Type one, press **Enter**, say it, and press **Enter** again. Each goes into
+the dictionary (`mockingbird dictionary`). If the model hears it so far off
+that dictation still wouldn't spell it right, what it heard goes in too, as
+`Nerj Herbata Chargy => Nirjhar Bhattacharjee`. That isn't done when what it
+heard is ordinary English ("Childhood" for "Tadhg"), since that would rewrite
+those words in every dictation. These recordings aren't kept.
 
 ### `mockingbird listen`: talk live in a terminal
 

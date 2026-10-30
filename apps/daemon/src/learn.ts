@@ -136,10 +136,10 @@ export function findCorrections(typed: Typed, now: { text: string; from: number 
 const WORD_LIST = "/usr/share/dict/words";
 
 /**
- * Whether every word of `text` is an ordinary English word. Learning one
- * would be harmful: "great" corrected to "grate" once would rewrite every
- * later "great". Read only when asked, which is rare, so it isn't held in
- * memory all day.
+ * Whether every word of `text` is an ordinary English word, or one with an s
+ * on the end ("guys"), punctuation aside. Learning one would be harmful:
+ * "great" corrected to "grate" once would rewrite every later "great". Read
+ * only when asked, which is rare, so it isn't held in memory all day.
  */
 export function ordinaryWords(text: string, list = WORD_LIST): boolean {
   let known: string;
@@ -148,10 +148,10 @@ export function ordinaryWords(text: string, list = WORD_LIST): boolean {
   } catch {
     return true;
   }
-  return text
-    .toLowerCase()
-    .split(/\s+/)
-    .every((word) => known.includes(`\n${word}\n`));
+  const has = (word: string) => known.includes(`\n${word}\n`);
+  return (text.toLowerCase().match(/[\p{L}']+/gu) ?? []).every(
+    (word) => has(word) || (word.endsWith("s") && has(word.slice(0, -1))),
+  );
 }
 
 /**

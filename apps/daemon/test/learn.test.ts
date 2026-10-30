@@ -96,6 +96,7 @@ describe("ordinaryWords", () => {
     expect(ordinaryWords("Mark", list)).toBe(true);
     expect(ordinaryWords("Nirjhar", list)).toBe(false);
     expect(ordinaryWords("great Nirjhar", list)).toBe(false);
+    expect(ordinaryWords("Great marks.", list)).toBe(true);
   });
 
   test("treats every word as ordinary without a word list, so nothing is learned", () => {

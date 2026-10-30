@@ -85,6 +85,12 @@ func run(args []string) int {
 			return 0
 		}
 	}
+	if len(args) == 2 && args[0] == "calibrate" && args[1] == "names" && fits(calibCols, calibRows) {
+		if _, err := tea.NewProgram(newNames(argv[:2])).Run(); err != nil {
+			return fail(err)
+		}
+		return 0
+	}
 	if len(args) == 1 && args[0] == "start" && canAnimate() {
 		return startWithSplash(argv)
 	}

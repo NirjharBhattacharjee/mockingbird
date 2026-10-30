@@ -221,6 +221,60 @@ dictionary size. Edits take effect on the next dictation. The old
 `~/.mockingbird/dictionary.txt` is imported once on start and renamed to
 `dictionary.txt.imported`.
 
+### 4b. Adapting Whisper to one voice: no-go (#109, 2026-10-30)
+
+**Decision: don't build it.** Fine-tuning Whisper on a user's own recordings
+(a LoRA adapter) needs far more speech than calibration collects. At that
+amount it barely helps, and it makes the model worse for every other voice.
+It would also ship a Python training toolchain. Choosing the model and the
+VAD threshold (#107) and the names page (#108) cost none of that.
+
+**How it was measured.** The voice was `say -v Rishi` (Indian English), with
+pink noise mixed in 10 dB under it, so `base.en` makes real mistakes. That's
+one voice in one room, like a user at their desk. The sentences came from
+PAWS (Wikipedia, 8–22 words, no digits), in three training sets of 3, 15
+and 30 minutes, plus 60 held-out sentences of the same voice (1,009 words).
+Another 60 sentences read clean by `say -v Moira` (Irish English, 1,013
+words) checked other voices. The LoRA was rank 32 on the attention `q_proj`
+and `v_proj` of `openai/whisper-base.en`, trained with Hugging Face
+`transformers` + `peft` on the M3's GPU (MPS), batch 4, learning rate 5e-4,
+with at least 150 steps per set. Word error rate (WER), lower is better.
+One point on each test set is about 10 words.
+
+| Trained on | Steps | Training time | Same voice, held out | Other voice |
+|---|---|---|---|---|
+| nothing (base.en) | — | — | 15.6% | 9.7% |
+| 3 min (one calibration run) | 153 | 2.2 min | 16.7% | 12.2% |
+| 15 min | 152 | 2.3 min | 15.0% | 12.5% |
+| 30 min | 231 | 7.5 min | 13.3% | 10.2% |
+
+What this says, question by question from #109:
+
+- **Data.** One calibration run makes the model worse for both voices.
+  Thirty minutes, ten runs of reading, buys 2.3 points for that voice and
+  costs the other 0.5. In #107's measurements, with pink noise 14 dB under
+  the voice, switching from `base.en` to `small.en` gained 2.4 points with
+  no training at all. Real accents vary
+  more than a synthetic voice does, so real users would likely need more
+  audio than this, not less.
+- **Tooling.** The training environment was 921 MB (Python 3.12, torch,
+  transformers, peft), and the base weights another 281 MB in Hugging Face
+  format, not ggml. The adapter would also have to be merged and converted
+  to ggml for whisper-server (whisper.cpp's `convert-h5-to-ggml.py`, which
+  needs whisper.cpp's source and OpenAI's `whisper` repo). That step wasn't
+  tried. The installer would have to fetch all of it, through
+  `mockingbird models pull`, the one download allowed.
+- **Cost.** 5.25 GB of GPU memory at peak for `base.en`, and a 4.5 MB
+  adapter. The default model, `large-v3`, is about 20 times the size of
+  `base.en`. It wouldn't train in 16 GB this way.
+- **Caveats.** It's one synthetic voice, one noise level, one model size and
+  one recipe, with no hyperparameter search. A better recipe might do better.
+  It won't fix needing ten times the audio, or the other voice getting worse.
+
+Revisit only if a user has hours of their own corrected dictation and asks
+for it, or whisper.cpp learns to load an adapter without a Python toolchain.
+The spike's script is on #109.
+
 ## 5. Cleanup / formatting LLM — Qwen3-4B-Instruct
 
 - **When its output is rejected:** `acceptCleanup` falls back to the raw
@@ -346,7 +400,28 @@ everything else in this file). Tracked as undecided, not silently assumed.
 - **VAD is not currently designed as swappable** — Silero via
   `onnxruntime-node` is treated as a fixed part of the pipeline, not a
   configurable choice, since its cost/accuracy profile isn't a tradeoff most
-  users need to tune.
+  users need to tune. Its threshold is the exception: `mockingbird calibrate
+  tune` (#107) can lower it for one voice, below.
+- **`mockingbird calibrate tune` measures both for one voice** (#107). It
+  takes the user's latest `mockingbird calibrate` run and has every installed
+  Whisper file hear its sentences, each on its own whisper-server (on a free
+  port) beside the agent's, one at a time. They hear them at the saved VAD
+  threshold if there is one, since that's what dictation uses. With `MOCKINGBIRD_ASR_MODEL` set to
+  a file outside the models folder, that file is the one in use and is
+  compared too. For each it
+  prints the share of words right and the median time per sentence, then
+  recommends the fastest within a point of the best. It never switches
+  model by itself: the user does that in `mockingbird models`. A few hundred
+  words of read script can't tell two models a point apart, and reading is
+  easier than dictating, so this is advice for that voice, not a ranking.
+- It then has the model in use hear the same sentences at VAD thresholds
+  0.5 (the default), 0.4, 0.3 and 0.2, and saves the best as `vad_threshold`
+  only if it hears at least two more words than the default, and at least 1%
+  more. Below that, a lower threshold only lets in more of the room. Running
+  it again when the default is best clears the saved value. The agent reads
+  it at start, so it applies after `mockingbird restart`. It also reports
+  clipping, and speech too quiet for `normalizeLoudness` to bring up (it stops
+  at 20×).
 - **Both models are picked with `mockingbird models`.** In a terminal it's a
   picker with a Cleanup tab and a Transcription tab (TUI.md §5); otherwise it
   prints both lists. Cleanup lists the models Ollama has that can write text
