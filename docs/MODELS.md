@@ -221,6 +221,60 @@ dictionary size. Edits take effect on the next dictation. The old
 `~/.mockingbird/dictionary.txt` is imported once on start and renamed to
 `dictionary.txt.imported`.
 
+### 4b. Adapting Whisper to one voice: no-go (#109, 2026-10-30)
+
+**Decision: don't build it.** Fine-tuning Whisper on a user's own recordings
+(a LoRA adapter) needs far more speech than calibration collects. At that
+amount it barely helps, and it makes the model worse for every other voice.
+It would also ship a Python training toolchain. Choosing the model and the
+VAD threshold (#107) and the names page (#108) cost none of that.
+
+**How it was measured.** The voice was `say -v Rishi` (Indian English), with
+pink noise mixed in 10 dB under it, so `base.en` makes real mistakes. That's
+one voice in one room, like a user at their desk. The sentences came from
+PAWS (Wikipedia, 8–22 words, no digits), in three training sets of 3, 15
+and 30 minutes, plus 60 held-out sentences of the same voice (1,009 words).
+Another 60 sentences read clean by `say -v Moira` (Irish English, 1,013
+words) checked other voices. The LoRA was rank 32 on the attention `q_proj`
+and `v_proj` of `openai/whisper-base.en`, trained with Hugging Face
+`transformers` + `peft` on the M3's GPU (MPS), batch 4, learning rate 5e-4,
+with at least 150 steps per set. Word error rate (WER), lower is better.
+One point on each test set is about 10 words.
+
+| Trained on | Steps | Training time | Same voice, held out | Other voice |
+|---|---|---|---|---|
+| nothing (base.en) | — | — | 15.6% | 9.7% |
+| 3 min (one calibration run) | 153 | 2.2 min | 16.7% | 12.2% |
+| 15 min | 152 | 2.3 min | 15.0% | 12.5% |
+| 30 min | 231 | 7.5 min | 13.3% | 10.2% |
+
+What this says, question by question from #109:
+
+- **Data.** One calibration run makes the model worse for both voices.
+  Thirty minutes, ten runs of reading, buys 2.3 points for that voice and
+  costs the other 0.5. In #107's measurements, with pink noise 14 dB under
+  the voice, switching from `base.en` to `small.en` gained 2.4 points with
+  no training at all. Real accents vary
+  more than a synthetic voice does, so real users would likely need more
+  audio than this, not less.
+- **Tooling.** The training environment was 921 MB (Python 3.12, torch,
+  transformers, peft), and the base weights another 281 MB in Hugging Face
+  format, not ggml. The adapter would also have to be merged and converted
+  to ggml for whisper-server (whisper.cpp's `convert-h5-to-ggml.py`, which
+  needs whisper.cpp's source and OpenAI's `whisper` repo). That step wasn't
+  tried. The installer would have to fetch all of it, through
+  `mockingbird models pull`, the one download allowed.
+- **Cost.** 5.25 GB of GPU memory at peak for `base.en`, and a 4.5 MB
+  adapter. The default model, `large-v3`, is about 20 times the size of
+  `base.en`. It wouldn't train in 16 GB this way.
+- **Caveats.** It's one synthetic voice, one noise level, one model size and
+  one recipe, with no hyperparameter search. A better recipe might do better.
+  It won't fix needing ten times the audio, or the other voice getting worse.
+
+Revisit only if a user has hours of their own corrected dictation and asks
+for it, or whisper.cpp learns to load an adapter without a Python toolchain.
+The spike's script is on #109.
+
 ## 5. Cleanup / formatting LLM — Qwen3-4B-Instruct
 
 - **When its output is rejected:** `acceptCleanup` falls back to the raw
