@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -62,12 +62,17 @@ describe("isQtWebEngineApp", () => {
   });
 
   test("spots a QtWebEngine app from the framework in its bundle", () => {
-    const qt = join(mkdtempSync(join(tmpdir(), "qt-")), "Some.app");
-    mkdirSync(join(qt, "Contents/Frameworks/QtWebEngineCore.framework"), { recursive: true });
-    expect(isQtWebEngineApp({ bundleId: "org.example.qt", name: "Some", path: qt })).toBe(true);
-    expect(isQtWebEngineApp({ bundleId: "org.example.qt", name: "Some", path: tmpdir() })).toBe(
-      false,
-    );
+    const root = mkdtempSync(join(tmpdir(), "qt-"));
+    try {
+      const qt = join(root, "Some.app");
+      mkdirSync(join(qt, "Contents/Frameworks/QtWebEngineCore.framework"), { recursive: true });
+      expect(isQtWebEngineApp({ bundleId: "org.example.qt", name: "Some", path: qt })).toBe(true);
+      expect(isQtWebEngineApp({ bundleId: "org.example.qt", name: "Some", path: root })).toBe(
+        false,
+      );
+    } finally {
+      rmSync(root, { recursive: true });
+    }
   });
 });
 
