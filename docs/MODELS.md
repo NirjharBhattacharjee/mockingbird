@@ -405,7 +405,8 @@ everything else in this file). Tracked as undecided, not silently assumed.
 - **`mockingbird calibrate tune` measures both for one voice** (#107). It
   takes the user's latest `mockingbird calibrate` run and has every installed
   Whisper file hear its sentences, each on its own whisper-server (on a free
-  port) beside the agent's, one at a time. With `MOCKINGBIRD_ASR_MODEL` set to
+  port) beside the agent's, one at a time. They hear them at the saved VAD
+  threshold if there is one, since that's what dictation uses. With `MOCKINGBIRD_ASR_MODEL` set to
   a file outside the models folder, that file is the one in use and is
   compared too. For each it
   prints the share of words right and the median time per sentence, then

@@ -400,7 +400,7 @@ func (m calibModel) namePage(width int) string {
 		case strings.Contains(m.term.Saved, "=>"):
 			b.WriteString(paint(wrap("Added with what the model heard, so dictation writes it right from now on: "+m.term.Saved, width, "  "), green))
 		default:
-			b.WriteString(paint(wrap("Added "+m.term.Saved+", but what was heard was too far off to keep as its mishearing. Press r to say it again.", width, "  "), yellow))
+			b.WriteString(paint(wrap("Added "+m.term.Saved+". What the model heard wasn't kept as its mishearing, so dictation may still misspell it. Press r to say it again.", width, "  "), yellow))
 		}
 		b.WriteString("\n")
 	default:

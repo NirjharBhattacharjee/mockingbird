@@ -61,10 +61,13 @@ export function pickThreshold(edits: Map<number, number>, words: number): number
 export function missedWords(takes: Pick<Take, "text" | "heard">[]): string[] {
   const missed = new Map<string, number>();
   for (const { text, heard } of takes) {
-    for (const { word, ok } of wordDiff(text, heard).reference) {
-      const key = word.toLowerCase();
-      if (!ok) missed.set(key, (missed.get(key) ?? 0) + 1);
-    }
+    // Once a take, so a word missed twice in one sentence counts once.
+    const inTake = new Set(
+      wordDiff(text, heard)
+        .reference.filter((w) => !w.ok)
+        .map((w) => w.word.toLowerCase()),
+    );
+    for (const key of inTake) missed.set(key, (missed.get(key) ?? 0) + 1);
   }
   return [...missed]
     .filter(([, n]) => n >= 2)
@@ -225,8 +228,11 @@ export async function tuneCommand(deps: TuneDeps = {}): Promise<number> {
     ((modelPath: string) =>
       startWhisperServer({ modelPath, port: freePort(), readyTimeoutMs: 120_000 }));
   const vad = await (deps.vad ?? (() => loadSilero(models)))();
+  // Models are compared at the threshold dictation uses: a saved one, if any.
+  const compareAt = THRESHOLDS.find((t) => String(t) === saved) ?? (THRESHOLDS[0] as number);
   out(
-    `\nTranscription models, each hearing your ${wavs.length} sentences (this takes a few minutes)`,
+    `\nTranscription models, each hearing your ${wavs.length} sentences` +
+      `${compareAt === THRESHOLDS[0] ? "" : ` at your saved threshold ${compareAt}`} (this takes a few minutes)`,
   );
 
   const scores: ModelScore[] = [];
@@ -278,7 +284,7 @@ export async function tuneCommand(deps: TuneDeps = {}): Promise<number> {
         const first = audio[0];
         if (first) await server.engine.transcribe(first); // warm
         const times: number[] = [];
-        const edits = await score(THRESHOLDS[0] as number, times);
+        const edits = await score(compareAt, times);
         times.sort((a, b) => a - b);
         const s = {
           name: model.name,
@@ -288,8 +294,10 @@ export async function tuneCommand(deps: TuneDeps = {}): Promise<number> {
           medianMs: times[Math.floor(times.length / 2)] ?? 0,
         };
         // The thresholds first, so a model that fails partway has no score.
-        const atThreshold = new Map([[THRESHOLDS[0] as number, edits]]);
-        if (inUse) for (const t of THRESHOLDS.slice(1)) atThreshold.set(t, await score(t));
+        const atThreshold = new Map([[compareAt, edits]]);
+        if (inUse) {
+          for (const t of THRESHOLDS) if (t !== compareAt) atThreshold.set(t, await score(t));
+        }
         scores.push(s);
         out(
           `${label} ${pct(s).padStart(12)}   ${(s.medianMs / 1000).toFixed(1)} s a sentence${inUse ? "   ● in use" : ""}`,

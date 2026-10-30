@@ -105,6 +105,8 @@ test("only words missed in two takes or more are reported, most missed first", (
   ];
   expect(missedWords(takes)).toEqual(["wolves", "very"]);
   expect(missedWords(takes.slice(0, 1))).toEqual([]);
+  // Twice in one take is still one take.
+  expect(missedWords([{ text: "the cat and the dog", heard: "a cat and a dog" }])).toEqual([]);
 });
 
 test("a saved threshold is used only if it's one detectSpeech can take", () => {
@@ -211,6 +213,20 @@ describe("tuneCommand, end to end with fakes", () => {
     expect(calls).toEqual([["/settings/vad_threshold", "0.3"]]);
     expect(text).toContain("0.3 heard 10 more of your words than the default: saved.");
     expect(log.stopped).toBe(log.started);
+  });
+
+  test("models are compared at the saved threshold, the one dictation uses", async () => {
+    const { whisper } = servers();
+    // Speech is found only at 0.3 and below: at the default, every model hears nothing.
+    const { text } = await run({
+      home: home(undefined, "0.3"),
+      whisper,
+      vad: vad(0.3),
+      tell: daemon().tell,
+    });
+    expect(text).toContain("at your saved threshold 0.3");
+    expect(text).toMatch(/large-v3 Q5_0 +100\.0% right/);
+    expect(text).toContain("0.3 is still the best for your voice, and already saved.");
   });
 
   test("clears a saved threshold once the default hears as well", async () => {

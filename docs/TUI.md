@@ -354,8 +354,9 @@ home screen. Neither needs the IPC socket.
   (the dictionary's own fixes, with the name in it). The screen shows `you
   said` and `mockingbird heard`, then one of: `Dictation writes this right`
   (`green`); added with what was heard, as `heard => name` (`green`); or, when
-  what was heard is too far off to keep (ordinary English, or three words
-  more than the name), added alone, with `r` to say it again (`yellow`).
+  what was heard isn't kept (ordinary English, three words more than the
+  name, or dictation in another language), added alone, with `r` to say it
+  again (`yellow`).
   `Enter` clears the field for the next name. `esc` ends the page, listing
   each name added once (said again, the last take counts), and that list
   stays in the scrollback.

@@ -3,9 +3,15 @@ import { existsSync, mkdtempSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openStore } from "@mockingbird/store";
-import { Calibration, isEnglish, percentRight, SCRIPT, type TakeResult } from "../src/calibrate.ts";
+import {
+  Calibration,
+  percentRight,
+  SCRIPT,
+  type TakeResult,
+  type TermResult,
+} from "../src/calibrate.ts";
 
-const setup = (heard: string, speech = true, changed = () => {}) => {
+const setup = (heard: string, speech = true, changed = () => {}, language?: string) => {
   const home = mkdtempSync(join(tmpdir(), "calibrate-test-"));
   const store = openStore(join(home, "data.db"));
   const calibration = new Calibration(
@@ -18,6 +24,7 @@ const setup = (heard: string, speech = true, changed = () => {}) => {
         transcribe: async () => ({ text: ` ${heard}`, confidence: 1, words: [] }),
         health: async () => true,
       },
+      language,
     }),
     changed,
   );
@@ -129,12 +136,12 @@ test("if Whisper fails, a sentence read before keeps its audio and its row", asy
   expect(store.calibrationRuns()).toMatchObject([{ run: 1, edits: 0 }]);
 });
 
-const readTerm = async (heard: string, term: string) => {
+const readTerm = async (heard: string, term: string, language?: string) => {
   let changed = 0;
-  const { store, calibration, call } = setup(heard, true, () => changed++);
+  const { store, calibration, call } = setup(heard, true, () => changed++, language);
   await call("start");
   calibration.push(new Int16Array(1600).fill(500));
-  const result = await (await call("term", term)).json();
+  const result = (await (await call("term", term)).json()) as TermResult;
   return { result, dictionary: store.dictionary(), changed };
 };
 
@@ -159,8 +166,19 @@ test("a mishearing that's ordinary English isn't kept, or it would rewrite those
   const { result, dictionary } = await readTerm("Childhood.", "Tadhg");
   expect(result).toMatchObject({ right: false, saved: "Tadhg" });
   expect(dictionary).toEqual([{ term: "Tadhg" }]);
-  expect(isEnglish("See you guys")).toBe(true);
-  expect(isEnglish("Cat Buxin")).toBe(false);
+  expect((await readTerm("See you guys.", "Saoirse")).result.saved).toBe("Saoirse");
+});
+
+test("outside English, names aren't matched by sound and no mishearing is kept", async () => {
+  // Dictation in German wouldn't fix it by sound, so it isn't right; and
+  // with only an English word list, a German phrase can't be told from a name.
+  const { result, dictionary } = await readTerm(
+    "Nirjar Bhattacharji.",
+    "Nirjhar Bhattacharjee",
+    "de",
+  );
+  expect(result).toMatchObject({ right: false, saved: "Nirjhar Bhattacharjee" });
+  expect(dictionary).toEqual([{ term: "Nirjhar Bhattacharjee" }]);
 });
 
 test("a take far longer than the term isn't kept as its mishearing", async () => {

@@ -1,19 +1,18 @@
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type WordDiff, wordDiff } from "@mockingbird/asr";
 import { concatSamples, encodeWav } from "@mockingbird/audio";
-import { applyCorrections, correctNames, type DictionaryEntry, mentions } from "@mockingbird/llm";
+import {
+  applyCorrections,
+  correctNames,
+  type DictionaryEntry,
+  isEnglish,
+  mentions,
+} from "@mockingbird/llm";
 import { openStore, type Store } from "@mockingbird/store";
 import scriptMarkdown from "./calibration.md" with { type: "text" };
 import { formatEntry, type Routes, tellDaemon } from "./dictionary.ts";
+import { ordinaryWords } from "./learn.ts";
 import { hear, type PipelineDeps } from "./pipeline.ts";
 import { mockingbirdHome } from "./runtime.ts";
 import { tuneCommand } from "./tune.ts";
@@ -40,26 +39,7 @@ export type TermResult = { term: string; heard: string; right: boolean; saved: s
 /** A name misheard as this many more words than it has is something else. */
 const MAX_EXTRA_WORDS = 2;
 
-/** macOS's English word list. */
-const WORDS = "/usr/share/dict/words";
-let english: Set<string> | undefined;
-
-/**
- * Whether every word of `text` is an English word (or one with an s on the
- * end). Kept as a mishearing, "Childhood => Tadhg" would rewrite every
- * "childhood" anyone dictates, the way learn.ts warns of. With no word list,
- * everything counts as English, so nothing is kept.
- */
-export function isEnglish(text: string): boolean {
-  english ??= new Set(
-    existsSync(WORDS) ? readFileSync(WORDS, "utf8").toLowerCase().split("\n") : [],
-  );
-  const known = english;
-  const words = text.toLowerCase().match(/[\p{L}']+/gu) ?? [];
-  return !known.size || words.every((w) => known.has(w) || known.has(w.replace(/s$/, "")));
-}
-
-type HearDeps = Parameters<typeof hear>[1] & Pick<PipelineDeps, "asr">;
+type HearDeps = Parameters<typeof hear>[1] & Pick<PipelineDeps, "asr" | "language">;
 
 /**
  * Takes for `mockingbird calibrate`, recorded from the microphone the agent
@@ -140,7 +120,7 @@ export class Calibration {
    * it to the dictionary. If dictation still wouldn't write it from what
    * Whisper heard, even with the term in the dictionary, what it heard is
    * kept as the term's mishearing (`heard => term`), unless that's ordinary
-   * English. Its audio isn't kept.
+   * English, or dictation isn't in English. Its audio isn't kept.
    */
   async stopTerm(term: string): Promise<TermResult | undefined> {
     const take = this.take;
@@ -149,20 +129,30 @@ export class Calibration {
     const deps = this.deps();
     const audio = { sampleRate: SAMPLE_RATE, samples: concatSamples(take) };
     const heard = (await hear(audio, deps)).asr?.text.trim() ?? "";
-    // What a dictation would write: the dictionary's fixes, with the term in it.
+    // What a dictation would write: the dictionary's fixes, with the term in
+    // it, and names matched by sound only in English, as cleanUp does.
+    const english = isEnglish(deps.language);
     const entry: DictionaryEntry = { term };
     const others = (deps.dictionary ?? []).filter(
       (e) => e.term.toLowerCase() !== term.toLowerCase(),
     );
     const dictionary = [...others, entry];
-    const right =
-      mentions(correctNames(applyCorrections(heard, dictionary), dictionary), [entry]).length > 0;
+    const replaced = applyCorrections(heard, dictionary);
+    const written = english ? correctNames(replaced, dictionary) : replaced;
+    const right = mentions(written, [entry]).length > 0;
     // The take is only the term, so all of it is what the term was heard as.
     const said = heard.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
     const words = (text: string) => text.split(/\s+/).filter(Boolean).length;
-    // Anything longer is the user saying more, or Whisper making it up.
+    // Anything longer is the user saying more, or Whisper making it up. Kept
+    // as a mishearing, ordinary words ("Childhood => Tadhg") would rewrite
+    // those words in every dictation. That's told with an English word list,
+    // so outside English no mishearing is kept, as nothing is learned (session.ts).
     const misheard =
-      !right && said && words(said) <= words(term) + MAX_EXTRA_WORDS && !isEnglish(said);
+      english &&
+      !right &&
+      said &&
+      words(said) <= words(term) + MAX_EXTRA_WORDS &&
+      !ordinaryWords(said);
     const saved: DictionaryEntry = misheard ? { term, heard: said } : entry;
     this.store.addTerms([saved]);
     this.changed(this.store.dictionary());
