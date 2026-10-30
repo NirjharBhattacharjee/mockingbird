@@ -1,5 +1,10 @@
 import { parseArgs } from "node:util";
-import { charBeforeCaret, frontmostApp, isQtApp, needsLeadingSpace } from "@mockingbird/context";
+import {
+  charBeforeCaret,
+  frontmostApp,
+  isQtWebEngineApp,
+  needsLeadingSpace,
+} from "@mockingbird/context";
 import {
   checkTypingAccess,
   ONE_CHARACTER_AT_A_TIME,
@@ -81,7 +86,7 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
   }
 
   const now = await frontmostApp();
-  await typeText(text, isQtApp(now) ? ONE_CHARACTER_AT_A_TIME : {});
+  await typeText(text, isQtWebEngineApp(now) ? ONE_CHARACTER_AT_A_TIME : {});
   log(`typed ${text.length} characters into ${now?.name ?? "the app in front"}`);
   return 0;
 }

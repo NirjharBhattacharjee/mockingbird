@@ -20,8 +20,9 @@ export const TYPED_EVENT_MARK = 0x6d6b6264;
 const MAX_UNITS_PER_EVENT = 20;
 
 /**
- * For apps that take only one character per event (Qt, #117). They drop most
- * of the text with no pause at all; 1ms typed 439 characters cleanly in Anki.
+ * For apps that take only one character per event (QtWebEngine, #117). They
+ * drop most of the text with no pause at all; 1ms typed 439 characters cleanly
+ * in Anki.
  */
 export const ONE_CHARACTER_AT_A_TIME = { maxUnitsPerEvent: 1, chunkDelayMs: 1 } as const;
 
