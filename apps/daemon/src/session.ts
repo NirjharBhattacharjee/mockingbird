@@ -4,7 +4,7 @@ import {
   type FrontmostApp,
   frontmostApp,
   isBrowser,
-  isQtApp,
+  isQtWebEngineApp,
   isTerminal,
   mayRunCommands,
   readFocusedField,
@@ -344,7 +344,7 @@ export async function startSession(options: SessionOptions): Promise<Session> {
         const prefix = open ? separator(piece, open.lineBreaks) : await start(piece);
         if (!open || prefix === undefined) return;
         const result = await typeText(piece, {
-          ...(isQtApp(open.now) && ONE_CHARACTER_AT_A_TIME),
+          ...(isQtWebEngineApp(open.now) && ONE_CHARACTER_AT_A_TIME),
           prefix,
           lineBreaks: open.lineBreaks,
           stillWanted: open.watch.stillThere,

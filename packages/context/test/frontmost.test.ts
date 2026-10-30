@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   frontmostApp,
   isBrowser,
-  isQtApp,
+  isQtWebEngineApp,
   isTerminal,
   mayRunCommands,
   parseAppInfo,
@@ -19,6 +22,12 @@ describe("parseAppInfo", () => {
       bundleId: "com.apple.Terminal",
       name: "com.apple.Terminal",
     });
+  });
+
+  test("reads where the app bundle lives", () => {
+    const output =
+      '"LSBundlePath"="/Applications/OBS.app"\n"CFBundleIdentifier"="com.obsproject.obs-studio"';
+    expect(parseAppInfo(output)?.path).toBe("/Applications/OBS.app");
   });
 
   test("returns nothing when the app has no bundle id", () => {
@@ -45,11 +54,20 @@ describe("isBrowser", () => {
   });
 });
 
-describe("isQtApp", () => {
-  test("recognizes Qt apps, which take one character per key event", () => {
-    expect(isQtApp({ bundleId: "net.ankiweb.anki", name: "Anki" })).toBe(true);
-    expect(isQtApp({ bundleId: "com.apple.TextEdit", name: "TextEdit" })).toBe(false);
-    expect(isQtApp(undefined)).toBe(false);
+describe("isQtWebEngineApp", () => {
+  test("recognizes QtWebEngine apps, which take one character per key event", () => {
+    expect(isQtWebEngineApp({ bundleId: "net.ankiweb.anki", name: "Anki" })).toBe(true);
+    expect(isQtWebEngineApp({ bundleId: "com.apple.TextEdit", name: "TextEdit" })).toBe(false);
+    expect(isQtWebEngineApp(undefined)).toBe(false);
+  });
+
+  test("spots a QtWebEngine app from the framework in its bundle", () => {
+    const qt = join(mkdtempSync(join(tmpdir(), "qt-")), "Some.app");
+    mkdirSync(join(qt, "Contents/Frameworks/QtWebEngineCore.framework"), { recursive: true });
+    expect(isQtWebEngineApp({ bundleId: "org.example.qt", name: "Some", path: qt })).toBe(true);
+    expect(isQtWebEngineApp({ bundleId: "org.example.qt", name: "Some", path: tmpdir() })).toBe(
+      false,
+    );
   });
 });
 

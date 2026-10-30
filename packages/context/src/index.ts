@@ -8,7 +8,7 @@ export {
   type FrontmostApp,
   frontmostApp,
   isBrowser,
-  isQtApp,
+  isQtWebEngineApp,
   isTerminal,
   mayRunCommands,
   parseAppInfo,

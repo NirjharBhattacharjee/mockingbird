@@ -1,4 +1,7 @@
-export type FrontmostApp = { bundleId: string; name: string };
+import { existsSync } from "node:fs";
+
+/** `path` is where the app bundle lives, when macOS says. */
+export type FrontmostApp = { bundleId: string; name: string; path?: string };
 
 /** Parses `lsappinfo info` output lines like `"CFBundleIdentifier"="com.apple.Terminal"`. */
 export function parseAppInfo(output: string): FrontmostApp | undefined {
@@ -6,7 +9,8 @@ export function parseAppInfo(output: string): FrontmostApp | undefined {
     new RegExp(`"${key}"\\s*=\\s*"([^"]*)"`).exec(output)?.[1] ?? undefined;
   const bundleId = value("CFBundleIdentifier");
   if (!bundleId) return undefined;
-  return { bundleId, name: value("LSDisplayName") ?? bundleId };
+  const path = value("LSBundlePath");
+  return { bundleId, name: value("LSDisplayName") ?? bundleId, ...(path && { path }) };
 }
 
 async function run(args: string[]): Promise<string> {
@@ -22,7 +26,19 @@ async function run(args: string[]): Promise<string> {
 export async function frontmostApp(): Promise<FrontmostApp | undefined> {
   const asn = await run(["lsappinfo", "front"]);
   if (!asn) return undefined;
-  return parseAppInfo(await run(["lsappinfo", "info", "-only", "bundleid", "-only", "name", asn]));
+  return parseAppInfo(
+    await run([
+      "lsappinfo",
+      "info",
+      "-only",
+      "bundleid",
+      "-only",
+      "name",
+      "-only",
+      "bundlepath",
+      asn,
+    ]),
+  );
 }
 
 const TERMINAL_BUNDLE_IDS = new Set([
@@ -68,15 +84,23 @@ export function isBrowser(app: FrontmostApp | undefined): boolean {
   return app !== undefined && BROWSER_BUNDLE_IDS.has(app.bundleId);
 }
 
-/** Apps built on Qt. Add others here once they're tested. */
-const QT_BUNDLE_IDS = new Set(["net.ankiweb.anki"]);
+/** QtWebEngine apps that don't ship it where `isQtWebEngineApp` looks. */
+const QT_WEB_ENGINE_BUNDLE_IDS = new Set([
+  "net.ankiweb.anki", // PyQt, under Contents/Resources/app_packages
+]);
 
 /**
- * Qt apps drop a key event that carries more than one character, so text has
- * to go in one character at a time there (#117).
+ * Apps with QtWebEngine, the Chromium inside Qt, which keeps only the last
+ * character of a key event that carries several (#117, #119). Text goes in
+ * one character at a time there. Plain Qt text boxes take the whole string.
  */
-export function isQtApp(app: FrontmostApp | undefined): boolean {
-  return app !== undefined && QT_BUNDLE_IDS.has(app.bundleId);
+export function isQtWebEngineApp(app: FrontmostApp | undefined): boolean {
+  if (app === undefined) return false;
+  if (QT_WEB_ENGINE_BUNDLE_IDS.has(app.bundleId)) return true;
+  return (
+    app.path !== undefined &&
+    existsSync(`${app.path}/Contents/Frameworks/QtWebEngineCore.framework`)
+  );
 }
 
 /**
