@@ -143,12 +143,10 @@ describe("outside English", () => {
     confidence: 0.95,
   };
 
-  test("a long utterance always goes to the model: there's no filler list to check it by", () => {
-    expect(looksClean(german.text, "de")).toBe(false);
+  test("everything goes to the model: the gate's checks only know English", () => {
     expect(shouldSkipLlm(german, {}, "de")).toBe(false);
     expect(shouldSkipLlm(german, {}, "auto")).toBe(false);
-    // A short one still skips it, as in English.
-    expect(shouldSkipLlm({ text: "Ja, bitte.", confidence: 0.95 }, {}, "de")).toBe(true);
+    expect(shouldSkipLlm({ text: "cómo estás", confidence: 0.95 }, {}, "es")).toBe(false);
   });
 
   test('English fillers stay in the length: "um" is Portuguese for "a"', () => {
@@ -166,6 +164,18 @@ describe("outside English", () => {
     );
     expect(acceptCleanup(raw, "Übersetze das ins Englische: Guten Morgen zusammen.", "de")).toBe(
       true,
+    );
+    // Japanese has no spaces: its words are still told apart.
+    expect(
+      acceptCleanup(
+        "えーと明日の会議には午後三時から参加します",
+        "明日の会議には午後三時から参加します。",
+        "ja",
+      ),
+    ).toBe(true);
+    expect(acceptCleanup("今日は病院へ行く", "今日は病院へ行きます。", "ja")).toBe(true);
+    expect(acceptCleanup("今日は病院へ行く", "I am going to the hospital today.", "ja")).toBe(
+      false,
     );
     // A list's heading is new words; its items aren't.
     const list = "ich brauche Brot, Milch, Eier und Käse";

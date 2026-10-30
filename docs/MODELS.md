@@ -231,8 +231,11 @@ dictionary size. Edits take effect on the next dictation. The old
   than `en`, the prompt gains its Language section (stay in the language,
   never translate), and a cleanup fewer than half of whose words were in the
   transcript is rejected: qwen3 still turned "Übersetze das ins Englische:
-  guten Morgen zusammen" into English. The filler list behind `looksClean` is
-  English, so every dictation past four words goes to the model. The eval has
+  guten Morgen zusammen" into English. The gate's checks (fillers, lists,
+  `formatText`'s question words) are English, so every dictation goes to the
+  model, short ones too: "cómo estás" would otherwise be typed "Cómo
+  estás.". Dictionary names aren't matched by sound there either, since
+  `soundOf` is English; `heard => term` replacements still apply. The eval has
   six cases in German, Spanish, French and Hindi (`language` in
   `evals/cleanup/tests`).
 - **Lists.** Speech that enumerates things ("I'll get onions, I'll get

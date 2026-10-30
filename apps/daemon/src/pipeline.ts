@@ -14,6 +14,7 @@ import {
   formatText,
   type GateOptions,
   holdBack,
+  isEnglish,
   type LlmProvider,
   looksLikeList,
   promptTerms,
@@ -160,8 +161,14 @@ export async function cleanUp(
   // A spoken flag has one right answer, so it isn't left to the model.
   if (style === "terminal") asr = { ...asr, text: spokenFlags(asr.text) };
   const dictionary = deps.dictionary ?? [];
-  /** The dictionary: replacements first, then names by sound. */
-  const correct = (text: string) => correctNames(applyCorrections(text, dictionary), dictionary);
+  /**
+   * The dictionary: replacements first, then names by sound. The sounds are
+   * English ones, which would bend a Spanish "marca" into a "Marco".
+   */
+  const correct = (text: string) => {
+    const replaced = applyCorrections(text, dictionary);
+    return isEnglish(deps.language) ? correctNames(replaced, dictionary) : replaced;
+  };
   const finish = (text: string) =>
     correct(formatText(style === "terminal" ? text : bulletize(text), style));
 

@@ -134,9 +134,7 @@ function enumerates(sentence: string): boolean {
  * cleanup model to remove. `formatText` handles the capital and the end
  * punctuation, so those don't need the model either.
  */
-export function looksClean(text: string, language = "en"): boolean {
-  // There's no filler list for other languages, so nothing looks clean in them.
-  if (!isEnglish(language)) return false;
+export function looksClean(text: string): boolean {
   FILLER.lastIndex = 0;
   STUTTER.lastIndex = 0;
   return !FILLER.test(text) && !STUTTER.test(text);
@@ -154,15 +152,20 @@ export function shouldSkipLlm(
   { maxWords = 4, minConfidence = 0.7, minCleanConfidence = 0.8 }: GateOptions = {},
   language = "en",
 ): boolean {
+  // The checks below, and formatText's question mark, only know English: in
+  // another language "cómo estás" would be typed "Cómo estás.".
+  if (!isEnglish(language)) return false;
   // Only the model can resolve these, however short or confident the transcript.
   if (looksLikeList(text) || CORRECTION.test(text) || SPOKEN_SYMBOL.test(text)) return false;
   const words = text.split(/\s+/).filter(Boolean).length;
   if (words <= maxWords && confidence >= minConfidence) return true;
-  return confidence >= minCleanConfidence && looksClean(text, language);
+  return confidence >= minCleanConfidence && looksClean(text);
 }
 
-/** Words, lowercased; \p{M} keeps a Devanagari vowel sign inside its word. */
-const wordsOf = (text: string) => text.toLowerCase().match(/[\p{L}\p{M}\p{N}']+/gu) ?? [];
+const WORDS = new Intl.Segmenter("und", { granularity: "word" });
+/** Words, lowercased, in any script: Japanese and Chinese have no spaces between them. */
+const wordsOf = (text: string) =>
+  [...WORDS.segment(text.toLowerCase())].filter((s) => s.isWordLike).map((s) => s.segment);
 
 /** Past this length, a cleanup that loses a fifth of the words is dropping content. */
 const LONG_TEXT = 120;

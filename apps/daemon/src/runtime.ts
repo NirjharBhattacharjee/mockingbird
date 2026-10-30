@@ -119,23 +119,27 @@ export function freePort(): number {
 export const cleanupModel = (saved?: string, env = process.env) =>
   env.MOCKINGBIRD_LLM_MODEL ?? saved ?? DEFAULT_LLM_MODEL;
 
+/** The languages Whisper knows, by the codes it takes (whisper.cpp's `g_lang`). */
+const WHISPER_LANGUAGES = new Set(
+  `en zh de es ru ko fr ja pt tr pl ca nl ar sv it id hi fi vi he uk el ms cs ro da hu ta no
+  th ur hr bg lt la mi ml cy sk te fa lv bn sr az sl kn et mk br eu is hy ne mn bs kk sq sw
+  gl mr pa si km sn yo so af oc ka be tg sd gu am yi lo uz fo ht ps tk nn mt sa lb my bo tl
+  mg as tt haw ln ha ba jw su yue`.split(/\s+/),
+);
+
 /**
  * The language to dictate in: MOCKINGBIRD_LANGUAGE, a Whisper code like "de",
- * or "auto" to detect it on every dictation. English if unset. Whisper takes
- * a code it doesn't know without complaint and garbles the speech, so one
- * that isn't a language falls back to English with a warning.
+ * or "auto" to detect it on every dictation. English if unset. A region is
+ * dropped ("pt-BR" is "pt"). Whisper takes a code it doesn't know without
+ * complaint and garbles the speech, so one it doesn't know falls back to
+ * English with a warning.
  */
 export function dictationLanguage(env = process.env, log: (message: string) => void = () => {}) {
-  const language = env.MOCKINGBIRD_LANGUAGE?.trim().toLowerCase() || "en";
-  if (language === "auto") return language;
-  try {
-    if (new Intl.DisplayNames(["en"], { type: "language", fallback: "none" }).of(language))
-      return language;
-  } catch {
-    // Not even shaped like a code: "Deutsch!".
-  }
+  const set = env.MOCKINGBIRD_LANGUAGE?.trim().toLowerCase() || "en";
+  const language = set.split(/[-_]/)[0] as string;
+  if (language === "auto" || WHISPER_LANGUAGES.has(language)) return language;
   log(
-    `warning: MOCKINGBIRD_LANGUAGE=${language} isn't a language code, so English is used. ` +
+    `warning: MOCKINGBIRD_LANGUAGE=${set} isn't a language Whisper knows, so English is used. ` +
       'Set it to a code like "de" or "hi", or "auto".',
   );
   return "en";

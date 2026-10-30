@@ -8,7 +8,7 @@ const lines = (output) =>
     .split("\n")
     .map((l) => l.trim())
     .filter(Boolean);
-const words = (text) => text.toLowerCase().match(/[\p{L}\p{N}']+/gu) ?? [];
+const words = (text) => text.toLowerCase().match(/[\p{L}\p{M}\p{N}']+/gu) ?? [];
 
 /** A heading line ending in ":", then `vars.items` lines, each starting with `marker(i)`. */
 const listOf =
