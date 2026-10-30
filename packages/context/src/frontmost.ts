@@ -68,6 +68,17 @@ export function isBrowser(app: FrontmostApp | undefined): boolean {
   return app !== undefined && BROWSER_BUNDLE_IDS.has(app.bundleId);
 }
 
+/** Apps built on Qt. Add others here once they're tested. */
+const QT_BUNDLE_IDS = new Set(["net.ankiweb.anki"]);
+
+/**
+ * Qt apps drop a key event that carries more than one character, so text has
+ * to go in one character at a time there (#117).
+ */
+export function isQtApp(app: FrontmostApp | undefined): boolean {
+  return app !== undefined && QT_BUNDLE_IDS.has(app.bundleId);
+}
+
 /**
  * Editors with a terminal built in. Which pane has focus can't be seen from
  * outside, so the whole app is treated as one that may run what's typed.

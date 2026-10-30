@@ -1,6 +1,7 @@
 export {
   checkTypingAccess,
   chunkForTyping,
+  ONE_CHARACTER_AT_A_TIME,
   prepareForTyping,
   requestTypingAccess,
   sanitizeForTyping,

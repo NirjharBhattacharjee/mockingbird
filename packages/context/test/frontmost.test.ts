@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { frontmostApp, isBrowser, isTerminal, mayRunCommands, parseAppInfo } from "../src/index.ts";
+import {
+  frontmostApp,
+  isBrowser,
+  isQtApp,
+  isTerminal,
+  mayRunCommands,
+  parseAppInfo,
+} from "../src/index.ts";
 
 describe("parseAppInfo", () => {
   test("reads bundle id and name", () => {
@@ -35,6 +42,14 @@ describe("isBrowser", () => {
     expect(isBrowser({ bundleId: "com.apple.Safari", name: "Safari" })).toBe(true);
     expect(isBrowser({ bundleId: "com.microsoft.Word", name: "Microsoft Word" })).toBe(false);
     expect(isBrowser(undefined)).toBe(false);
+  });
+});
+
+describe("isQtApp", () => {
+  test("recognizes Qt apps, which take one character per key event", () => {
+    expect(isQtApp({ bundleId: "net.ankiweb.anki", name: "Anki" })).toBe(true);
+    expect(isQtApp({ bundleId: "com.apple.TextEdit", name: "TextEdit" })).toBe(false);
+    expect(isQtApp(undefined)).toBe(false);
   });
 });
 
