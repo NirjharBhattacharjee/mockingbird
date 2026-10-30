@@ -2,7 +2,13 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseVerboseJson, speedFlags, startWhisperServer, stripNonSpeech } from "../src/index.ts";
+import {
+  parseVerboseJson,
+  speedFlags,
+  startWhisperServer,
+  stripNonSpeech,
+  WhisperServerEngine,
+} from "../src/index.ts";
 
 describe("parseVerboseJson", () => {
   test("joins segments that split a word without inserting a space", () => {
@@ -77,6 +83,28 @@ describe("speedFlags", () => {
   test("passes nothing to a version that doesn't know the flag", () => {
     expect(speedFlags("usage: whisper-server [options]\n  -t N, --threads N")).toEqual([]);
     expect(speedFlags("")).toEqual([]);
+  });
+});
+
+describe("WhisperServerEngine language", () => {
+  test("asks for English unless told another language", async () => {
+    const asked: string[] = [];
+    const server = Bun.serve({
+      port: 0,
+      fetch: async (request) => {
+        asked.push(String((await request.formData()).get("language")));
+        return Response.json({ segments: [] });
+      },
+    });
+    const url = `http://127.0.0.1:${server.port}`;
+    const audio = { samples: new Int16Array(160), sampleRate: 16_000 };
+    try {
+      await new WhisperServerEngine(url, "m").transcribe(audio);
+      await new WhisperServerEngine(url, "m", "de").transcribe(audio);
+    } finally {
+      server.stop(true);
+    }
+    expect(asked).toEqual(["en", "de"]);
   });
 });
 

@@ -1,9 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { startWhisperServer } from "@mockingbird/asr";
 import {
   type DictionaryEntry,
+  isEnglish,
   isLocalUrl,
   OllamaProvider,
   ollamaRunning,
@@ -46,6 +47,9 @@ const FALLBACK_ASR_MODELS = [
   "ggml-small.en-q5_1.bin",
   "ggml-base.en.bin",
 ];
+
+/** A Whisper model built for English alone: `ggml-base.en.bin`, `ggml-small.en-q5_1.bin`. */
+export const englishOnly = (file: string) => /\.en[.-]/.test(basename(file));
 
 /** A Whisper model file in models/: `ggml-*.bin`, a name and not a path. */
 export const isWhisperFile = (name: string) =>
@@ -116,6 +120,28 @@ export const cleanupModel = (saved?: string, env = process.env) =>
   env.MOCKINGBIRD_LLM_MODEL ?? saved ?? DEFAULT_LLM_MODEL;
 
 /**
+ * The language to dictate in: MOCKINGBIRD_LANGUAGE, a Whisper code like "de",
+ * or "auto" to detect it on every dictation. English if unset. Whisper takes
+ * a code it doesn't know without complaint and garbles the speech, so one
+ * that isn't a language falls back to English with a warning.
+ */
+export function dictationLanguage(env = process.env, log: (message: string) => void = () => {}) {
+  const language = env.MOCKINGBIRD_LANGUAGE?.trim().toLowerCase() || "en";
+  if (language === "auto") return language;
+  try {
+    if (new Intl.DisplayNames(["en"], { type: "language", fallback: "none" }).of(language))
+      return language;
+  } catch {
+    // Not even shaped like a code: "Deutsch!".
+  }
+  log(
+    `warning: MOCKINGBIRD_LANGUAGE=${language} isn't a language code, so English is used. ` +
+      'Set it to a code like "de" or "hi", or "auto".',
+  );
+  return "en";
+}
+
+/**
  * The user's own cleanup rules, `cleanup.md` in the mockingbird folder, if
  * there is one. Read once at startup, so a change needs a restart.
  */
@@ -154,6 +180,13 @@ export async function startEngines(
   // smaller model can be used on a slower Mac without touching the code.
   const whisperModel = findAsrModel(models, env.MOCKINGBIRD_ASR_MODEL, log, savedAsrModel);
   const vadModel = requireFile(join(models, "silero_vad.onnx"), "Silero VAD model", SETUP_HINT);
+  const language = dictationLanguage(env, log);
+  if (!isEnglish(language) && englishOnly(whisperModel)) {
+    log(
+      `warning: ${basename(whisperModel)} only knows English, and MOCKINGBIRD_LANGUAGE is ${language}. ` +
+        "Pick another with `mockingbird models use speech`.",
+    );
+  }
   const llmUrl = env.MOCKINGBIRD_LLM_URL ?? "http://127.0.0.1:11434";
   const llm = new OllamaProvider(llmUrl, cleanupModel(savedModel, env), 60_000);
 
@@ -202,6 +235,7 @@ export async function startEngines(
     const whisper = await startWhisperServer({
       modelPath: whisperModel,
       port: Number(env.MOCKINGBIRD_ASR_PORT ?? 8771),
+      language,
       readyTimeoutMs: 60_000,
     });
     stopWhisper = whisper.stop;
@@ -222,6 +256,7 @@ export async function startEngines(
         // ones it already spells correctly (packages/llm/src/dictionary.ts).
         vocabularyHint: env.MOCKINGBIRD_ASR_VOCABULARY === "1",
         cleanupRules: readCleanupRules(mockingbirdHome(env), log),
+        language,
       },
       close,
     };

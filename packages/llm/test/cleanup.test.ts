@@ -123,6 +123,54 @@ describe("buildCleanupPrompt", () => {
     expect(prompt.system).toContain("Nirjhar (a name), Bun");
     expect(prompt.system).toContain("terminal");
   });
+
+  test("names a language other than English, and never tells English it", () => {
+    const text = "Ich brauche Brot";
+    expect(buildCleanupPrompt({ text }).system).not.toContain("dictates in");
+    expect(buildCleanupPrompt({ text, language: "de" }).system).toContain(
+      "The speaker dictates in German,",
+    );
+    expect(buildCleanupPrompt({ text, language: "auto" }).system).toContain(
+      "dictates in whichever language the transcript is in",
+    );
+  });
+});
+
+describe("outside English", () => {
+  // Clean German, long and confident: in English this would skip the model.
+  const german = {
+    text: "Ich habe morgen um zehn Uhr ein Treffen mit dem Team.",
+    confidence: 0.95,
+  };
+
+  test("a long utterance always goes to the model: there's no filler list to check it by", () => {
+    expect(looksClean(german.text, "de")).toBe(false);
+    expect(shouldSkipLlm(german, {}, "de")).toBe(false);
+    expect(shouldSkipLlm(german, {}, "auto")).toBe(false);
+    // A short one still skips it, as in English.
+    expect(shouldSkipLlm({ text: "Ja, bitte.", confidence: 0.95 }, {}, "de")).toBe(true);
+  });
+
+  test('English fillers stay in the length: "um" is Portuguese for "a"', () => {
+    const raw = "um carro, um livro, um gato e um cão";
+    const cleaned = "Um carro, um livro, um gato e também um cão.";
+    expect(acceptCleanup(raw, cleaned, "pt")).toBe(true);
+    // Measured without the "um"s, the transcript looks a third shorter than it is.
+    expect(acceptCleanup(raw, cleaned)).toBe(false);
+  });
+
+  test("a cleanup that translates is rejected, so the transcript is typed", () => {
+    const raw = "Übersetze das ins Englische: guten Morgen zusammen.";
+    expect(acceptCleanup(raw, "Translate that into English: good morning everyone.", "de")).toBe(
+      false,
+    );
+    expect(acceptCleanup(raw, "Übersetze das ins Englische: Guten Morgen zusammen.", "de")).toBe(
+      true,
+    );
+    // A list's heading is new words; its items aren't.
+    const list = "ich brauche Brot, Milch, Eier und Käse";
+    expect(acceptCleanup(list, "Einkaufsliste:\n- Brot\n- Milch\n- Eier\n- Käse", "de")).toBe(true);
+  });
 });
 
 describe("acceptCleanup on long text", () => {

@@ -13,6 +13,7 @@ import {
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import {
+  isEnglish,
   isLocalUrl,
   listOllamaModels,
   ollamaRunning,
@@ -25,6 +26,8 @@ import {
   cleanupModel,
   DEFAULT_ASR_MODEL,
   DEFAULT_LLM_MODEL,
+  dictationLanguage,
+  englishOnly,
   findAsrModel,
   isWhisperFile,
   mockingbirdHome,
@@ -370,6 +373,10 @@ export async function listModels(deps: ModelsDeps): Promise<ModelListing> {
   } catch {
     // None installed: nothing is in use.
   }
+  // A ".en" model only knows English, so it's no choice in another language,
+  // unless it's the one in use: that is what the startup warning is about.
+  if (!isEnglish(dictationLanguage(env)))
+    files = files.filter((file) => !englishOnly(file) || file === speechInUse);
   // Largest first, so the most accurate leads.
   // An entry that can't be read (a broken link, a file deleted meanwhile) is
   // left out rather than failing the whole list.

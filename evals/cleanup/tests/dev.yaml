@@ -353,3 +353,45 @@
     - { type: javascript, value: file://asserts.cjs:keepsWords }
     - { type: javascript, value: file://asserts.cjs:isProse }
   metadata: { set: dev }
+
+- description: German fillers go, and it stays German
+  vars:
+    language: de
+    transcript: "Also, äh, ich habe morgen, ähm, ein Treffen mit dem Vertriebsteam und danach kaufe ich Brot."
+    keep: ich habe morgen ein treffen mit dem vertriebsteam und danach kaufe ich brot
+  assert:
+    - { type: javascript, value: file://asserts.cjs:keepsWords }
+    - { type: not-icontains, value: "äh" }
+    - { type: not-icontains, value: meeting }
+  metadata: { set: dev }
+
+- description: a Spanish question is kept as a question, not answered
+  vars:
+    language: es
+    transcript: "oye puedes enviarme el informe de ventas antes del viernes"
+  assert:
+    - { type: regex, value: "\\?$" }
+    - { type: javascript, value: file://asserts.cjs:notAnswered }
+    - { type: not-icontains, value: report }
+  metadata: { set: dev }
+
+- description: French is cleaned in French, not translated
+  vars:
+    language: fr
+    transcript: "euh je pense qu'on devrait lancer la nouvelle version la semaine prochaine parce que euh les tests passent"
+    keep: je pense qu'on devrait lancer la nouvelle version la semaine prochaine parce que les tests passent
+  assert:
+    - { type: javascript, value: file://asserts.cjs:keepsWords }
+    - { type: not-icontains, value: euh }
+    - { type: not-icontains, value: " the " }
+  metadata: { set: dev }
+
+- description: Hindi stays in Devanagari
+  vars:
+    language: hi
+    transcript: "मुझे कल सुबह दस बजे डॉक्टर के पास जाना है और फिर दफ्तर जाना है"
+    keep: मुझे कल सुबह दस बजे डॉक्टर के पास जाना है और फिर दफ्तर जाना है
+  assert:
+    - { type: javascript, value: file://asserts.cjs:keepsWords }
+    - { type: not-regex, value: "[A-Za-z]" }
+  metadata: { set: dev }

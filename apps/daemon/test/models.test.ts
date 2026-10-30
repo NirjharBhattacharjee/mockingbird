@@ -440,6 +440,16 @@ describe("modelsCommand", () => {
     expect(listing.transcription).toHaveLength(2);
   });
 
+  test("in another language the .en models are left out, unless one is in use", async () => {
+    const files = async (saved?: string) => {
+      const f = fake(undefined, { MOCKINGBIRD_LANGUAGE: "de" }, saved);
+      expect(await modelsCommand(["--json"], f.deps)).toBe(0);
+      return JSON.parse(f.lines[0] as string).transcription.map((t: { file: string }) => t.file);
+    };
+    expect(await files()).toEqual(["ggml-large-v3-q5_0.bin"]);
+    expect(await files("ggml-base.en.bin")).toEqual(["ggml-large-v3-q5_0.bin", "ggml-base.en.bin"]);
+  });
+
   test("a Whisper entry that can't be read is left out, not the whole list", async () => {
     const f = fake();
     symlinkSync(join(f.deps.modelsDir, "nowhere"), join(f.deps.modelsDir, "ggml-broken.bin"));

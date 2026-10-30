@@ -55,6 +55,8 @@ export class WhisperServerEngine implements AsrEngine {
   constructor(
     private readonly baseUrl: string,
     readonly model: string,
+    /** A Whisper language code, or "auto" to detect it on every dictation (~1.4s slower). */
+    private readonly language = "en",
   ) {}
 
   async transcribe(audio: PcmAudio, { vocabulary }: TranscribeOptions = {}): Promise<AsrResult> {
@@ -63,8 +65,9 @@ export class WhisperServerEngine implements AsrEngine {
     form.append("response_format", "verbose_json");
     form.append("temperature", "0");
     // large-v3-turbo is multilingual: pinning the language stops it drifting
-    // to another one on accented English.
-    form.append("language", "en");
+    // to another one on accented English. Pinned to the wrong one, it
+    // translates: German pinned to English comes out as broken English.
+    form.append("language", this.language);
     // Whisper spells a name it doesn't know phonetically ("Nerj Herbata
     // Chargy"); given the word up front it writes it properly.
     if (vocabulary) form.append("prompt", vocabulary);
@@ -96,8 +99,9 @@ export type WhisperServerProcess = {
  */
 export function speedFlags(help: string): string[] {
   // verbose_json otherwise runs the encoder a second time just to report how
-  // sure it is of the language, which is pinned anyway: ~1.2s per dictation
-  // with large-v3 on an M3, for a field we never read.
+  // sure it is of the language: ~1.2s per dictation with large-v3 on an M3,
+  // for a field we never read. With language "auto" Whisper still detects
+  // the language it transcribes in; only the report is skipped.
   return help.includes("--no-language-probabilities") ? ["-nlp"] : [];
 }
 
@@ -139,12 +143,15 @@ export async function startWhisperServer({
   binary = "whisper-server",
   modelPath,
   port,
+  language,
   readyTimeoutMs = 30_000,
   helpTimeoutMs = 5_000,
 }: {
   binary?: string;
   modelPath: string;
   port: number;
+  /** See WhisperServerEngine; English unless given. */
+  language?: string;
   readyTimeoutMs?: number;
   /** How long to wait for `--help`, read to pick the flags. */
   helpTimeoutMs?: number;
@@ -166,6 +173,7 @@ export async function startWhisperServer({
   const engine = new WhisperServerEngine(
     `http://127.0.0.1:${port}`,
     basename(modelPath, ".bin").replace(/^ggml-/, ""),
+    language,
   );
   const stop = async () => {
     proc.kill();

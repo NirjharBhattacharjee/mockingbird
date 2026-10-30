@@ -12,7 +12,7 @@ import {
 import { type Cue, cues, playCue } from "@mockingbird/cue";
 import { type HotkeyListener, startHotkeyListener } from "@mockingbird/hotkey";
 import { ONE_CHARACTER_AT_A_TIME, prepareForTyping, typeText } from "@mockingbird/inject";
-import type { AppStyle } from "@mockingbird/llm";
+import { type AppStyle, isEnglish } from "@mockingbird/llm";
 import { Calibration } from "./calibrate.ts";
 import {
   ASR_MODEL_SETTING,
@@ -251,8 +251,12 @@ export async function startSession(options: SessionOptions): Promise<Session> {
 
   // Learns dictionary words from the user's own fixes to a dictation. Off with
   // MOCKINGBIRD_LEARN=0; apps in MOCKINGBIRD_LEARN_EXCLUDE (bundle ids, comma
-  // separated) are never read.
-  const learning = process.env.MOCKINGBIRD_LEARN !== "0" ? store : undefined;
+  // separated) are never read. Off outside English too: it tells a name from
+  // an ordinary word with an English word list, so every word would look
+  // like a name.
+  // ponytail: off for "auto" even when the speech is English; a word list per language would fix both.
+  const learning =
+    process.env.MOCKINGBIRD_LEARN !== "0" && isEnglish(engines.deps.language) ? store : undefined;
   const excluded = new Set(
     (process.env.MOCKINGBIRD_LEARN_EXCLUDE ?? "").split(",").map((b) => b.trim()),
   );

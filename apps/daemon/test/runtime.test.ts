@@ -2,7 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_ASR_MODEL, findAsrModel, readCleanupRules } from "../src/runtime.ts";
+import {
+  DEFAULT_ASR_MODEL,
+  dictationLanguage,
+  englishOnly,
+  findAsrModel,
+  readCleanupRules,
+} from "../src/runtime.ts";
 
 const modelsWith = (...names: string[]) => {
   const dir = mkdtempSync(join(tmpdir(), "mockingbird-models-"));
@@ -77,4 +83,26 @@ describe("readCleanupRules", () => {
     expect(logs[0]).toContain('"## List"');
     expect(logs[1]).toContain("cleanup rules: yours from");
   });
+});
+
+describe("dictationLanguage", () => {
+  test("English unless MOCKINGBIRD_LANGUAGE names a language, or auto", () => {
+    expect(dictationLanguage({})).toBe("en");
+    expect(dictationLanguage({ MOCKINGBIRD_LANGUAGE: " DE " })).toBe("de");
+    expect(dictationLanguage({ MOCKINGBIRD_LANGUAGE: "auto" })).toBe("auto");
+  });
+
+  test("a word that isn't a code falls back to English, with a warning", () => {
+    const logged: string[] = [];
+    for (const wrong of ["german", "xx", "Deutsch!"])
+      expect(dictationLanguage({ MOCKINGBIRD_LANGUAGE: wrong }, (m) => logged.push(m))).toBe("en");
+    expect(logged).toHaveLength(3);
+    expect(logged[0]).toContain("MOCKINGBIRD_LANGUAGE=german");
+  });
+});
+
+test("englishOnly knows the .en Whisper builds", () => {
+  expect(englishOnly("/m/ggml-base.en.bin")).toBe(true);
+  expect(englishOnly("ggml-small.en-q5_1.bin")).toBe(true);
+  expect(englishOnly("ggml-large-v3-turbo-q5_0.bin")).toBe(false);
 });

@@ -34,6 +34,8 @@ export type PipelineDeps = {
   /** The user's ~/.mockingbird/cleanup.md, whose sections replace the shipped prompt's. */
   cleanupRules?: string;
   gate?: GateOptions;
+  /** What Whisper was told to hear, MOCKINGBIRD_LANGUAGE: a code, or "auto". English if unset. */
+  language?: string;
 };
 
 export type LlmOutcome = "skipped" | "cleaned" | "rejected" | "failed";
@@ -121,7 +123,10 @@ export async function runPipeline(
   return { ...base, rawText: asr.text, vadMs, asrMs, ...(await cleanUp(asr, deps, style, onText)) };
 }
 
-export type CleanupDeps = Pick<PipelineDeps, "llm" | "dictionary" | "gate" | "cleanupRules">;
+export type CleanupDeps = Pick<
+  PipelineDeps,
+  "llm" | "dictionary" | "gate" | "cleanupRules" | "language"
+>;
 
 export type CleanupResult = Pick<
   PipelineResult,
@@ -168,7 +173,7 @@ export async function cleanUp(
     typed = text;
   };
 
-  if (shouldSkipLlm(asr, deps.gate)) {
+  if (shouldSkipLlm(asr, deps.gate, deps.language)) {
     const finalText = finish(asr.text);
     await send(finalText);
     return { finalText, llmMs: null, llmOutcome: "skipped", llmModel: null };
@@ -178,6 +183,7 @@ export async function cleanUp(
     text: asr.text,
     dictionary: promptTerms(asr.text, dictionary),
     style,
+    language: deps.language,
     custom: deps.cleanupRules,
   });
   const t = performance.now();
@@ -209,7 +215,7 @@ export async function cleanUp(
     failure = String(error);
   }
   const llmMs = elapsed(t);
-  const accepted = failure === undefined && acceptCleanup(asr.text, cleaned);
+  const accepted = failure === undefined && acceptCleanup(asr.text, cleaned, deps.language);
   let finalText = finish(accepted ? cleaned : asr.text);
   if (!finalText.startsWith(typed)) {
     // Rejected, or the model died, after part of its cleanup was typed.

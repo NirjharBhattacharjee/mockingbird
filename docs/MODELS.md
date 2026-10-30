@@ -119,8 +119,13 @@ every captured segment goes through both.
   `mockingbird models pull` (`apps/daemon/src/models.ts`) and the default in
   `apps/daemon/src/runtime.ts`. It is
   multilingual, which is what makes it hold up on accented English where the
-  English-only models drop words; requests pin `language=en` so it doesn't
-  drift to another language.
+  English-only models drop words. Requests pin the language,
+  `MOCKINGBIRD_LANGUAGE` (default `en`), so it doesn't drift to another one;
+  pinned to the wrong one, it translates instead (German speech pinned to
+  `en` came back as broken English). `auto` detects the language on every
+  dictation, ~1.4s slower with `large-v3`; `-nlp` doesn't stop that, it only
+  skips the report. The `.en` models only know English, so `mockingbird
+  models` leaves them out in another language.
 - **Measured on an M3 (warm server, 4.5s clip, median of 3 —
   `bun run bench:models`):** `base.en` 177ms, `small.en` Q5_1 533ms,
   `medium.en` Q5_0 1508ms, `large-v3-turbo` Q8_0 2142ms, `large-v3-turbo`
@@ -222,6 +227,14 @@ dictionary size. Edits take effect on the next dictation. The old
   transcript when the cleaned text is far shorter than what went in (80% for
   text over 120 characters, 50% below that) or far longer, or when it looks
   like an answer rather than a rewrite.
+- **Other languages.** With `MOCKINGBIRD_LANGUAGE` set to something other
+  than `en`, the prompt gains its Language section (stay in the language,
+  never translate), and a cleanup fewer than half of whose words were in the
+  transcript is rejected: qwen3 still turned "Übersetze das ins Englische:
+  guten Morgen zusammen" into English. The filler list behind `looksClean` is
+  English, so every dictation past four words goes to the model. The eval has
+  six cases in German, Spanish, French and Hindi (`language` in
+  `evals/cleanup/tests`).
 - **Lists.** Speech that enumerates things ("I'll get onions, I'll get
   bread") is rewritten as a short heading plus one `- ` item per line, with
   the repeated lead-in dropped. `looksLikeList` keeps such speech from

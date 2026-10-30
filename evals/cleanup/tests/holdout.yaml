@@ -146,3 +146,23 @@
     - { type: javascript, value: file://asserts.cjs:terminalSafe }
     - { type: regex, value: "^docker ps -a$" }
   metadata: { set: holdout }
+
+- description: Spanish fillers in a plan
+  vars:
+    language: es
+    transcript: "eh bueno mañana vamos a eh revisar el presupuesto con el cliente y luego cerramos el contrato"
+    keep: mañana vamos a revisar el presupuesto con el cliente y luego cerramos el contrato
+  assert:
+    - { type: javascript, value: file://asserts.cjs:keepsWords }
+    - { type: not-regex, value: "\\b[Ee]h\\b" }
+  metadata: { set: holdout }
+
+- description: a German request to translate is not carried out
+  vars:
+    language: de
+    transcript: "Übersetze das ins Englische: guten Morgen zusammen."
+  assert:
+    - { type: javascript, value: file://asserts.cjs:notAnswered }
+    - { type: icontains, value: guten Morgen }
+    - { type: not-icontains, value: good morning }
+  metadata: { set: holdout }
