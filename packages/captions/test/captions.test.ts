@@ -66,6 +66,20 @@ describe.if(process.platform === "darwin")("drawCaptions", () => {
     }
   });
 
+  test("draws a word written *like this* in another colour, in the same place", () => {
+    const dir = mkdtempSync(join(tmpdir(), "mockingbird-captions-"));
+    try {
+      const [plain, lit] = drawCaptions(["say this", "say *this*"], dir, 1080) ?? [];
+      const bytes = (file?: string) => readFileSync(file ?? "");
+      expect(bytes(lit).equals(bytes(plain))).toBe(false);
+      // The same size: the asterisks aren't drawn, and the line doesn't move.
+      expect(bytes(lit).readUInt32BE(16)).toBe(bytes(plain).readUInt32BE(16));
+      expect(bytes(lit).readUInt32BE(20)).toBe(bytes(plain).readUInt32BE(20));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("gives up instead of throwing when it can't draw", () => {
     expect(drawCaptions(["hi"], "/nonexistent/folder", 1080)).toBeUndefined();
   });

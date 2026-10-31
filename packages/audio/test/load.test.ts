@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AudioDecodeError, loadAudio } from "../src/index.ts";
+import { AudioDecodeError, encodeWav, loadAudio } from "../src/index.ts";
 
 const hello = join(import.meta.dir, "../../../bench/fixtures/hello.wav");
 
@@ -11,6 +11,20 @@ describe("loadAudio", () => {
     const audio = await loadAudio(hello, { ffmpeg: "/nonexistent/ffmpeg" });
     expect(audio.sampleRate).toBe(16000);
     expect(audio.samples.length).toBeGreaterThan(16000 * 3);
+  });
+
+  test("knows a WAV whose size bytes read as UTF-8", async () => {
+    // RIFF size 0x9FC2: bytes C2 9F decode as one character, which used to shift "WAVE".
+    const samples = new Int16Array((0x9fc2 - 36) / 2);
+    const dir = await mkdtemp(join(tmpdir(), "mockingbird-wav-"));
+    try {
+      const file = join(dir, "size.wav");
+      await Bun.write(file, encodeWav({ sampleRate: 16000, samples }));
+      const audio = await loadAudio(file, { ffmpeg: "/nonexistent/ffmpeg" });
+      expect(audio.samples.length).toBe(samples.length);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   test("reports a missing file as a filesystem error", async () => {
