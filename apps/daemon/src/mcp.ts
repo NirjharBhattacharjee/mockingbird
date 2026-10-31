@@ -346,6 +346,9 @@ const LOUDNESS = "loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000";
  */
 const SQUARE = "scale='trunc(iw*sar/2)*2':ih,setsar=1";
 
+/** What SQUARE does to a width: down to an even number. */
+const even = (n: number) => Math.trunc(n / 2) * 2;
+
 /** `area` of the picture, scaled and cropped to fill `w`x`h`. Even sizes, which yuv420p needs. */
 const fill = ({ x, y, w, h }: Area, size: string) =>
   `crop=w='floor(${w}*iw/2)*2':h='floor(${h}*ih/2)*2':x='${x}*iw':y='${y}*ih',` +
@@ -514,19 +517,19 @@ async function probe(
   };
   const has = (type: string) => streams.some((s: Stream) => s.codec_type === type);
   const picture: Stream | undefined = streams.find((s: Stream) => s.codec_type === "video");
-  const { height = 0 } = picture ?? {};
-  // As shown, not as stored: a recording's pixels can be wider than square. render squares them (SQUARE).
+  const { width: w = 0, height: h = 0 } = picture ?? {};
   const [num, den] = (picture?.sample_aspect_ratio ?? "1:1").split(":").map(Number);
   const sar = num && den ? num / den : 1;
-  const width = Math.trunc(((picture?.width ?? 0) * sar) / 2) * 2;
-  // ffmpeg turns the picture upright as it decodes, so filters see it turned.
+  // ffmpeg turns the picture upright as it decodes, so filters see it turned,
+  // with its pixel ratio turned over too. The size is SQUARE's, so every clip matches it.
   const turned = Math.abs(picture?.side_data_list?.find((d) => d.rotation)?.rotation ?? 0) === 90;
+  const [width, height] = turned ? [even(h / sar), w] : [even(w * sar), h];
   return {
     video: has("video"),
     audio: has("audio"),
     seconds: Number(format?.duration ?? 0),
     side: Math.min(width, height),
-    size: turned ? `${height}x${width}` : `${width}x${height}`,
+    size: `${width}x${height}`,
   };
 }
 
