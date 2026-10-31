@@ -36,11 +36,15 @@ export async function decodeWithFfmpeg(
 /** Reads 16 kHz mono PCM16 WAVs directly; converts anything else with ffmpeg. */
 export async function loadAudio(path: string, options: DecodeOptions = {}): Promise<PcmAudio> {
   const sampleRate = options.sampleRate ?? 16000;
-  try {
-    const audio = await readWavFile(path);
-    if (audio.sampleRate === sampleRate) return audio;
-  } catch (error) {
-    if (!(error instanceof WavFormatError)) throw error;
+  // Only a WAV is read whole: a phone video can be gigabytes.
+  const head = await Bun.file(path).slice(0, 12).text();
+  if (head.startsWith("RIFF") && head.slice(8) === "WAVE") {
+    try {
+      const audio = await readWavFile(path);
+      if (audio.sampleRate === sampleRate) return audio;
+    } catch (error) {
+      if (!(error instanceof WavFormatError)) throw error;
+    }
   }
   return decodeWithFfmpeg(path, { ...options, sampleRate });
 }

@@ -53,6 +53,8 @@ const TEXT_SIZE = 0.075;
 const OUTLINE = 0.2;
 /** How much of the short side a line may take before it wraps. */
 const LINE_WIDTH = 0.9;
+/** The colour of a word written `*like this*`: the spoken word in word-by-word captions. */
+const HIGHLIGHT = [1, 0.84, 0] as const;
 
 /** CoreFoundation objects as `u64`, never `ptr`: see packages/context/src/caret.ts. */
 const REF = FFIType.u64;
@@ -76,6 +78,7 @@ function loadSymbols() {
     CTFontGetDescent: { args: [REF], returns: f64 },
     CTLineCreateWithAttributedString: { args: [REF], returns: REF },
     CTLineGetTypographicBounds: { args: [REF, P, P, P], returns: f64 },
+    CTLineGetOffsetForStringIndex: { args: [REF, i64, P], returns: f64 },
     CTLineDraw: { args: [REF, REF], returns: none },
   });
   const cg = dlopen(`${FRAMEWORKS}/CoreGraphics.framework/CoreGraphics`, {
@@ -102,11 +105,15 @@ function loadSymbols() {
 
 const cString = (text: string) => ptr(Buffer.from(`${text}\0`));
 
+/** A word, or the part of one that fits on a line, and whether it's highlighted. */
+type Piece = { text: string; lit: boolean };
+
 /**
  * Draws each of `texts` into `dir` as a transparent PNG: white bold text
  * with a black outline, centred, wrapped to fit a video whose short side is
- * `side` pixels, as wide as that side. Returns the files in order, or
- * undefined if they can't be drawn: Core Text is macOS only.
+ * `side` pixels, as wide as that side. A word written `*like this*` is drawn
+ * in HIGHLIGHT. Returns the files in order, or undefined if they can't be
+ * drawn: Core Text is macOS only.
  */
 export function drawCaptions(texts: string[], dir: string, side: number): string[] | undefined {
   let symbols: ReturnType<typeof loadSymbols>;
@@ -168,16 +175,14 @@ export function drawCaptions(texts: string[], dir: string, side: number): string
         releaseTo(mark);
       }
     };
+    const joined = (pieces: Piece[], gap: string) => pieces.map((p) => p.text).join(gap);
     /** `pieces` joined with `gap`, as many to a line as fit. */
-    const pack = (pieces: string[], gap: string) => {
-      const lines: string[] = [];
+    const pack = (pieces: Piece[], gap: string) => {
+      const lines: Piece[][] = [];
       for (const piece of pieces) {
         const last = lines.at(-1);
-        if (last !== undefined && fits(`${last}${gap}${piece}`)) {
-          lines[lines.length - 1] = `${last}${gap}${piece}`;
-        } else {
-          lines.push(piece);
-        }
+        if (last && fits(`${joined(last, gap)}${gap}${piece.text}`)) last.push(piece);
+        else lines.push([piece]);
       }
       return lines;
     };
@@ -192,13 +197,17 @@ export function drawCaptions(texts: string[], dir: string, side: number): string
           paragraph
             .split(/\s+/)
             .filter(Boolean)
-            .flatMap((word) =>
-              fits(word)
-                ? [word]
+            .map((word) => {
+              const lit = /^\*[^*]+\*$/.test(word);
+              return { text: lit ? word.slice(1, -1) : word, lit };
+            })
+            .flatMap(({ text, lit }) =>
+              fits(text)
+                ? [{ text, lit }]
                 : pack(
-                    [...characters.segment(word)].map((c) => c.segment),
+                    [...characters.segment(text)].map((c) => ({ text: c.segment, lit })),
                     "",
-                  ),
+                  ).map((part) => ({ text: joined(part, ""), lit })),
             ),
           " ",
         ),
@@ -207,7 +216,8 @@ export function drawCaptions(texts: string[], dir: string, side: number): string
     const files = texts.map((text, n) => {
       // This cue's bitmap and lines go as soon as its PNG is saved.
       const mark = owned.length;
-      const lines = wrap(text).map(line);
+      const wrapped = wrap(text);
+      const lines = wrapped.map((pieces) => line(joined(pieces, " ")));
       const height = Math.ceil(lines.length * lineHeight + 2 * outline);
       const context = own(
         cg.symbols.CGBitmapContextCreate(
@@ -234,6 +244,21 @@ export function drawCaptions(texts: string[], dir: string, side: number): string
           ct.symbols.CTLineDraw(ref, context);
         });
       }
+      // Highlighted words again, over their white fill, where the line put them.
+      cg.symbols.CGContextSetRGBFillColor(context, ...HIGHLIGHT, 1);
+      lines.forEach(({ ref, width }, i) => {
+        const baseline = height - outline - (i + 1) * lineHeight + descent;
+        let at = 0;
+        for (const piece of wrapped[i] ?? []) {
+          if (piece.lit) {
+            const offset = ct.symbols.CTLineGetOffsetForStringIndex(ref, at, null);
+            cg.symbols.CGContextSetTextPosition(context, (side - width) / 2 + offset, baseline);
+            ct.symbols.CTLineDraw(line(piece.text).ref, context);
+          }
+          // String indexes count UTF-16 units, as JavaScript's lengths do.
+          at += piece.text.length + 1;
+        }
+      });
       const file = join(dir, `caption-${n}.png`);
       const path = Buffer.from(file);
       const url = own(
