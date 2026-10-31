@@ -193,10 +193,12 @@ function names(log: (m: string) => void): ReturnType<typeof readDictionary> {
   }
 }
 
-/** Engines with a whisper-server of their own, so the agent's stays free for dictation. */
+/**
+ * Engines with a whisper-server of their own, so the agent's stays free for
+ * dictation. A port per call, since two requests can run at once.
+ */
 function ownEngines(log: (m: string) => void, dictionary: ReturnType<typeof readDictionary>) {
-  process.env.MOCKINGBIRD_ASR_PORT ??= String(freePort());
-  return startEngines(log, dictionary);
+  return startEngines(log, dictionary, undefined, undefined, undefined, freePort());
 }
 
 /**
@@ -347,7 +349,8 @@ const fill = ({ x, y, w, h }: Area, size: string) =>
  * `vertical`, punched in by its zoom, and scaled back to `size`.
  */
 function frame({ focus = { x: 0.5, y: 0.5 }, zoom = 1 }: Clip, vertical: boolean, size: string) {
-  if (!vertical && zoom === 1) return "";
+  // Every clip comes out the same size and pixel shape, zoomed or not, or concat refuses them.
+  if (!vertical && zoom === 1) return `,scale=${size.replace("x", ":")},setsar=1`;
   // The widest 9:16 window, or the whole picture, made smaller by the zoom.
   const [w, h] = vertical ? ["min(iw,ih*9/16)", "min(ih,iw*16/9)"] : ["iw", "ih"];
   const crop =
@@ -359,13 +362,14 @@ function frame({ focus = { x: 0.5, y: 0.5 }, zoom = 1 }: Clip, vertical: boolean
 /**
  * The ffmpeg filter graph that keeps `clips` in order and joins them, each
  * framed by its focus and zoom, cropped to 9:16 if `vertical`, or with
- * `split`'s two areas stacked into 1080x1920. `burn` draws the captions in
- * CAPTIONS onto it. Then, over the picture: `inserts` (images or videos, the
- * inputs after the overlays), and `overlays` (text drawn as images, inputs
- * 1, 2, …), each for its stretch of the finished video in seconds, its middle
- * at `y` of the height. `sounds` (the inputs after the inserts) are mixed
- * under the speech, and the sound brought to LOUDNESS. `size` is the source
- * picture's, `WxH`. Ends in [v], and [a] if there's sound.
+ * `split`'s two areas stacked into 1080x1920. Then, over the picture: `inserts`
+ * (images or videos, the inputs after the overlays), and `overlays` (text
+ * drawn as images, inputs 1, 2, …), each for its stretch of the finished video
+ * in seconds, its middle at `y` of the height. `burn` draws the captions in
+ * CAPTIONS over all of it, at `captionsY`. `sounds` (the inputs after the
+ * inserts) are mixed under the speech, the sound cut to the picture's length
+ * and brought to LOUDNESS. `size` is the source picture's, `WxH`. Ends in
+ * [v], and [a] if there's sound.
  */
 export function renderGraph(
   clips: Clip[],
@@ -375,6 +379,7 @@ export function renderGraph(
     size = "1920x1080",
     split,
     burn = false,
+    captionsY = CAPTIONS_Y,
     overlays = [],
     inserts = [],
     sounds = [],
@@ -384,6 +389,7 @@ export function renderGraph(
     size?: string;
     split?: { top: Area; bottom: Area };
     burn?: boolean;
+    captionsY?: number;
     overlays?: (Omit<Cue, "text"> & { y?: number })[];
     inserts?: Omit<Cue, "text">[];
     sounds?: Sound[];
@@ -405,15 +411,13 @@ export function renderGraph(
     `[lower]${fill(split.bottom, "1080x960")}[bottom]`,
     "[top][bottom]vstack,setsar=1[stacked]",
   ];
-  // ffmpeg runs in the folder that holds it, so no path needs escaping in the graph.
-  const look = `[${stacked ? "stacked" : "joined"}]${burn ? `subtitles=filename=${CAPTIONS}` : "null"}`;
-
+  const base = stacked ? "[stacked]" : "[joined]";
   // Inserts go under the text, so captions stay readable over b-roll.
   const layers = [
     ...inserts.map((cue, i) => ({ ...cue, y: 0, input: overlays.length + 1 + i, insert: true })),
     ...overlays.map((cue, i) => ({ ...cue, input: i + 1, insert: false })),
   ];
-  const label = (i: number) => (i === layers.length ? "[v]" : `[c${i}]`);
+  const label = (i: number) => (i < layers.length ? `[c${i}]` : burn ? "[laid]" : "[v]");
   const laid = layers.flatMap(({ start, end, y = CAPTIONS_Y, input, insert }, i) => {
     const when = `enable='gte(t,${start})*lt(t,${end})'`;
     if (!insert) {
@@ -423,6 +427,13 @@ export function renderGraph(
     const shaped = `[${input}:v]trim=duration=${end - start},setpts=PTS-STARTPTS+${start}/TB,${fill({ x: 0, y: 0, w: 1, h: 1 }, out)},setsar=1[i${i}]`;
     return [shaped, `${label(i)}[i${i}]overlay=eof_action=pass:${when}${label(i + 1)}`];
   });
+  // libass's captions go on last, over the inserts like the images. An .srt is
+  // laid out 288 lines high: its bottom margin puts the line's middle near captionsY.
+  // ffmpeg runs in the folder that holds it, so no path needs escaping in the graph.
+  const margin = Math.max(0, Math.round((1 - captionsY) * 288 - 10));
+  const burnt = burn
+    ? [`[laid]subtitles=filename=${CAPTIONS}:force_style='Alignment=2,MarginV=${margin}'[v]`]
+    : [];
 
   const length = clips.reduce((sum, { from, to }) => sum + to - from, 0);
   const first = overlays.length + inserts.length + 1;
@@ -443,20 +454,22 @@ export function renderGraph(
       : [`${placed}[m${i}]`];
   });
   const tracks = [audio && speech, ...sounds.map((_, i) => `[m${i}]`)].filter(Boolean);
+  // No sound runs past the picture, even a long one under a silent video.
+  const level = `atrim=duration=${length},${LOUDNESS}[a]`;
   const sound = tracks.length
     ? [
         tracks.length === 1
-          ? `${tracks[0]}${LOUDNESS}[a]`
-          : // The speech sets the length; without it, the longest sound does.
-            `${tracks.join("")}amix=inputs=${tracks.length}:duration=${audio ? "first" : "longest"}:normalize=0,${LOUDNESS}[a]`,
+          ? `${tracks[0]}${level}`
+          : `${tracks.join("")}amix=inputs=${tracks.length}:duration=longest:normalize=0,${level}`,
       ]
     : [];
   return [
     ...parts,
     joined,
     ...(stacked || []),
-    `${look}${label(0)}`,
+    `${base}null${label(0)}`,
     ...laid,
+    ...burnt,
     ...keys,
     ...mixed,
     ...sound,
@@ -584,11 +597,13 @@ export function wordCaptions(
   { perCue = 3, lit = true, upper = false } = {},
 ): string {
   type Said = { text: string; start: number; end: number; ends: boolean };
-  const pages: Said[][] = [];
+  // Each page with where its clip ends in the finished video: no caption outlasts its shot.
+  const pages: { words: Said[]; cut: number }[] = [];
   let offset = 0;
   clips.forEach(({ from, to }, i) => {
+    const cut = offset + to - from;
     let page: Said[] = [];
-    pages.push(page);
+    pages.push({ words: page, cut });
     for (const w of words[i] ?? []) {
       const [start, end] = [w.startMs / 1000, w.endMs / 1000];
       // A word belongs to the clip its middle is in: Whisper's word times can be a little early or late.
@@ -607,19 +622,19 @@ export function wordCaptions(
         (page[0] && said.start - page[0].start >= 1.2);
       if (full) {
         page = [];
-        pages.push(page);
+        pages.push({ words: page, cut });
       }
       if (said.text) page.push(said);
     }
     offset += to - from;
   });
   const cues = pages
-    .filter((page) => page.length)
-    .flatMap((page, p, all) => {
-      const next = all[p + 1]?.[0]?.start ?? Number.POSITIVE_INFINITY;
+    .filter(({ words }) => words.length)
+    .flatMap(({ words: page, cut }, p, all) => {
+      const next = all[p + 1]?.words[0]?.start ?? Number.POSITIVE_INFINITY;
       const last = page.at(-1) as Said;
       // Stays up into a short pause rather than flickering off.
-      const until = next - last.end <= 0.5 ? next : last.end + 0.2;
+      const until = Math.min(cut, next - last.end <= 0.5 ? next : last.end + 0.2);
       if (!lit)
         return [
           { start: page[0]?.start ?? 0, end: until, text: page.map((w) => w.text).join(" ") },
@@ -710,6 +725,7 @@ async function render(
       size: source.size,
       split,
       burn,
+      captionsY,
       overlays: images && [
         ...cues.map(({ start, end }) => ({ start, end, y: captionsY })),
         ...texts.map(({ from, to, y }) => ({ start: from, end: to, y })),

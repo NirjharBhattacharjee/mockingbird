@@ -93,7 +93,7 @@ as an image with macOS's own text engine (Core Text) and ffmpeg lays it over
 the video, so this works with Homebrew's `ffmpeg`, which has no libass. Emoji
 and non-Latin scripts come out as macOS draws them anywhere else. If the
 images can't be drawn, `render` falls back to ffmpeg's `subtitles` filter
-when your ffmpeg has libass, and otherwise to a subtitle track plus an `.srt`
+when your ffmpeg has libass (at `captionsY` too, and over any inserts), and otherwise to a subtitle track plus an `.srt`
 beside the video, which an editor such as CapCut can burn in.
 
 On an M3, `render` took 1.3 seconds, including starting the server, to make a

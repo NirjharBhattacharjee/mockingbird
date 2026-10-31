@@ -184,6 +184,7 @@ export async function startEngines(
   savedModel?: string,
   savedAsrModel?: string,
   savedVadThreshold?: string,
+  asrPort = Number(process.env.MOCKINGBIRD_ASR_PORT ?? 8771),
 ): Promise<Engines> {
   const env = process.env;
   const models = join(mockingbirdHome(env), "models");
@@ -251,7 +252,7 @@ export async function startEngines(
     log("starting whisper-server (the first run on a Mac can take ~15s)...");
     const whisper = await startWhisperServer({
       modelPath: whisperModel,
-      port: Number(env.MOCKINGBIRD_ASR_PORT ?? 8771),
+      port: asrPort,
       language,
       readyTimeoutMs: 60_000,
     });

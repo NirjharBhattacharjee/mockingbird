@@ -37,8 +37,9 @@ export async function decodeWithFfmpeg(
 export async function loadAudio(path: string, options: DecodeOptions = {}): Promise<PcmAudio> {
   const sampleRate = options.sampleRate ?? 16000;
   // Only a WAV is read whole: a phone video can be gigabytes.
-  const head = await Bun.file(path).slice(0, 12).text();
-  if (head.startsWith("RIFF") && head.slice(8) === "WAVE") {
+  // As bytes: the size in bytes 4-7 can decode as one UTF-8 character and shift "WAVE".
+  const head = Buffer.from(await Bun.file(path).slice(0, 12).arrayBuffer());
+  if (head.toString("latin1", 0, 4) === "RIFF" && head.toString("latin1", 8, 12) === "WAVE") {
     try {
       const audio = await readWavFile(path);
       if (audio.sampleRate === sampleRate) return audio;

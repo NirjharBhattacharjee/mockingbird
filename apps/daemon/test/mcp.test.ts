@@ -157,10 +157,12 @@ test("the render graph keeps each clip in order and joins them", () => {
       { audio: true, vertical: false },
     ),
   ).toBe(
-    "[0:v]trim=start=1:end=2.5,setpts=PTS-STARTPTS[v0];[0:a]atrim=start=1:end=2.5,asetpts=PTS-STARTPTS[a0];" +
-      "[0:v]trim=start=10:end=12,setpts=PTS-STARTPTS[v1];[0:a]atrim=start=10:end=12,asetpts=PTS-STARTPTS[a1];" +
+    "[0:v]trim=start=1:end=2.5,setpts=PTS-STARTPTS,scale=1920:1080,setsar=1[v0];" +
+      "[0:a]atrim=start=1:end=2.5,asetpts=PTS-STARTPTS[a0];" +
+      "[0:v]trim=start=10:end=12,setpts=PTS-STARTPTS,scale=1920:1080,setsar=1[v1];" +
+      "[0:a]atrim=start=10:end=12,asetpts=PTS-STARTPTS[a1];" +
       "[v0][a0][v1][a1]concat=n=2:v=1:a=1[joined][speech];[joined]null[v];" +
-      "[speech]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a]",
+      "[speech]atrim=duration=3.5,loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a]",
   );
 });
 
@@ -175,7 +177,8 @@ test("the render graph crops to 9:16, draws captions, and works without sound", 
     "[0:v]trim=start=0:end=5,setpts=PTS-STARTPTS," +
       "crop=w='floor(min(iw,ih*9/16)/1/2)*2':h='floor(min(ih,iw*16/9)/1/2)*2'" +
       ":x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=1080:1920,setsar=1[v0];" +
-      "[v0]concat=n=1:v=1:a=0[joined];[joined]subtitles=filename=captions.srt[v]",
+      "[v0]concat=n=1:v=1:a=0[joined];[joined]null[laid];" +
+      "[laid]subtitles=filename=captions.srt:force_style='Alignment=2,MarginV=76'[v]",
   );
 });
 
@@ -187,8 +190,10 @@ test("each clip is framed around its focus, punched in by its zoom", () => {
     ],
     { audio: false, vertical: false, size: "1280x720" },
   );
-  // Only the zoomed clip is cropped, and it's scaled back to the source's size.
-  expect(graph).toStartWith("[0:v]trim=start=0:end=2,setpts=PTS-STARTPTS[v0];");
+  // Only the zoomed clip is cropped; both come out the source's size with square pixels, for concat.
+  expect(graph).toStartWith(
+    "[0:v]trim=start=0:end=2,setpts=PTS-STARTPTS,scale=1280:720,setsar=1[v0];",
+  );
   expect(graph).toContain(
     "crop=w='floor(iw/1.2/2)*2':h='floor(ih/1.2/2)*2':x='clip(0.3*iw-ow/2,0,iw-ow)':y='clip(0.4*ih-oh/2,0,ih-oh)',scale=1280:720,setsar=1[v1]",
   );
@@ -242,7 +247,21 @@ test("inserts go under the text, and music ducks under the speech", () => {
   );
   expect(steps).toContain("[4:a]adelay=3000:all=1,volume=1[m1]");
   expect(steps.at(-1)).toBe(
-    "[voice][m0][m1]amix=inputs=3:duration=first:normalize=0,loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a]",
+    "[voice][m0][m1]amix=inputs=3:duration=longest:normalize=0,atrim=duration=6,loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a]",
+  );
+});
+
+test("libass's captions go over the inserts, where captionsY puts them", () => {
+  const graph = renderGraph([{ from: 0, to: 4 }], {
+    audio: false,
+    vertical: true,
+    burn: true,
+    captionsY: 0.5,
+    inserts: [{ start: 1, end: 2 }],
+  });
+  expect(graph).toContain("[c0][i0]overlay=eof_action=pass:enable='gte(t,1)*lt(t,2)'[laid]");
+  expect(graph).toEndWith(
+    "[laid]subtitles=filename=captions.srt:force_style='Alignment=2,MarginV=134'[v]",
   );
 });
 
@@ -258,6 +277,8 @@ test("music under a silent video sets the length itself", () => {
   expect(graph).not.toContain("sidechaincompress");
   expect(graph).toContain("[1:a]atrim=duration=4,adelay=0:all=1,volume=0.5[m0]");
   expect(graph).toContain("amix=inputs=2:duration=longest");
+  // A sound longer than the video is cut where the picture ends.
+  expect(graph).toEndWith(",atrim=duration=4,loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a]");
 });
 
 describe("wordCaptions", () => {
@@ -305,8 +326,21 @@ describe("wordCaptions", () => {
       "00,000 --> 00,500 ONE",
       "01,000 --> 01,500 TWO",
       // Said across the end of the clip: kept, and cut off with it.
-      "04,800 --> 05,200 THREE",
+      "04,800 --> 05,000 THREE",
     ]);
+  });
+
+  test("doesn't carry a caption past its clip into the next shot", () => {
+    const srt = wordCaptions(
+      [
+        { from: 0, to: 1 },
+        { from: 5, to: 6 },
+      ],
+      [[w("bye", 0.5, 0.95)], [w("hi", 5.1, 5.4)]],
+      { lit: false },
+    );
+    // "bye" ends 0.15 s before "hi" starts, but its clip ends at 1 s.
+    expect(cues(srt)).toEqual(["00,500 --> 01,000 bye", "01,100 --> 01,600 hi"]);
   });
 });
 
