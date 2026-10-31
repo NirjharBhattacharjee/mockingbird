@@ -339,6 +339,13 @@ export const CAPTIONS_Y = 0.7;
 /** The loudness Shorts, Reels and TikTok play at, roughly: EBU R128, in LUFS. */
 const LOUDNESS = "loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000";
 
+/**
+ * Square pixels at the width the picture is shown at. Every clip starts with
+ * it: concat refuses clips whose pixel shapes differ, and crops then measure
+ * the picture as it's seen.
+ */
+const SQUARE = "scale='trunc(iw*sar/2)*2':ih,setsar=1";
+
 /** `area` of the picture, scaled and cropped to fill `w`x`h`. Even sizes, which yuv420p needs. */
 const fill = ({ x, y, w, h }: Area, size: string) =>
   `crop=w='floor(${w}*iw/2)*2':h='floor(${h}*ih/2)*2':x='${x}*iw':y='${y}*ih',` +
@@ -349,8 +356,7 @@ const fill = ({ x, y, w, h }: Area, size: string) =>
  * `vertical`, punched in by its zoom, and scaled back to `size`.
  */
 function frame({ focus = { x: 0.5, y: 0.5 }, zoom = 1 }: Clip, vertical: boolean, size: string) {
-  // Every clip comes out the same size and pixel shape, zoomed or not, or concat refuses them.
-  if (!vertical && zoom === 1) return `,scale=${size.replace("x", ":")},setsar=1`;
+  if (!vertical && zoom === 1) return "";
   // The widest 9:16 window, or the whole picture, made smaller by the zoom.
   const [w, h] = vertical ? ["min(iw,ih*9/16)", "min(ih,iw*16/9)"] : ["iw", "ih"];
   const crop =
@@ -400,7 +406,7 @@ export function renderGraph(
   const parts = clips.map((clip, i) => {
     const { from, to } = clip;
     const look = split ? "" : frame(clip, vertical, out);
-    const v = `[0:v]trim=start=${from}:end=${to},setpts=PTS-STARTPTS${look}[v${i}]`;
+    const v = `[0:v]trim=start=${from}:end=${to},setpts=PTS-STARTPTS,${SQUARE}${look}[v${i}]`;
     return audio ? `${v};[0:a]atrim=start=${from}:end=${to},asetpts=PTS-STARTPTS[a${i}]` : v;
   });
   const inputs = clips.map((_, i) => (audio ? `[v${i}][a${i}]` : `[v${i}]`)).join("");
@@ -487,7 +493,7 @@ async function probe(
     [
       "ffprobe",
       ...["-v", "error", "-show_entries"],
-      "stream=codec_type,width,height:stream_side_data=rotation:format=duration",
+      "stream=codec_type,width,height,sample_aspect_ratio:stream_side_data=rotation:format=duration",
       ...["-of", "json", path],
     ],
     { stderr: "pipe" },
@@ -503,11 +509,16 @@ async function probe(
     codec_type: string;
     width?: number;
     height?: number;
+    sample_aspect_ratio?: string;
     side_data_list?: { rotation?: number }[];
   };
   const has = (type: string) => streams.some((s: Stream) => s.codec_type === type);
   const picture: Stream | undefined = streams.find((s: Stream) => s.codec_type === "video");
-  const { width = 0, height = 0 } = picture ?? {};
+  const { height = 0 } = picture ?? {};
+  // As shown, not as stored: a recording's pixels can be wider than square. render squares them (SQUARE).
+  const [num, den] = (picture?.sample_aspect_ratio ?? "1:1").split(":").map(Number);
+  const sar = num && den ? num / den : 1;
+  const width = Math.trunc(((picture?.width ?? 0) * sar) / 2) * 2;
   // ffmpeg turns the picture upright as it decodes, so filters see it turned.
   const turned = Math.abs(picture?.side_data_list?.find((d) => d.rotation)?.rotation ?? 0) === 90;
   return {

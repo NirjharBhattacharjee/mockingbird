@@ -157,9 +157,9 @@ test("the render graph keeps each clip in order and joins them", () => {
       { audio: true, vertical: false },
     ),
   ).toBe(
-    "[0:v]trim=start=1:end=2.5,setpts=PTS-STARTPTS,scale=1920:1080,setsar=1[v0];" +
+    "[0:v]trim=start=1:end=2.5,setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1[v0];" +
       "[0:a]atrim=start=1:end=2.5,asetpts=PTS-STARTPTS[a0];" +
-      "[0:v]trim=start=10:end=12,setpts=PTS-STARTPTS,scale=1920:1080,setsar=1[v1];" +
+      "[0:v]trim=start=10:end=12,setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1[v1];" +
       "[0:a]atrim=start=10:end=12,asetpts=PTS-STARTPTS[a1];" +
       "[v0][a0][v1][a1]concat=n=2:v=1:a=1[joined][speech];[joined]null[v];" +
       "[speech]atrim=duration=3.5,loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a]",
@@ -174,7 +174,7 @@ test("the render graph crops to 9:16, draws captions, and works without sound", 
   });
   expect(graph).not.toContain("[0:a]");
   expect(graph).toBe(
-    "[0:v]trim=start=0:end=5,setpts=PTS-STARTPTS," +
+    "[0:v]trim=start=0:end=5,setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1," +
       "crop=w='floor(min(iw,ih*9/16)/1/2)*2':h='floor(min(ih,iw*16/9)/1/2)*2'" +
       ":x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=1080:1920,setsar=1[v0];" +
       "[v0]concat=n=1:v=1:a=0[joined];[joined]null[laid];" +
@@ -190,9 +190,9 @@ test("each clip is framed around its focus, punched in by its zoom", () => {
     ],
     { audio: false, vertical: false, size: "1280x720" },
   );
-  // Only the zoomed clip is cropped; both come out the source's size with square pixels, for concat.
+  // Both get square pixels, for concat; only the zoomed clip is cropped.
   expect(graph).toStartWith(
-    "[0:v]trim=start=0:end=2,setpts=PTS-STARTPTS,scale=1280:720,setsar=1[v0];",
+    "[0:v]trim=start=0:end=2,setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1[v0];",
   );
   expect(graph).toContain(
     "crop=w='floor(iw/1.2/2)*2':h='floor(ih/1.2/2)*2':x='clip(0.3*iw-ow/2,0,iw-ow)':y='clip(0.4*ih-oh/2,0,ih-oh)',scale=1280:720,setsar=1[v1]",
