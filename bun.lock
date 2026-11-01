@@ -21,6 +21,7 @@
         "@mockingbird/hotkey": "workspace:*",
         "@mockingbird/inject": "workspace:*",
         "@mockingbird/llm": "workspace:*",
+        "@mockingbird/motion": "workspace:*",
         "@mockingbird/store": "workspace:*",
         "@mockingbird/vad": "workspace:*",
       },
@@ -54,6 +55,9 @@
     },
     "packages/llm": {
       "name": "@mockingbird/llm",
+    },
+    "packages/motion": {
+      "name": "@mockingbird/motion",
     },
     "packages/store": {
       "name": "@mockingbird/store",
@@ -105,6 +109,8 @@
     "@mockingbird/inject": ["@mockingbird/inject@workspace:packages/inject"],
 
     "@mockingbird/llm": ["@mockingbird/llm@workspace:packages/llm"],
+
+    "@mockingbird/motion": ["@mockingbird/motion@workspace:packages/motion"],
 
     "@mockingbird/store": ["@mockingbird/store@workspace:packages/store"],
 
