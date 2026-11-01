@@ -1,10 +1,16 @@
 import { rmSync } from "node:fs";
 import type { Subprocess } from "bun";
 import { type Canvas, createCanvas, type Picture } from "./canvas.ts";
+import { Path2D } from "./path2d.ts";
 import { ease, interpolate, spring } from "./time.ts";
 
 export { createCanvas, Gradient, type Picture, parseColor, parseFont } from "./canvas.ts";
+export { type FilterStep, parseFilter } from "./filter.ts";
+export { Path2D } from "./path2d.ts";
 export { bezier, ease, interpolate, spring } from "./time.ts";
+
+// A global, as a browser has it, so a script can make paths at its top level, when it's imported.
+(globalThis as { Path2D?: unknown }).Path2D ??= Path2D;
 
 /** A caption or other timed text, in seconds of the finished video. */
 export type Cue = { start: number; end: number; text: string };
@@ -25,6 +31,8 @@ export type Scene = {
   interpolate: typeof interpolate;
   spring: typeof spring;
   ease: typeof ease;
+  /** Path2D, also set as a global, as a browser has it: a script is one file with no imports. */
+  Path2D: typeof Path2D;
 };
 
 /** A motion script: draws the frame `t` seconds in. */
@@ -130,6 +138,7 @@ export async function renderMotion(
       interpolate,
       spring,
       ease,
+      Path2D,
     };
     while (drawn < total) {
       const next = source && (await source.next());

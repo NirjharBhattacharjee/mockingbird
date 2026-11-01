@@ -154,7 +154,27 @@ export default function draw(ctx, t, m) {
   `lineDashOffset` (for lines that draw themselves on), `fillText`,
   `strokeText`, `measureText`, and `drawImage`. Fonts are written as in CSS,
   `"italic 900 96px Avenir Next"`; `SF Pro` and `system-ui` are the system
-  font, at any weight. There's no DOM, `Path2D`, `filter` or pixel access.
+  font, at any weight. There's no DOM or pixel access.
+- **`Path2D`** is there as a global, as in a browser: build a path once and
+  draw it with `ctx.fill(path, rule)`, `ctx.stroke(path)` or `ctx.clip(path)`,
+  under whatever transform is current then. `new Path2D("M12 21.35 …")` takes
+  SVG path data, so an icon's `d` from an SVG file draws as it is; `addPath`
+  adds one path to another, with a transform.
+- **`ctx.filter`** takes CSS filter functions, chained: `blur()`,
+  `brightness()`, `contrast()`, `drop-shadow()`, `grayscale()`,
+  `hue-rotate()`, `invert()`, `opacity()`, `saturate()` and `sepia()`, e.g.
+  `"blur(12px) brightness(150%)"` for a glow behind a title. As in a browser,
+  each thing drawn is filtered on its own, then the clip, shadow,
+  `globalAlpha` and blend apply. `url()` isn't supported, since there's no SVG
+  document. The pixel work runs in macOS's Accelerate framework (vImage).
+- **Sound** comes from the script too:
+  `export const audio = [{ path: "whoosh.wav", at: 1.2 }]` beside `draw`, with
+  `volume`, `loop` and `duck` as `render`'s `audio` takes them, or
+  `export function audio(m)` returning that list from `m`'s `width`,
+  `height`, `fps`, `duration` and `cues`, to put a pop on every caption.
+  Paths are from the script's folder. The sounds are mixed under the video's
+  own sound, ducked under speech if asked, and the result comes out at
+  −14 LUFS.
 - **Errors** say when they happened: `draw failed at 2.40 s (frame 72): …`,
   and nothing is saved. `draw` must return before the next frame, so an
   `async` one is refused. `duration` is at most two hours.

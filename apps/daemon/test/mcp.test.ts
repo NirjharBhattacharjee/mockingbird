@@ -3,6 +3,7 @@ import {
   chunks,
   fineClock,
   handle,
+  mixGraph,
   PROMPTS,
   renderGraph,
   timedLines,
@@ -359,4 +360,23 @@ test("the render graph lays each caption image over the picture for its cue", ()
       `[c0][1:v]overlay=${at}:enable='gte(t,0)*lt(t,1.5)'[c1];` +
       `[c1][2:v]overlay=${at}:enable='gte(t,1.5)*lt(t,3)'[v]`,
   );
+});
+
+test("a motion script's sounds mix over the video's own, from input 1, cut to its length", () => {
+  expect([
+    "[0:a]anull[speech]",
+    ...mixGraph([{ at: 1, volume: 1, loop: false, duck: true }], {
+      speech: true,
+      length: 4,
+      first: 1,
+    }),
+  ]).toEqual([
+    "[0:a]anull[speech]",
+    "[speech]asplit=2[voice][key0]",
+    "[1:a]adelay=1000:all=1,volume=1[s0]",
+    "[s0][key0]sidechaincompress=threshold=0.04:ratio=8:attack=100:release=500[m0]",
+    "[voice][m0]amix=inputs=2:duration=longest:normalize=0,atrim=duration=4,loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a]",
+  ]);
+  // No sound at all: nothing to mix.
+  expect(mixGraph([], { speech: false, length: 4, first: 1 })).toEqual([]);
 });
