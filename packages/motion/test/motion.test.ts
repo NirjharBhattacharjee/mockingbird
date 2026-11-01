@@ -124,6 +124,21 @@ describe.if(macOS)("canvas", () => {
     });
   });
 
+  test("a flat transform draws nothing, and the canvas recovers from it", () => {
+    withCanvas(({ ctx, pixels }) => {
+      ctx.fillStyle = "red";
+      ctx.scale(0, 0);
+      ctx.fillRect(0, 0, 100, 100);
+      ctx.fillText("x", 10, 10);
+      expect(at(pixels, 100, 50, 50)[3]).toBe(0);
+      ctx.resetTransform();
+      ctx.translate(40, 40);
+      ctx.fillRect(0, 0, 10, 10);
+      expect(at(pixels, 100, 45, 45)).toEqual([0, 0, 255, 255]);
+      expect(at(pixels, 100, 5, 5)[3]).toBe(0);
+    });
+  });
+
   test("arcs go clockwise down the canvas, as in a browser", () => {
     withCanvas(({ ctx, pixels }) => {
       ctx.beginPath();

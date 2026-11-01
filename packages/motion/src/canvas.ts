@@ -87,6 +87,7 @@ function loadSymbols() {
     CGContextEOClip: { args: [REF], returns: none },
     CGContextReplacePathWithStrokedPath: { args: [REF], returns: none },
     CGContextClearRect: { args: [REF, f64, f64, f64, f64], returns: none },
+    CGContextClipToRect: { args: [REF, f64, f64, f64, f64], returns: none },
     CGContextDrawImage: { args: [REF, f64, f64, f64, f64, REF], returns: none },
     CGContextDrawLinearGradient: { args: [REF, REF, f64, f64, f64, f64, u32], returns: none },
     CGContextDrawRadialGradient: {
@@ -143,6 +144,9 @@ export function invert([a, b, c, d, e, f]: Matrix): Matrix {
   if (!det) throw new Error("the transform squashes everything flat, so it can't be undone");
   return [d / det, -b / det, -c / det, a / det, (c * f - d * e) / det, (b * e - a * f) / det];
 }
+
+/** Whether `m` squashes the plane to a line or a point, as `scale(0)` does. */
+export const isFlat = ([a, b, c, d]: Matrix) => Math.abs(a * d - b * c) < 1e-12;
 
 const isIdentity = (m: Matrix) => m.every((v, i) => Math.abs(v - (IDENTITY[i] as number)) < 1e-12);
 
@@ -261,6 +265,12 @@ type State = {
   shadowOffsetX: number;
   shadowOffsetY: number;
   matrix: Matrix;
+  /**
+   * The transform Core Graphics holds, which is `matrix` unless that's flat:
+   * a flat one could never be undone, so Core Graphics keeps the last that
+   * wasn't, and nothing is drawn until the canvas's transform is whole again.
+   */
+  drawn: Matrix;
 };
 type CanvasLineCap = "butt" | "round" | "square";
 type CanvasLineJoin = "miter" | "round" | "bevel";
@@ -286,6 +296,7 @@ const fresh = (): State => ({
   shadowOffsetX: 0,
   shadowOffsetY: 0,
   matrix: IDENTITY,
+  drawn: IDENTITY,
 });
 
 /** Canvas's composite operations, in Core Graphics's CGBlendMode order. */
@@ -561,7 +572,7 @@ export function createCanvas(width: number, height: number) {
   /** The recorded path in today's coordinates, as a CGPath; release it after. */
   const buildPath = (from = ops) => {
     const path = BigInt(cg.symbols.CGPathCreateMutable());
-    const undo = invert(state.matrix);
+    const undo = invert(state.drawn);
     for (const { kind, args, m } of from) {
       const step = multiply(m, undo);
       const t = isIdentity(step) ? null : ptr(new Float64Array(step));
@@ -629,6 +640,10 @@ export function createCanvas(width: number, height: number) {
 
   /** Fills or strokes `path` with the current style, then releases it. */
   const draw = (path: bigint, how: "fill" | "stroke", rule: string) => {
+    if (flat()) {
+      release(path);
+      return;
+    }
     const style = how === "fill" ? state.fill : state.stroke;
     cg.symbols.CGContextAddPath(c, path);
     release(path);
@@ -669,6 +684,7 @@ export function createCanvas(width: number, height: number) {
     maxWidth: number | undefined,
     how: "fill" | "stroke",
   ) => {
+    if (flat()) return;
     const font = fontFor(state.font);
     const line = textLine(String(value), font);
     try {
@@ -711,6 +727,23 @@ export function createCanvas(width: number, height: number) {
     }
   };
 
+  /** Makes `target` the canvas's transform, and Core Graphics's too unless it's flat. */
+  const setMatrix = (target: Matrix) => {
+    state.matrix = target;
+    if (isFlat(target)) return;
+    if (!isIdentity(multiply(target, invert(state.drawn)))) {
+      cg.symbols.CGContextConcatCTM(
+        c,
+        ptr(new Float64Array(multiply(target, invert(state.drawn)))),
+      );
+    }
+    state.drawn = target;
+  };
+  /** Applies `m` before the current transform, as translate, scale and rotate do. */
+  const applyFirst = (m: Matrix) => setMatrix(multiply(m, state.matrix));
+  /** Nothing shows through a flat transform, as in a browser. */
+  const flat = () => isFlat(state.matrix);
+
   const ctx = {
     canvas: { width, height },
 
@@ -726,22 +759,17 @@ export function createCanvas(width: number, height: number) {
     },
 
     translate(x: number, y: number) {
-      state.matrix = multiply([1, 0, 0, 1, x, y], state.matrix);
-      cg.symbols.CGContextTranslateCTM(c, x, y);
+      applyFirst([1, 0, 0, 1, x, y]);
     },
     scale(x: number, y: number) {
-      state.matrix = multiply([x, 0, 0, y, 0, 0], state.matrix);
-      cg.symbols.CGContextScaleCTM(c, x, y);
+      applyFirst([x, 0, 0, y, 0, 0]);
     },
     rotate(angle: number) {
       const [cos, sin] = [Math.cos(angle), Math.sin(angle)];
-      state.matrix = multiply([cos, sin, -sin, cos, 0, 0], state.matrix);
-      cg.symbols.CGContextRotateCTM(c, angle);
+      applyFirst([cos, sin, -sin, cos, 0, 0]);
     },
     transform(a: number, b: number, c2: number, d: number, e: number, f: number) {
-      const m: Matrix = [a, b, c2, d, e, f];
-      state.matrix = multiply(m, state.matrix);
-      cg.symbols.CGContextConcatCTM(c, ptr(new Float64Array(m)));
+      applyFirst([a, b, c2, d, e, f]);
     },
     setTransform(
       a: number | { a: number; b: number; c: number; d: number; e: number; f: number } = 1,
@@ -751,13 +779,7 @@ export function createCanvas(width: number, height: number) {
       e = 0,
       f = 0,
     ) {
-      const target: Matrix =
-        typeof a === "object" ? [a.a, a.b, a.c, a.d, a.e, a.f] : [a, b, c2, d, e, f];
-      cg.symbols.CGContextConcatCTM(
-        c,
-        ptr(new Float64Array(multiply(target, invert(state.matrix)))),
-      );
-      state.matrix = target;
+      setMatrix(typeof a === "object" ? [a.a, a.b, a.c, a.d, a.e, a.f] : [a, b, c2, d, e, f]);
     },
     resetTransform() {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -963,6 +985,8 @@ export function createCanvas(width: number, height: number) {
       draw(buildPath(), "stroke", "nonzero");
     },
     clip(rule: "nonzero" | "evenodd" = "nonzero") {
+      // A flat transform clips to nothing at all.
+      if (flat()) return cg.symbols.CGContextClipToRect(c, 0, 0, 0, 0);
       const path = buildPath();
       cg.symbols.CGContextAddPath(c, path);
       release(path);
@@ -976,6 +1000,7 @@ export function createCanvas(width: number, height: number) {
       draw(buildPath(rectOps(x, y, w, h)), "stroke", "nonzero");
     },
     clearRect(x: number, y: number, w: number, h: number) {
+      if (flat()) return;
       cg.symbols.CGContextSaveGState(c);
       cg.symbols.CGContextSetBlendMode(c, kCGBlendModeClear);
       cg.symbols.CGContextSetShadowWithColor(c, 0, 0, 0, 0n);
@@ -1017,6 +1042,7 @@ export function createCanvas(width: number, height: number) {
       if (!picture || typeof picture.ref !== "bigint") {
         throw new Error("drawImage takes a picture from m.image(path), or m.video");
       }
+      if (flat()) return;
       let ref = picture.ref;
       let [dx = 0, dy = 0, dw = picture.width, dh = picture.height] = at;
       let cropped = false;
