@@ -902,7 +902,7 @@ async function motion(
   const result = JSON.parse(said.trim().split("\n").at(-1) ?? "{}");
   const frames = Number(result.frames);
   // The script's `audio` export, its paths already from the script's folder.
-  const mixing = `${target}.mixing.mp4`;
+  let work: string | undefined;
   try {
     const sounds = items(result.sounds).map((t, i) => ({
       path: requireFile(String(t.path), `audio[${i}]`),
@@ -912,11 +912,14 @@ async function motion(
       duck: !!t.duck,
     }));
     if (sounds.length) {
+      // A folder of its own beside the target: the same disk, so the move is a rename,
+      // and a name no one else's file can have.
+      work = mkdtempSync(join(dirname(target), ".mockingbird-mix-"));
+      const mixing = join(work, "mix.mp4");
       const graph = [
         ...(audio ? ["[0:a]anull[speech]"] : []),
         ...mixGraph(sounds, { speech: audio, length: frames / fps, first: 1 }),
       ].join(";");
-      // Mixed beside the target, then moved over it: the same disk, so the move is a rename.
       const mix = Bun.spawn(
         [
           ...["ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", target],
@@ -937,7 +940,7 @@ async function motion(
     rmSync(target, { force: true });
     throw error;
   } finally {
-    rmSync(mixing, { force: true });
+    if (work) rmSync(work, { recursive: true, force: true });
   }
   const took = ((performance.now() - started) / 1000).toFixed(1);
   return `${target} (${clock((frames / fps) * 1000)}, ${width}x${height}, ${fps} fps), drawn in ${took} s`;
