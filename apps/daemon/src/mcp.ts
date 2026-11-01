@@ -898,12 +898,20 @@ async function motion(
     rmSync(target, { force: true });
     throw new Error(why.trim() || `the motion script stopped (exit ${code})`);
   }
-  // The runner's last line; a script's own console.log comes before it.
-  const result = JSON.parse(said.trim().split("\n").at(-1) ?? "{}");
-  const frames = Number(result.frames);
-  // The script's `audio` export, its paths already from the script's folder.
+  let frames = 0;
   let work: string | undefined;
   try {
+    // The runner's last line; a script's own console.log comes before it. A
+    // script that exits early leaves none, and the claimed target goes with the error.
+    let result: { frames?: unknown; sounds?: unknown } = {};
+    try {
+      result = JSON.parse(said.trim().split("\n").at(-1) || "{}") ?? {};
+    } catch {}
+    frames = Number(result.frames);
+    if (!Number.isInteger(frames) || frames < 1) {
+      throw new Error("the motion script stopped without drawing; did it call process.exit?");
+    }
+    // The script's `audio` export, its paths already from the script's folder.
     const sounds = items(result.sounds).map((t, i) => ({
       path: requireFile(String(t.path), `audio[${i}]`),
       at: within(t.at, 0, Number.MAX_VALUE, `audio[${i}].at`, 0),
