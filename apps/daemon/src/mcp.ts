@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   openSync,
   readdirSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -445,7 +446,26 @@ export function renderGraph(
     : [];
 
   const length = clips.reduce((sum, { from, to }) => sum + to - from, 0);
-  const first = overlays.length + inserts.length + 1;
+  return [
+    ...parts,
+    joined,
+    ...(stacked || []),
+    `${base}null${label(0)}`,
+    ...laid,
+    ...burnt,
+    ...mixGraph(sounds, { speech: audio, length, first: overlays.length + inserts.length + 1 }),
+  ].join(";");
+}
+
+/**
+ * The filter steps that mix `sounds` (inputs `first`, `first + 1`, …) under
+ * the speech, labelled [speech] if there is any, cut to `length` seconds and
+ * brought to LOUDNESS. Ends in [a] if there's any sound at all.
+ */
+export function mixGraph(
+  sounds: Sound[],
+  { speech: audio, length, first }: { speech: boolean; length: number; first: number },
+): string[] {
   const ducked = sounds.filter((s) => s.duck).length;
   const keyLabels = sounds.flatMap((s, i) => (s.duck ? [`[key${i}]`] : [])).join("");
   const speech = ducked ? "[voice]" : "[speech]";
@@ -472,17 +492,7 @@ export function renderGraph(
           : `${tracks.join("")}amix=inputs=${tracks.length}:duration=longest:normalize=0,${level}`,
       ]
     : [];
-  return [
-    ...parts,
-    joined,
-    ...(stacked || []),
-    `${base}null${label(0)}`,
-    ...laid,
-    ...burnt,
-    ...keys,
-    ...mixed,
-    ...sound,
-  ].join(";");
+  return [...keys, ...mixed, ...sound];
 }
 
 /**
@@ -888,7 +898,47 @@ async function motion(
     rmSync(target, { force: true });
     throw new Error(why.trim() || `the motion script stopped (exit ${code})`);
   }
-  const frames = Number(said.trim());
+  // The runner's last line; a script's own console.log comes before it.
+  const result = JSON.parse(said.trim().split("\n").at(-1) ?? "{}");
+  const frames = Number(result.frames);
+  // The script's `audio` export, its paths already from the script's folder.
+  const mixing = `${target}.mixing.mp4`;
+  try {
+    const sounds = items(result.sounds).map((t, i) => ({
+      path: requireFile(String(t.path), `audio[${i}]`),
+      at: within(t.at, 0, Number.MAX_VALUE, `audio[${i}].at`, 0),
+      volume: within(t.volume, 0, 4, `audio[${i}].volume`, 1),
+      loop: !!t.loop,
+      duck: !!t.duck,
+    }));
+    if (sounds.length) {
+      const graph = [
+        ...(audio ? ["[0:a]anull[speech]"] : []),
+        ...mixGraph(sounds, { speech: audio, length: frames / fps, first: 1 }),
+      ].join(";");
+      // Mixed beside the target, then moved over it: the same disk, so the move is a rename.
+      const mix = Bun.spawn(
+        [
+          ...["ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", target],
+          ...sounds.flatMap((s) => [...(s.loop ? ["-stream_loop", "-1"] : []), "-i", s.path]),
+          ...["-filter_complex", graph, "-map", "0:v", "-map", "[a]", "-c:v", "copy"],
+          ...["-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", mixing],
+        ],
+        { stderr: "pipe" },
+      );
+      if ((await mix.exited) !== 0) {
+        throw new Error(
+          `ffmpeg couldn't mix the sound into ${target}: ${(await new Response(mix.stderr).text()).trim()}`,
+        );
+      }
+      renameSync(mixing, target);
+    }
+  } catch (error) {
+    rmSync(target, { force: true });
+    throw error;
+  } finally {
+    rmSync(mixing, { force: true });
+  }
   const took = ((performance.now() - started) / 1000).toFixed(1);
   return `${target} (${clock((frames / fps) * 1000)}, ${width}x${height}, ${fps} fps), drawn in ${took} s`;
 }
@@ -1199,7 +1249,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
     {
       name: "motion",
       description:
-        'Motion graphics written as code, drawn on this Mac with Core Graphics (no browser). `script` is a .ts or .js file whose `export default function draw(ctx, t, m)` draws the frame `t` seconds in, with the Canvas 2D API: paths, arc, roundRect, fill, stroke, clip, gradients, shadows, globalAlpha, globalCompositeOperation, save/restore, translate/rotate/scale/setTransform, fillText/strokeText/measureText (font like "900 96px SF Pro"), drawImage, setLineDash. No DOM, Path2D or filters. With `path` (usually render\'s output), each frame of that video is drawn first, its sound is kept, and the frame is `m.video` too: draw it again scaled to zoom or move it. `m` has width, height, fps, duration, frame, video, cues (from `captions`, timed to this video), image(path) for a picture file, interpolate(t, [t0, t1], [v0, v1], easing), spring(t, { from, to, start, stiffness, damping }), and ease (linear, in, out, inOut, back, bezier(x1, y1, x2, y2)). Without `path`, give `size` and `duration`. Saves to `out` or <name>-motion-N.mp4 and never overwrites. The script runs in a sandbox with no network access.',
+        'Motion graphics written as code, drawn on this Mac with Core Graphics (no browser). `script` is a .ts or .js file whose `export default function draw(ctx, t, m)` draws the frame `t` seconds in, with the Canvas 2D API: paths, arc, roundRect, fill, stroke, clip, gradients, shadows, globalAlpha, globalCompositeOperation, save/restore, translate/rotate/scale/setTransform, fillText/strokeText/measureText (font like "900 96px SF Pro"), drawImage, setLineDash, Path2D (also from SVG path data: new Path2D("M10 10 h80 v80 Z")) for fill/stroke/clip(path), and ctx.filter with CSS filter functions (blur, brightness, contrast, drop-shadow, grayscale, hue-rotate, invert, opacity, saturate, sepia). No DOM. Sound: `export const audio = [{ path, at, volume, loop, duck }]` beside draw (paths from the script\'s folder), or a function of { width, height, fps, duration, cues } returning one, is mixed in as render\'s audio is, ducked under any speech and brought to -14 LUFS. With `path` (usually render\'s output), each frame of that video is drawn first, its sound is kept, and the frame is `m.video` too: draw it again scaled to zoom or move it. `m` has width, height, fps, duration, frame, video, cues (from `captions`, timed to this video), image(path) for a picture file, interpolate(t, [t0, t1], [v0, v1], easing), spring(t, { from, to, start, stiffness, damping }), and ease (linear, in, out, inOut, back, bezier(x1, y1, x2, y2)). Without `path`, give `size` and `duration`. Saves to `out` or <name>-motion-N.mp4 and never overwrites. The script runs in a sandbox with no network access.',
       inputSchema: {
         type: "object",
         properties: {

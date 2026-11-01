@@ -1,4 +1,6 @@
 import { dlopen, FFIType, ptr, read } from "bun:ffi";
+import { createFilters, type FilterStep, parseFilter } from "./filter.ts";
+import { Path2D, type Transform } from "./path2d.ts";
 
 /**
  * A drawing context with the browser's Canvas 2D API, drawn by Core Graphics
@@ -61,6 +63,7 @@ function loadSymbols() {
     CGColorSpaceCreateDeviceRGB: { args: [], returns: REF },
     CGColorCreateSRGB: { args: [f64, f64, f64, f64], returns: REF },
     CGBitmapContextCreate: { args: [P, u64, u64, u64, u64, REF, u32], returns: REF },
+    CGBitmapContextCreateImage: { args: [REF], returns: REF },
     CGContextSaveGState: { args: [REF], returns: none },
     CGContextRestoreGState: { args: [REF], returns: none },
     CGContextTranslateCTM: { args: [REF, f64, f64], returns: none },
@@ -267,6 +270,8 @@ type State = {
   shadowBlur: number;
   shadowOffsetX: number;
   shadowOffsetY: number;
+  filter: string;
+  steps: FilterStep[];
   matrix: Matrix;
   /**
    * The transform Core Graphics holds, which is `matrix` unless that's flat:
@@ -298,6 +303,8 @@ const fresh = (): State => ({
   shadowBlur: 0,
   shadowOffsetX: 0,
   shadowOffsetY: 0,
+  filter: "none",
+  steps: [],
   matrix: IDENTITY,
   drawn: IDENTITY,
 });
@@ -443,22 +450,21 @@ export function createCanvas(width: number, height: number) {
   };
 
   const space = own(cg.symbols.CGColorSpaceCreateDeviceRGB(), "a colour space");
+  /** A flipped bitmap context drawing into `bytes`, top left first. */
+  const bitmap = (bytes: Uint8Array, w = width, h = height) => {
+    const ref = own(
+      cg.symbols.CGBitmapContextCreate(ptr(bytes), w, h, 8, w * 4, space, BGRA_PREMULTIPLIED),
+      `a ${w}x${h} bitmap`,
+    );
+    cg.symbols.CGContextTranslateCTM(ref, 0, h);
+    cg.symbols.CGContextScaleCTM(ref, 1, -1);
+    cg.symbols.CGContextSetInterpolationQuality(ref, kCGInterpolationHigh);
+    return ref;
+  };
   const pixels = new Uint8Array(width * height * 4);
-  const c = own(
-    cg.symbols.CGBitmapContextCreate(
-      ptr(pixels),
-      width,
-      height,
-      8,
-      width * 4,
-      space,
-      BGRA_PREMULTIPLIED,
-    ),
-    `a ${width}x${height} bitmap`,
-  );
-  cg.symbols.CGContextTranslateCTM(c, 0, height);
-  cg.symbols.CGContextScaleCTM(c, 1, -1);
-  cg.symbols.CGContextSetInterpolationQuality(c, kCGInterpolationHigh);
+  const canvas = bitmap(pixels);
+  /** Where drawing goes: the canvas, or the filter layer while one draw call is filtered. */
+  let c = canvas;
 
   const fontKey = constant("kCTFontAttributeName");
   const fromContextKey = constant("kCTForegroundColorFromContextAttributeName");
@@ -567,6 +573,140 @@ export function createCanvas(width: number, height: number) {
     css instanceof Gradient ? { css } : { css, rgba: parseColor(css) };
 
   const record = (kind: string, args: number[]) => ops.push({ kind, args, m: state.matrix });
+
+  /** Records `path`'s calls into the canvas's path recorder, under the current transform. */
+  const replay = (path: Path2D) => {
+    for (const call of path.calls) {
+      if (call[0] === "addPath") {
+        const [, inner, t] = call as [string, Path2D, Transform | undefined];
+        const outer = state.matrix;
+        if (t) state.matrix = multiply([t.a, t.b, t.c, t.d, t.e, t.f], outer);
+        // An added path's shapes are its own: they don't continue the subpath before them.
+        if (inner.calls.length) start = undefined;
+        replay(inner);
+        state.matrix = outer;
+      } else if (call[0] === "roundRect") {
+        const [x = 0, y = 0, w = 0, h = 0, , ...radii] = call[1] as number[];
+        ctx.roundRect(x, y, w, h, radii);
+      } else {
+        const [name, args] = call as [string, number[]];
+        (ctx as unknown as Record<string, (...a: number[]) => void>)[name]?.(...args);
+      }
+    }
+  };
+  /** `path` as a CGPath, leaving the canvas's own path as it was; release it after. */
+  const pathOf = (path: Path2D) => {
+    if (!(path instanceof Path2D)) throw new Error("fill, stroke and clip take a Path2D");
+    const [kept, keptStart] = [ops, start];
+    [ops, start] = [[], undefined];
+    try {
+      replay(path);
+      return buildPath();
+    } finally {
+      [ops, start] = [kept, keptStart];
+    }
+  };
+
+  /**
+   * The offscreen layer a filtered draw call goes into: the canvas plus `pad`
+   * pixels all round, so a shape just off the canvas can still blur or cast
+   * a shadow onto it. Grown when a filter reaches further.
+   */
+  let layer:
+    | { c: bigint; filters: ReturnType<typeof createFilters>; pad: number; w: number; h: number }
+    | undefined;
+  /**
+   * Draws what's in the bitmap `from` (`w` by `h`) over `to` with its top
+   * left at (x, y), pixel for pixel, under `to`'s settings (its clip, shadow,
+   * alpha and blend), `at` undoing `to`'s transform.
+   */
+  const blit = (to: bigint, from: bigint, w: number, h: number, x = 0, y = 0, at = IDENTITY) => {
+    // A snapshot: `from` can be cleared and drawn into while it's drawn.
+    const image = BigInt(cg.symbols.CGBitmapContextCreateImage(from));
+    if (from === to) cg.symbols.CGContextClearRect(to, 0, 0, w, h);
+    cg.symbols.CGContextSaveGState(to);
+    if (!isIdentity(at)) cg.symbols.CGContextConcatCTM(to, ptr(new Float64Array(at)));
+    cg.symbols.CGContextTranslateCTM(to, x, y + h);
+    cg.symbols.CGContextScaleCTM(to, 1, -1);
+    cg.symbols.CGContextDrawImage(to, 0, 0, w, h, image);
+    cg.symbols.CGContextRestoreGState(to);
+    release(image);
+  };
+  /** How far past a shape its filter can reach, in pixels: about 3σ for a blur, plus a shadow's offset. */
+  const reach = (steps: FilterStep[]) =>
+    // ponytail: capped at 1024, so a huge blur can't make a huge layer; past that, edges clip.
+    Math.min(
+      1024,
+      Math.ceil(
+        steps.reduce(
+          (sum, s) =>
+            s.kind === "blur"
+              ? sum + 3 * s.sigma
+              : s.kind === "drop-shadow"
+                ? sum + Math.max(Math.abs(s.x), Math.abs(s.y)) + 3 * s.sigma
+                : sum,
+          0,
+        ),
+      ),
+    );
+  /**
+   * Runs one draw call through the filter, if there is one, as the HTML spec
+   * orders it: the shape is drawn alone into a layer, filtered, then laid on
+   * the canvas, where the clip, shadow, globalAlpha and composite apply.
+   */
+  const filtered = (paint: () => void) => {
+    if (!state.steps.length) return paint();
+    if (isFlat(state.matrix)) return;
+    const pad = reach(state.steps);
+    if (!layer || layer.pad < pad) {
+      if (layer) {
+        layer.filters.close();
+        owned.splice(owned.indexOf(layer.c), 1);
+        release(layer.c);
+      }
+      const [w, h] = [width + 2 * pad, height + 2 * pad];
+      const bytes = new Uint8Array(w * h * 4);
+      layer = { c: bitmap(bytes, w, h), filters: createFilters(bytes, w, h), pad, w, h };
+    }
+    const { c: l, w, h } = layer;
+    cg.symbols.CGContextSaveGState(l);
+    cg.symbols.CGContextClearRect(l, 0, 0, w, h);
+    cg.symbols.CGContextTranslateCTM(l, layer.pad, layer.pad);
+    // The transform Core Graphics holds, which a flat one never reaches.
+    cg.symbols.CGContextConcatCTM(l, ptr(new Float64Array(state.drawn)));
+    cg.symbols.CGContextSetLineWidth(l, state.lineWidth);
+    cg.symbols.CGContextSetLineCap(l, ["butt", "round", "square"].indexOf(state.lineCap));
+    cg.symbols.CGContextSetLineJoin(l, ["miter", "round", "bevel"].indexOf(state.lineJoin));
+    cg.symbols.CGContextSetMiterLimit(l, state.miterLimit);
+    cg.symbols.CGContextSetLineDash(
+      l,
+      state.dashOffset,
+      state.dash.length ? ptr(new Float64Array(state.dash)) : null,
+      state.dash.length,
+    );
+    c = l;
+    try {
+      paint();
+    } finally {
+      c = canvas;
+      cg.symbols.CGContextRestoreGState(l);
+    }
+    for (const step of state.steps) {
+      if (step.kind === "blur") layer.filters.blur(step.sigma);
+      else if (step.kind === "color") layer.filters.color(step.name, step.amount);
+      else {
+        // Core Graphics's own shadow, as shadowBlur uses: its blur is twice the standard deviation.
+        cg.symbols.CGContextSaveGState(l);
+        const color = BigInt(cg.symbols.CGColorCreateSRGB(...parseColor(step.color)));
+        cg.symbols.CGContextSetShadowWithColor(l, step.x, -step.y, step.sigma * 2, color);
+        release(color);
+        blit(l, l, w, h);
+        cg.symbols.CGContextRestoreGState(l);
+      }
+    }
+    // Back to the canvas's own pixels, so the layer lands where it was drawn.
+    blit(canvas, l, w, h, -layer.pad, -layer.pad, invert(state.drawn));
+  };
   /** Canvas's rule: a line or curve with no subpath to add to starts one. */
   const ensure = (x: number, y: number) => {
     if (!start) ctx.moveTo(x, y);
@@ -893,6 +1033,14 @@ export function createCanvas(width: number, height: number) {
     set textBaseline(baseline: CanvasTextBaseline) {
       state.textBaseline = baseline;
     },
+    /** CSS filter functions, like "blur(6px) brightness(120%)", applied to each thing drawn after. */
+    get filter() {
+      return state.filter;
+    },
+    set filter(css: string) {
+      state.steps = parseFilter(String(css));
+      state.filter = state.steps.length ? String(css) : "none";
+    },
     get shadowColor() {
       return state.shadowColor;
     },
@@ -946,8 +1094,9 @@ export function createCanvas(width: number, height: number) {
     // Angles grow clockwise on a canvas, which is Core Graphics's
     // counterclockwise once the canvas is flipped; `counterclockwise` maps across as is.
     arc(x: number, y: number, r: number, from: number, to: number, counterclockwise = false) {
+      // With no subpath, it starts its own, so Core Graphics doesn't join it to the last shape.
+      if (!start) ctx.moveTo(x + r * Math.cos(from), y + r * Math.sin(from));
       record("arc", [x, y, r, from, to, counterclockwise ? 1 : 0]);
-      start ??= [x + r * Math.cos(from), y + r * Math.sin(from)];
     },
     arcTo(x1: number, y1: number, x2: number, y2: number, r: number) {
       ensure(x1, y1);
@@ -963,8 +1112,12 @@ export function createCanvas(width: number, height: number) {
       to: number,
       counterclockwise = false,
     ) {
+      if (!start) {
+        const [px, py] = [rx * Math.cos(from), ry * Math.sin(from)];
+        const [cos, sin] = [Math.cos(rotation), Math.sin(rotation)];
+        ctx.moveTo(x + px * cos - py * sin, y + px * sin + py * cos);
+      }
       record("ellipse", [x, y, rx, ry, rotation, from, to, counterclockwise ? 1 : 0]);
-      start ??= [x, y];
     },
     rect(x: number, y: number, w: number, h: number) {
       ops.push(...rectOps(x, y, w, h));
@@ -986,26 +1139,33 @@ export function createCanvas(width: number, height: number) {
       if (!start) return;
       record("close", []);
     },
-    fill(rule: "nonzero" | "evenodd" = "nonzero") {
-      draw(buildPath(), "fill", rule);
+    /** fill([rule]) or fill(path[, rule]). */
+    fill(path?: Path2D | "nonzero" | "evenodd", rule: "nonzero" | "evenodd" = "nonzero") {
+      const how = typeof path === "string" ? path : rule;
+      // Built inside, so a draw the filter skips makes no path to leak.
+      filtered(() => draw(path instanceof Path2D ? pathOf(path) : buildPath(), "fill", how));
     },
-    stroke() {
-      draw(buildPath(), "stroke", "nonzero");
+    stroke(path?: Path2D) {
+      filtered(() =>
+        draw(path instanceof Path2D ? pathOf(path) : buildPath(), "stroke", "nonzero"),
+      );
     },
-    clip(rule: "nonzero" | "evenodd" = "nonzero") {
+    /** clip([rule]) or clip(path[, rule]). */
+    clip(shape?: Path2D | "nonzero" | "evenodd", which: "nonzero" | "evenodd" = "nonzero") {
       // A flat transform clips to nothing at all.
       if (flat()) return cg.symbols.CGContextClipToRect(c, 0, 0, 0, 0);
-      const path = buildPath();
+      const path = shape instanceof Path2D ? pathOf(shape) : buildPath();
+      const rule = typeof shape === "string" ? shape : which;
       cg.symbols.CGContextAddPath(c, path);
       release(path);
       if (rule === "evenodd") cg.symbols.CGContextEOClip(c);
       else cg.symbols.CGContextClip(c);
     },
     fillRect(x: number, y: number, w: number, h: number) {
-      draw(buildPath(rectOps(x, y, w, h)), "fill", "nonzero");
+      filtered(() => draw(buildPath(rectOps(x, y, w, h)), "fill", "nonzero"));
     },
     strokeRect(x: number, y: number, w: number, h: number) {
-      draw(buildPath(rectOps(x, y, w, h)), "stroke", "nonzero");
+      filtered(() => draw(buildPath(rectOps(x, y, w, h)), "stroke", "nonzero"));
     },
     clearRect(x: number, y: number, w: number, h: number) {
       if (flat()) return;
@@ -1027,10 +1187,10 @@ export function createCanvas(width: number, height: number) {
     },
 
     fillText(value: string, x: number, y: number, maxWidth?: number) {
-      text(value, x, y, maxWidth, "fill");
+      filtered(() => text(value, x, y, maxWidth, "fill"));
     },
     strokeText(value: string, x: number, y: number, maxWidth?: number) {
-      text(value, x, y, maxWidth, "stroke");
+      filtered(() => text(value, x, y, maxWidth, "stroke"));
     },
     measureText(value: string) {
       const font = fontFor(state.font);
@@ -1063,12 +1223,14 @@ export function createCanvas(width: number, height: number) {
         if (!ref) return;
         cropped = true;
       }
-      cg.symbols.CGContextSaveGState(c);
-      // A CGImage draws y-up from its rect's corner; undo the canvas's flip for it.
-      cg.symbols.CGContextTranslateCTM(c, dx, dy + dh);
-      cg.symbols.CGContextScaleCTM(c, 1, -1);
-      cg.symbols.CGContextDrawImage(c, 0, 0, dw, dh, ref);
-      cg.symbols.CGContextRestoreGState(c);
+      filtered(() => {
+        cg.symbols.CGContextSaveGState(c);
+        // A CGImage draws y-up from its rect's corner; undo the canvas's flip for it.
+        cg.symbols.CGContextTranslateCTM(c, dx, dy + dh);
+        cg.symbols.CGContextScaleCTM(c, 1, -1);
+        cg.symbols.CGContextDrawImage(c, 0, 0, dw, dh, ref);
+        cg.symbols.CGContextRestoreGState(c);
+      });
       if (cropped) release(ref);
     },
   };
@@ -1146,6 +1308,7 @@ export function createCanvas(width: number, height: number) {
       }
     },
     close() {
+      layer?.filters.close();
       for (const font of fonts.values()) release(font.ref);
       for (const ref of owned.reverse()) release(ref);
       fonts.clear();
