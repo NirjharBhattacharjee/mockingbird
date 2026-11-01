@@ -23,6 +23,7 @@ const BGRX = 6 | (2 << 12);
 const kCGInterpolationHigh = 3;
 const kCGTextFill = 0;
 const kCGTextStroke = 1;
+const kCGTextStrokeClip = 5;
 const kCGTextClip = 7;
 const kCGBlendModeClear = 16;
 const kCGGradientDrawsBeyondBothEnds = 3;
@@ -231,6 +232,8 @@ export class Gradient {
   constructor(
     readonly kind: "linear" | "radial",
     readonly at: number[],
+    /** The canvas's transform when the gradient was made, which its coordinates stay in. */
+    readonly matrix: Matrix = IDENTITY,
   ) {}
   addColorStop(offset: number, color: string) {
     if (!(offset >= 0 && offset <= 1))
@@ -620,6 +623,10 @@ export function createCanvas(width: number, height: number) {
       ),
     );
     const [x0 = 0, y0 = 0, a = 0, b = 0, d = 0, e = 0] = g.at;
+    // Painted in the space it was made in, as on a canvas, not today's.
+    const back = multiply(g.matrix, invert(state.drawn));
+    cg.symbols.CGContextSaveGState(c);
+    if (!isIdentity(back)) cg.symbols.CGContextConcatCTM(c, ptr(new Float64Array(back)));
     if (g.kind === "linear") {
       cg.symbols.CGContextDrawLinearGradient(c, ref, x0, y0, a, b, kCGGradientDrawsBeyondBothEnds);
     } else {
@@ -635,6 +642,7 @@ export function createCanvas(width: number, height: number) {
         kCGGradientDrawsBeyondBothEnds,
       );
     }
+    cg.symbols.CGContextRestoreGState(c);
     release(ref);
   };
 
@@ -714,8 +722,8 @@ export function createCanvas(width: number, height: number) {
         cg.symbols.CGContextSetTextDrawingMode(c, how === "fill" ? kCGTextFill : kCGTextStroke);
         ct.symbols.CTLineDraw(line.ref, c);
       } else {
-        // A gradient shows through the letters: clip to them, then paint in canvas coordinates.
-        cg.symbols.CGContextSetTextDrawingMode(c, kCGTextClip);
+        // A gradient shows through the letters (or their outline): clip to them, then paint.
+        cg.symbols.CGContextSetTextDrawingMode(c, how === "fill" ? kCGTextClip : kCGTextStrokeClip);
         ct.symbols.CTLineDraw(line.ref, c);
         cg.symbols.CGContextScaleCTM(c, 1 / squeeze, -1);
         cg.symbols.CGContextTranslateCTM(c, -(x + dx), -(y + dy));
@@ -1004,16 +1012,18 @@ export function createCanvas(width: number, height: number) {
       cg.symbols.CGContextSaveGState(c);
       cg.symbols.CGContextSetBlendMode(c, kCGBlendModeClear);
       cg.symbols.CGContextSetShadowWithColor(c, 0, 0, 0, 0n);
-      cg.symbols.CGContextAddPath(c, buildPath(rectOps(x, y, w, h)));
+      const path = buildPath(rectOps(x, y, w, h));
+      cg.symbols.CGContextAddPath(c, path);
+      release(path);
       cg.symbols.CGContextFillPath(c);
       cg.symbols.CGContextRestoreGState(c);
     },
 
     createLinearGradient(x0: number, y0: number, x1: number, y1: number) {
-      return new Gradient("linear", [x0, y0, x1, y1]);
+      return new Gradient("linear", [x0, y0, x1, y1], state.matrix);
     },
     createRadialGradient(x0: number, y0: number, r0: number, x1: number, y1: number, r1: number) {
-      return new Gradient("radial", [x0, y0, r0, x1, y1, r1]);
+      return new Gradient("radial", [x0, y0, r0, x1, y1, r1], state.matrix);
     },
 
     fillText(value: string, x: number, y: number, maxWidth?: number) {

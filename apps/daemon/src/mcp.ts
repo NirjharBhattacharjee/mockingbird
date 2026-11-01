@@ -9,12 +9,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 import { type AsrWord, stripNonSpeech } from "@mockingbird/asr";
 import { loadAudio, type PcmAudio } from "@mockingbird/audio";
 import { type Cue, drawCaptions, parseSrt } from "@mockingbird/captions";
 import { correctNames } from "@mockingbird/llm";
-import { type Draw, renderMotion } from "@mockingbird/motion";
 import type { SpeechSegment } from "@mockingbird/vad";
 import { formatEntry, readDictionary, tellDaemon } from "./dictionary.ts";
 import type { PipelineDeps } from "./pipeline.ts";
@@ -804,10 +802,17 @@ async function render(
  * Word-by-word captions for the video `clips` make out of `path`, as SRT
  * for render: each clip transcribed with word times, then wordCaptions.
  */
+/** macOS's sandbox, and a profile that allows everything but the network. */
+const SANDBOX = "/usr/bin/sandbox-exec";
+const NO_NETWORK = "(version 1)(allow default)(deny network*)";
+const MOTION_RUNNER = join(import.meta.dir, "motion-run.ts");
+/** Two hours: past any real video, short of a frame count that never ends. */
+const MOTION_MAX_SECONDS = 7200;
+
 /**
  * Runs the motion script at `script`, whose default export draws one frame,
  * over the video at `path` or on its own at `size` for `duration` seconds,
- * and saves the result. The script runs here, with mockingbird's permissions.
+ * and saves the result. The script runs in its own sandboxed process with no network.
  */
 async function motion(
   script: string,
@@ -829,21 +834,6 @@ async function motion(
 ): Promise<string> {
   requireFile(script, "Script");
   if (path) requireFile(path, "File");
-  // Bun caches a module by its path, query and all, so an edited script is
-  // imported from a fresh copy. That's why a script is one file, with no imports of its own.
-  const copy = mkdtempSync(join(tmpdir(), "mockingbird-motion-"));
-  let module: { default?: unknown };
-  try {
-    const file = join(copy, basename(script));
-    copyFileSync(script, file);
-    module = await import(pathToFileURL(file).href);
-  } finally {
-    rmSync(copy, { recursive: true, force: true });
-  }
-  const draw = module.default as Draw;
-  if (typeof draw !== "function") {
-    throw new Error(`${script} needs \`export default function draw(ctx, t, m)\`.`);
-  }
   let seconds = duration;
   let audio = false;
   let picture = size;
@@ -867,9 +857,13 @@ async function motion(
     throw new Error(`size must be WIDTHxHEIGHT, even, 16 to 4096; got ${picture}`);
   }
   if (!seconds) throw new Error("Give a `duration` in seconds, or a video `path` to draw over.");
+  if (!(seconds <= MOTION_MAX_SECONDS)) {
+    throw new Error(`duration must be at most ${MOTION_MAX_SECONDS} s; got ${seconds}`);
+  }
   const target = outputFor(path ?? script, out, false, "motion");
   const started = performance.now();
-  const frames = await renderMotion(draw, {
+  const options = {
+    script,
     out: target,
     width,
     height,
@@ -878,7 +872,23 @@ async function motion(
     video: path,
     audio,
     cues: captions?.trim() ? parseSrt(captions) : [],
-  });
+  };
+  // A fresh process per call, sandboxed with no network: the script is the
+  // client's code, and mockingbird's only download is `models pull`.
+  const proc = Bun.spawn(
+    [SANDBOX, "-p", NO_NETWORK, process.execPath, MOTION_RUNNER, JSON.stringify(options)],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  const [said, why, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  if (code !== 0) {
+    rmSync(target, { force: true });
+    throw new Error(why.trim() || `the motion script stopped (exit ${code})`);
+  }
+  const frames = Number(said.trim());
   const took = ((performance.now() - started) / 1000).toFixed(1);
   return `${target} (${clock((frames / fps) * 1000)}, ${width}x${height}, ${fps} fps), drawn in ${took} s`;
 }
@@ -1189,7 +1199,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
     {
       name: "motion",
       description:
-        "Motion graphics written as code, drawn on this Mac with Core Graphics (no browser). `script` is a .ts or .js file whose `export default function draw(ctx, t, m)` draws the frame `t` seconds in, with the Canvas 2D API: paths, arc, roundRect, fill, stroke, clip, gradients, shadows, globalAlpha, globalCompositeOperation, save/restore, translate/rotate/scale/setTransform, fillText/strokeText/measureText (font like \"900 96px SF Pro\"), drawImage, setLineDash. No DOM, Path2D or filters. With `path` (usually render's output), each frame of that video is drawn first, its sound is kept, and the frame is `m.video` too: draw it again scaled to zoom or move it. `m` has width, height, fps, duration, frame, video, cues (from `captions`, timed to this video), image(path) for a picture file, interpolate(t, [t0, t1], [v0, v1], easing), spring(t, { from, to, start, stiffness, damping }), and ease (linear, in, out, inOut, back, bezier(x1, y1, x2, y2)). Without `path`, give `size` and `duration`. Saves to `out` or <name>-motion-N.mp4 and never overwrites. The script runs with mockingbird's permissions.",
+        'Motion graphics written as code, drawn on this Mac with Core Graphics (no browser). `script` is a .ts or .js file whose `export default function draw(ctx, t, m)` draws the frame `t` seconds in, with the Canvas 2D API: paths, arc, roundRect, fill, stroke, clip, gradients, shadows, globalAlpha, globalCompositeOperation, save/restore, translate/rotate/scale/setTransform, fillText/strokeText/measureText (font like "900 96px SF Pro"), drawImage, setLineDash. No DOM, Path2D or filters. With `path` (usually render\'s output), each frame of that video is drawn first, its sound is kept, and the frame is `m.video` too: draw it again scaled to zoom or move it. `m` has width, height, fps, duration, frame, video, cues (from `captions`, timed to this video), image(path) for a picture file, interpolate(t, [t0, t1], [v0, v1], easing), spring(t, { from, to, start, stiffness, damping }), and ease (linear, in, out, inOut, back, bezier(x1, y1, x2, y2)). Without `path`, give `size` and `duration`. Saves to `out` or <name>-motion-N.mp4 and never overwrites. The script runs in a sandbox with no network access.',
       inputSchema: {
         type: "object",
         properties: {

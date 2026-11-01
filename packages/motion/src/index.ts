@@ -1,4 +1,5 @@
 import { rmSync } from "node:fs";
+import type { Subprocess } from "bun";
 import { type Canvas, createCanvas, type Picture } from "./canvas.ts";
 import { ease, interpolate, spring } from "./time.ts";
 
@@ -77,57 +78,78 @@ export async function renderMotion(
     cues?: Cue[];
   },
 ): Promise<number> {
-  const total = Math.max(1, Math.round(duration * fps));
+  const total = Math.round(duration * fps);
+  if (!(Number.isFinite(total) && total >= 1)) {
+    throw new Error(
+      `duration × fps must come to at least one frame; got ${duration} s at ${fps} fps`,
+    );
+  }
   const size = width * height * 4;
   const raw = ["-f", "rawvideo", "-pix_fmt", "bgra"];
-  const decoder = video
-    ? Bun.spawn(
+  let canvas: Canvas | undefined;
+  let decoder: Subprocess<"ignore", "pipe", "pipe"> | undefined;
+  let encoder: Subprocess<"pipe", "ignore", "pipe"> | undefined;
+  let source: AsyncGenerator<Uint8Array> | undefined;
+  let drawn = 0;
+  try {
+    // The canvas first: if Core Graphics can't be loaded, no ffmpeg is left waiting.
+    canvas = createCanvas(width, height);
+    const sound =
+      video && audio
+        ? ["-i", video, "-map", "0:v", "-map", "1:a", "-c:a", "aac", "-b:a", "160k", "-shortest"]
+        : [];
+    encoder = Bun.spawn(
+      [
+        ...["ffmpeg", "-nostdin", "-loglevel", "error", "-y"],
+        ...[...raw, "-s", `${width}x${height}`, "-r", String(fps), "-i", "-"],
+        ...sound,
+        ...["-c:v", "libx264", "-crf", "18", "-preset", "veryfast", "-pix_fmt", "yuv420p"],
+        ...["-movflags", "+faststart", out],
+      ],
+      { stdin: "pipe", stderr: "pipe" },
+    );
+    if (video) {
+      decoder = Bun.spawn(
         [
           ...["ffmpeg", "-nostdin", "-loglevel", "error", "-i", video],
           ...["-vf", `fps=${fps},scale=${width}:${height},setsar=1`, ...raw, "-"],
         ],
         { stdout: "pipe", stderr: "pipe" },
-      )
-    : undefined;
-  const sound =
-    video && audio
-      ? ["-i", video, "-map", "0:v", "-map", "1:a", "-c:a", "aac", "-b:a", "160k", "-shortest"]
-      : [];
-  const encoder = Bun.spawn(
-    [
-      ...["ffmpeg", "-nostdin", "-loglevel", "error", "-y"],
-      ...[...raw, "-s", `${width}x${height}`, "-r", String(fps), "-i", "-"],
-      ...sound,
-      ...["-c:v", "libx264", "-crf", "18", "-preset", "veryfast", "-pix_fmt", "yuv420p"],
-      ...["-movflags", "+faststart", out],
-    ],
-    { stdin: "pipe", stderr: "pipe" },
-  );
-  const canvas = createCanvas(width, height);
-  const scene: Scene = {
-    width,
-    height,
-    fps,
-    duration: total / fps,
-    frame: 0,
-    video: undefined,
-    cues,
-    image: canvas.image,
-    interpolate,
-    spring,
-    ease,
-  };
-  let drawn = 0;
-  const source = decoder ? framesOf(decoder.stdout, size) : undefined;
-  try {
+      );
+      source = framesOf(decoder.stdout, size);
+    }
+    const scene: Scene = {
+      width,
+      height,
+      fps,
+      duration: total / fps,
+      frame: 0,
+      video: undefined,
+      cues,
+      image: canvas.image,
+      interpolate,
+      spring,
+      ease,
+    };
     while (drawn < total) {
       const next = source && (await source.next());
-      if (next?.done) break;
+      if (next?.done) {
+        // The video ran out: fine if ffmpeg read it all, a failure if it gave up.
+        if (decoder && (await decoder.exited) !== 0) {
+          const why = (await new Response(decoder.stderr).text()).trim();
+          throw new Error(`ffmpeg stopped reading ${video} after ${drawn} frames: ${why}`);
+        }
+        break;
+      }
       const t = drawn / fps;
       scene.frame = drawn;
       scene.video = canvas.beginFrame(next?.value);
       try {
-        draw(canvas.ctx, t, scene);
+        const result: unknown = draw(canvas.ctx, t, scene);
+        if (result instanceof Promise) {
+          result.catch(() => {});
+          throw new Error("draw must be a plain function, not async: each frame is drawn at once");
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(`draw failed at ${t.toFixed(2)} s (frame ${drawn}): ${message}`);
@@ -144,22 +166,17 @@ export async function renderMotion(
         `ffmpeg couldn't encode ${out}: ${(await new Response(encoder.stderr).text()).trim()}`,
       );
     }
-    // Only a decoder that gave nothing has finished; one cut short is still waiting to write.
-    if (decoder && drawn === 0 && (await decoder.exited) !== 0) {
-      throw new Error(
-        `ffmpeg couldn't read ${video}: ${(await new Response(decoder.stderr).text()).trim()}`,
-      );
-    }
     return drawn;
   } catch (error) {
-    encoder.kill();
+    // ffmpeg acts on SIGTERM only between writes, so a blocked one needs SIGKILL.
+    encoder?.kill("SIGKILL");
+    await encoder?.exited;
     rmSync(out, { force: true });
     throw error;
   } finally {
-    // A decoder cut short is blocked writing frames nobody reads, and ffmpeg
-    // only acts on SIGTERM between writes.
+    // A decoder cut short is blocked writing frames nobody reads.
     decoder?.kill("SIGKILL");
     await source?.return(undefined);
-    canvas.close();
+    canvas?.close();
   }
 }

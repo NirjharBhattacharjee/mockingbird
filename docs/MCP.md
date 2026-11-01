@@ -131,7 +131,8 @@ export default function draw(ctx, t, m) {
 
 - **The script** is one `.ts` or `.js` file, with no imports of its own. Its
   default export is called with the canvas context, the time `t` in seconds,
-  and `m`. It's read afresh on every call, so edit it and run `motion` again.
+  and `m`. Each call runs it in a new process, so edit it and run `motion`
+  again.
 - **Over a video** (`path`, usually `render`'s output), each frame of the
   video is drawn first, its sound is kept, and the frame is also `m.video`:
   draw it again scaled and moved to zoom or pan. Without `path`, give `size`
@@ -155,13 +156,15 @@ export default function draw(ctx, t, m) {
   `"italic 900 96px Avenir Next"`; `SF Pro` and `system-ui` are the system
   font, at any weight. There's no DOM, `Path2D`, `filter` or pixel access.
 - **Errors** say when they happened: `draw failed at 2.40 s (frame 72): …`,
-  and nothing is saved.
+  and nothing is saved. `draw` must return before the next frame, so an
+  `async` one is refused. `duration` is at most two hours.
 
 It needs a Mac with Apple silicon. On an M3, 6 seconds of 1080x1920 over a
 short, with a spring title, a zoom, captions that pop in and a progress bar,
 took 3.8 seconds: about 47 frames a second, counting decoding, drawing and
-encoding. The script runs with mockingbird's
-permissions, like any code on the Mac; see
+encoding. Each call runs the script in its own process under macOS's sandbox
+with the network denied, so it can read and write files but can't reach the
+internet; see
 [SECURITY_PRIVACY.md §6](./SECURITY_PRIVACY.md#6-process--trust-boundaries).
 
 ## Without MCP

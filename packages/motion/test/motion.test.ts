@@ -183,6 +183,30 @@ describe.if(macOS)("canvas", () => {
     });
   });
 
+  test("a gradient stays where it was made, and outlines text without filling it", () => {
+    withCanvas(({ ctx, pixels }) => {
+      const h = ctx.createLinearGradient(0, 0, 100, 0);
+      h.addColorStop(0, "#f00");
+      h.addColorStop(1, "#00f");
+      ctx.translate(50, 0);
+      ctx.fillStyle = h;
+      ctx.fillRect(0, 0, 10, 10);
+      // Made before the translate, it runs red to blue across x 0-100, so x=55 is
+      // more blue than red. One that moved with the translate would be red there.
+      const [b, , r] = at(pixels, 100, 55, 5);
+      expect(b ?? 0).toBeGreaterThan(r ?? 255);
+
+      ctx.resetTransform();
+      ctx.font = "900 60px sans-serif";
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = h;
+      ctx.strokeText("O", 10, 90);
+      const { width } = ctx.measureText("O");
+      // The middle of the O, inside its outline, stays empty.
+      expect(at(pixels, 100, Math.round(10 + width / 2), 70)[3]).toBe(0);
+    });
+  });
+
   test("draws text above its baseline and measures it", () => {
     withCanvas(({ ctx, pixels }) => {
       ctx.font = "bold 40px sans-serif";
@@ -254,9 +278,26 @@ describe.if(macOS && !!Bun.which("ffmpeg"))("renderMotion", () => {
         },
         { out: broken, width: 64, height: 64, fps: 10, duration: 1 },
       );
-      expect(failed).rejects.toThrow("draw failed at 0.20 s (frame 2): boom");
-      await failed.catch(() => {});
+      await expect(failed).rejects.toThrow("draw failed at 0.20 s (frame 2): boom");
       expect(existsSync(broken)).toBe(false);
+
+      const promised = renderMotion((async () => {}) as never, {
+        out: join(dir, "c.mp4"),
+        width: 64,
+        height: 64,
+        fps: 10,
+        duration: 1,
+      });
+      await expect(promised).rejects.toThrow("not async");
+      await expect(
+        renderMotion(() => {}, {
+          out: join(dir, "d.mp4"),
+          width: 64,
+          height: 64,
+          fps: 10,
+          duration: Number.POSITIVE_INFINITY,
+        }),
+      ).rejects.toThrow("at least one frame");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
