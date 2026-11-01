@@ -45,6 +45,7 @@ after the curl install, or `/opt/homebrew/bin/mockingbird` with Homebrew.
 | `frames(path, every, from, to)` | Stills from a video, one every `every` seconds (default 60), saved to a temp folder; returns their paths with `[mm:ss]` times, so a client that reads images can see slides and screen shares, or where the speaker is before framing a clip. `from` and `to` (seconds) take one stretch. Each still is read by seeking to it, so a long 4K phone video takes seconds, not minutes. |
 | `captions(path, clips, perCue, lit, upper)` | Word-by-word captions for the video `render` will make from `clips`, as SRT timed to the finished video: up to `perCue` words a cue (default 3), the word being said written `*like this*` (`lit`, default on), in capitals if `upper`. A new cue starts at each clip, after a sentence, after half a second's pause, or when its words span 1.2 seconds. Each clip is transcribed with two seconds either side, and a word belongs to the clip its middle falls in. |
 | `render(path, clips, …)` | Cuts `clips` out of a video and joins them into one MP4 with ffmpeg; see [Render options](#render-options). Saves to `out`, or `<name>-short-N.mp4` beside the source, and never overwrites a file. |
+| `motion(script, path, captions, size, duration, fps, out)` | Motion graphics written as code, drawn on the Mac with Core Graphics: see [Motion graphics](#motion-graphics). Saves to `out`, or `<name>-motion-N.mp4` beside the video or script, and never overwrites a file. |
 | `status` | Whether the background agent is running, which permissions it's missing, and whether macOS still has the Fn key. |
 | `dictionary_list` | Your dictionary: the names, places and jargon mockingbird spells a particular way. |
 | `dictionary_add(entry)` | Adds a word, like `mockingbird dictionary add`: `"Catppuccin"`, `"Catppuccin (a colour theme)"`, or `"cat puck => Catppuccin"`. Needs mockingbird running. |
@@ -102,6 +103,66 @@ short from a 60 fps screen recording, with word-by-word captions, a title, a
 picture insert, ducked music and a sound effect, took 2.8 seconds; 9 seconds
 cut from a 4K HEVC phone video took 11.5. `captions` for five clips took about
 5 seconds, most of it starting whisper-server.
+
+## Motion graphics
+
+`motion` runs a script the client writes and draws what it says, frame by
+frame. It's mockingbird's answer to Remotion and HyperFrames, without a
+browser: the script gets the browser's Canvas 2D API, which mockingbird
+implements over macOS's own Core Graphics and Core Text, and ffmpeg encodes
+the frames.
+
+```ts
+// title.ts
+export default function draw(ctx, t, m) {
+  const pop = m.spring(t, { from: 0.6, to: 1, start: 0.1 });
+  ctx.translate(m.width / 2, 330);
+  ctx.scale(pop, pop);
+  ctx.fillStyle = "#FFD500";
+  ctx.roundRect(-430, -95, 860, 190, 36);
+  ctx.fill();
+  ctx.fillStyle = "#111";
+  ctx.font = "900 92px SF Pro";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("3 MISTAKES", 0, 0);
+}
+```
+
+- **The script** is one `.ts` or `.js` file, with no imports of its own. Its
+  default export is called with the canvas context, the time `t` in seconds,
+  and `m`. It's read afresh on every call, so edit it and run `motion` again.
+- **Over a video** (`path`, usually `render`'s output), each frame of the
+  video is drawn first, its sound is kept, and the frame is also `m.video`:
+  draw it again scaled and moved to zoom or pan. Without `path`, give `size`
+  (default `1080x1920`) and `duration`; each frame starts transparent, which
+  comes out black.
+- **`m`** has `width`, `height`, `fps`, `duration`, `frame`, `video`,
+  `cues` (from `captions`, as `{ start, end, text }` timed to the video),
+  `image(path)` for a PNG, JPEG or HEIC (read once), and the timing helpers:
+  `interpolate(t, [t0, t1, …], [v0, v1, …], easing)`, held at the ends;
+  `spring(t, { from, to, start, stiffness, damping, mass })`, which
+  overshoots a little and settles in about a second with the defaults; and
+  `ease`: `linear`, `in`, `out`, `inOut`, `back`, and `bezier(x1, y1, x2, y2)`
+  like CSS's `cubic-bezier`.
+- **The canvas** has paths (`moveTo`, `lineTo`, curves, `arc`, `arcTo`,
+  `ellipse`, `rect`, `roundRect`), `fill`, `stroke`, `clip`, `fillRect`,
+  `strokeRect`, `clearRect`, linear and radial gradients, shadows,
+  `globalAlpha`, `globalCompositeOperation`, `save`/`restore`, `translate`,
+  `rotate`, `scale`, `transform`, `setTransform`, `setLineDash` and
+  `lineDashOffset` (for lines that draw themselves on), `fillText`,
+  `strokeText`, `measureText`, and `drawImage`. Fonts are written as in CSS,
+  `"italic 900 96px Avenir Next"`; `SF Pro` and `system-ui` are the system
+  font, at any weight. There's no DOM, `Path2D`, `filter` or pixel access.
+- **Errors** say when they happened: `draw failed at 2.40 s (frame 72): …`,
+  and nothing is saved.
+
+It needs a Mac with Apple silicon. On an M3, 6 seconds of 1080x1920 over a
+short, with a spring title, a zoom, captions that pop in and a progress bar,
+took 3.8 seconds: about 47 frames a second, counting decoding, drawing and
+encoding. The script runs with mockingbird's
+permissions, like any code on the Mac; see
+[SECURITY_PRIVACY.md §6](./SECURITY_PRIVACY.md#6-process--trust-boundaries).
 
 ## Without MCP
 

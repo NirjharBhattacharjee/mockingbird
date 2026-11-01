@@ -9,10 +9,12 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { type AsrWord, stripNonSpeech } from "@mockingbird/asr";
 import { loadAudio, type PcmAudio } from "@mockingbird/audio";
 import { type Cue, drawCaptions, parseSrt } from "@mockingbird/captions";
 import { correctNames } from "@mockingbird/llm";
+import { type Draw, renderMotion } from "@mockingbird/motion";
 import type { SpeechSegment } from "@mockingbird/vad";
 import { formatEntry, readDictionary, tellDaemon } from "./dictionary.ts";
 import type { PipelineDeps } from "./pipeline.ts";
@@ -572,8 +574,13 @@ function claimAll(video: string, sidecar: boolean): boolean {
   return both;
 }
 
-/** `out`, or `<name>-short-N.mp4` next to the source with the first N that's free; claimed. */
-function outputFor(path: string, out: string | undefined, sidecar: boolean): string {
+/** `out`, or `<name>-<kind>-N.mp4` next to the source with the first N that's free; claimed. */
+function outputFor(
+  path: string,
+  out: string | undefined,
+  sidecar: boolean,
+  kind = "short",
+): string {
   if (out) {
     if (!claimAll(out, sidecar)) {
       throw new Error(
@@ -584,7 +591,7 @@ function outputFor(path: string, out: string | undefined, sidecar: boolean): str
   }
   const base = join(dirname(path), basename(path, extname(path)));
   for (let n = 1; ; n++) {
-    if (claimAll(`${base}-short-${n}.mp4`, sidecar)) return `${base}-short-${n}.mp4`;
+    if (claimAll(`${base}-${kind}-${n}.mp4`, sidecar)) return `${base}-${kind}-${n}.mp4`;
   }
 }
 
@@ -797,6 +804,85 @@ async function render(
  * Word-by-word captions for the video `clips` make out of `path`, as SRT
  * for render: each clip transcribed with word times, then wordCaptions.
  */
+/**
+ * Runs the motion script at `script`, whose default export draws one frame,
+ * over the video at `path` or on its own at `size` for `duration` seconds,
+ * and saves the result. The script runs here, with mockingbird's permissions.
+ */
+async function motion(
+  script: string,
+  {
+    path,
+    size = "1080x1920",
+    duration,
+    fps = 30,
+    captions,
+    out,
+  }: {
+    path?: string;
+    size?: string;
+    duration?: number;
+    fps?: number;
+    captions?: string;
+    out?: string;
+  },
+): Promise<string> {
+  requireFile(script, "Script");
+  if (path) requireFile(path, "File");
+  // Bun caches a module by its path, query and all, so an edited script is
+  // imported from a fresh copy. That's why a script is one file, with no imports of its own.
+  const copy = mkdtempSync(join(tmpdir(), "mockingbird-motion-"));
+  let module: { default?: unknown };
+  try {
+    const file = join(copy, basename(script));
+    copyFileSync(script, file);
+    module = await import(pathToFileURL(file).href);
+  } finally {
+    rmSync(copy, { recursive: true, force: true });
+  }
+  const draw = module.default as Draw;
+  if (typeof draw !== "function") {
+    throw new Error(`${script} needs \`export default function draw(ctx, t, m)\`.`);
+  }
+  let seconds = duration;
+  let audio = false;
+  let picture = size;
+  if (path) {
+    const source = await probe(path);
+    if (!source.video) throw new Error(`${path} has no video, only audio.`);
+    picture = source.size;
+    audio = source.audio;
+    seconds = Math.min(duration ?? source.seconds, source.seconds);
+  }
+  const [width = 0, height = 0] = picture.split("x").map(Number);
+  if (
+    !/^\d+x\d+$/.test(picture) ||
+    width % 2 ||
+    height % 2 ||
+    width < 16 ||
+    height < 16 ||
+    width > 4096 ||
+    height > 4096
+  ) {
+    throw new Error(`size must be WIDTHxHEIGHT, even, 16 to 4096; got ${picture}`);
+  }
+  if (!seconds) throw new Error("Give a `duration` in seconds, or a video `path` to draw over.");
+  const target = outputFor(path ?? script, out, false, "motion");
+  const started = performance.now();
+  const frames = await renderMotion(draw, {
+    out: target,
+    width,
+    height,
+    fps,
+    duration: seconds,
+    video: path,
+    audio,
+    cues: captions?.trim() ? parseSrt(captions) : [],
+  });
+  const took = ((performance.now() - started) / 1000).toFixed(1);
+  return `${target} (${clock((frames / fps) * 1000)}, ${width}x${height}, ${fps} fps), drawn in ${took} s`;
+}
+
 async function captions(
   path: string,
   log: (m: string) => void,
@@ -1099,6 +1185,33 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
           upper: !!a.upper,
         });
       },
+    },
+    {
+      name: "motion",
+      description:
+        "Motion graphics written as code, drawn on this Mac with Core Graphics (no browser). `script` is a .ts or .js file whose `export default function draw(ctx, t, m)` draws the frame `t` seconds in, with the Canvas 2D API: paths, arc, roundRect, fill, stroke, clip, gradients, shadows, globalAlpha, globalCompositeOperation, save/restore, translate/rotate/scale/setTransform, fillText/strokeText/measureText (font like \"900 96px SF Pro\"), drawImage, setLineDash. No DOM, Path2D or filters. With `path` (usually render's output), each frame of that video is drawn first, its sound is kept, and the frame is `m.video` too: draw it again scaled to zoom or move it. `m` has width, height, fps, duration, frame, video, cues (from `captions`, timed to this video), image(path) for a picture file, interpolate(t, [t0, t1], [v0, v1], easing), spring(t, { from, to, start, stiffness, damping }), and ease (linear, in, out, inOut, back, bezier(x1, y1, x2, y2)). Without `path`, give `size` and `duration`. Saves to `out` or <name>-motion-N.mp4 and never overwrites. The script runs with mockingbird's permissions.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          script: { type: "string", description: "Absolute path to the motion script" },
+          path: { type: "string", description: "Absolute path to a video to draw over" },
+          captions: { type: "string", description: "SRT for m.cues, timed to the video" },
+          size: { type: "string", description: "WIDTHxHEIGHT without `path` (default 1080x1920)" },
+          duration: { type: "number", description: "Seconds; without `path`, required" },
+          fps: { type: "number", description: "Frames a second, 1-120 (default 30)" },
+          out: { type: "string", description: "Absolute path for the MP4" },
+        },
+        required: ["script"],
+      },
+      run: (a) =>
+        motion(resolve(String(a.script)), {
+          path: a.path === undefined ? undefined : resolve(String(a.path)),
+          size: a.size === undefined ? undefined : String(a.size),
+          duration: seconds(a.duration),
+          fps: Math.round(within(a.fps, 1, 120, "fps", 30)),
+          captions: a.captions === undefined ? undefined : String(a.captions),
+          out: a.out === undefined ? undefined : resolve(String(a.out)),
+        }),
     },
     {
       name: "frames",

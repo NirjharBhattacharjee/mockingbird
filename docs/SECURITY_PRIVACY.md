@@ -426,6 +426,14 @@ flowchart LR
   requests or a Unix-socket transport for these servers too, matching the
   IPC socket's model — not yet decided, tracked in
   [§9](#9-hardening-roadmap).
+- **`motion` runs a script the AI client wrote** ([MCP.md](./MCP.md#motion-graphics)).
+  The `mockingbird mcp` server imports that TypeScript or JavaScript file and
+  calls it once per frame, in its own process, with the same access to files
+  and the network as mockingbird itself. That's no more than a client with a
+  shell already has, but a client with only file-writing tools gains a way
+  to run code. The server never fetches a script: it only runs a path the
+  client gives it. A client that shouldn't run code on the Mac shouldn't be
+  given `mockingbird mcp`.
 - **Model files are untrusted input to native code.** A GGUF or ONNX file is
   parsed by `whisper.cpp`/`onnxruntime-node`, both written in C/C++ — a
   malicious or corrupted model file is a plausible memory-corruption vector.
