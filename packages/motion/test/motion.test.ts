@@ -62,12 +62,14 @@ describe("parsing", () => {
       weight: 0.4,
       size: 64,
       family: "SF Pro",
+      families: ["SF Pro"],
     });
     expect(parseFont("italic 900 20px 'Avenir Next', sans-serif")).toEqual({
       italic: true,
       weight: 0.62,
       size: 20,
       family: "Avenir Next",
+      families: ["Avenir Next", "sans-serif"],
     });
     expect(() => parseFont("64 Arial")).toThrow(/font/);
   });
@@ -200,10 +202,23 @@ describe.if(macOS)("canvas", () => {
       ctx.font = "900 60px sans-serif";
       ctx.lineWidth = 2;
       ctx.strokeStyle = h;
-      ctx.strokeText("O", 10, 90);
-      const { width } = ctx.measureText("O");
-      // The middle of the O, inside its outline, stays empty.
+      ctx.strokeText("I", 10, 90);
+      const { width } = ctx.measureText("I");
+      // The middle of the I's stem, inside its outline, stays empty; its edge is inked.
       expect(at(pixels, 100, Math.round(10 + width / 2), 70)[3]).toBe(0);
+      let edge = 0;
+      for (let x = 10; x < 10 + width; x++) edge = Math.max(edge, at(pixels, 100, x, 70)[3] ?? 0);
+      expect(edge).toBeGreaterThan(100);
+    });
+  });
+
+  test("a font that isn't installed is an error, unless a fallback is", () => {
+    withCanvas(({ ctx }) => {
+      expect(() => {
+        ctx.font = "40px No Such Family";
+      }).toThrow(/No Such Family isn't installed/);
+      ctx.font = "40px No Such Family, Helvetica";
+      expect(ctx.measureText("x").width).toBeGreaterThan(0);
     });
   });
 
