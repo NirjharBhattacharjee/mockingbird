@@ -62,12 +62,15 @@ describe("parsing", () => {
       weight: 0.4,
       size: 64,
       family: "SF Pro",
+      families: ["SF Pro"],
     });
+    expect(parseFont('40px "Odd, Name", serif').families).toEqual(["Odd, Name", "serif"]);
     expect(parseFont("italic 900 20px 'Avenir Next', sans-serif")).toEqual({
       italic: true,
       weight: 0.62,
       size: 20,
       family: "Avenir Next",
+      families: ["Avenir Next", "sans-serif"],
     });
     expect(() => parseFont("64 Arial")).toThrow(/font/);
   });
@@ -200,10 +203,45 @@ describe.if(macOS)("canvas", () => {
       ctx.font = "900 60px sans-serif";
       ctx.lineWidth = 2;
       ctx.strokeStyle = h;
-      ctx.strokeText("O", 10, 90);
-      const { width } = ctx.measureText("O");
-      // The middle of the O, inside its outline, stays empty.
+      ctx.strokeText("I", 10, 90);
+      const { width } = ctx.measureText("I");
+      // The middle of the I's stem, inside its outline, stays empty; its edge is inked.
       expect(at(pixels, 100, Math.round(10 + width / 2), 70)[3]).toBe(0);
+      let edge = 0;
+      for (let x = 10; x < 10 + width; x++) edge = Math.max(edge, at(pixels, 100, x, 70)[3] ?? 0);
+      expect(edge).toBeGreaterThan(100);
+
+      // And the outline is the gradient, red at the left, blue at the right.
+      ctx.clearRect(0, 0, 100, 100);
+      ctx.lineWidth = 6;
+      ctx.strokeText("H", 10, 90);
+      const solid: number[][] = [];
+      for (let x = 0; x < 100; x++) {
+        const px = at(pixels, 100, x, 70);
+        if (px[3] === 255) solid.push(px);
+      }
+      const [lb = 0, , lr = 0] = solid[0] ?? [];
+      const [rb = 0, , rr = 0] = solid.at(-1) ?? [];
+      expect(lr).toBeGreaterThan(lb);
+      expect(rb).toBeGreaterThan(rr);
+
+      // A gradient with no stops draws nothing, as it does for a fill.
+      ctx.clearRect(0, 0, 100, 100);
+      ctx.strokeStyle = ctx.createLinearGradient(0, 0, 100, 0);
+      ctx.strokeText("H", 10, 90);
+      let any = 0;
+      for (let i = 3; i < pixels.length; i += 4) any = Math.max(any, pixels[i] ?? 0);
+      expect(any).toBe(0);
+    });
+  });
+
+  test("a font that isn't installed is an error, unless a fallback is", () => {
+    withCanvas(({ ctx }) => {
+      expect(() => {
+        ctx.font = "40px No Such Family";
+      }).toThrow(/No Such Family isn't installed/);
+      ctx.font = "40px No Such Family, Helvetica";
+      expect(ctx.measureText("x").width).toBeGreaterThan(0);
     });
   });
 

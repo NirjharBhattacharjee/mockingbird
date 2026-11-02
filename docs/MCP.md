@@ -154,7 +154,11 @@ export default function draw(ctx, t, m) {
   `lineDashOffset` (for lines that draw themselves on), `fillText`,
   `strokeText`, `measureText`, and `drawImage`. Fonts are written as in CSS,
   `"italic 900 96px Avenir Next"`; `SF Pro` and `system-ui` are the system
-  font, at any weight. There's no DOM or pixel access.
+  font, at any weight. A family that isn't installed is an error when
+  `ctx.font` is set, not a silent swap to Helvetica; list fallbacks as CSS
+  does (`"40px SF Mono, Menlo"`) and the first installed one is used.
+  `strokeText` with a gradient outlines the letters. There's no DOM or pixel
+  access.
 - **`Path2D`** is there as a global, as in a browser: build a path once and
   draw it with `ctx.fill(path, rule)`, `ctx.stroke(path)` or `ctx.clip(path)`,
   under whatever transform is current then. `new Path2D("M12 21.35 …")` takes

@@ -25,8 +25,9 @@ const BGRX = 6 | (2 << 12);
 const kCGInterpolationHigh = 3;
 const kCGTextFill = 0;
 const kCGTextStroke = 1;
-const kCGTextStrokeClip = 5;
 const kCGTextClip = 7;
+const kCGBlendModeSourceIn = 18;
+const kCFCompareCaseInsensitive = 1;
 const kCGBlendModeClear = 16;
 const kCGGradientDrawsBeyondBothEnds = 3;
 /** dlsym's "search everything loaded" handle on macOS, `(void *)-2`. */
@@ -40,6 +41,7 @@ function loadSymbols() {
   const cf = dlopen(`${FRAMEWORKS}/CoreFoundation.framework/CoreFoundation`, {
     CFRelease: { args: [REF], returns: none },
     CFStringCreateWithCString: { args: [P, P, u32], returns: REF },
+    CFStringCompare: { args: [REF, REF, u64], returns: i64 },
     CFNumberCreate: { args: [P, i64, P], returns: REF },
     CFDictionaryCreate: { args: [P, P, P, i64, P, P], returns: REF },
     CFAttributedStringCreateMutable: { args: [P, i64], returns: REF },
@@ -83,6 +85,8 @@ function loadSymbols() {
     CGContextSetInterpolationQuality: { args: [REF, i32], returns: none },
     CGContextSetTextDrawingMode: { args: [REF, i32], returns: none },
     CGContextSetTextPosition: { args: [REF, f64, f64], returns: none },
+    CGContextBeginTransparencyLayer: { args: [REF, P], returns: none },
+    CGContextEndTransparencyLayer: { args: [REF], returns: none },
     CGContextAddPath: { args: [REF, REF], returns: none },
     CGContextFillPath: { args: [REF], returns: none },
     CGContextEOFillPath: { args: [REF], returns: none },
@@ -372,6 +376,8 @@ export function parseFont(css: string): {
   weight: number;
   size: number;
   family: string;
+  /** The family and its fallbacks, in order. */
+  families: string[];
 } {
   const m =
     /^\s*((?:(?:italic|oblique|normal|bold|bolder|lighter|[1-9]00|small-caps)\s+)*)(\d*\.?\d+)px(?:\/\S+)?\s+(.+)$/i.exec(
@@ -381,16 +387,16 @@ export function parseFont(css: string): {
     throw new Error(`"${css}" isn't a font mockingbird reads; write it like "bold 64px SF Pro"`);
   const words = (m[1] ?? "").toLowerCase().split(/\s+/);
   const weight = words.map((w) => WEIGHTS[w]).find((w) => w !== undefined && w !== 0) ?? 0;
-  const family =
-    (m[3] ?? "")
-      .split(",")[0]
-      ?.trim()
-      .replace(/^["']|["']$/g, "") ?? "";
+  // Commas inside a quoted name are part of it, not a fallback.
+  const families = ((m[3] ?? "").match(/"[^"]*"|'[^']*'|[^,]+/g) ?? [])
+    .map((f) => f.trim().replace(/^["']|["']$/g, ""))
+    .filter(Boolean);
   return {
     italic: words.some((w) => w === "italic" || w === "oblique"),
     weight,
     size: Number(m[2]),
-    family,
+    family: families[0] ?? "",
+    families,
   };
 }
 
@@ -480,7 +486,21 @@ export function createCanvas(width: number, height: number) {
   const fontFor = (css: string): Font => {
     const cached = fonts.get(css);
     if (cached) return cached;
-    const { italic, weight, size, family } = parseFont(css);
+    const { italic, weight, size, families } = parseFont(css);
+    for (const family of families) {
+      const font = fontOf(family, weight, italic, size);
+      if (font) {
+        fonts.set(css, font);
+        return font;
+      }
+    }
+    throw new Error(
+      `${families.join(", ")} ${families.length > 1 ? "aren't" : "isn't"} installed on this Mac; use an installed family (Font Book lists them) or add a fallback, like "${css}, serif"`,
+    );
+  };
+
+  /** One family as Core Text has it, or undefined when it isn't installed and Core Text would substitute another. */
+  const fontOf = (family: string, weight: number, italic: boolean, size: number) => {
     const lower = family.toLowerCase();
     const temporary: bigint[] = [];
     const temp = (ref: bigint) => {
@@ -489,13 +509,14 @@ export function createCanvas(width: number, height: number) {
     };
     try {
       let name: bigint;
-      if (SYSTEM_FONTS.has(lower)) {
+      const system = SYSTEM_FONTS.has(lower);
+      if (system) {
         // The system font's family has a private name; ask Core Text for it once.
         if (!systemFamily) {
-          const system = temp(
+          const ui = temp(
             BigInt(ct.symbols.CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 12, null)),
           );
-          systemFamily = own(ct.symbols.CTFontCopyFamilyName(system), "the system font's name");
+          systemFamily = own(ct.symbols.CTFontCopyFamilyName(ui), "the system font's name");
         }
         name = systemFamily;
       } else {
@@ -515,14 +536,18 @@ export function createCanvas(width: number, height: number) {
       );
       const descriptor = temp(BigInt(ct.symbols.CTFontDescriptorCreateWithAttributes(attributes)));
       const ref = BigInt(ct.symbols.CTFontCreateWithFontDescriptor(descriptor, size, null));
-      if (!ref) throw new Error(`Core Text couldn't make the font ${css}`);
-      const font = {
+      if (!ref) throw new Error(`Core Text couldn't make the font ${family}`);
+      // Core Text answers a family it doesn't have with its fallback font, not an error.
+      const got = temp(BigInt(ct.symbols.CTFontCopyFamilyName(ref)));
+      if (!system && cf.symbols.CFStringCompare(got, name, kCFCompareCaseInsensitive) !== 0n) {
+        release(ref);
+        return undefined;
+      }
+      return {
         ref,
         ascent: ct.symbols.CTFontGetAscent(ref),
         descent: ct.symbols.CTFontGetDescent(ref),
       };
-      fonts.set(css, font);
-      return font;
     } finally {
       for (const ref of temporary.reverse()) release(ref);
     }
@@ -861,13 +886,25 @@ export function createCanvas(width: number, height: number) {
         else cg.symbols.CGContextSetRGBStrokeColor(c, ...style.rgba);
         cg.symbols.CGContextSetTextDrawingMode(c, how === "fill" ? kCGTextFill : kCGTextStroke);
         ct.symbols.CTLineDraw(line.ref, c);
-      } else {
-        // A gradient shows through the letters (or their outline): clip to them, then paint.
-        cg.symbols.CGContextSetTextDrawingMode(c, how === "fill" ? kCGTextClip : kCGTextStrokeClip);
+      } else if (how === "fill") {
+        // A gradient shows through the letters: clip to them, then paint.
+        cg.symbols.CGContextSetTextDrawingMode(c, kCGTextClip);
         ct.symbols.CTLineDraw(line.ref, c);
         cg.symbols.CGContextScaleCTM(c, 1 / squeeze, -1);
         cg.symbols.CGContextTranslateCTM(c, -(x + dx), -(y + dy));
         gradient(style.css as Gradient);
+      } else if ((style.css as Gradient).stops.length) {
+        // Text clip modes clip to the filled letters even when stroking, so an
+        // outline goes through a layer: drawn opaque, then the gradient over it, source-in.
+        cg.symbols.CGContextBeginTransparencyLayer(c, null);
+        cg.symbols.CGContextSetRGBStrokeColor(c, 1, 1, 1, 1);
+        cg.symbols.CGContextSetTextDrawingMode(c, kCGTextStroke);
+        ct.symbols.CTLineDraw(line.ref, c);
+        cg.symbols.CGContextScaleCTM(c, 1 / squeeze, -1);
+        cg.symbols.CGContextTranslateCTM(c, -(x + dx), -(y + dy));
+        cg.symbols.CGContextSetBlendMode(c, kCGBlendModeSourceIn);
+        gradient(style.css as Gradient);
+        cg.symbols.CGContextEndTransparencyLayer(c);
       }
       cg.symbols.CGContextRestoreGState(c);
     } finally {
