@@ -64,6 +64,7 @@ describe("parsing", () => {
       family: "SF Pro",
       families: ["SF Pro"],
     });
+    expect(parseFont('40px "Odd, Name", serif').families).toEqual(["Odd, Name", "serif"]);
     expect(parseFont("italic 900 20px 'Avenir Next', sans-serif")).toEqual({
       italic: true,
       weight: 0.62,
@@ -209,6 +210,28 @@ describe.if(macOS)("canvas", () => {
       let edge = 0;
       for (let x = 10; x < 10 + width; x++) edge = Math.max(edge, at(pixels, 100, x, 70)[3] ?? 0);
       expect(edge).toBeGreaterThan(100);
+
+      // And the outline is the gradient, red at the left, blue at the right.
+      ctx.clearRect(0, 0, 100, 100);
+      ctx.lineWidth = 6;
+      ctx.strokeText("H", 10, 90);
+      const solid: number[][] = [];
+      for (let x = 0; x < 100; x++) {
+        const px = at(pixels, 100, x, 70);
+        if (px[3] === 255) solid.push(px);
+      }
+      const [lb = 0, , lr = 0] = solid[0] ?? [];
+      const [rb = 0, , rr = 0] = solid.at(-1) ?? [];
+      expect(lr).toBeGreaterThan(lb);
+      expect(rb).toBeGreaterThan(rr);
+
+      // A gradient with no stops draws nothing, as it does for a fill.
+      ctx.clearRect(0, 0, 100, 100);
+      ctx.strokeStyle = ctx.createLinearGradient(0, 0, 100, 0);
+      ctx.strokeText("H", 10, 90);
+      let any = 0;
+      for (let i = 3; i < pixels.length; i += 4) any = Math.max(any, pixels[i] ?? 0);
+      expect(any).toBe(0);
     });
   });
 

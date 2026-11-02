@@ -387,8 +387,8 @@ export function parseFont(css: string): {
     throw new Error(`"${css}" isn't a font mockingbird reads; write it like "bold 64px SF Pro"`);
   const words = (m[1] ?? "").toLowerCase().split(/\s+/);
   const weight = words.map((w) => WEIGHTS[w]).find((w) => w !== undefined && w !== 0) ?? 0;
-  const families = (m[3] ?? "")
-    .split(",")
+  // Commas inside a quoted name are part of it, not a fallback.
+  const families = ((m[3] ?? "").match(/"[^"]*"|'[^']*'|[^,]+/g) ?? [])
     .map((f) => f.trim().replace(/^["']|["']$/g, ""))
     .filter(Boolean);
   return {
@@ -893,7 +893,7 @@ export function createCanvas(width: number, height: number) {
         cg.symbols.CGContextScaleCTM(c, 1 / squeeze, -1);
         cg.symbols.CGContextTranslateCTM(c, -(x + dx), -(y + dy));
         gradient(style.css as Gradient);
-      } else {
+      } else if ((style.css as Gradient).stops.length) {
         // Text clip modes clip to the filled letters even when stroking, so an
         // outline goes through a layer: drawn opaque, then the gradient over it, source-in.
         cg.symbols.CGContextBeginTransparencyLayer(c, null);
