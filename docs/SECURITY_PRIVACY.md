@@ -82,9 +82,10 @@ Enforced by [ARCHITECTURE.md §9](./ARCHITECTURE.md#9-everything-is-local):
 - **No account, login or license server.**
 - **The only download is one you run:** `mockingbird models pull`, which
   prints each URL and checks each file against a pinned sha256.
-  `mockingbird setup` runs the same download, and `brew install` for a
-  missing ffmpeg or whisper-cpp, after showing what it fetches and from
-  where, and only on a yes (or `--yes`). No update checks.
+  `mockingbird setup` runs the same download after showing its size and
+  hosts, and `brew install` for a missing ffmpeg or whisper-cpp after naming
+  them; each only on a yes (or `--yes`). Homebrew fetches and checks its
+  own downloads. No update checks.
 - **`mockingbird mcp` opens no port.** The agent starts it and talks over
   stdin and stdout.
 - **The stack rule is a security control.** Every dependency is code in

@@ -3,7 +3,7 @@
  * `mockingbird setup` fixes it, asking first, then adds mockingbird to the
  * coding agents on this computer (#141). Both work from the same checks.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { type Agent, agents } from "./agents.ts";
@@ -76,7 +76,9 @@ function modelThere(mb: string, file: string): boolean {
   const path = join(mb, "models", file);
   if (!existsSync(path)) return false;
   const pinned = MODEL_FILES.find((m) => m.file === file);
-  if (!pinned || (pinned.bytes ?? 0) > 50e6) return true;
+  if (!pinned) return true;
+  // A big model by its size (hashing 1 GB on every doctor run is slow), the VAD by its sha256.
+  if ((pinned.bytes ?? 0) > 50e6) return !pinned.bytes || statSync(path).size === pinned.bytes;
   try {
     return (
       new Bun.CryptoHasher("sha256").update(readFileSync(path)).digest("hex") === pinned.sha256
@@ -137,6 +139,9 @@ export function checks(deps: SetupDeps = {}): Check[] {
         savedSetting(ASR_MODEL_SETTING, mb),
       ),
     );
+    // A pinned model cut short (an empty file, a download stopped halfway) won't load.
+    const inModels = !env.MOCKINGBIRD_ASR_MODEL?.includes("/");
+    if (inModels && !modelThere(mb, speech)) throw new Error(`${speech} is damaged or incomplete`);
   } catch (error) {
     speechOk = false;
     speech = error instanceof Error ? (error.message.split("\n")[0] ?? "missing") : "missing";
@@ -203,7 +208,8 @@ export function doctor(args: string[], deps: SetupDeps = {}): number {
   if (helped(args, "--json", DOCTOR_USAGE, log)) return 0;
   const all = checks(deps);
   const command = commandPath(deps);
-  const found = command ? agents(command, deps) : [];
+  // Each agent's state comes from its own config, so they're listed either way.
+  const found = agents(command ?? "mockingbird", deps);
   if (args.includes("--json")) {
     const agentList = found.map(({ name, where, registered }) => ({ name, where, registered }));
     log(JSON.stringify({ checks: all, agents: agentList }, null, 2));
@@ -274,9 +280,13 @@ export async function setup(args: string[], deps: SetupDeps = {}): Promise<numbe
     // fails its sha256, so the most it can download is all of them.
     const size = MODEL_FILES.reduce((sum, m) => sum + (m.bytes ?? 0), 0);
     const from = [...new Set(MODEL_FILES.map((m) => new URL(m.url).host))].join(" and ");
-    if (!ask(`Download the speech models (up to ${gb(size)}) from ${from}? [Y/n]`)) return 1;
-    const code = await (deps.pull ?? (() => Promise.resolve(1)))();
-    if (code !== 0) return code;
+    if (ask(`Download the speech models (up to ${gb(size)}) from ${from}? [Y/n]`)) {
+      const code = await (deps.pull ?? (() => Promise.resolve(1)))();
+      if (code !== 0) return code;
+    } else {
+      // Agents can still be added: the tools that don't transcribe work without the models.
+      log("Skipped the models: transcribe and captions need them (`mockingbird models pull`).");
+    }
   }
 
   const command = commandPath(deps);

@@ -118,6 +118,18 @@ describe("agents", () => {
     expect(codexMentions('[mcp_servers.other]\ncommand = "mockingbird"\n')).toBe(false);
   });
 
+  test('a quoted ["mcp_servers"] table is the same table to Codex', () => {
+    expect(codexMentions('["mcp_servers"]\nmockingbird = { command = "mb" }\n')).toBe(true);
+    const h = home();
+    writeFileSync(
+      join(h, ".codex", "config.toml"),
+      '[ "mcp_servers" . \'mockingbird\' ]\ncommand = "mb"\n',
+    );
+    expect(agents("mb", { home: h, which: none }).find((a) => a.name === "Codex")?.registered).toBe(
+      true,
+    );
+  });
+
   test("Claude Code counts as having it through `claude mcp add` or the plugin", () => {
     const empty = mkdtempSync(join(tmpdir(), "mb-setup-"));
     const claude = (out: string) =>
@@ -178,7 +190,7 @@ test("setup installs missing tools and models after asking, then adds the agents
   ).toBe("missing or damaged");
 });
 
-test("a no to the download stops setup before anything is added", async () => {
+test("a no to the download still adds the agents, and setup exits 1 for the missing models", async () => {
   const h = home();
   const code = await setup([], {
     home: h,
@@ -189,7 +201,21 @@ test("a no to the download stops setup before anything is added", async () => {
     log: () => {},
   });
   expect(code).toBe(1);
-  expect(existsSync(join(h, ".cursor", "mcp.json"))).toBe(false);
+  expect(existsSync(join(h, ".cursor", "mcp.json"))).toBe(true);
+});
+
+test("an empty or cut-short pinned speech model counts as damaged", () => {
+  const h = home();
+  const mb = join(h, "mb");
+  mkdirSync(join(mb, "models"), { recursive: true });
+  writeFileSync(join(mb, "models", "ggml-large-v3-q5_0.bin"), "");
+  const speech = checks({ home: h, mbHome: mb, which: none, env: {} }).find(
+    (c) => c.name === "speech model",
+  );
+  expect(speech).toMatchObject({
+    ok: false,
+    detail: "ggml-large-v3-q5_0.bin is damaged or incomplete",
+  });
 });
 
 test("doctor's needed checks name a fix", () => {

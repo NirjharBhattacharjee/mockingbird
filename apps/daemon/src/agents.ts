@@ -45,17 +45,31 @@ export function codexMentions(toml: string): boolean {
     const line = raw.replace(/\s+#.*$/, "").trim();
     const header = line.match(/^\[\s*([^\]]+?)\s*\]$/);
     if (header) {
-      table = header[1] ?? "";
+      table = bare(header[1] ?? "");
       continue;
     }
-    const key = line.match(/^([^=]+?)\s*=/)?.[1] ?? "";
-    const named = (text: string) => /^["']?mockingbird["']?$/.test(text.trim());
-    if (/^mcp_servers\s*\.\s*["']?mockingbird["']?(\s*\.|$)/.test(key)) return true;
-    if (/^mcp_servers$/.test(key.trim()) && /\bmockingbird\b/.test(line)) return true;
-    if (table.replace(/\s/g, "") === "mcp_servers" && named(key.split(".")[0] ?? "")) return true;
+    const key = bare(line.match(/^([^=]+?)\s*=/)?.[1] ?? "");
+    if (key === "mcp_servers.mockingbird" || key.startsWith("mcp_servers.mockingbird."))
+      return true;
+    if (key === "mcp_servers" && /\bmockingbird\b/.test(line)) return true;
+    if (table === "mcp_servers" && (key === "mockingbird" || key.startsWith("mockingbird.")))
+      return true;
   }
   return false;
 }
+
+/** A TOML key or table name with its quotes and spaces gone: ["a" . 'b'] names the same table as [a.b]. */
+const bare = (name: string) => name.replace(/[\s"']/g, "");
+
+/** Whether the config has the `[mcp_servers.mockingbird]` table, however it's quoted. */
+const codexTable = (toml: string) =>
+  toml.split("\n").some((line) => {
+    const header = line
+      .replace(/\s+#.*$/, "")
+      .trim()
+      .match(/^\[\s*([^\]]+?)\s*\]$/);
+    return !!header && bare(header[1] ?? "") === "mcp_servers.mockingbird";
+  });
 
 /**
  * Written beside it and renamed over it, so a write cut short never leaves
@@ -67,7 +81,8 @@ function replace(file: string, text: string) {
   const target = existsSync(file) ? realpathSync(file) : file;
   const mode = existsSync(target) ? statSync(target).mode & 0o777 : 0o644;
   mkdirSync(dirname(target), { recursive: true });
-  const temp = `${target}.mockingbird-tmp`;
+  // This process's own name: two setups at once can't trip on each other's file.
+  const temp = `${target}.mockingbird-${process.pid}.tmp`;
   writeFileSync(temp, text, { mode });
   chmodSync(temp, mode);
   renameSync(temp, target);
@@ -79,7 +94,13 @@ const runIt = (argv: string[]) => {
 };
 
 /** A JSON config with servers under `key`: Cursor's and Gemini CLI's `mcpServers`, VS Code's `servers`. */
-function jsonConfig(name: string, file: string, key: string, entry: object): Agent {
+function jsonConfig(
+  name: string,
+  file: string,
+  key: string,
+  entry: object,
+  which: (name: string) => string | null,
+): Agent {
   const read = (): Record<string, Record<string, unknown>> => {
     if (!existsSync(file)) return {};
     const text = readFileSync(file, "utf8");
@@ -96,7 +117,9 @@ function jsonConfig(name: string, file: string, key: string, entry: object): Age
   let registered = false;
   try {
     const command = (read()[key]?.mockingbird as { command?: unknown } | undefined)?.command;
-    registered = typeof command === "string" && (!command.includes("/") || existsSync(command));
+    registered =
+      typeof command === "string" &&
+      (command.includes("/") ? existsSync(command) : !!which(command));
   } catch {}
   return {
     name,
@@ -142,17 +165,23 @@ export function agents(command: string, deps: AgentDeps = {}): Agent[] {
     });
   }
   if (existsSync(join(home, ".cursor"))) {
-    found.push(jsonConfig("Cursor", join(home, ".cursor", "mcp.json"), "mcpServers", stdio));
+    found.push(jsonConfig("Cursor", join(home, ".cursor", "mcp.json"), "mcpServers", stdio, which));
   }
   if (existsSync(join(home, ".gemini"))) {
     found.push(
-      jsonConfig("Gemini CLI", join(home, ".gemini", "settings.json"), "mcpServers", stdio),
+      jsonConfig("Gemini CLI", join(home, ".gemini", "settings.json"), "mcpServers", stdio, which),
     );
   }
   const vscode = join(home, "Library", "Application Support", "Code", "User");
   if (existsSync(vscode)) {
     found.push(
-      jsonConfig("VS Code", join(vscode, "mcp.json"), "servers", { type: "stdio", ...stdio }),
+      jsonConfig(
+        "VS Code",
+        join(vscode, "mcp.json"),
+        "servers",
+        { type: "stdio", ...stdio },
+        which,
+      ),
     );
   }
   if (existsSync(join(home, ".codex"))) {
@@ -167,8 +196,7 @@ export function agents(command: string, deps: AgentDeps = {}): Agent[] {
       name: "Codex",
       where: file,
       // The table as TOML can name it: bare, "quoted" or 'literal'.
-      registered:
-        /^\s*\[\s*mcp_servers\s*\.\s*(mockingbird|"mockingbird"|'mockingbird')\s*\]/m.test(text),
+      registered: codexTable(text),
       register: () => {
         const before = existsSync(file) ? readFileSync(file, "utf8") : "";
         if (codexMentions(before)) {

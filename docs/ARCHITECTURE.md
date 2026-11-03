@@ -223,9 +223,10 @@ MCP server is its own short-lived process.
 - **No account, no login, no license server.**
 - **The only network activity is a download the user runs**
   (`mockingbird models pull`), which names each URL and checks each file's
-  sha256. `mockingbird setup` runs the same download, and `brew install` for
-  a missing ffmpeg or whisper-cpp, only after showing the size and hosts and
-  getting a yes. mockingbird never checks for updates.
+  sha256. `mockingbird setup` runs the same download only after showing its
+  size and hosts and getting a yes, and asks before `brew install` for a
+  missing ffmpeg or whisper-cpp (Homebrew fetches and checks those itself).
+  mockingbird never checks for updates.
 - **`mockingbird mcp` opens no port.** It speaks over stdin and stdout to the
   agent that started it.
 - **An agent's motion script can't reach the network.** It runs under
