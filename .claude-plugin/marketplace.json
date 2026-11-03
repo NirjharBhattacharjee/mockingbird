@@ -1,0 +1,15 @@
+{
+  "name": "mockingbird",
+  "description": "mockingbird's plugin: skills, a reviewer agent and a motion design kit for editing video with mockingbird's local engine.",
+  "owner": {
+    "name": "Nirjhar Bhattacharjee",
+    "url": "https://github.com/NirjharBhattacharjee"
+  },
+  "plugins": [
+    {
+      "name": "mockingbird",
+      "source": "./plugin",
+      "description": "Edit your videos into shorts and long-form YouTube videos, rendered on your computer by mockingbird."
+    }
+  ]
+}

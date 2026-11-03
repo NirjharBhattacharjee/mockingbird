@@ -18,6 +18,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
+| 2026-11-04 | mockingbird-studio moved into `plugin/` and is now the `mockingbird` plugin; a `guide` tool and server instructions give every MCP client its playbooks (#140). |
 | 2026-11-04 | Long-form fixes (#127): `render` and `motion` reach −14 LUFS with a measured gain and a limiter instead of one pass of `loudnorm` (−15.9 → −14.3 LUFS on the v2 edit); `captions` hears overlapping padded clips as one stretch (171 s → 62 s for 96 clips); captions in a wide video are subtitle-sized. |
 | 2026-11-03 | `render` opens the source once per clip with a seek instead of trimming one input: 2.4x faster on a 96-clip edit, and frame-accurate. Over 100 clips it renders in batches and joins them, to bound memory (#137). |
 | 2026-11-03 | Pivot step 1 (#135). Deleted dictation and the meeting recorder: `packages/{hotkey,inject,context,llm,cue}`, mic capture and the system audio tap in `packages/audio`, the launchd agent, the pipeline and its FSM, learning, calibration, Ollama, the Bubble Tea screens and TUI.md. The dictionary's parsing and name matching moved to `packages/store`. With no daemon, every process opens `data.db` read-write. `apps/daemon/src/agent.ts` is now a stub that removes an upgraded Mac's leftover agent. |
@@ -58,8 +59,11 @@ agent decides the edit. mockingbird runs ffmpeg, Whisper and its own
 renderers on the user's computer, and never calls a model or a server.
 
 The editing know-how (hooks, pacing, caption style, motion design) lives in
-the [mockingbird-studio](https://github.com/NirjharBhattacharjee/mockingbird-studio)
-plugin as skills. It moves into this repo in pivot step 3.
+[`plugin/`](../plugin/README.md) as skills, a reviewer agent and a motion
+design kit. Claude Code installs it as a plugin; every other agent gets the
+same playbooks from the `guide` tool, which reads each skill's `SKILL.md`
+(`apps/daemon/src/guide.ts`). The server's instructions, sent on connect,
+point the client's model at it.
 
 ## 2. Core principles
 
@@ -234,6 +238,7 @@ mockingbird/
 │   ├── daemon/src/          the engine (the name predates the pivot)
 │   │   ├── cli.ts           every command
 │   │   ├── mcp.ts           the MCP server and its tools
+│   │   ├── guide.ts         the plugin's playbooks, served by `guide`
 │   │   ├── motion-run.ts    runs a motion script in its own process
 │   │   ├── transcribe.ts    `mockingbird transcribe`
 │   │   ├── dictionary.ts    `mockingbird dictionary`, data.db access
@@ -250,6 +255,9 @@ mockingbird/
 │   ├── captions/            SRT parsing, captions drawn with Core Text
 │   ├── motion/              Canvas 2D over Core Graphics, motion scripts to MP4
 │   └── store/               data.db, the dictionary's parsing and name matching
+├── plugin/                  the Claude Code plugin: skills, the reviewer agent,
+│                            the motion kit, templates, sound effects, research
+├── .claude-plugin/          the marketplace file that points at plugin/
 ├── bench/                   Whisper model comparison over a synthetic corpus
 ├── scripts/                 install.sh, fixture generation
 └── .github/workflows/       ci.yml, release.yml

@@ -47,6 +47,7 @@ after the curl install, or `/opt/homebrew/bin/mockingbird` with Homebrew.
 | `captions(path, clips, perCue, lit, upper)` | Word-by-word captions for the video `render` will make from `clips`, as SRT timed to the finished video: up to `perCue` words a cue (default 3), the word being said written `*like this*` (`lit`, default on), in capitals if `upper`. A new cue starts at each clip, after a sentence, after half a second's pause, or when its words span 1.2 seconds. Each clip is transcribed with two seconds either side, clips whose padded stretches overlap are transcribed together as one, and a word belongs to the clip its middle falls in. |
 | `render(path, clips, …)` | Cuts `clips` out of a video and joins them into one MP4 with ffmpeg; see [Render options](#render-options). Saves to `out`, or `<name>-short-N.mp4` beside the source, and never overwrites a file. |
 | `motion(script, path, captions, size, duration, fps, out)` | Motion graphics written as code, drawn on the Mac with Core Graphics: see [Motion graphics](#motion-graphics). Saves to `out`, or `<name>-motion-N.mp4` beside the video or script, and never overwrites a file. |
+| `guide(topic)` | A playbook for one job, from [`plugin/`](../plugin/README.md): `viral-short`, `long-form`, `hooks`, `retention-editing`, `captions`, `motion-graphics`, `style-match`, or `reviewer` (the checks a finished video has to pass). It starts with the folder holding the playbook's scripts, kit and templates. |
 | `status` | Whether mockingbird is ready: the transcription model in use, the speech detection model, ffmpeg, whisper-server, and how many words the dictionary has. |
 | `dictionary_list` | Your dictionary: the names, places and jargon mockingbird spells a particular way. |
 | `dictionary_add(entry)` | Adds a word, like `mockingbird dictionary add`: `"Catppuccin"`, `"Catppuccin (a colour theme)"`, or `"cat puck => Catppuccin"`. |
@@ -80,9 +81,11 @@ pick one to three moments of 15 to 60 seconds, get the word times around each,
 cut on word boundaries, make word-by-word captions with `captions`, frame the
 speaker with `frames`, and `render`.
 
-For the editing itself (hooks, pacing, captions, b-roll, sound), the
-[mockingbird-studio](https://github.com/NirjharBhattacharjee/mockingbird-studio)
-plugin for Claude Code holds the know-how as skills and uses these tools.
+For the editing itself (hooks, pacing, captions, b-roll, sound), call
+`guide`. The server's instructions, sent when a client connects, tell its
+model which topic fits which job. Claude Code can load the same playbooks as
+skills by installing the plugin in [`plugin/`](../plugin/README.md); then it
+doesn't need `guide`.
 
 mockingbird makes none of those choices. It transcribes and runs ffmpeg; which
 moments are worth keeping, where to zoom, and what the captions say are up to

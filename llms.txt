@@ -7,7 +7,7 @@ To install it or set it up for someone, follow the agent setup guide. It lists t
 ## Docs
 
 - [Set up with a coding agent](https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/docs/AGENT_INSTALL.md): install, check, connect over MCP, written for agents
-- [Tools](https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/docs/MCP.md): every MCP tool and its options
+- [Tools](https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/docs/MCP.md): every MCP tool and its options. Call `guide` before an edit for that job's playbook.
 - [User guide](https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/docs/README.md): commands, troubleshooting, privacy
 - [README](https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/README.md): what it is, install
 

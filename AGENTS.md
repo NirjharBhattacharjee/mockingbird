@@ -181,8 +181,8 @@ transcription, WER and time from `bench:models`.
 ## What can't be tested locally / in CI
 
 - Whether an edit is *good* (pacing, framing, caption placement) — needs a
-  person watching the render; the mockingbird-studio reviewer agent checks
-  what can be measured.
+  person watching the render; the plugin's reviewer agent
+  (`plugin/agents/reviewer.md`) checks what can be measured.
 - The upgrade from v0.3.2 (`retire.ts` removing the launchd agent and giving
   Fn back) — needs a Mac that ran dictation; the unit tests fake `launchctl`
   and `defaults`.

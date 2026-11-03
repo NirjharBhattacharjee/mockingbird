@@ -44,6 +44,7 @@ test("answers initialize with the client's protocol version, and tools and promp
       protocolVersion: "2025-03-26",
       capabilities: { tools: {}, prompts: {} },
       serverInfo: { name: "mockingbird", version: "1" },
+      instructions: expect.stringContaining("guide"),
     },
   });
 });
