@@ -1,27 +1,26 @@
 # mockingbird — models
 
-> **Status:** v1 design, pre-code — reflects the model choices fixed in
-> [ARCHITECTURE.md §3](./ARCHITECTURE.md#3-technology-stack) and
-> [§6](./ARCHITECTURE.md#6-the-dictation-pipeline).
 > **Owner:** bhattacharjeenirjhar26@gmail.com
-> **Last updated:** 2026-09-16
+> **Last updated:** 2026-11-03 (the cleanup model is gone, #135)
 
-Every model mockingbird runs, runs **on-device**, loaded from
-`~/.mockingbird/models/` and served by a local subprocess bound to
-`127.0.0.1` — never a hosted API. See
+Every model mockingbird runs, runs on the user's computer, loaded from
+`~/.mockingbird/models/`. The thinking about an edit is done by the user's own
+agent, so mockingbird runs no language model of its own. See
 [SECURITY_PRIVACY.md §3](./SECURITY_PRIVACY.md#3-network-policy) for the
-network guarantee this depends on. This doc is the inventory of *which*
-models, *where* in the pipeline each one sits, and *how* it's invoked.
+network guarantee this depends on.
+
+The dictation-era version, with the cleanup model (Qwen3-4B through Ollama),
+its eval and its benchmarks, is in git: `git show v0.3.2:docs/MODELS.md`.
 
 ## Table of contents
 
 1. [Model inventory](#1-model-inventory)
-2. [Where each model sits in the pipeline](#2-where-each-model-sits-in-the-pipeline)
-3. [Voice activity detection — Silero VAD](#3-voice-activity-detection--silero-vad)
-4. [Speech-to-text — Whisper (whisper.cpp)](#4-speech-to-text--whisper-whispercpp)
-5. [Cleanup / formatting LLM — Qwen3-4B-Instruct](#5-cleanup--formatting-llm--qwen3-4b-instruct)
-6. [Vector search — sqlite-vec (not a model)](#6-vector-search--sqlite-vec-not-a-model)
-7. [Model swapping & configuration](#7-model-swapping--configuration)
+2. [Speech detection — Silero VAD](#2-speech-detection--silero-vad)
+3. [Speech-to-text — Whisper](#3-speech-to-text--whisper)
+4. [The dictionary](#4-the-dictionary)
+5. [Choosing a model](#5-choosing-a-model)
+6. [Which Whisper, measured](#6-which-whisper-measured)
+7. [Adapting Whisper to one voice: no-go](#7-adapting-whisper-to-one-voice-no-go)
 8. [Acquisition, storage & integrity](#8-acquisition-storage--integrity)
 9. [Licensing](#9-licensing)
 
@@ -29,199 +28,122 @@ models, *where* in the pipeline each one sits, and *how* it's invoked.
 
 ## 1. Model inventory
 
-| Model | Role | Runs via | Runs as | Default size class |
-|---|---|---|---|---|
-| **Silero VAD** | Voice activity detection — decide when speech starts/stops in the audio stream | `onnxruntime-node` | native module, in-process | ~1–2 MB (ONNX) |
-| **Whisper `large-v3`, Q5_0** | Speech-to-text (ASR) — audio → raw transcript | `whisper.cpp` (`whisper-server`) | subprocess, HTTP `:8771` | 1.08 GB quantized |
-| **Qwen3-4B-Instruct, Q4** | Cleanup/formatting LLM — raw transcript → cleaned, punctuated, formatted text | Ollama **or** `llama-server` (llama.cpp) | subprocess, HTTP `:8772` | ~2.5–3 GB quantized |
+| Model | Job | Runs via | Size |
+|---|---|---|---|
+| **Silero VAD** v6.2.2 | finds the speech in a file, so Whisper hears speech and not silence | `onnxruntime-node`, in-process | 2 MB |
+| **Whisper `large-v3`, Q5_0** | speech to text with word times | `whisper.cpp`'s `whisper-server`, a subprocess per call on a free `127.0.0.1` port | 1.08 GB |
 
-Three models, three distinct jobs, three different runtimes — deliberately
-not consolidated into one model, because VAD needs to be near-instant and
-tiny, ASR needs to be accurate on raw audio, and the cleanup LLM needs
-instruction-following on already-transcribed text, and no single model in
-this size range is best at all three.
+## 2. Speech detection — Silero VAD
 
-## 2. Where each model sits in the pipeline
+`transcribe` and `captions` run Silero over the whole decoded file in 32 ms
+windows (512 samples at 16 kHz, with the previous window's last 64 samples
+as context), then cut the speech it finds into chunks of up to 30 seconds
+for Whisper (`chunks` in `apps/daemon/src/mcp.ts`). Whisper decides per
+30-second window whether a stretch is speech, so feeding it speech and not
+long silences keeps it from dropping or inventing passages.
 
-```mermaid
-sequenceDiagram
-    participant RB as Ring Buffer (PCM)
-    participant VAD as Silero VAD\n(in-process)
-    participant ASR as whisper-server\n(large-v3 Q5_0)
-    participant Gate as LLM Gate
-    participant LLM as llama-server / Ollama\n(Qwen3-4B-Instruct Q4)
-    participant Fmt as Formatter
-    participant Inj as Injector
+## 3. Speech-to-text — Whisper
 
-    RB->>VAD: 32ms windows (512 samples), continuously
-    VAD-->>RB: speech / silence boundary
-    Note over RB,ASR: on hotkey release, segment cut
-    RB->>ASR: POST /inference (WAV segment)
-    ASR-->>Gate: {text, confidence, words}
-    alt short + high confidence
-        Gate->>Fmt: raw text (LLM skipped entirely)
-    else needs cleanup
-        Gate->>LLM: raw text + dictionary + app context
-        LLM-->>Fmt: cleaned text
-    end
-    Fmt->>Inj: final text → typed into focused field
-```
+- **Invoked as** `whisper-server`, started for each call on a free port
+  (`packages/asr`), sent each chunk as a WAV to `/inference` with
+  `response_format=verbose_json`, giving text and word times. It starts with
+  `-nlp` when the installed version has it: without it every request runs
+  the encoder twice just to report a language probability (~1.2 s per
+  request with `large-v3` on an M3). The first start on a machine takes
+  ~15 s while Metal compiles its shaders.
+- **`large-v3` over `large-v3-turbo`, because of names.** Turbo's decoder is
+  much smaller, and that's where the knowledge of unusual names lives. On
+  synthetic speech naming four people, turbo wrote "Nurj Harbada Charjee"
+  and "Aishwarya Venkatasan"; `large-v3` wrote "Nirjhar Bhattacharjee" and
+  "Aishwarya Venkatesan" with no help. Names in captions are the first thing
+  a viewer notices, so the slower model is the default.
+- **Full precision is not better.** `ggml-large-v3.bin` (f16, 3.1 GB) spelled
+  names worse than Q5_0 (1.08 GB) did.
+- **Language.** `MOCKINGBIRD_LANGUAGE` (default `en`) pins it, so Whisper
+  doesn't drift; pinned to the wrong one, it translates instead. `auto`
+  detects it per chunk, slower. The `.en` models only know English, so
+  `mockingbird models` hides them in another language. A model and language
+  per call, and a model per language, come in pivot step 3 (#134).
+- **Padding matters.** Cutting silences out of the middle, or trimming tight
+  to the speech, produced wrong words; keeping a second either side
+  produced clean sentences. `captions` pads each clip by two seconds.
+- The integration tests use `base.en` (148 MB) to stay quick. It isn't what
+  ships.
 
-This mirrors [ARCHITECTURE.md §6](./ARCHITECTURE.md#6-the-dictation-pipeline)
-exactly — see that section for the full FSM context around it. The one
-routing decision worth calling out here: **the LLM is conditionally skipped**
-by the LLM Gate for short, high-confidence utterances, so a quick "yes" or
-"ok" never pays LLM latency it doesn't need. VAD and ASR are never skipped —
-every captured segment goes through both.
+## 4. The dictionary
 
-## 3. Voice activity detection — Silero VAD
-
-- **Job:** classify 32ms audio windows (512 samples at 16kHz, the size
-  Silero v5 requires, with the previous window's last 64 samples prepended
-  as context) as speech/silence in real time, while
-  the ring buffer is filling, to find utterance boundaries (and to detect
-  700ms of silence as the auto-chunk boundary in `CAPTURE_LOCK` mode — see
-  [ARCHITECTURE.md §5](./ARCHITECTURE.md#5-the-hotkey-state-machine)).
-- **Where it's used:** continuously, in-process, on the always-running ring
-  buffer — this is the only model that runs even when the hotkey isn't
-  pressed (it's how the ring buffer knows what "speech" looks like for
-  pre-roll purposes).
-- **How it's invoked:** loaded once at daemon startup via
-  `onnxruntime-node`, called synchronously per-frame from the `SEG` stage in
-  [the system architecture diagram](./ARCHITECTURE.md#4-system-architecture).
-  No HTTP hop — it's a native module call in the same process.
-- **Why this model:** small enough to run per-frame with negligible CPU
-  cost, purpose-built for VAD (not a general audio model repurposed for it),
-  and ships as ONNX so it loads through the same `onnxruntime-node`
-  dependency without needing a second inference runtime.
-
-## 4. Speech-to-text — Whisper (whisper.cpp)
-
-- **Job:** convert a cut audio segment (PCM, 16kHz) into a raw text
-  transcript, plus a `confidence` score (mean probability of the spoken,
-  non-punctuation words) used by the LLM Gate's skip decision.
-- **Where it's used:** once per finalized utterance — triggered when the
-  hotkey is released (`CAPTURE_PTT`) or a silence boundary is hit in lock
-  mode (`CAPTURE_LOCK`). Never runs continuously; only on a cut segment.
-- **How it's invoked:** `whisper-server`, a supervised child process running
-  `whisper.cpp`, listening on `127.0.0.1:8771`. The daemon `POST`s the
-  segment as a WAV upload to `/inference` (`response_format=verbose_json`)
-  and gets back `{text, confidence, words}`. It starts with `-nlp` when the
-  installed version has it: without that, every `verbose_json` request runs
-  the encoder a second time just to report a language probability, which
-  costs ~1.2s per dictation with `large-v3` on an M3. First start on a machine takes
-  ~15s while Metal compiles its shaders (cached afterwards), which is why it
-  runs as a long-lived child rather than per dictation. If
-  `whisper-server` dies, the supervisor restarts it — dictation queues or
-  degrades rather than silently failing, per the "degrade, don't break"
-  principle in [ARCHITECTURE.md §2](./ARCHITECTURE.md#2-core-principles).
-- **Model file:** `large-v3`, quantized to `Q5_0` (1.08 GB), downloaded by
-  `mockingbird models pull` (`apps/daemon/src/models.ts`) and the default in
-  `apps/daemon/src/runtime.ts`. It is
-  multilingual, which is what makes it hold up on accented English where the
-  English-only models drop words. Requests pin the language,
-  `MOCKINGBIRD_LANGUAGE` (default `en`), so it doesn't drift to another one;
-  pinned to the wrong one, it translates instead (German speech pinned to
-  `en` came back as broken English). `auto` detects the language on every
-  dictation, ~1.4s slower with `large-v3`; `-nlp` doesn't stop that, it only
-  skips the report. The `.en` models only know English, so `mockingbird
-  models` leaves them out in another language.
-- **Measured on an M3 (warm server, 4.5s clip, median of 3 —
-  `bun run bench:models`):** `base.en` 177ms, `small.en` Q5_1 533ms,
-  `medium.en` Q5_0 1508ms, `large-v3-turbo` Q8_0 2142ms, `large-v3-turbo`
-  Q5_0 2248ms (before `-nlp`; the current comparison is in §7a). The encoder alone is ~1.1s of that on the GPU, and the
-  Homebrew `whisper-cpp` has no Core ML encoder, which would cut it. Accuracy
-  was chosen over speed here; `MOCKINGBIRD_ASR_MODEL` takes a file name in
-  `models/` or a path, so a slower Mac can drop to `small.en`.
-- **Full precision is not better.** `ggml-large-v3.bin` (f16, 3.1 GB) wrote
-  "Nirjher" and "Zia Ming Zhao" where Q5_0 (1.08 GB) wrote "Nirjhar
-  Bhattacharjee" and, with the dictionary, "Xiaoming Zhao". Quantization is
-  not what limits name spelling, so Q5_0 stays.
-- **`large-v3` over `large-v3-turbo`, because of names.** Turbo is a distilled
-  model with a much smaller decoder, and that is where the knowledge of
-  unusual names lives. Measured on synthetic speech naming four people:
-  turbo wrote "Nurj Harbada Charjee" and "Aishwarya Venkatasan"; `large-v3`
-  wrote "Nirjhar Bhattacharjee" and "Aishwarya Venkatesan" with no glossary.
-  Both missed "Xiaoming Zhao", which is what the user dictionary is for. The
-  cost is ~0.5s on a short dictation (2.6s vs 2.1s) and ~3s on a 57s one.
-  A production dictation app cannot spell South Asian and East Asian names
-  phonetically, so the slower model is the right default.
-- **Q8_0 over Q5_0** for turbo, measured on a 57s recording of real speech: Q8_0 both
-  reads better ("I just woke up, it's my birthday" where Q5_0 gave "with my
-  birthday", "Fixed punctuation" where Q5_0 gave "Exponctuation") and runs
-  slightly faster (4843ms vs 5007ms). The 300 MB is worth it.
-- **Too little silence around the speech loses whole passages.** On that same
-  recording, `large-v3-turbo` with 700ms of padding dropped a 20-second
-  stretch from the middle (373 characters instead of 650); at 1500ms it
-  transcribed all of it. Whisper decides per 30-second window whether a
-  stretch is speech, and a tight cut pushes that decision the wrong way.
-  `-nth` (no-speech threshold) and `-sns` made no difference — padding did.
-  `large-v3` (non-turbo) never dropped it at any padding, but takes ~7s to
-  turbo's ~3.8s on a 57s clip, and was no more accurate here.
-- **How the audio is cut matters as much as the model.** On the same
-  recording, cutting the silences out of the middle, or trimming tight to the
-  speech, produced wrong words and capitals mid-sentence; keeping the
-  silences and padding ~1s either side produced clean sentences. `trimToSpeech`
-  does the latter — Whisper reads a sentence from the rhythm around it, not
-  only from the words.
-- The integration tests still use `base.en` (~148 MB), which keeps them
-  quick; it is not what ships.
-
-### 4a. The user dictionary
-
-No model spells a name it has never seen; every dictation app relies on being
-told. `mockingbird dictionary add` takes the words that matter to this
-person, which live in the `dictionary` table of `data.db`
-([DATABASE.md §5](./DATABASE.md#5-dictionary)), and they feed three places
-(`packages/llm/src/dictionary.ts`):
+No model spells a name it has never heard. `mockingbird dictionary add` (or
+the `dictionary_add` tool) stores the words that matter to this user in
+`data.db` ([DATABASE.md §2](./DATABASE.md#2-dictionary)), and every
+transcript and caption is corrected with them
+(`packages/store/src/dictionary.ts`):
 
 | Entry | What it does |
 |---|---|
-| `Nirjhar Bhattacharjee` | Given to Whisper before it listens (`prompt`), and to the cleanup model as a spelling to keep |
-| `Catppuccin (a colour theme)` | Same, with a note for the cleanup model |
-| `cat puck => Catppuccin` | A plain replacement afterwards, for a word Whisper gets wrong the same way every time |
+| `Nirjhar Bhattacharjee` | anything that sounds like it becomes it |
+| `Catppuccin (a colour theme)` | the same, with a note the agent sees in `dictionary_list` |
+| `cat puck => Catppuccin` | that exact phrase is replaced first, for a word Whisper always gets wrong the same way |
 
-**It also learns from the user's fixes.** When someone corrects a misheard
-name in a dictation ("near jar" → "Nirjhar"), the daemon reads the fix back
-and adds the name once it has seen the same fix twice, or once if the user
-capitalised it. A replacement only counts if it's one to three words that
-`soundsLike` the typed ones (0.7, `correctNames`' threshold), so "Tuesday" →
-"Wednesday" is a change of mind, not a mishearing. Ordinary words in
-`/usr/share/dict/words` never go in. What it reads and keeps is in [SECURITY_PRIVACY.md §5](./SECURITY_PRIVACY.md#learning-from-your-corrections).
+**Matched by sound, not spelling** (`correctNames`, `soundOf`). Whisper
+writes an unfamiliar name as it hears it, never the same way twice: "Nurj
+Harbada Charjee", "Nerj Herbata Chargy". `soundOf` reduces a word to its
+consonant skeleton with the distinctions that don't survive mishearing
+folded together (`bh`→`b`, `c`/`k`/`q`, `sh`/`ch`/`j`/`z`/`x`, `v`/`w`), and
+spans of one word fewer to two words more than the term are compared by edit
+distance, at 0.7 similarity or better. Both manglings above resolve to the
+right name, while "llama", "Richard" and "Sid and Ash" are left alone. With
+`words: true`, names are fixed one word at a time, so a name misheard as two
+words stays as heard there.
 
-**A term is matched by sound, not spelling** (`correctNames`, `soundOf`).
-Whisper writes an unfamiliar name as it hears it, and never the same way
-twice: "Nurj Harbada Charjee", "Nerj Herbata Chargy". Comparing letters finds
-neither. `soundOf` reduces a word to its consonant skeleton with the
-distinctions that don't survive mishearing folded together — aspirated
-consonants (`bh`→`b`), `c`/`k`/`q`, `sh`/`ch`/`j`/`z`/`x`, `v`/`w` — and spans
-of one to four words are compared against each term. Measured on the
-benchmark transcripts: all three manglings above resolve to the right name,
-while "llama", "categorise the puck", "Richard" and "Sid and Ash" are left
-alone. A word only joins a span if including it improves the match, so
-"and Siddharth Mukherjee" doesn't swallow the "and".
+The dictionary is never given to Whisper as a prompt: measured, the hint
+fixed one name and bent two others the model had right ("Bhattacharjee" →
+"Bhattacharje").
 
-**Reading the words to Whisper is opt-in** (`MOCKINGBIRD_ASR_VOCABULARY=1`),
-because it cuts both ways. Measured on one sentence: with `base`-level models
-the hint rescued a name entirely ("Nerj Herbata Chargy" → "Nirjhar
-Bhattacharjee"), and on `large-v3` it fixed "Zaya Mingjiao" → "Xiaoming Zhao"
-— but in the same breath it bent two names the model had already spelled
-right, "Bhattacharjee" → "Bhattacharje" and "Aishwarya" → "Aiishwarya". The
-prompt biases the whole decode, not just the word it was given. The
-replacement lines carry no such risk, so they are the default advice. Whisper
-takes at most 224 tokens of prompt, so `buildVocabularyPrompt` stops at 600
-characters.
+## 5. Choosing a model
 
-**A long dictionary doesn't all go into the cleanup prompt.** Up to 50 terms
-go in whole. Past that, `promptTerms` sends the terms the transcript seems to
-say (by spelling, or by sound after `correctNames`), then the most used, up
-to 50. Replacements and `correctNames` still use every term, since they cost
-nothing. 50 is a first guess, not measured against cleanup time per
-dictionary size. Edits take effect on the next dictation. The old
-`~/.mockingbird/dictionary.txt` is imported once on start and renamed to
-`dictionary.txt.imported`.
+- `mockingbird models` lists the Whisper files in `models/`, largest first,
+  marking the one in use and the default.
+- `mockingbird models use <file>` saves the choice as `asr_model` in
+  `data.db`; `--default` clears it. The next call uses it.
+- `MOCKINGBIRD_ASR_MODEL` (a file name in `models/`, or a path) wins over the
+  saved choice, and `models use` says so.
+- With nothing chosen, the default is used, or else the best earlier default
+  that's downloaded, with a warning.
+- Any `ggml-*.bin` Whisper model works, including community fine-tunes for
+  one language, dropped into `models/`. `models pull <name or URL>` for them
+  comes in pivot step 3.
 
-### 4b. Adapting Whisper to one voice: no-go (#109, 2026-10-30)
+## 6. Which Whisper, measured
+
+The rule for changing the default: at least as accurate **and** measurably
+faster or smaller.
+
+**Whisper,** `bun run bench:models`, on an M3 (16 GB), warm server. 64 clips:
+8 dictation-style sentences (names, numbers, a list, a question) spoken by 8
+macOS voices, three of them Indian English. Synthetic voices are easier than
+a real one, so the error rates are optimistic; compare the rows, not the
+absolute numbers. "Names" counts names spelled exactly, with no dictionary.
+Word error is summed over the corpus (total edits over total words).
+
+| Model | Disk | Ready | Memory | Median | p90 | WER | WER en_IN | Names |
+|---|---|---|---|---|---|---|---|---|
+| large-v3-q5_0 | 1081 MB | 1.1 s | 1437 MB | 1547 ms | 1589 ms | 3.2% | 3.6% | 17/32 |
+| large-v3-turbo-q8_0 | 874 MB | 0.7 s | 960 MB | 1099 ms | 1116 ms | 4.0% | 4.3% | 13/32 |
+| large-v3-turbo-q5_0 | 574 MB | 0.5 s | 773 MB | 1146 ms | 1160 ms | 4.2% | 4.3% | 13/32 |
+| medium.en-q5_0 | 539 MB | 0.7 s | 807 MB | 814 ms | 850 ms | 4.3% | 4.7% | 14/32 |
+| small.en-q5_1 | 190 MB | 0.5 s | 456 MB | 290 ms | 304 ms | 5.9% | 6.5% | 8/32 |
+| base.en | 148 MB | 0.3 s | 322 MB | 103 ms | 109 ms | 8.5% | 7.5% | 5/32 |
+| large-v3 | 3095 MB | 2.1 s | 3351 MB | 1620 ms | 1721 ms | 3.2% | 3.9% | 17/32 |
+
+`large-v3` Q5_0 stays: the most accurate overall, on the Indian-accent
+voices and on names, and full precision buys nothing for three times the
+size. `large-v3-turbo` Q5_0 is half the disk and ~0.4 s faster per clip for
+~1 point more word error and 4 fewer names right. Re-run `bun run
+bench:models` when a new model comes out.
+
+## 7. Adapting Whisper to one voice: no-go
+
+Decided 2026-10-30 in #109.
 
 **Decision: don't build it.** Fine-tuning Whisper on a user's own recordings
 (a LoRA adapter) needs far more speech than calibration collects. At that
@@ -275,302 +197,27 @@ Revisit only if a user has hours of their own corrected dictation and asks
 for it, or whisper.cpp learns to load an adapter without a Python toolchain.
 The spike's script is on #109.
 
-## 5. Cleanup / formatting LLM — Qwen3-4B-Instruct
-
-- **When its output is rejected:** `acceptCleanup` falls back to the raw
-  transcript when the cleaned text is far shorter than what went in (80% for
-  text over 120 characters, 50% below that) or far longer, or when it looks
-  like an answer rather than a rewrite.
-- **Other languages.** With `MOCKINGBIRD_LANGUAGE` set to something other
-  than `en`, the prompt gains its Language section (stay in the language,
-  never translate), and a cleanup fewer than half of whose words were in the
-  transcript is rejected: qwen3 still turned "Übersetze das ins Englische:
-  guten Morgen zusammen" into English. The gate's checks (fillers, lists,
-  `formatText`'s question words) are English, so every dictation goes to the
-  model, short ones too: "cómo estás" would otherwise be typed "Cómo
-  estás.". Dictionary names aren't matched by sound there either, since
-  `soundOf` is English; `heard => term` replacements still apply. The eval has
-  six cases in German, Spanish, French and Hindi (`language` in
-  `evals/cleanup/tests`).
-- **Lists.** Speech that enumerates things ("I'll get onions, I'll get
-  bread") is rewritten as a short heading plus one `- ` item per line, with
-  the repeated lead-in dropped. `looksLikeList` keeps such speech from
-  skipping the model, since only the model can do this, and the prompt carries
-  two worked examples — with one grocery example only, qwen3 handled "I will
-  get onions" but left "I need to" on every line of a list of tasks.
-  `bulletize` is the backstop for that failure: when the model returns one
-  line per item but repeats the same lead-in ("I need to", "I will"), it
-  strips the lead-in and bullets the lines itself, moving a time word to the
-  end of its item ("Tomorrow I need to run a marathon" → "- run a marathon
-  tomorrow"). It needs at least three lines, 60% of them sharing the lead-in,
-  and leaves prose and already-bulleted lists untouched. `acceptCleanup` allows a list down to 0.3 of the raw length,
-  because "I will get onions" legitimately becomes "- onions".
-- **Sequences.** Steps done in an order ("first boil the water, then add the
-  tea, finally add milk", "number one ... number two", "step one ...") become
-  a numbered list (`1. `, `2. `) rather than bullets, and `looksLikeList`
-  counts ordinals and "next", "after that", "finally" as list markers. A list
-  needs three or more items: with fewer, qwen3 tended to force a sentence
-  into a list by dropping half of it ("ship it, but first run the tests" →
-  "- Run the tests first"), so `acceptCleanup` rejects a list of one or two
-  items and the transcript is typed as a sentence. The prompt also keeps a
-  story about what already happened ("we landed, then took a train") as
-  prose.
-- **The prompt** is `packages/llm/prompts/cleanup.md`, in sections that
-  `buildCleanupPrompt` assembles per dictation. `## Rules` always goes in.
-  `## Lists` goes in only when `looksLikeList` says so, because with the list
-  rules in every prompt qwen3 turned plain sentences into lists ("Meeting:\n-
-  Thursday", which `acceptCleanup` then rejected, leaving the fillers in).
-  `## Terminal` and `## Dictionary` are added when they apply. Change it
-  against `bun run eval:cleanup` and the held-out set. A user can override
-  any section without editing the code: `~/.mockingbird/cleanup.md`, in the
-  same format, read when the agent starts. Each `## ` section in it replaces
-  the shipped one with that heading, and the rest stay as shipped. A heading
-  that matches none is logged as a warning. The evals and benches only ever
-  use the shipped file. One cost to know. Ollama
-  reuses the processed start of a prompt between calls, so a list dictation
-  that follows a non-list one processes the list section afresh: 650-850ms
-  more than a list after a list on an M3, where a cached prompt costs ~30ms
-  and writing the answer ~30ms a token. Three ways around it each lost eval
-  cases, so none shipped (2026-10-04): the list section in every prompt
-  (dev 35/37), the varying sections moved into the user message so the
-  system prompt never changes (35/37, and stories became lists), and a
-  shorter list section (36/37, held-out 15/16, for only 59 fewer tokens).
-- **Self-corrections:** "send it on Tuesday, no wait, on Wednesday" is typed
-  as "send it on Wednesday". The rules name the cues ("no wait", "sorry",
-  "make that", "I meant") with two worked examples; without them qwen3 left
-  the sentence as said. "actually" isn't on the list. When it was, the model
-  also deleted it from "it actually works now". `acceptCleanup` holds a
-  correction to the usual floor of half the transcript, so a very short one
-  ("a table for four, actually make that six" → "a table for six") falls back
-  to the transcript. A lower floor for corrections was tried and dropped: four
-  versions of it each let some wrong cleanup through (a dropped ending, a
-  reversed meaning) or rejected a right one.
-- **When it runs:** only when the transcript needs it. `shouldSkipLlm`
-  (`packages/llm/src/cleanup.ts`) skips cleanup for very short utterances, and
-  for confident transcripts that carry no filler word and no stutter, unless
-  the speaker corrected themselves after a comma (", no wait", ", sorry",
-  ", actually") or spoke a symbol ("dash a", "slash") —
-  `formatText` supplies the capital and the end punctuation without a model.
-  Cleanup costs 400-1500ms, which is most of the wait after speaking.
-- **Job:** take the raw ASR transcript plus context (user dictionary,
-  frontmost-app profile) and produce the final text — punctuation,
-  capitalization, disfluency removal ("um", false starts), per-app style
-  (e.g. no auto-caps in Terminal), and voice-command interpretation.
-- **Where it's used:** only when the LLM Gate decides cleanup is needed —
-  short, high-confidence utterances skip straight from ASR to the Formatter.
-  This is the one model in the pipeline that's *conditionally* invoked.
-- **How it's invoked:** either Ollama or `llama-server` (llama.cpp),
-  supervised subprocess, `127.0.0.1:8772`. The daemon sends the raw text
-  plus the relevant slice of the `dictionary` table and the current
-  `app_profile` row (see [the SQLite schema](./ARCHITECTURE.md#7-where-sqlite-fits))
-  as prompt context, and gets cleaned text back.
-- **Model file:** `Qwen3-4B-Instruct`, quantized to `Q4`. Chosen as an
-  instruction-tuned model small enough to run acceptably on a laptop GPU/CPU
-  while still following formatting instructions reliably.
-- **Streaming:** the reply is read as Ollama writes it (`stream: true`), and
-  the transcript's own words are typed as they arrive (ARCHITECTURE.md §6).
-  The model's speed still sets when the last word lands; what changes is
-  when the first one does. Two Ollama cache slots (`OLLAMA_NUM_PARALLEL=2`)
-  were tried to keep the list and non-list prompts both cached, and changed
-  nothing: Ollama 0.34.4 doesn't send a prompt back to the slot holding it.
-- **Fallback behavior:** if this server is down, dictation falls back to raw
-  ASR output rather than blocking — same degrade-don't-break principle as
-  `whisper-server`.
-
-## 6. Vector search — sqlite-vec (not a model)
-
-`sqlite-vec` (mentioned in [ARCHITECTURE.md §7](./ARCHITECTURE.md#7-where-sqlite-fits))
-is a SQLite extension for storing and querying vector embeddings, loaded
-directly into `data.db` via `db.loadExtension()` — **it is not itself a
-model**, and no embedding model is chosen yet. Semantic search over
-utterance history and dictionary terms is listed as v1.x/optional scope; if
-built, it will need its own embedding model entry in this doc (likely a
-small local sentence-embedding model, on-device for the same reasons as
-everything else in this file). Tracked as undecided, not silently assumed.
-
-## 7. Model swapping & configuration
-
-- **ASR and LLM are both swappable via config** — per
-  [ARCHITECTURE.md §3](./ARCHITECTURE.md#3-technology-stack), the `asr` and
-  `llm` packages are designed so the base URL and model name are
-  configuration, not hardcoded, specifically so a different model size (or,
-  per [ARCHITECTURE.md §13](./ARCHITECTURE.md#13-is-docker-needed), a
-  `llama-server` running on a separate machine on the LAN) can be substituted
-  without a code change.
-- **VAD is not currently designed as swappable** — Silero via
-  `onnxruntime-node` is treated as a fixed part of the pipeline, not a
-  configurable choice, since its cost/accuracy profile isn't a tradeoff most
-  users need to tune. Its threshold is the exception: `mockingbird calibrate
-  tune` (#107) can lower it for one voice, below.
-- **`mockingbird calibrate tune` measures both for one voice** (#107). It
-  takes the user's latest `mockingbird calibrate` run and has every installed
-  Whisper file hear its sentences, each on its own whisper-server (on a free
-  port) beside the agent's, one at a time. They hear them at the saved VAD
-  threshold if there is one, since that's what dictation uses. With `MOCKINGBIRD_ASR_MODEL` set to
-  a file outside the models folder, that file is the one in use and is
-  compared too. For each it
-  prints the share of words right and the median time per sentence, then
-  recommends the fastest within a point of the best. It never switches
-  model by itself: the user does that in `mockingbird models`. A few hundred
-  words of read script can't tell two models a point apart, and reading is
-  easier than dictating, so this is advice for that voice, not a ranking.
-- It then has the model in use hear the same sentences at VAD thresholds
-  0.5 (the default), 0.4, 0.3 and 0.2, and saves the best as `vad_threshold`
-  only if it hears at least two more words than the default, and at least 1%
-  more. Below that, a lower threshold only lets in more of the room. Running
-  it again when the default is best clears the saved value. The agent reads
-  it at start, so it applies after `mockingbird restart`. It also reports
-  clipping, and speech too quiet for `normalizeLoudness` to bring up (it stops
-  at 20×).
-- **Both models are picked with `mockingbird models`.** In a terminal it's a
-  picker with a Cleanup tab and a Transcription tab (TUI.md §5); otherwise it
-  prints both lists. Cleanup lists the models Ollama has that can write text
-  (embedding models are left out), best measured first; Transcription lists
-  the Whisper files in `~/.mockingbird/models`. Only installed models show,
-  and no scores: those are in §7a.
-- `mockingbird models use <name>` saves the cleanup model as `llm_model`, and
-  `mockingbird models use speech <file>` the transcription model as
-  `asr_model`, in the `settings` table, through the daemon (the only writer to
-  `data.db`); each restarts the agent, and `--default` deletes the choice.
-  `MOCKINGBIRD_LLM_MODEL` and `MOCKINGBIRD_ASR_MODEL`, when set, still win,
-  and `models use` says so. A saved Whisper file that's since been deleted
-  falls back to the default, with a warning in the log.
-- `mockingbird models pull` pulls whichever cleanup model is in use, and the
-  default Whisper model. A cleanup model nobody has evaluated works the same
-  way; running `bun run eval:cleanup` with it set gives its numbers.
-
-### 7a. Which models, measured (2026-10-03)
-
-The question is whether a Whisper model and a cleanup model exist that are
-faster, smaller to download and lighter on memory, without being less
-accurate. The rule for switching a default is that the new model is at least as accurate
-**and** measurably faster or smaller. Accuracy alone, or speed alone, isn't
-enough.
-
-**Whisper,** `bun run bench:models`, on an M3 (16 GB), warm server. 64 clips:
-8 dictation-style sentences (names, numbers, a list, a question) spoken by 8
-macOS voices, three of them Indian English. Synthetic voices are easier than
-a real one, so the error rates are optimistic; compare the rows, not the
-absolute numbers. "Names" counts names spelled exactly, with no dictionary.
-Word error is summed over the corpus (total edits over total words).
-
-| Model | Disk | Ready | Memory | Median | p90 | WER | WER en_IN | Names |
-|---|---|---|---|---|---|---|---|---|
-| large-v3-q5_0 | 1081 MB | 1.1 s | 1437 MB | 1547 ms | 1589 ms | 3.2% | 3.6% | 17/32 |
-| large-v3-turbo-q8_0 | 874 MB | 0.7 s | 960 MB | 1099 ms | 1116 ms | 4.0% | 4.3% | 13/32 |
-| large-v3-turbo-q5_0 | 574 MB | 0.5 s | 773 MB | 1146 ms | 1160 ms | 4.2% | 4.3% | 13/32 |
-| medium.en-q5_0 | 539 MB | 0.7 s | 807 MB | 814 ms | 850 ms | 4.3% | 4.7% | 14/32 |
-| small.en-q5_1 | 190 MB | 0.5 s | 456 MB | 290 ms | 304 ms | 5.9% | 6.5% | 8/32 |
-| base.en | 148 MB | 0.3 s | 322 MB | 103 ms | 109 ms | 8.5% | 7.5% | 5/32 |
-| large-v3 | 3095 MB | 2.1 s | 3351 MB | 1620 ms | 1721 ms | 3.2% | 3.9% | 17/32 |
-
-**Cleanup models,** `bun run bench:cleanup <models>`: the eval's pass count
-(evals/cleanup) on the dev and held-out sets, and the time of each model
-call, one at a time. The prompt was tuned against qwen3 on the dev set, so
-the held-out column is the fairer comparison.
-
-| Cleanup model | Disk | Memory | dev | held-out | Median call | p90 call |
-|---|---|---|---|---|---|---|
-| qwen3:4b-instruct-2507-q4_K_M | 2.5 GB | 3.2 GB | 30/30 | 11/11 | 657 ms | 1535 ms |
-| gemma3:4b | 3.3 GB | 2.9 GB | 27/30 | 8/11 | 1820 ms | 2260 ms |
-| llama3.2:3b | 2.0 GB | 2.5 GB | 27/30 | 9/11 | 572 ms | 942 ms |
-| qwen2.5:3b | 1.9 GB | 2.2 GB | 27/30 | 7/11 | 479 ms | 920 ms |
-| llama3.2:1b | 1.3 GB | 1.5 GB | 23/30 | 7/11 | 507 ms | 1141 ms |
-| qwen2.5:1.5b | 1.0 GB | 1.2 GB | 24/30 | 8/11 | 296 ms | 487 ms |
-| gemma3:1b | 0.8 GB | 0.9 GB | 25/30 | 8/11 | 516 ms | 771 ms |
-
-**Neither default changes.** `large-v3` Q5_0 is the most accurate
-Whisper model overall, on the Indian-accent voices and on names, and no
-quantisation of it does better: the full-precision `large-v3` is three times
-the size for the same accuracy. `qwen3:4b-instruct-2507-q4_K_M` passes every
-eval case, and every smaller model fails two to four held-out cases. If a
-lighter setup is ever offered for small Macs, this is the cost.
-
-**Retuning the prompt for a small model doesn't close the gap** (#58,
-2026-10-12). The eval has grown to 37 dev and 16 held-out cases since the
-table above. Three prompt variants were tried against `qwen2.5:1.5b`: a
-heading line made compulsory, an example of a story staying a sentence, and
-the "one paragraph" rule relaxed for lists. The best lifted it from 28 to 30
-on dev. Every one of them cost qwen3 cases instead, turning "I opened the
-laptop, then I checked my email..." into a list. None was kept.
-
-| Cleanup model | Memory | dev | held-out |
-|---|---|---|---|
-| qwen3:4b-instruct-2507-q4_K_M | 3.2 GB | 35/37 | 16/16 |
-| llama3.2:3b | 2.5 GB | 30/37 | 13/16 |
-| qwen2.5:1.5b | 1.2 GB | 28/37 | 12/16 |
-
-The small models fail the same cases whatever the prompt says. They leave
-options and steps as a sentence, or list them with no heading, and they
-don't apply a spoken correction ("a table for four, actually make that
-six"). That's the model's limit, not the prompt's. What did help is
-writing spoken flags in code (`spokenFlags`, terminal style only). "git
-commit dash dash amend" has one right answer, so no model is asked for it.
-The default stays qwen3.
-`large-v3-turbo` Q5_0 is half the disk and ~0.4s faster for ~1 point more
-word error and 4 fewer names right; `qwen2.5:1.5b` is about twice as fast per call and
-2.5 GB smaller, but fails 3 of 11 held-out cases.
-
-**Both together,** `bun run bench:e2e --speech <file> --cleanup <model>`
-(2026-10-12, same machine): each of the 64 clips through `runPipeline`
-itself, VAD, Whisper, the gate and the cleanup, no dictionary. "WER raw" is
-Whisper's transcript against the words spoken; "WER final" and "Exact" are
-the typed text against what the cleanup should make of it (the sentence as
-written, or for the shopping sentence, a list). Time runs from the end of the
-clip to the final text, warm.
-
-| Speech | Cleanup | WER raw | WER final | Exact | Names | Median | p90 | Cleaned / skipped |
-|---|---|---|---|---|---|---|---|---|
-| large-v3-q5_0 | qwen3:4b-instruct-2507-q4_K_M | 3.2% | 8.7% | 34/64 | 17/32 | 1622 ms | 2057 ms | 10 / 54 |
-| large-v3-q5_0 | qwen2.5:1.5b | 3.2% | 12.6% | 34/64 | 17/32 | 1655 ms | 1942 ms | 10 / 54 |
-| large-v3-turbo-q5_0 | qwen3:4b-instruct-2507-q4_K_M | 4.2% | 8.9% | 32/64 | 13/32 | 1179 ms | 1837 ms | 13 / 51 |
-| large-v3-turbo-q5_0 | qwen2.5:1.5b | 4.2% | 13.5% | 32/64 | 13/32 | 1220 ms | 1510 ms | 13 / 51 |
-
-On synthetic voices the gate skips the cleanup for most clips, so the speech
-model decides most of the result. The final error is above the raw error
-because of the one list sentence: `qwen3:4b` makes the list but drops "on the
-way home", and `qwen2.5:1.5b` keeps it a sentence. The defaults stay.
-
-Re-run all three when a new model comes out. `bench:cleanup` and `bench:e2e`
-need the models pulled into Ollama first, and each takes a few minutes. A
-fresh `bench/corpus/` is worth a look: on 2026-10-12 `say` rendered ten Aman
-and Tara clips garbled (1.2-10 s long), once. This Mac also has a Siri voice
-with each of those names. Deleting the clips and running again fixed them, and
-the raw word error then matched `bench:models` again.
-
 ## 8. Acquisition, storage & integrity
 
-- Model weights are **never bundled** in the release archive — too large.
-  They're fetched on demand via `mockingbird models pull`, the
-  **one and only** network call anywhere in the system, and always
-  user-triggered and URL-transparent (see
-  [SECURITY_PRIVACY.md §3](./SECURITY_PRIVACY.md#3-network-policy)).
-- Downloaded weights land in `~/.mockingbird/models/` as flat files —
-  filesystem-owned, no database record beyond whatever `settings` entry
-  points at the active model name/path.
-- **Integrity is not yet verified on download.** Per
-  [SECURITY_PRIVACY.md §6](./SECURITY_PRIVACY.md#6-process--trust-boundaries),
-  a model file is untrusted input to native C/C++ parsers
-  (`whisper.cpp`, `onnxruntime-node`), so checksum/signature verification
-  against the source repo's published hash before first load is an open
-  hardening item, not yet implemented.
+- Weights are never bundled. `mockingbird models pull` downloads Whisper
+  `large-v3` Q5_0 from a pinned Hugging Face commit and Silero VAD v6.2.2
+  from GitHub, prints each URL, and checks each against a pinned sha256
+  (`MODEL_FILES` in `apps/daemon/src/models.ts`). An interrupted download is
+  continued, and one that doesn't match is deleted.
+- They're plain files in `~/.mockingbird/models/`; only the chosen file's
+  name is in `data.db`.
 
 ## 9. Licensing
 
-mockingbird's own code is [MIT](../LICENSE). The models and the tools that
-run them have their own licenses, which need checking before shipping an
-archive that contains them
-([ARCHITECTURE.md §16](./ARCHITECTURE.md#16-known-gaps--scope-not-yet-decided)):
+mockingbird's code is [MIT](../LICENSE). The models and tools it runs have
+their own terms:
 
-| Component | License (verify before release) |
+| Component | License |
 |---|---|
 | `whisper.cpp` | MIT |
-| `llama.cpp` | MIT |
-| Ollama | MIT (Apache-2.0 dependencies included — verify at release time) |
-| Silero VAD weights | check upstream model card |
-| Whisper `large-v3-turbo` weights | check upstream model card (OpenAI Whisper weights, MIT code / separate weight terms) |
-| Qwen3 weights | check upstream model card (Qwen license terms, not plain MIT) |
+| Whisper weights | MIT (OpenAI) |
+| Silero VAD | MIT |
+| ffmpeg | LGPL or GPL depending on the build; mockingbird uses the system's and ships none |
 
-Model **weights** and the **code that runs them** often carry different
-licenses — this table should be double-checked at release time, not assumed
-from the inference engine's license.
+Check a model's card before adding it to `MODEL_FILES`: weights and the code
+that runs them often carry different licenses.

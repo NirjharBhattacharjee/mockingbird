@@ -6,11 +6,6 @@
     "@mockingbird/asr": "workspace:*",
     "@mockingbird/audio": "workspace:*",
     "@mockingbird/captions": "workspace:*",
-    "@mockingbird/context": "workspace:*",
-    "@mockingbird/cue": "workspace:*",
-    "@mockingbird/hotkey": "workspace:*",
-    "@mockingbird/inject": "workspace:*",
-    "@mockingbird/llm": "workspace:*",
     "@mockingbird/motion": "workspace:*",
     "@mockingbird/store": "workspace:*",
     "@mockingbird/vad": "workspace:*"

@@ -39,7 +39,7 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: apps/cli/go.mod
-          cache-dependency-path: apps/cli/go.sum
+          cache-dependency-path: apps/cli/go.mod
       # The `mockingbird` command. Apple Silicon only, like the installer.
       - name: Build the command
         working-directory: apps/cli

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Sets up mockingbird in one go: the tools (Bun, whisper-cpp, Ollama, ffmpeg),
-# the code, the models, and Ollama with the cleanup model. Safe to run again:
+# Sets up mockingbird in one go: the tools (Bun, whisper-cpp, ffmpeg), the
+# code and the speech models. Safe to run again:
 # anything already done is skipped, and an existing install is updated to the
 # latest release.
 #
@@ -14,9 +14,6 @@
 # MOCKINGBIRD_DIR   where to clone the code (default ~/mockingbird; ignored
 #                   when run from inside a clone)
 # MOCKINGBIRD_HOME  where models/ goes (default ~/.mockingbird)
-# MOCKINGBIRD_LLM_URL  the Ollama server to check and pull the model into
-#                      (default http://127.0.0.1:11434)
-# MOCKINGBIRD_LLM_MODEL  the cleanup model to pull
 # MOCKINGBIRD_CHANNEL  "beta" to also install prereleases (tags like
 #                      v1.2.0-rc.1); anything else installs releases only
 
@@ -175,12 +172,12 @@ main() {
   }
 
 
-  # Whatever of Bun, whisper-cpp, Ollama and ffmpeg is missing, in one brew
+  # Whatever of Bun, whisper-cpp and ffmpeg is missing, in one brew
   # call. Homebrew checks each download against its formula's sha256, and a
   # tool already on the PATH (say, bun from bun.sh) is used as it is.
   tools() {
     local missing=() formula
-    for formula in bun whisper-cpp ollama ffmpeg; do
+    for formula in bun whisper-cpp ffmpeg; do
       command -v "$formula" >/dev/null 2>&1 || brew list --formula "$formula" >/dev/null 2>&1 || missing+=("$formula")
     done
     if [ ${#missing[@]} -gt 0 ]; then
@@ -217,7 +214,7 @@ main() {
     quietly to_latest "$dir"
   }
 
-  # A first install downloads about 3.6 GB of models, and the tools and code
+  # A first install downloads about 1.1 GB of models, and the tools and code
   # take about 1 GB more. Checked before anything is downloaded, so a full disk
   # fails now with the number, not partway through a model. An update already
   # has the models, so it isn't held to this.
@@ -228,14 +225,14 @@ main() {
     # The disk the models go on, which MOCKINGBIRD_HOME can move off $HOME's.
     mkdir -p "$models_dir"
     free_gb=$(($(df -Pk "$models_dir" | awk 'NR==2 {print $4}') / 1024 / 1024))
-    if [ "$free_gb" -lt 5 ]; then
-      fail "mockingbird needs about 5 GB free on the disk with $models_dir, and it has ${free_gb} GB. Free up some space, then run this again."
+    if [ "$free_gb" -lt 3 ]; then
+      fail "mockingbird needs about 3 GB free on the disk with $models_dir, and it has ${free_gb} GB. Free up some space, then run this again."
     fi
   fi
 
   printf '\n\033[1;35m==>\033[0m \033[1mInstalling mockingbird\033[0m (details in %s)\n' "$log_dir/install-*.log"
   if [ -n "$first" ]; then
-    printf '    This takes about 10 minutes, most of it downloading 3.6 GB of models.\n'
+    printf '    This takes a few minutes, most of it downloading 1.1 GB of models.\n'
   fi
 
   # The tools and the code don't need each other, so they come down together.
@@ -245,7 +242,7 @@ main() {
   (STEP=code && get_code) &
   local code_pid=$!
   await tools "$tools_pid" code "$code_pid"
-  done_ "tools: Bun, whisper-cpp, Ollama, ffmpeg"
+  done_ "tools: Bun, whisper-cpp, ffmpeg"
   if [ "$dir" = "$here" ]; then
     done_ "code: this clone as it is, $dir"
   elif [ -z "$before" ]; then
@@ -261,9 +258,8 @@ main() {
   await dependencies $!
   done_ "dependencies"
 
-  # The models (pinned and sha256-checked; see apps/daemon/src/models.ts,
-  # which downloads Whisper and the cleanup model side by side) and the
-  # command, again together. Anything already downloaded is skipped.
+  # The models (pinned and sha256-checked; see apps/daemon/src/models.ts) and
+  # the command, again together. Anything already downloaded is skipped.
   local cli="$dir/apps/cli/mockingbird"
   rm -f "$cli"
   WORKING="models and command"
@@ -276,9 +272,7 @@ main() {
   done_ "models"
 
   # The command is the Go binary from apps/cli, for the release this clone is
-  # on. It holds no macOS permissions. The agent's runner in ~/.mockingbird/bin
-  # does, so replacing the command on an update drops no Fn or typing grant.
-  # Without a binary, the shim runs the engine's TypeScript CLI, as before.
+  # on. Without a binary, the shim runs the engine's TypeScript CLI, as before.
   local bin_dir="$HOME/.local/bin"
   local shim="$bin_dir/mockingbird"
   local bun_bin run
@@ -337,46 +331,18 @@ SHIM
       ;;
   esac
 
-  # An agent that's running is still on the old code, so restart it. One that
-  # was stopped stays stopped.
-  if launchctl print "gui/$(id -u)/com.mockingbird.agent" 2>/dev/null | grep -q 'state = running'; then
-    STEP=restart
-    quietly "$shim" restart || report restart
-    done_ "restarted the running agent"
-    printf '\n\033[1;32mAll set.\033[0m mockingbird is running %s.\n\n' "$(version "$dir")"
-    return
+  # An update from a version with dictation (v0.3.2 and earlier) removes its
+  # background agent and gives the Fn key back (apps/daemon/src/retire.ts).
+  if [ -e "$HOME/Library/LaunchAgents/com.mockingbird.agent.plist" ]; then
+    STEP=retire
+    (cd "$dir" && quietly bun -e 'import { retireDictation } from "./apps/daemon/src/retire.ts"; retireDictation();') || report retire
+    done_ "removed dictation's background agent; dictation is gone from mockingbird"
   fi
 
-  # A first install goes straight into `mockingbird setup`, which starts the
-  # agent and walks through the permissions, Fn and a test dictation (#54).
-  # First means the agent was never set up: `start` writes its plist and only
-  # uninstall removes it, so an update of an agent the user stopped stays
-  # stopped. Setup also needs the Go command and a terminal; under
-  # `curl | bash` stdin is this script, so it reads the keyboard from
-  # /dev/tty. Anything else (output to a file, as for a coding agent, or no Go
-  # command) gets the steps below.
-  local plist="$HOME/Library/LaunchAgents/com.mockingbird.agent.plist"
-  if [ ! -e "$plist" ] && [ -x "$cli" ] && [ -t 1 ] && (: </dev/tty) 2>/dev/null; then
-    printf '\n\033[1;32mInstalled.\033[0m Next, the permissions, the Fn key and a test dictation.\n'
-    # Quitting setup early is fine and exits 0; only a setup that couldn't run fails.
-    if ! "$shim" setup </dev/tty; then
-      printf '\n\033[1;33mnote:\033[0m setup stopped with an error. mockingbird is installed;\n'
-      printf 'run `%s setup` to try again, or `%s start` to skip it.\n' "$cmd" "$cmd"
-    else
-      printf '\nLater: `%s setup` goes through this again,\n' "$cmd"
-      printf 'and `%s` on its own lists every command.\n' "$cmd"
-    fi
-    if [ -n "$in_profile" ]; then
-      printf 'In a new terminal window, plain `mockingbird` works too.\n'
-    fi
-    printf 'To update, run the install command again.\n\n'
-    return
-  fi
-
-  printf '\n\033[1;32mAll set.\033[0m Now run:\n\n'
-  printf '    %s start\n\n' "$cmd"
-  printf 'That runs it in the background, now and at every login. macOS will ask\n'
-  printf 'for permission the first time; `%s status` says what is missing.\n' "$cmd"
+  printf '\n\033[1;32mAll set.\033[0m mockingbird %s is installed.\n\n' "$(version "$dir")"
+  printf 'Give it to your AI agent. For Claude Code:\n\n'
+  printf '    claude mcp add mockingbird -- %s mcp\n\n' "$cmd"
+  printf 'Other agents: docs/AGENT_INSTALL.md. `%s status` checks the install.\n' "$cmd"
   if [ -n "$in_profile" ]; then
     printf 'In a new terminal window, plain `mockingbird` works too.\n'
   fi

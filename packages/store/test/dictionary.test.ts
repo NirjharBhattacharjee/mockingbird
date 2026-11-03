@@ -1,12 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  applyCorrections,
-  buildVocabularyPrompt,
-  correctNames,
-  mentions,
-  parseDictionary,
-  promptTerms,
-} from "../src/index.ts";
+import { applyCorrections, correctNames, parseDictionary } from "../src/index.ts";
 
 describe("parseDictionary", () => {
   test("reads one term per line", () => {
@@ -36,23 +29,6 @@ describe("parseDictionary", () => {
 
   test("a line with no term is skipped", () => {
     expect(parseDictionary("   \n=> nothing heard\n")).toEqual([{ term: "nothing heard" }]);
-  });
-});
-
-describe("buildVocabularyPrompt", () => {
-  test("lists the terms for Whisper", () => {
-    expect(buildVocabularyPrompt([{ term: "Ollama" }, { term: "Catppuccin" }])).toBe(
-      "Glossary: Ollama, Catppuccin.",
-    );
-  });
-
-  test("nothing to say without a dictionary", () => {
-    expect(buildVocabularyPrompt([])).toBeUndefined();
-  });
-
-  test("stops before Whisper's prompt limit", () => {
-    const many = Array.from({ length: 200 }, (_, i) => ({ term: `Term${i}` }));
-    expect(buildVocabularyPrompt(many)?.length).toBeLessThanOrEqual(620);
   });
 });
 
@@ -133,41 +109,5 @@ describe("correctNames", () => {
 
   test("does nothing without a dictionary", () => {
     expect(correctNames("Nurj Harbada Charjee", [])).toBe("Nurj Harbada Charjee");
-  });
-});
-
-describe("mentions", () => {
-  test("whole words only, ignoring case", () => {
-    const entries = [{ term: "Ash" }, { term: "Node.js" }];
-    expect(mentions("wash it, then ask ash about node.js", entries)).toEqual(["Ash", "Node.js"]);
-    expect(mentions("washing", entries)).toEqual([]);
-  });
-});
-
-describe("promptTerms", () => {
-  const many = [
-    "Alpha",
-    "Bravo",
-    "Charlie",
-    "Delta",
-    "Echo",
-    "Foxtrot",
-    "Golf",
-    "Hotel",
-    "India",
-    "Juliett",
-  ].map((term) => ({ term }));
-
-  test("a dictionary under the cap goes in whole", () => {
-    expect(promptTerms("anything", many, 10)).toBe(many);
-  });
-
-  test("a larger one puts the terms this transcript says first, then the rest in order", () => {
-    const terms = promptTerms(
-      "ask hotel and Nurj Harbada Charjee",
-      [...many, { term: "Nirjhar Bhattacharjee" }],
-      3,
-    ).map((e) => e.term);
-    expect(terms).toEqual(["Hotel", "Nirjhar Bhattacharjee", "Alpha"]);
   });
 });

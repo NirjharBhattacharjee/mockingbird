@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, symlinkSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 const cli = join(import.meta.dir, "../src/transcribe.ts");
@@ -22,13 +24,13 @@ describe("transcribe CLI", () => {
   test("--help prints usage and exits 0", async () => {
     const { stdout, code } = await run(["--help"]);
     expect(code).toBe(0);
-    expect(stdout).toContain("Usage: bun run transcribe");
+    expect(stdout).toContain("Usage: mockingbird transcribe");
   });
 
   test("no file is a usage error", async () => {
     const { stderr, code } = await run([]);
     expect(code).toBe(2);
-    expect(stderr).toContain("expected exactly one audio file");
+    expect(stderr).toContain("expected exactly one file");
   });
 
   test("unknown option is a usage error", async () => {
@@ -39,7 +41,7 @@ describe("transcribe CLI", () => {
   test("missing audio file is reported", async () => {
     const { stderr, code } = await run(["/nonexistent/recording.m4a"]);
     expect(code).toBe(1);
-    expect(stderr).toContain("Audio file not found");
+    expect(stderr).toContain("File not found");
   });
 
   test("missing models point at `mockingbird models pull`", async () => {
@@ -51,16 +53,20 @@ describe("transcribe CLI", () => {
 });
 
 describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("transcribe CLI (integration)", () => {
-  test("prints the raw transcript when the LLM is unreachable", async () => {
-    const { stdout, stderr, code } = await run(["--json", hello], {
-      MOCKINGBIRD_ASR_PORT: "18776",
-      MOCKINGBIRD_LLM_URL: "http://127.0.0.1:9",
-    });
-    expect(code).toBe(0);
-    expect(stderr).toContain("warning: Ollama isn't running");
-    const result = JSON.parse(stdout);
-    expect(result.llmOutcome).toBe("failed");
-    expect(result.finalText).toBe(result.rawText);
-    expect(result.finalText.toLowerCase()).toContain("hello world");
+  test("prints timestamped lines and words", async () => {
+    // The real models, but a home of its own, so the user's data.db is never
+    // opened, and so never migrated under a running older mockingbird.
+    const home = mkdtempSync(join(tmpdir(), "mb-transcribe-"));
+    symlinkSync(
+      join(process.env.MOCKINGBIRD_HOME ?? join(homedir(), ".mockingbird"), "models"),
+      join(home, "models"),
+    );
+    const env = { MOCKINGBIRD_HOME: home, MOCKINGBIRD_ASR_MODEL: "ggml-base.en.bin" };
+    const lines = await run([hello], env);
+    expect(lines.code).toBe(0);
+    expect(lines.stdout.toLowerCase()).toContain("hello world");
+    expect(lines.stdout).toMatch(/\[00:0\d\]/);
+    const words = await run(["--words", hello], env);
+    expect(words.stdout).toMatch(/\[00:0\d\.\d\d-00:0\d\.\d\d\] \S+/);
   }, 90_000);
 });

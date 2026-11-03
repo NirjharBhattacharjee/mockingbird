@@ -1,6 +1,6 @@
 # Security Policy
 
-mockingbird is a local-first, privacy-first voice dictation tool — see
+mockingbird is a local-first, privacy-first video editing engine for AI agents — see
 [docs/SECURITY_PRIVACY.md](./docs/SECURITY_PRIVACY.md) for the full threat
 model, data inventory, and known open risks. This file is the short,
 canonical entry point GitHub and contributors look for.
@@ -21,18 +21,18 @@ Report privately, by either:
 
 You'll get an acknowledgement as soon as possible. This is a small
 open-source project without a dedicated security team, so please be patient
-— but every report is taken seriously, especially given how much local
-access this tool requires (microphone, Accessibility, Input Monitoring; see
-[docs/SECURITY_PRIVACY.md §4](./docs/SECURITY_PRIVACY.md#4-macos-permissions-tcc)).
+— but every report is taken seriously, especially given that it reads
+people's raw footage and runs scripts an AI agent writes (see
+[docs/SECURITY_PRIVACY.md §6](./docs/SECURITY_PRIVACY.md#6-process--trust-boundaries)).
 
 ## Scope
 
-In scope: mockingbird's own code (daemon, TUI, packages), its release/build
+In scope: mockingbird's own code (the engine, the MCP server, the command, packages), its release/build
 process, and its install scripts.
 
 Likely out of scope, but still worth a heads-up: vulnerabilities in
-third-party dependencies we merely consume (`whisper.cpp`, `llama.cpp`,
-Ollama, `ffmpeg`) — please report those upstream too, and let us know so we
+third-party dependencies we merely consume (`whisper.cpp`, `ffmpeg`,
+`onnxruntime`) — please report those upstream too, and let us know so we
 can track exposure and update our bundled/pinned versions.
 
 ## Supported versions

@@ -24,22 +24,15 @@ export type UninstallDeps = {
   mockingbirdHome: string;
   /** The folder the engine runs from: a clone, or Homebrew's. */
   root: string;
-  plistPath: string;
-  cleanupModel: string;
   /** Asks a yes/no question; `fallback` is the answer for just Enter, or no terminal. */
   ask: (question: string, fallback: boolean) => boolean;
   log: (message: string) => void;
-  stopAgent: () => Promise<number>;
-  /** `mockingbird fn --undo`, when there's an Fn setting to give back. */
-  undoFn: () => Promise<number>;
-  fnBackupPath: string;
+  /** Removes what dictation left (retire.ts): its agent, runner app and Fn setting. */
+  retire: () => string[];
   /** Runs git; its output, or undefined when it fails. */
   git: (args: string[]) => string | undefined;
-  ollamaRm: (model: string) => Promise<number>;
   /** Human-readable size of a path, or "" if unknown. */
   sizeOf: (path: string) => string;
-  /** Forgets mockingbird.app in LaunchServices, which keeps its name and icon otherwise. */
-  unregisterApp: (app: string) => void;
   /** Where zsh keeps .zshrc: ZDOTDIR as zsh sees it, or the home folder. */
   zdotdir?: string;
 };
@@ -76,9 +69,8 @@ function freshName(path: string): string {
 
 /**
  * `mockingbird uninstall` (#55): everything an install put on this Mac, after
- * one question. The user's dictionary gets its own question, the cleanup model
- * too since Ollama may serve other things, and the Homebrew tools are never
- * removed. Anything that can lose the user's data stops it before anything is
+ * one question. The user's dictionary gets its own question, and the Homebrew
+ * tools are never removed. Anything that can lose the user's data stops it before anything is
  * deleted; after that, each removal is tried on its own and failures are
  * reported at the end. The code goes last: it's what's running this.
  */
@@ -90,15 +82,13 @@ export async function uninstall(args: string[], deps: UninstallDeps): Promise<nu
 
   // Read the user's words first: if they can't be read, nothing is touched.
   let words: string[];
+  // Reading also moves a dictionary.txt not yet imported into data.db.
   try {
     words = readDictionary(mb).map(formatEntry);
   } catch (error) {
     log(`Couldn't read your dictionary in ${mb}, so nothing was removed: ${error}`);
     return 1;
   }
-  // A dictionary.txt the agent hasn't moved into data.db yet.
-  const legacy = join(mb, "dictionary.txt");
-  if (existsSync(legacy)) words.push(...readFileSync(legacy, "utf8").trimEnd().split("\n"));
 
   const installerClone = process.env.MOCKINGBIRD_DIR ?? join(home, "mockingbird");
   const shim = join(home, ".local", "bin", "mockingbird");
@@ -113,11 +103,9 @@ export async function uninstall(args: string[], deps: UninstallDeps): Promise<nu
   const removeCode =
     !isHomebrew(root) && real(root) === real(installerClone) && clonePristine(root, deps.git);
 
-  const items: [string, string][] = [
-    ["the background agent", deps.plistPath],
-    ["models, logs, the agent's runner and your dictionary", mb],
-  ];
-  // Recordings (#89) are kept unless the user says otherwise, asked below.
+  const items: [string, string][] = [["models and your dictionary", mb]];
+  // Recordings (#89), from the dictation-era recorder, are kept unless the
+  // user says otherwise, asked below.
   const recordings = join(mb, "recordings");
   const recorded = existsSync(recordings)
     ? readdirSync(recordings).filter((n) => /\.m4a(\.part)?$/.test(n)).length
@@ -136,16 +124,8 @@ export async function uninstall(args: string[], deps: UninstallDeps): Promise<nu
     return 0;
   }
 
-  // Fn's backup is in the folder about to go, so give Fn back first.
-  const fnTaken = existsSync(deps.fnBackupPath);
-  if (fnTaken && (await deps.undoFn()) !== 0) {
-    log("Fn couldn't be given back, so nothing was removed. Fix that, then run this again.");
-    return 1;
-  }
-  if ((await deps.stopAgent()) !== 0) {
-    log("The agent didn't stop, so nothing was removed. Run this again in a moment.");
-    return 1;
-  }
+  // Fn's backup is in the folder about to go, so this runs first.
+  for (const line of deps.retire()) log(line);
 
   const failed: string[] = [];
   const attempt = (what: string, remove: () => void): boolean => {
@@ -157,7 +137,6 @@ export async function uninstall(args: string[], deps: UninstallDeps): Promise<nu
       return false;
     }
   };
-  attempt(deps.plistPath, () => rmSync(deps.plistPath, { force: true }));
   let dataSafe = true;
   if (
     words.length > 0 &&
@@ -168,7 +147,7 @@ export async function uninstall(args: string[], deps: UninstallDeps): Promise<nu
     if (dataSafe) {
       log(
         `Your words are in ${copy}. To use them after a reinstall, move it to ` +
-          "~/.mockingbird/dictionary.txt before `mockingbird start`.",
+          "~/.mockingbird/dictionary.txt.",
       );
     }
   }
@@ -179,8 +158,6 @@ export async function uninstall(args: string[], deps: UninstallDeps): Promise<nu
     if (dataSafe) log(`Your recordings are in ${kept}.`);
   }
   // A copy that couldn't be written means the originals stay.
-  const app = join(mb, "bin", "mockingbird.app");
-  if (dataSafe) attempt(app, () => deps.unregisterApp(app));
   const mbGone = dataSafe && attempt(mb, () => rmSync(mb, { recursive: true, force: true }));
   if (!dataSafe) {
     failed.push(`${mb} was kept, since your words or recordings couldn't be copied out of it`);
@@ -194,30 +171,10 @@ export async function uninstall(args: string[], deps: UninstallDeps): Promise<nu
     if (ownShim) attempt(shim, () => rmSync(shim, { force: true }));
   }
 
-  const kept: string[] = [];
-  let modelGone = false;
-  if (
-    ask(
-      `Remove the cleanup model ${deps.cleanupModel} from Ollama? Other programs may use it. [y/N]`,
-      false,
-    )
-  ) {
-    try {
-      modelGone = (await deps.ollamaRm(deps.cleanupModel)) === 0;
-    } catch {
-      // No ollama command any more: the model is reported as kept.
-    }
-  }
-  if (!modelGone) {
-    kept.push(`The cleanup model is still in Ollama: \`ollama rm ${deps.cleanupModel}\`.`);
-  }
-  kept.push(
-    "Bun, whisper-cpp, Ollama and ffmpeg are still installed, since other things use them: " +
-      "`brew uninstall bun whisper-cpp ollama ffmpeg`.",
-    "System Settings → Privacy & Security still lists mockingbird under Microphone, " +
-      "Accessibility and Input Monitoring. Select it in each and click −.",
-  );
-  if (fnTaken) kept.push("Fn goes back to what it did before once you log out of your Mac.");
+  const kept: string[] = [
+    "Bun, whisper-cpp and ffmpeg are still installed, since other things use them: " +
+      "`brew uninstall bun whisper-cpp ffmpeg`.",
+  ];
   if (isHomebrew(root)) {
     kept.push("The code and the command came from Homebrew: `brew uninstall mockingbird`.");
   } else if (!removeCode || !mbGone) {

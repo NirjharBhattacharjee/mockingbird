@@ -3,160 +3,77 @@ import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openStore } from "@mockingbird/store";
-import {
-  formatEntry,
-  importDictionaryFile,
-  main,
-  openDaemonStore,
-  readDictionary,
-  recordUses,
-  serveDictionary,
-  tellDaemon,
-} from "../src/dictionary.ts";
-import { savedModel } from "../src/models.ts";
+import { formatEntry, main, readDictionary, withStore } from "../src/dictionary.ts";
 
 const newHome = () => mkdtempSync(join(tmpdir(), "mb-"));
 const quiet = () => {};
 
-describe("importDictionaryFile", () => {
-  test("moves dictionary.txt into the store once, and renames the file", () => {
+describe("dictionary.txt", () => {
+  test("moves into the store once, and the file is renamed", () => {
     const home = newHome();
     writeFileSync(join(home, "dictionary.txt"), "# a comment\nCatppuccin (a colour theme)\n");
     const logged: string[] = [];
-    const store = openDaemonStore(home, (m) => logged.push(m));
-    if (!store) throw new Error("no store");
-    expect(store.dictionary()).toEqual([{ term: "Catppuccin", hint: "a colour theme" }]);
+    const words = withStore(
+      (s) => s.dictionary(),
+      home,
+      (m) => logged.push(m),
+    );
+    expect(words).toEqual([{ term: "Catppuccin", hint: "a colour theme" }]);
     expect(existsSync(join(home, "dictionary.txt"))).toBe(false);
     expect(existsSync(join(home, "dictionary.txt.imported"))).toBe(true);
-    expect(logged[0]).toContain("moved 1 dictionary words");
-
-    // Nothing left to import on the next start.
-    importDictionaryFile(store, home, (m) => logged.push(m));
+    withStore(quiet, home, (m) => logged.push(m));
     expect(logged).toHaveLength(1);
-    store.close();
+    expect(logged[0]).toContain("moved 1 dictionary words");
   });
-});
 
-test("openDaemonStore keeps data.db when dictionary.txt can't be imported", () => {
-  const home = newHome();
-  const seeded = openStore(join(home, "data.db"));
-  seeded.addTerms([{ term: "Kept" }]);
-  seeded.close();
-  // A directory where the file should be: reading it fails.
-  mkdirSync(join(home, "dictionary.txt"));
-  const logged: string[] = [];
-  const store = openDaemonStore(home, (m) => logged.push(m));
-  expect(store?.dictionary()).toEqual([{ term: "Kept" }]);
-  expect(logged[0]).toContain("couldn't import dictionary.txt");
-  store?.close();
-});
-
-test("dictionary.txt that can't be renamed isn't imported", () => {
-  const home = newHome();
-  writeFileSync(join(home, "dictionary.txt"), "Catppuccin (old note)\n");
-  // A directory in the way makes the rename fail.
-  mkdirSync(join(home, "dictionary.txt.imported"));
-  const logged: string[] = [];
-  const store = openDaemonStore(home, (m) => logged.push(m));
-  expect(store?.dictionary()).toEqual([]);
-  expect(existsSync(join(home, "dictionary.txt"))).toBe(true);
-  expect(logged[0]).toContain("couldn't import dictionary.txt");
-  store?.close();
-});
-
-describe("recordUses", () => {
-  test("counts a term only when the text says it as a whole word", () => {
+  test("one that can't be imported leaves data.db working", () => {
     const home = newHome();
-    const store = openStore(join(home, "data.db"));
-    store.addTerms([{ term: "Ash" }, { term: "Kubernetes" }]);
-    recordUses(store, store.dictionary(), "Deploy to kubernetes, then wash up.");
-    expect(store.dictionary()[0]?.term).toBe("Kubernetes");
-    store.close();
+    const seeded = openStore(join(home, "data.db"));
+    seeded.addTerms([{ term: "Kept" }]);
+    seeded.close();
+    mkdirSync(join(home, "dictionary.txt"));
+    const logged: string[] = [];
+    expect(
+      withStore(
+        (s) => s.dictionary(),
+        home,
+        (m) => logged.push(m),
+      ),
+    ).toEqual([{ term: "Kept" }]);
+    expect(logged[0]).toContain("couldn't import dictionary.txt");
   });
 });
 
 describe("mockingbird dictionary", () => {
-  test("adds and removes through the running daemon, and lists from data.db", async () => {
+  test("adds, lists and removes, writing data.db itself", async () => {
     const home = newHome();
-    const store = openStore(join(home, "data.db"));
-    let current = store.dictionary();
-    const server = await serveDictionary(store, (d) => (current = d), quiet, home);
-    const out: string[] = [];
-    const log = spyOn(console, "log").mockImplementation((m) => out.push(String(m)));
-    try {
-      expect(await main(["add", "cat", "puck", "=>", "Catppuccin"], home)).toBe(0);
-      expect(current).toEqual([{ term: "Catppuccin", heard: "cat puck" }]);
-      expect(await main(["list"], home)).toBe(0);
-      expect(out.at(-1)).toBe("cat puck => Catppuccin");
-      expect(await main(["remove", "catppuccin"], home)).toBe(0);
-      expect(current).toEqual([]);
-      expect(readDictionary(home)).toEqual([]);
-    } finally {
-      log.mockRestore();
-      server?.stop();
-      store.close();
-    }
-  });
-
-  test("says the daemon isn't running instead of writing data.db itself", async () => {
-    const home = newHome();
+    const out = spyOn(console, "log").mockImplementation(quiet);
     const err = spyOn(console, "error").mockImplementation(quiet);
     try {
-      expect(await main(["add", "Nirjhar"], home)).toBe(1);
-      expect(String(err.mock.calls[0]?.[0])).toContain("isn't running");
-      expect(existsSync(join(home, "data.db"))).toBe(false);
+      expect(await main(["add", "cat puck => Catppuccin (a colour theme)"], home)).toBe(0);
+      expect(readDictionary(home)).toEqual([
+        { term: "Catppuccin", heard: "cat puck", hint: "a colour theme" },
+      ]);
+      expect(await main([], home)).toBe(0);
+      expect(out).toHaveBeenCalledWith("cat puck => Catppuccin (a colour theme)");
+      expect(await main(["remove", "catppuccin"], home)).toBe(0);
+      expect(await main(["remove", "catppuccin"], home)).toBe(1);
+      expect(await main(["forget"], home)).toBe(2);
     } finally {
+      out.mockRestore();
       err.mockRestore();
     }
   });
 
-  test("a socket it can't create is logged, not thrown, and the umask is put back", async () => {
-    const home = join(newHome(), "missing");
-    const store = openStore(":memory:");
-    const before = process.umask();
-    const logged: string[] = [];
-    expect(await serveDictionary(store, quiet, (m) => logged.push(m), home)).toBeUndefined();
-    expect(logged[0]).toContain("couldn't listen for dictionary edits");
-    expect(process.umask()).toBe(before);
-    store.close();
-  });
-
-  test("a second mockingbird leaves the edits to the first", async () => {
+  test("lists nothing, and creates nothing, without a data.db", () => {
     const home = newHome();
-    const store = openStore(join(home, "data.db"));
-    const first = await serveDictionary(store, quiet, quiet, home);
-    const logged: string[] = [];
-    expect(await serveDictionary(store, quiet, (m) => logged.push(m), home)).toBeUndefined();
-    expect(logged[0]).toContain("another mockingbird");
-    first?.stop();
-    store.close();
+    expect(readDictionary(home)).toEqual([]);
+    expect(existsSync(join(home, "data.db"))).toBe(false);
   });
 });
 
-test("formatEntry writes an entry the way `add` reads it", () => {
-  expect(formatEntry({ term: "Catppuccin", heard: "cat puck", hint: "a theme" })).toBe(
-    "cat puck => Catppuccin (a theme)",
+test("formatEntry writes what add reads", () => {
+  expect(formatEntry({ term: "Catppuccin", heard: "cat puck", hint: "a colour theme" })).toBe(
+    "cat puck => Catppuccin (a colour theme)",
   );
-});
-
-test("the socket saves the cleanup model choice, and an empty one clears it", async () => {
-  const home = newHome();
-  const store = openStore(join(home, "data.db"));
-  const server = await serveDictionary(store, quiet, quiet, home);
-  try {
-    expect(await (await tellDaemon("/settings/llm_model", "gemma3:1b", home)).text()).toBe(
-      "cleanup model: gemma3:1b",
-    );
-    expect(savedModel(home)).toBe("gemma3:1b");
-    await tellDaemon("/settings/llm_model", "", home);
-    expect(savedModel(home)).toBeUndefined();
-    // The transcription model saves the same way; an inherited name isn't a setting.
-    expect(await (await tellDaemon("/settings/asr_model", "ggml-base.en.bin", home)).text()).toBe(
-      "transcription model: ggml-base.en.bin",
-    );
-    expect((await tellDaemon("/settings/toString", "x", home)).status).toBe(404);
-  } finally {
-    server?.stop();
-    store.close();
-  }
 });

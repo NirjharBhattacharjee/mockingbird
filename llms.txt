@@ -1,14 +1,15 @@
 # mockingbird
 
-> Local voice dictation for macOS on Apple Silicon: hold Fn, speak, let go, and clean text is typed where the cursor is. Free, open source (MIT), and fully on-device: Whisper for speech, a small local model through Ollama for cleanup.
+> A video editing engine for AI agents, on macOS (Apple Silicon). An agent such as Claude Code, Codex, Cursor or Gemini CLI connects over MCP (`mockingbird mcp`) and gets tools to transcribe footage with word times, take stills, make word-by-word captions, cut and frame clips, draw motion graphics as code, and render, all on the user's computer. Free, open source (MIT), no account; the only network use is the user-run model download.
 
-To install or set it up for someone, follow the agent setup guide. It lists the steps, how to check each one, and the macOS permissions only the person can grant.
+To install it or set it up for someone, follow the agent setup guide. It lists the steps, how to check each one, and how to register the MCP server.
 
 ## Docs
 
-- [Set up with a coding agent](https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/docs/AGENT_INSTALL.md): install, start, permissions and checks, written for agents
-- [User guide](https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/docs/README.md): commands, permissions, troubleshooting
-- [README](https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/README.md): what it is, install, everyday use
+- [Set up with a coding agent](https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/docs/AGENT_INSTALL.md): install, check, connect over MCP, written for agents
+- [Tools](https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/docs/MCP.md): every MCP tool and its options
+- [User guide](https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/docs/README.md): commands, troubleshooting, privacy
+- [README](https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/README.md): what it is, install
 
 ## Optional
 

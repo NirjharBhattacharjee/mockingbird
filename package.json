@@ -14,15 +14,8 @@
     "test": "bun test",
     "test:integration": "MOCKINGBIRD_INTEGRATION=1 bun test",
     "transcribe": "bun apps/daemon/src/transcribe.ts",
-    "listen": "bun apps/daemon/src/listen.ts",
-    "type": "bun apps/daemon/src/type.ts",
     "fixtures": "sh scripts/make-fixtures.sh",
-    "demo": "bun scripts/render-demo.ts",
-    "bench:models": "bun bench/models.ts",
-    "bench:record": "bun bench/record.ts",
-    "eval:cleanup": "bun evals/cleanup/run.ts",
-    "bench:cleanup": "bun bench/cleanup-models.ts",
-    "bench:e2e": "bun bench/e2e.ts"
+    "bench:models": "bun bench/models.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",

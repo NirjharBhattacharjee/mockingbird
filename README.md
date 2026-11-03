@@ -3,7 +3,7 @@
 </h3>
 
 <p align="center">
-  Local voice dictation for macOS. Free forever, and your voice never leaves your Mac.
+  The video editing engine for AI agents. Your agent edits real footage with it, on your computer. Free, every feature.
 </p>
 
 <p align="center">
@@ -13,30 +13,31 @@
   <img src="https://img.shields.io/badge/runs-100%25%20local-fab387?style=for-the-badge&logo=lock&logoColor=cdd6f4&labelColor=313244" alt="runs 100% local">
   <img src="https://img.shields.io/badge/built%20with-Bun-f5e0dc?style=for-the-badge&logo=bun&logoColor=cdd6f4&labelColor=313244" alt="built with Bun">
   <img src="https://img.shields.io/badge/price-free%20forever-f38ba8?style=for-the-badge&logo=githubsponsors&logoColor=cdd6f4&labelColor=313244" alt="free forever">
+  <img src="https://img.shields.io/badge/for-AI%20agents%20over%20MCP-b4befe?style=for-the-badge&logo=modelcontextprotocol&logoColor=cdd6f4&labelColor=313244" alt="for AI agents over MCP">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-94e2d5?style=for-the-badge&logo=opensourceinitiative&logoColor=cdd6f4&labelColor=313244" alt="MIT license"></a>
-</p>
-
-<p align="center">
-  <img src="docs/assets/demo.gif" alt="Illustration: running mockingbird start once, after which the terminal is no longer needed; then holding Fn in a chat app, speaking, and letting go types the cleaned-up sentence into the message box" width="100%">
 </p>
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/catppuccin/catppuccin/main/assets/palette/macchiato.png" width="400" alt="">
 </p>
 
-Speak, and get clean text back. Everything runs on your Mac: no account, no
-cloud, no usage limits. A free, open-source alternative to Wispr Flow
+Give your AI agent (Claude Code, Codex, Cursor, Gemini CLI, anything that
+speaks MCP) a recording, and get back an edited video: cut on word
+boundaries, framed for 9:16, with word-by-word captions, b-roll, music under
+the speech, motion graphics written as code, and loudness set for the feed.
+mockingbird does the transcribing and rendering on your Mac; your agent
+decides the edit. No account, no cloud, no usage limits, nothing locked
 ([why](docs/PHILOSOPHY.md)).
 
 > [!NOTE]
-> **Early days.** `mockingbird start` once, then hold `Fn` anywhere, speak,
-> and the text is typed into whatever app you're in — no terminal open, and it
-> comes back at every login. History, custom vocabulary and the dashboard are
-> still to come.
+> **Changing direction.** Until v0.3.2 mockingbird was voice dictation. That's
+> gone ([#134](https://github.com/NirjharBhattacharjee/mockingbird/issues/134) has the plan and the reasons). What's here now: transcription,
+> stills, captions, cutting and framing, motion graphics and rendering over
+> MCP. A timeline, effects, Linux and Windows are on the roadmap.
 
 ## 🚀 Install
 
-You need a Mac with Apple Silicon, [Homebrew](https://brew.sh), and about 6 GB
+You need a Mac with Apple Silicon, [Homebrew](https://brew.sh), and about 3 GB
 of free space.
 
 ```sh
@@ -55,60 +56,54 @@ mockingbird models pull
 
 ### With a coding agent
 
-Claude Code, Codex, Cursor or any agent that runs shell commands can set it up
-for you. Paste this:
+Paste this into your agent:
 
 ```text
 Set up mockingbird on this Mac by following
 https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/docs/AGENT_INSTALL.md
 ```
 
-It runs the installer, starts mockingbird, and tells you which permissions to
-switch on. That part is always yours: macOS won't let any program grant them
-to itself.
+It runs the installer, checks it, and connects mockingbird to itself.
 
 ### Updating
 
-Run the same install command again, or `brew upgrade mockingbird` if you used
-Homebrew. Either way you get the latest release, and mockingbird never checks
-for updates on its own. After `brew upgrade`, run `mockingbird restart`.
+Run the same install command again, or `brew upgrade mockingbird`.
+mockingbird never checks for updates on its own. Updating from v0.3.2 or
+earlier removes dictation's background agent and keeps your dictionary.
 
 To remove it, follow [Uninstalling](docs/README.md#uninstalling).
 
-## 🎤 Use it
+## 🎬 Use it
+
+Connect it to your agent once. For Claude Code:
 
 ```sh
-mockingbird start
+claude mcp add mockingbird -- mockingbird mcp
 ```
 
-Click into any app, hold **Fn**, speak, and let go. Your words are typed where
-the cursor is. It keeps running in the background and comes back at every
-login.
+Other agents: [MCP.md](docs/MCP.md#register-it). Then ask:
 
-The first time, macOS asks for three permissions (Input Monitoring,
-Accessibility, Microphone). Grant them to **mockingbird**, then run
-`mockingbird restart`. `mockingbird status` shows what's still missing.
+> Cut a 60-second vertical short with captions from ~/Movies/talk.mp4.
 
-## ⌨️ Commands
+The agent transcribes the video, picks the moment, gets the word times,
+looks at stills to frame the speaker, makes the captions and renders. The
+[mockingbird-studio](https://github.com/NirjharBhattacharjee/mockingbird-studio)
+plugin gives Claude Code the editing know-how (hooks, pacing, caption style,
+motion design) as skills.
 
-| Command | Does |
+## 🧰 Tools
+
+| Tool | Does |
 |---|---|
-| `mockingbird start` | Run in the background, now and at every login |
-| `mockingbird stop` | Stop, and stay stopped across reboots |
-| `mockingbird restart` | Restart (do this after granting a permission) |
-| `mockingbird status` | Whether it's running, and which permissions it has |
-| `mockingbird listen` | Dictate live in a terminal, with a level meter |
-| `mockingbird transcribe <file>` | Turn a recording (mp3, m4a, wav…) into text |
-| `mockingbird type --check` | Check typing permission and the app in front |
+| `transcribe` | Timestamped lines, or each word's start and end, with names spelled your way |
+| `frames` | Stills from a video, for the agent to look at |
+| `captions` | Word-by-word captions timed to the finished cut |
+| `render` | Cuts, framing, 9:16 or split layout, captions, titles, b-roll, music and sound effects, −14 LUFS |
+| `motion` | Motion graphics as code (the Canvas 2D API), rendered to video |
+| `status`, `dictionary_list`, `dictionary_add` | What's installed; names to spell right |
 
-| Key | Does |
-|---|---|
-| **Fn** (hold) | Record while held |
-| **Fn** (double-tap) | Record hands-free until you press **Fn** again |
-| **Fn+R** | Start or stop recording a meeting to a file ([more](docs/README.md#mockingbird-record-record-a-meeting-to-a-file)) |
-
-A rising **tink** means it's recording, a falling **pop** means it's
-transcribing, and a low **basso** means it couldn't type the text.
+Every option: [docs/MCP.md](docs/MCP.md). On the command line,
+`mockingbird transcribe`, `dictionary`, `models` and `status` do the same.
 
 Something not working? See [troubleshooting](docs/README.md#troubleshooting).
 

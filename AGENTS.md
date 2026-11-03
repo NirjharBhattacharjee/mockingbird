@@ -8,8 +8,8 @@
 > **Read [docs/PHILOSOPHY.md](./docs/PHILOSOPHY.md) and
 > [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) first**, plus
 > [docs/DATABASE.md](./docs/DATABASE.md) for any change touching `data.db`
-> and [docs/TUI.md](./docs/TUI.md) for any change touching `apps/cli` — this
-> file condenses all four into checklist form; it doesn't replace them.
+> and [docs/MCP.md](./docs/MCP.md) for any change to a tool — this file
+> condenses them into checklist form; it doesn't replace them.
 
 ## Workflow
 
@@ -18,31 +18,22 @@
    live in `.worktrees/` (already gitignored), branch prefix `agent/`.
 2. **Build — `/code-structure`.** Maps onto this repo's existing split
    ([ARCHITECTURE.md §10](./docs/ARCHITECTURE.md#10-repository-layout)):
-   `packages/*` (`asr`, `llm`, `inject`, `vad`, `audio`, `store`) **is** the
-   service layer — reusable mechanics, explicit inputs, structured returns,
-   no reaching into daemon state. `apps/daemon` (the FSM, the supervisor,
-   the pipeline stages) **is** the orchestration layer — it owns *when* to
-   capture, *when* the LLM Gate skips cleanup, *when* to inject. Don't let
-   platform-specific logic leak out of `asr`/`inject`/`context`/`audio`
-   into orchestration code, and don't let `packages/*` import from `apps/*`
-   — that boundary is load-bearing, not a style preference. `apps/cli`
-   (Go) fits the same split from the other side: it's a pure read-only client
-   over the daemon's IPC socket and direct (read-only) SQLite queries — see
-   [DATABASE.md §1](./docs/DATABASE.md#1-design-goals-for-this-schema) and
-   [TUI.md §1](./docs/TUI.md#1-what-the-tui-is-structurally). It never opens
-   a write transaction against `data.db` itself; a TUI action that needs to
-   persist something (e.g. the dictionary editor) asks the daemon to write,
-   over IPC, same as any other write path.
-3. **Prove — `/evidence-driven-testing`.** For pipeline/daemon code (no
-   GUI yet), evidence means measured numbers: WER and per-stage latency
-   from `bench/`, not screenshots. Once `apps/cli` exists, evidence for a
-   TUI change means a recording (or scripted capture) showing the actual
-   screen named in [TUI.md §5](./docs/TUI.md#5-screens--what-each-one-controls)
-   — Dashboard, History browser, Dictionary editor, or Latency waterfall —
-   behaving as claimed, in the Catppuccin theme described there.
-4. **Ship — `/before-and-after`, then `/greploop`.** `before-and-after`
-   only applies once the TUI exists; until then, ship with measured
-   before/after numbers in the PR description instead. Run `/greploop` (or
+   `packages/*` (`asr`, `vad`, `audio`, `captions`, `motion`, `store`)
+   **is** the service layer — reusable mechanics, explicit inputs,
+   structured returns. `apps/daemon` (the engine: the MCP server, its tools
+   and the commands) **is** the orchestration layer — it owns *which* clips,
+   *which* model, *what* filter graph. Don't let platform-specific logic
+   leak out of `audio`/`captions`/`motion` into the engine, and don't let
+   `packages/*` import from `apps/*` — that boundary is load-bearing, not a
+   style preference. `apps/cli` (Go) only finds the engine and hands it each
+   command; it never opens `data.db`.
+3. **Prove — `/evidence-driven-testing`.** Evidence for an engine change is
+   measured: render time, loudness, WER, a frame from the output, or the
+   tool's output before and after, not a claim. A change to what a render
+   looks like gets stills from the real output.
+4. **Ship — `/before-and-after`, then `/greploop`.** Use `before-and-after`
+   for a change to what a render looks like (two stills); otherwise ship
+   with measured before/after numbers in the PR description. Run `/greploop` (or
    `/greploop-apps` for huge PRs) until Greptile reports 5/5 with zero
    unresolved comments — but read [§Hard invariants](#hard-invariants)
    first: greploop fixes whatever Greptile flags with no awareness of this
@@ -66,42 +57,42 @@ greploop have something to check a "fix" against.
 
 **Product / philosophy** — from [PHILOSOPHY.md §3](./docs/PHILOSOPHY.md#3-non-negotiables):
 
-- No paywall, usage cap, credits, metering, or "free now, paid later" plan,
-  ever, for any core dictation feature.
+- No paywall, usage cap, credits, metering, license key, or "free now, paid
+  later" plan, ever, for any feature — enterprise features included. Open
+  source, not open core.
 - No discriminatory content or behavior, anywhere in the project, on any
   basis.
 - No telemetry/analytics by default; if ever added, opt-in and separate
   from onboarding.
 - No required account, login, or license server.
-- No exception to local-first: the *only* network call anywhere in the
-  system is the explicit, user-triggered `mockingbird models pull`
+- No exception to local-first: the *only* network calls anywhere in the
+  system are explicit, user-approved downloads, today only
+  `mockingbird models pull`
   ([ARCHITECTURE.md §9](./docs/ARCHITECTURE.md#9-everything-is-local)).
 - No CLA — contributor licensing is DCO-only
   ([CONTRIBUTING.md §11](./CONTRIBUTING.md#11-contributor-licensing--dco-not-a-cla)).
 
 **Technical** — from [ARCHITECTURE.md §2](./docs/ARCHITECTURE.md#2-core-principles):
 
-- Two languages, each in its own place. The dictation engine (`apps/daemon`
-  and every `packages/*`) is TypeScript on Bun. The user-facing command and
-  terminal UI (`apps/cli`) is Go, with Bubble Tea. Go lives nowhere else,
-  and never a `.swift`/`.mm`/`.rs` file we write or compile ourselves.
-  Third-party binaries are consumed as subprocesses or prebuilt native
-  modules.
-- No Electron, no native GUI toolkit — feedback is audio cues + the Bubble
-  Tea terminal UI only.
+- Two languages, each in its own place. The engine (`apps/daemon` and every
+  `packages/*`) is TypeScript on Bun. The user-facing command (`apps/cli`)
+  is Go. Go lives nowhere else, and never a `.swift`/`.mm`/`.rs` file we
+  write or compile ourselves. Third-party binaries are consumed as
+  subprocesses or prebuilt native modules.
+- No Electron, no native GUI toolkit — a future preview is a local page in
+  the browser.
 - `packages/*` never imports from `apps/*`.
-- The pipeline (VAD → ASR → LLM → format) must run and be testable with
-  zero OS integration — a change that breaks headless testability is a
-  design problem to raise, not merge around.
-- A dependency dying degrades functionality; it never crashes dictation
-  outright ("degrade, don't break").
-- **The daemon is the only writer to `data.db`.** No other process —
-  `apps/cli` included — opens a write transaction against it directly; see
-  [DATABASE.md §1](./docs/DATABASE.md#1-design-goals-for-this-schema) and
-  the code-structure mapping in [§Workflow](#workflow), step 2.
-- Any PR changing architecture, data handling, a model, or the TUI must
+- Every editing tool must run and be testable with no GUI, mic or
+  permission prompt — a change that breaks headless testability is a design
+  problem to raise, not merge around.
+- A dependency dying degrades functionality; it never breaks every tool
+  ("degrade, don't break").
+- **Only the engine writes `data.db`**, through `packages/store` (any engine
+  process may; WAL serialises them). `apps/cli` never opens it; see
+  [DATABASE.md §1](./docs/DATABASE.md#1-design-goals-for-this-schema).
+- Any PR changing architecture, data handling, a model, or a tool must
   update the relevant doc (`ARCHITECTURE.md` / `SECURITY_PRIVACY.md` /
-  `MODELS.md` / `DATABASE.md` / `TUI.md`) in the same PR
+  `MODELS.md` / `DATABASE.md` / `MCP.md`) in the same PR
   ([ARCHITECTURE.md §17](./docs/ARCHITECTURE.md#17-versioning--how-this-doc-evolves)).
 
 ## Multi-agent rules
@@ -126,8 +117,8 @@ greploop have something to check a "fix" against.
 
 1. Keep changes limited to the assigned task.
 2. Run the checks in [§Commands & checks](#commands--checks).
-3. Assemble evidence into a before/after pair (measured numbers until the
-   TUI exists).
+3. Assemble evidence into a before/after pair (measured numbers, or stills
+   from a render).
 4. Commit with a clear message, signed off (`git commit -s`, the `dco` CI
    job checks it; run the message through `/unslop`), rebase onto
    latest `origin/main`, rerun the checks.
@@ -153,29 +144,23 @@ the local setup the integration tests need.
 | Typecheck, all workspaces | `bun run typecheck` | yes |
 | Lint + format (Biome) | `bun run lint` (`bun run format` to fix) | yes |
 | Unit tests | `bun test` | yes |
-| Integration tests (real VAD, whisper-server, Ollama) | `bun run test:integration` | no — run locally for any change to `packages/{vad,asr,llm}` or the pipeline |
-| Build smoke test | `bun build --compile` | not yet — no daemon entry point |
+| Integration tests (real VAD, whisper-server, ffmpeg) | `bun run test:integration` | no — run locally for any change to `packages/{audio,vad,asr,captions,motion}` or a tool |
+| Build smoke test | `bun build --compile` | not yet — onnxruntime's dylib isn't embedded |
 | Go command (`apps/cli`) | `cd apps/cli && gofmt -l . && go vet ./... && go test -race ./...` | yes |
-| Model comparison (Whisper, cleanup models, both together) | `bun run bench:models`, `bun run bench:cleanup <ollama models>`, `bun run bench:e2e --speech <file> --cleanup <model>` | no — run locally before changing a default model (MODELS.md §7a) |
-| Cleanup eval (promptfoo, local Ollama) | `bun run eval:cleanup`, then `MOCKINGBIRD_EVAL_SET=holdout bun run eval:cleanup` | no — run locally for any change to the cleanup prompt, the gate, or the cleanup model |
+| Whisper model comparison | `bun run bench:models` | no — run locally before changing the default model (MODELS.md §6) |
 
-Integration tests are the evidence for pipeline work: they print each
-utterance's `vadMs`/`asrMs`/`llmMs`, which is the before/after number a PR
-should quote. For cleanup changes, the evidence is the eval's pass count on
-the dev and held-out sets, before and after.
+For render work, the evidence is the render's time, its loudness
+(`ffmpeg -af ebur128`) and stills from it, before and after. For
+transcription, WER and time from `bench:models`.
 
 ## Environment quick reference
 
 - Runtime: Bun ≥ 1.2 — full stack table in
   [ARCHITECTURE.md §3](./docs/ARCHITECTURE.md#3-technology-stack).
-- Target platform: macOS only for v1 (arm64 primary, x64 best-effort).
+- Target platform: macOS on Apple Silicon for now; Linux and Windows are
+  pivot step 4 ([#134](https://github.com/NirjharBhattacharjee/mockingbird/issues/134)).
 - Data dir: `~/.mockingbird/` — `data.db` (schema:
-  [DATABASE.md](./docs/DATABASE.md)), `models/`, `bin/`, `logs/`, socket,
-  PID file.
-- TUI: Go + Bubble Tea/Lip Gloss in `apps/cli`, Catppuccin theme (Mocha default) — full palette,
-  semantic color mapping, and screen breakdown in
-  [TUI.md](./docs/TUI.md). Verify any hardcoded hex value there against the
-  canonical Catppuccin palette before shipping a theme file.
+  [DATABASE.md](./docs/DATABASE.md)), `models/`, `logs/` (install logs).
 - **License: MIT** ([LICENSE](./LICENSE)). Don't add per-file license
   headers, and don't copy in code under a license that isn't MIT-compatible
   (e.g. GPL); third-party code with a different license goes in its own
@@ -184,25 +169,23 @@ the dev and held-out sets, before and after.
 ## Local test infrastructure
 
 - `bench/fixtures/` — two synthetic clips (`hello.wav`, `short.wav`) made
-  with macOS `say`; regenerate with `bun run fixtures`. The WER/latency
-  harness and a corpus of real voices
-  ([ARCHITECTURE.md §14](./docs/ARCHITECTURE.md#14-cicd-pipeline)) don't
-  exist yet, so the LLM gate thresholds are provisional.
-- Integration tests use `base.en`, not the shipping-size `large-v3-turbo`
+  with macOS `say`; regenerate with `bun run fixtures`. There's no corpus
+  of real footage or edit-quality eval yet.
+- Integration tests use `base.en`, not the shipping-size `large-v3`
   (see [MODELS.md](./docs/MODELS.md)).
-- Pipeline unit tests (`apps/daemon/test/pipeline.test.ts`) inject fake
-  VAD/ASR/LLM dependencies — copy that pattern rather than mocking modules.
-- No mic, hotkey, or GUI needed to exercise most pipeline logic — that's
-  the point of "headless-testable core."
+- Tool tests (`apps/daemon/test/mcp.test.ts`) check the ffmpeg filter graph
+  a tool builds as a string, and the integration tests run it on fixtures —
+  copy that pattern rather than mocking modules.
+- No mic, GUI or permission is needed for any tool.
 
 ## What can't be tested locally / in CI
 
-- macOS TCC permission prompts (Mic, Accessibility, Input Monitoring) —
-  can't be scripted; verify manually on a real machine.
-- Actual keystroke injection into other GUI apps — needs a real logged-in
-  GUI session, not available on typical CI runners.
-- Real Fn key presses (the CoreGraphics tap needs Input Monitoring) — needs
-  physical or simulated key events outside typical CI sandboxes.
+- Whether an edit is *good* (pacing, framing, caption placement) — needs a
+  person watching the render; the mockingbird-studio reviewer agent checks
+  what can be measured.
+- The upgrade from v0.3.2 (`retire.ts` removing the launchd agent and giving
+  Fn back) — needs a Mac that ran dictation; the unit tests fake `launchctl`
+  and `defaults`.
 
 ## Skill sources
 

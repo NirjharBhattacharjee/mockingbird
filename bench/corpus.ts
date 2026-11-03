@@ -9,8 +9,7 @@ import { existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { wordDiff } from "../packages/asr/src/index.ts";
 
-/** `cleaned` is what the cleanup should make of `text`, where that isn't `text` itself. */
-export type Sentence = { text: string; names: string[]; cleaned?: string };
+export type Sentence = { text: string; names: string[] };
 
 export const SENTENCES: Sentence[] = [
   {
@@ -25,8 +24,6 @@ export const SENTENCES: Sentence[] = [
   {
     text: "I need to buy onions, milk and bread on the way home.",
     names: [],
-    // Three things become a list (packages/llm/prompts/cleanup.md, "Lists").
-    cleaned: "On the way home:\n- onions\n- milk\n- bread",
   },
   { text: "Run the tests again because the build failed on the second step.", names: [] },
   {
