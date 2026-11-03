@@ -338,8 +338,19 @@ export type Sound = { at: number; volume: number; loop: boolean; duck: boolean }
 /** Where caption images sit unless told: a little below the middle, where Shorts and Reels leave room for text. */
 export const CAPTIONS_Y = 0.7;
 
-/** The loudness Shorts, Reels and TikTok play at, roughly: EBU R128, in LUFS. */
-const LOUDNESS = "loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000";
+/** The loudness Shorts, Reels, TikTok and YouTube play at: EBU R128 integrated, in LUFS. */
+const LUFS = -14;
+
+/**
+ * Holds peaks under -1.5 dBTP, oversampled 4x so the peaks between samples
+ * are caught too, as a true-peak meter reads them. It limits at -2 dB, since
+ * encoding to AAC afterwards adds about 0.3 dB to the peaks.
+ */
+const LIMIT =
+  "aresample=192000,alimiter=limit=-2dB:level=false:attack=5:release=50,aresample=48000";
+
+/** The most gain `level` adds: past it is mostly the noise floor of a near-silent file. */
+const MAX_GAIN = 30;
 
 /**
  * Square pixels at the width the picture is shown at. Every clip starts with
@@ -379,8 +390,8 @@ function frame({ focus = { x: 0.5, y: 0.5 }, zoom = 1 }: Clip, vertical: boolean
  * clips), each for its stretch of the finished video in seconds, its middle
  * at `y` of the height. `burn` draws the captions in CAPTIONS over all of it,
  * at `captionsY`. `sounds` (the inputs after the inserts) are mixed under the
- * speech, the sound cut to the picture's length and brought to LOUDNESS
- * unless `loudness` is false. `size` is the source picture's, `WxH`. Ends in
+ * speech, the sound cut to the picture's length unless `whole`, and left
+ * for `level` to bring to LUFS. `size` is the source picture's, `WxH`. Ends in
  * [v], and [a] if there's sound.
  */
 export function renderGraph(
@@ -395,7 +406,7 @@ export function renderGraph(
     overlays = [],
     inserts = [],
     sounds = [],
-    loudness = true,
+    whole = false,
   }: {
     audio: boolean;
     vertical: boolean;
@@ -406,7 +417,7 @@ export function renderGraph(
     overlays?: (Omit<Cue, "text"> & { y?: number })[];
     inserts?: Omit<Cue, "text">[];
     sounds?: Sound[];
-    loudness?: boolean;
+    whole?: boolean;
   },
 ): string {
   const out = vertical || split ? "1080x1920" : size;
@@ -465,7 +476,7 @@ export function renderGraph(
       speech: audio,
       length,
       first: clips.length + overlays.length + inserts.length,
-      loudness,
+      whole,
     }),
   ].join(";");
 }
@@ -473,7 +484,7 @@ export function renderGraph(
 /**
  * The filter steps that mix `sounds` (inputs `first`, `first + 1`, …) under
  * the speech, labelled [speech] if there is any, cut to `length` seconds and
- * brought to LOUDNESS; with `loudness` false, a batch's, left as it is. Ends
+ * left for `level` to bring to LUFS; a batch's, with `whole`, isn't cut. Ends
  * in [a] if there's any sound at all.
  */
 export function mixGraph(
@@ -482,8 +493,8 @@ export function mixGraph(
     speech: audio,
     length,
     first,
-    loudness = true,
-  }: { speech: boolean; length: number; first: number; loudness?: boolean },
+    whole = false,
+  }: { speech: boolean; length: number; first: number; whole?: boolean },
 ): string[] {
   const ducked = sounds.filter((s) => s.duck).length;
   const keyLabels = sounds.flatMap((s, i) => (s.duck ? [`[key${i}]`] : [])).join("");
@@ -506,7 +517,7 @@ export function mixGraph(
   // A batch keeps its sound whole: concat pads each clip's sound to its
   // picture, which runs a little over from whole frames, so cutting it to
   // `length` would leave a gap where the next batch joins (#137).
-  const level = loudness ? `atrim=duration=${length},${LOUDNESS}[a]` : "anull[a]";
+  const level = whole ? "anull[a]" : `atrim=duration=${length}[a]`;
   const sound = tracks.length
     ? [
         tracks.length === 1
@@ -732,11 +743,58 @@ async function ffmpeg(args: string[], what: string): Promise<void> {
   }
 }
 
+/** `file`'s integrated loudness in LUFS, through `filter` first if given. */
+async function loudness(file: string, filter = ""): Promise<number> {
+  const proc = Bun.spawn(
+    [
+      ...["ffmpeg", "-nostdin", "-nostats", "-i", file, "-map", "0:a"],
+      ...["-af", `${filter}ebur128=framelog=quiet`, "-f", "null", "-"],
+    ],
+    { stderr: "pipe" },
+  );
+  const said = await new Response(proc.stderr).text();
+  if ((await proc.exited) !== 0) throw new Error(`ffmpeg couldn't measure ${file}: ${said.trim()}`);
+  // The summary's "I:" line, the last one in the log.
+  const found = [...said.matchAll(/^\s*I:\s+(-?[\d.]+|-inf) LUFS/gm)].at(-1)?.[1];
+  return found === undefined || found === "-inf" ? -Infinity : Number(found);
+}
+
+/**
+ * The gain, in dB, that brings `file`'s sound to LUFS through LIMIT. The
+ * limiter takes a little loudness off as it holds the peaks, so the sound is
+ * measured as it is, then again through the limiter, and the gain corrected
+ * once: within about half a dB (#127). Silence gets none.
+ */
+async function levelGain(file: string): Promise<number> {
+  const before = await loudness(file);
+  if (!(before > -70)) return 0;
+  const first = Math.min(MAX_GAIN, LUFS - before);
+  const after = await loudness(file, `volume=${first}dB,${LIMIT},`);
+  return Math.min(MAX_GAIN, first + LUFS - after);
+}
+
+/**
+ * `file` (render's or motion's, its sound not yet levelled) saved as the MP4
+ * `out` with its sound at LUFS and its peaks held by LIMIT. The picture and
+ * any subtitles are copied, not encoded again.
+ */
+async function level(file: string, out: string): Promise<void> {
+  const gain = await levelGain(file);
+  await ffmpeg(
+    [
+      ...["-i", file, "-map", "0", "-c", "copy", "-c:s", "mov_text"],
+      ...["-af", `volume=${gain.toFixed(2)}dB,${LIMIT}`, "-c:a", "aac", "-b:a", "160k"],
+      ...["-movflags", "+faststart", out],
+    ],
+    `bring ${out}'s sound to ${LUFS} LUFS`,
+  );
+}
+
 /**
  * `clips` cut, framed and joined into one file in `dir`, CLIPS_PER_PASS at
  * a time: each batch is encoded at a high quality, and the batches are joined
- * without encoding again. The sound isn't brought to LOUDNESS: render's last
- * pass does that over all of it.
+ * without encoding again. The sound is levelled after render's last pass,
+ * over all of it.
  */
 async function joinBatches(
   path: string,
@@ -751,7 +809,7 @@ async function joinBatches(
     await ffmpeg(
       [
         ...seekClips(path, batch),
-        ...["-filter_complex", renderGraph(batch, { ...look, loudness: false }), "-map", "[v]"],
+        ...["-filter_complex", renderGraph(batch, { ...look, whole: true }), "-map", "[v]"],
         ...(look.audio ? ["-map", "[a]", "-c:a", "pcm_s16le"] : []),
         // Encoded once more in the last pass, so near-lossless here.
         ...["-c:v", "libx264", "-crf", "10", "-preset", "veryfast", "-pix_fmt", "yuv420p"],
@@ -851,8 +909,8 @@ async function render(
   let made = false;
   try {
     const lines = [...cues.map((c) => c.text), ...texts.map((t) => t.text)];
-    const width = vertical || split ? 1080 : Number(source.size.split("x")[0]);
-    const images = lines.length ? drawCaptions(lines, dir, width) : undefined;
+    const [width, height] = vertical || split ? [1080, 1920] : source.size.split("x").map(Number);
+    const images = lines.length ? drawCaptions(lines, dir, width ?? 1080, height) : undefined;
     const burn = !!text && !images && (await canBurn());
     sidecar = !!text && !images && !burn;
     target = outputFor(named, out, sidecar);
@@ -878,6 +936,7 @@ async function render(
       ...sounds.flatMap((s) => [...(s.loop ? ["-stream_loop", "-1"] : []), "-i", s.path]),
     ];
     const hasSound = source.audio || sounds.length > 0;
+    const unlevelled = join(dir, "unlevelled.mkv");
     const proc = Bun.spawn(
       [
         "ffmpeg",
@@ -885,18 +944,38 @@ async function render(
         ...extras,
         ...(sidecar ? ["-i", CAPTIONS] : []),
         ...["-filter_complex", graph, "-map", "[v]"],
-        ...(hasSound ? ["-map", "[a]", "-c:a", "aac", "-b:a", "160k"] : []),
+        // Uncompressed until `level` sets the volume.
+        ...(hasSound ? ["-map", "[a]", "-c:a", "pcm_s16le"] : []),
         // The subtitle file is the input after the clips and the extras.
         ...(sidecar ? ["-map", `${clips.length + extras.filter((a) => a === "-i").length}:s`] : []),
-        ...(sidecar ? ["-c:s", "mov_text"] : []),
+        ...(sidecar ? ["-c:s", "srt"] : []),
         ...["-c:v", "libx264", "-crf", "18", "-preset", "veryfast", "-pix_fmt", "yuv420p"],
-        ...["-movflags", "+faststart", target],
+        unlevelled,
       ],
       { cwd: dir, stderr: "pipe" },
     );
     if ((await proc.exited) !== 0) {
       throw new Error(
         `ffmpeg couldn't render ${target}: ${(await new Response(proc.stderr).text()).trim()}`,
+      );
+    }
+    if (hasSound) await level(unlevelled, target);
+    else {
+      await ffmpeg(
+        [
+          "-i",
+          unlevelled,
+          "-map",
+          "0",
+          "-c",
+          "copy",
+          "-c:s",
+          "mov_text",
+          "-movflags",
+          "+faststart",
+          target,
+        ],
+        `save ${target}`,
       );
     }
     const length = fineClock((await probe(target)).seconds * 1000);
@@ -916,6 +995,26 @@ async function render(
     }
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+/**
+ * The stretches of the source to transcribe for `clips`: each clip with
+ * `pad` seconds either side, since Whisper places words better with some
+ * speech around them, and stretches that overlap made one. An edit cut at
+ * its pauses would otherwise hear most of its audio twice (#127). In source
+ * order, whatever order the clips are in.
+ */
+export function spans(clips: Clip[], pad = 2): { from: number; to: number }[] {
+  const padded = clips
+    .map(({ from, to }) => ({ from: Math.max(0, from - pad), to: to + pad }))
+    .sort((a, b) => a.from - b.from);
+  const merged: { from: number; to: number }[] = [];
+  for (const s of padded) {
+    const last = merged.at(-1);
+    if (last && s.from <= last.to) last.to = Math.max(last.to, s.to);
+    else merged.push({ ...s });
+  }
+  return merged;
 }
 
 /**
@@ -1033,7 +1132,8 @@ async function motion(
       // A folder of its own beside the target: the same disk, so the move is a rename,
       // and a name no one else's file can have.
       work = mkdtempSync(join(dirname(target), ".mockingbird-mix-"));
-      const mixing = join(work, "mix.mp4");
+      const mixing = join(work, "mix.mkv");
+      const levelled = join(work, "levelled.mp4");
       const graph = [
         ...(audio ? ["[0:a]anull[speech]"] : []),
         ...mixGraph(sounds, { speech: audio, length: frames / fps, first: 1 }),
@@ -1043,7 +1143,7 @@ async function motion(
           ...["ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", target],
           ...sounds.flatMap((s) => [...(s.loop ? ["-stream_loop", "-1"] : []), "-i", s.path]),
           ...["-filter_complex", graph, "-map", "0:v", "-map", "[a]", "-c:v", "copy"],
-          ...["-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", mixing],
+          ...["-c:a", "pcm_s16le", mixing],
         ],
         { stderr: "pipe" },
       );
@@ -1052,7 +1152,8 @@ async function motion(
           `ffmpeg couldn't mix the sound into ${target}: ${(await new Response(mix.stderr).text()).trim()}`,
         );
       }
-      renameSync(mixing, target);
+      await level(mixing, levelled);
+      renameSync(levelled, target);
     }
   } catch (error) {
     rmSync(target, { force: true });
@@ -1076,23 +1177,22 @@ async function captions(
   // A whisper-server per call, since two requests can run at once.
   const engines = await startEngines(log);
   try {
-    const words: AsrWord[][] = [];
-    for (const { from, to } of clips) {
-      // Two seconds either side: Whisper places words better with some speech around them.
-      const first = Math.max(0, Math.round((from - 2) * rate));
-      const last = Math.min(file.samples.length, Math.round((to + 2) * rate));
+    const heard: AsrWord[][] = [];
+    const stretches = spans(clips);
+    for (const { from, to } of stretches) {
+      const first = Math.round(from * rate);
+      const last = Math.min(file.samples.length, Math.round(to * rate));
       const audio = { sampleRate: rate, samples: file.samples.subarray(first, last) };
-      const heard: AsrWord[] = [];
+      const said: AsrWord[] = [];
       for await (const c of hear(audio, (first / rate) * 1000, engines)) {
-        for (const w of timedWords(c.heard, c.offsetMs)) {
-          heard.push({
-            ...w,
-            word: spell(w.word),
-          });
-        }
+        for (const w of timedWords(c.heard, c.offsetMs)) said.push({ ...w, word: spell(w.word) });
       }
-      words.push(heard);
+      heard.push(said);
     }
+    // Each clip gets the words of the stretch it's in; wordCaptions keeps the ones inside it.
+    const words = clips.map(
+      ({ from, to }) => heard[stretches.findIndex((s) => s.from <= from && to <= s.to)] ?? [],
+    );
     return wordCaptions(clips, words, options) || "No speech in those clips.";
   } finally {
     await engines.close();

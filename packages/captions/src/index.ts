@@ -48,11 +48,16 @@ const kCGLineJoinRound = 1;
 /** dlsym's "search everything loaded" handle on macOS, `(void *)-2`. */
 const RTLD_DEFAULT = -2n;
 
-/** Text height and outline, against the short side of the video. */
-const TEXT_SIZE = 0.075;
+/**
+ * Text height: a share of a tall video's width, as Shorts captions are, or of
+ * a wide video's height, as subtitles are (#127). The outline is a share of it.
+ */
+const TALL_TEXT = 0.075;
+const WIDE_TEXT = 0.05;
 const OUTLINE = 0.2;
-/** How much of the short side a line may take before it wraps. */
-const LINE_WIDTH = 0.9;
+/** How much of the width a line may take before it wraps: subtitles keep clear of the corners. */
+const TALL_LINE = 0.9;
+const WIDE_LINE = 0.6;
 /** The colour of a word written `*like this*`: the spoken word in word-by-word captions. */
 const HIGHLIGHT = [1, 0.84, 0] as const;
 
@@ -110,12 +115,18 @@ type Piece = { text: string; lit: boolean };
 
 /**
  * Draws each of `texts` into `dir` as a transparent PNG: white bold text
- * with a black outline, centred, wrapped to fit a video whose short side is
- * `side` pixels, as wide as that side. A word written `*like this*` is drawn
+ * with a black outline, centred, sized and wrapped for a video `side` pixels
+ * wide and `height` high (9:16 if not given), as wide as the video. A word
+ * written `*like this*` is drawn
  * in HIGHLIGHT. Returns the files in order, or undefined if they can't be
  * drawn: Core Text is macOS only.
  */
-export function drawCaptions(texts: string[], dir: string, side: number): string[] | undefined {
+export function drawCaptions(
+  texts: string[],
+  dir: string,
+  side: number,
+  height = (side * 16) / 9,
+): string[] | undefined {
   let symbols: ReturnType<typeof loadSymbols>;
   try {
     symbols = loadSymbols();
@@ -144,7 +155,9 @@ export function drawCaptions(texts: string[], dir: string, side: number): string
     own(cf.symbols.CFStringCreateWithCString(null, cString(text), kCFStringEncodingUTF8));
 
   try {
-    const size = Math.round(side * TEXT_SIZE);
+    const tall = height >= side;
+    const size = Math.round(tall ? side * TALL_TEXT : height * WIDE_TEXT);
+    const lineWidth = side * (tall ? TALL_LINE : WIDE_LINE);
     const outline = size * OUTLINE;
     const font = own(
       ct.symbols.CTFontCreateUIFontForLanguage(kCTFontUIFontEmphasizedSystem, size, null),
@@ -170,7 +183,7 @@ export function drawCaptions(texts: string[], dir: string, side: number): string
     const fits = (text: string) => {
       const mark = owned.length;
       try {
-        return line(text).width <= side * LINE_WIDTH;
+        return line(text).width <= lineWidth;
       } finally {
         releaseTo(mark);
       }

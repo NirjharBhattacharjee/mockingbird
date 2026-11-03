@@ -12,6 +12,7 @@ import {
   PROMPTS,
   renderGraph,
   seekClips,
+  spans,
   timedLines,
   timedWords,
   wordCaptions,
@@ -178,7 +179,7 @@ test("the render graph keeps each clip in order and joins them", () => {
       "[1:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1[v1];" +
       "[1:a]asetpts=PTS-STARTPTS[a1];" +
       "[v0][a0][v1][a1]concat=n=2:v=1:a=1[joined][speech];[joined]null[v];" +
-      "[speech]atrim=duration=3.5,loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a]",
+      "[speech]atrim=duration=3.5[a]",
   );
 });
 
@@ -261,7 +262,7 @@ test("inserts go under the text, and music ducks under the speech", () => {
   );
   expect(steps).toContain("[5:a]adelay=3000:all=1,volume=1[m1]");
   expect(steps.at(-1)).toBe(
-    "[voice][m0][m1]amix=inputs=3:duration=longest:normalize=0,atrim=duration=6,loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a]",
+    "[voice][m0][m1]amix=inputs=3:duration=longest:normalize=0,atrim=duration=6[a]",
   );
 });
 
@@ -269,7 +270,7 @@ test("a batch's sound is left whole, for the last pass to cut and bring to -14 L
   const graph = renderGraph([{ from: 0, to: 4 }], {
     audio: true,
     vertical: false,
-    loudness: false,
+    whole: true,
   });
   expect(graph).toEndWith("[speech]anull[a]");
 });
@@ -301,7 +302,24 @@ test("music under a silent video sets the length itself", () => {
   expect(graph).toContain("[1:a]atrim=duration=4,adelay=0:all=1,volume=0.5[m0]");
   expect(graph).toContain("amix=inputs=2:duration=longest");
   // A sound longer than the video is cut where the picture ends.
-  expect(graph).toEndWith(",atrim=duration=4,loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a]");
+  expect(graph).toEndWith(",atrim=duration=4[a]");
+});
+
+test("clips whose padded stretches overlap are transcribed as one stretch", () => {
+  expect(
+    spans([
+      { from: 30, to: 31 },
+      { from: 1, to: 3 },
+      { from: 4, to: 6 },
+      // Used twice in the edit, heard once.
+      { from: 4, to: 6 },
+      { from: 12, to: 13 },
+    ]),
+  ).toEqual([
+    { from: 0, to: 8 },
+    { from: 10, to: 15 },
+    { from: 28, to: 33 },
+  ]);
 });
 
 describe("wordCaptions", () => {
@@ -397,7 +415,7 @@ test("a motion script's sounds mix over the video's own, from input 1, cut to it
     "[speech]asplit=2[voice][key0]",
     "[1:a]adelay=1000:all=1,volume=1[s0]",
     "[s0][key0]sidechaincompress=threshold=0.04:ratio=8:attack=100:release=500[m0]",
-    "[voice][m0]amix=inputs=2:duration=longest:normalize=0,atrim=duration=4,loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a]",
+    "[voice][m0]amix=inputs=2:duration=longest:normalize=0,atrim=duration=4[a]",
   ]);
   // No sound at all: nothing to mix.
   expect(mixGraph([], { speech: false, length: 4, first: 1 })).toEqual([]);
@@ -419,6 +437,54 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
         ...["-of", "csv=p=0", file],
       ]).stdout.toString(),
     );
+
+  test("a quiet recording comes out at -14 LUFS, its peaks under -1.5 dBTP", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mb-render-"));
+    try {
+      const source = join(dir, "quiet.mp4");
+      // Quiet with loud peaks, like #127's recording of someone talking
+      // (-25.8 LUFS, peaks at -0.1 dBTP): a tone pulsing on and off at about
+      // -24 LUFS, and a 5 ms click every 2 s that peaks near 0 dBFS. One pass
+      // of loudnorm falls short on this.
+      Bun.spawnSync([
+        ...[
+          "ffmpeg",
+          "-loglevel",
+          "error",
+          "-f",
+          "lavfi",
+          "-i",
+          "testsrc2=size=320x240:rate=30:duration=20",
+        ],
+        ...[
+          "-f",
+          "lavfi",
+          "-i",
+          "sine=frequency=220:duration=20,volume='gt(sin(2*PI*t*1.5),0)':eval=frame",
+        ],
+        ...[
+          "-f",
+          "lavfi",
+          "-i",
+          "sine=frequency=880:duration=20,volume='7*lt(mod(t,2),0.005)':eval=frame",
+        ],
+        ...["-filter_complex", "[1][2]amix=inputs=2:normalize=0[a]", "-map", "0:v", "-map", "[a]"],
+        ...["-pix_fmt", "yuv420p", source],
+      ]);
+      const out = join(dir, "out.mp4");
+      await run({ path: source, clips: [{ from: 0, to: 20 }], out });
+      const meter = Bun.spawnSync([
+        ...["ffmpeg", "-nostdin", "-nostats", "-i", out, "-map", "0:a"],
+        ...["-af", "ebur128=peak=true:framelog=quiet", "-f", "null", "-"],
+      ]).stderr.toString();
+      const integrated = Number(meter.match(/^\s*I:\s+(-?[\d.]+) LUFS/m)?.[1]);
+      const peak = Number(meter.match(/^\s*Peak:\s+(-?[\d.]+) dBFS/m)?.[1]);
+      expect(Math.abs(integrated - -14)).toBeLessThanOrEqual(0.5);
+      expect(peak).toBeLessThanOrEqual(-1.4);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 120_000);
 
   test("more clips than one pass opens are rendered in batches and joined", async () => {
     const dir = mkdtempSync(join(tmpdir(), "mb-render-"));

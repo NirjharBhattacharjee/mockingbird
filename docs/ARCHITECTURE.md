@@ -18,6 +18,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
+| 2026-11-04 | Long-form fixes (#127): `render` and `motion` reach −14 LUFS with a measured gain and a limiter instead of one pass of `loudnorm` (−15.9 → −14.3 LUFS on the v2 edit); `captions` hears overlapping padded clips as one stretch (171 s → 62 s for 96 clips); captions in a wide video are subtitle-sized. |
 | 2026-11-03 | `render` opens the source once per clip with a seek instead of trimming one input: 2.4x faster on a 96-clip edit, and frame-accurate. Over 100 clips it renders in batches and joins them, to bound memory (#137). |
 | 2026-11-03 | Pivot step 1 (#135). Deleted dictation and the meeting recorder: `packages/{hotkey,inject,context,llm,cue}`, mic capture and the system audio tap in `packages/audio`, the launchd agent, the pipeline and its FSM, learning, calibration, Ollama, the Bubble Tea screens and TUI.md. The dictionary's parsing and name matching moved to `packages/store`. With no daemon, every process opens `data.db` read-write. `apps/daemon/src/agent.ts` is now a stub that removes an upgraded Mac's leftover agent. |
 | 2026-11-02 | `motion` draws gradient-outlined text, and refuses a font that isn't installed instead of falling back to Helvetica (#133). |
@@ -167,7 +168,12 @@ its length (`-t`), so only what's kept is decoded. Then a crop and scale per
 clip for framing and zoom (or two crops stacked for a split), `concat`,
 overlays for b-roll, then the captions and text as PNG overlays drawn by
 `packages/captions` with Core Text, and an audio graph that mixes music and
-effects under the speech with sidechain ducking and normalises to −14 LUFS.
+effects under the speech with sidechain ducking. The sound is written
+uncompressed, then `level` brings it to −14 LUFS: it measures the file,
+measures again through a 4x-oversampled limiter at −2 dB (peaks stay under
+−1.5 dBTP after AAC), corrects the gain once, and copies the picture into
+the final MP4 without encoding it again. `motion`'s sound mix goes through
+the same step.
 It never overwrites a file.
 
 Each input costs a decoder, about 23 MB at 1080p, so one pass opens at most
