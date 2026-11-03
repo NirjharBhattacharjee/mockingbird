@@ -480,7 +480,7 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
       const integrated = Number(meter.match(/^\s*I:\s+(-?[\d.]+) LUFS/m)?.[1]);
       const peak = Number(meter.match(/^\s*Peak:\s+(-?[\d.]+) dBFS/m)?.[1]);
       expect(Math.abs(integrated - -14)).toBeLessThanOrEqual(0.5);
-      expect(peak).toBeLessThanOrEqual(-1.4);
+      expect(peak).toBeLessThanOrEqual(-1.5);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -669,7 +669,9 @@ export function wordCaptions(
     for (const w of words[i] ?? []) {
       const [start, end] = [w.startMs / 1000, w.endMs / 1000];
       // A word belongs to the clip its middle is in: Whisper's word times can be a little early or late.
-      if ((start + end) / 2 < from || (start + end) / 2 > to) continue;
+      // Half-open, so a word right on a cut between two clips shows once.
+      const middle = (start + end) / 2;
+      if (middle < from || middle >= to) continue;
       const text = w.word.replace(/[,.;:]+$/, "");
       const said = {
         text: upper ? text.toLocaleUpperCase() : text,
@@ -810,7 +812,7 @@ async function joinBatches(
       [
         ...seekClips(path, batch),
         ...["-filter_complex", renderGraph(batch, { ...look, whole: true }), "-map", "[v]"],
-        ...(look.audio ? ["-map", "[a]", "-c:a", "pcm_s16le"] : []),
+        ...(look.audio ? ["-map", "[a]", "-c:a", "pcm_f32le"] : []),
         // Encoded once more in the last pass, so near-lossless here.
         ...["-c:v", "libx264", "-crf", "10", "-preset", "veryfast", "-pix_fmt", "yuv420p"],
         join(dir, file),
@@ -944,8 +946,10 @@ async function render(
         ...extras,
         ...(sidecar ? ["-i", CAPTIONS] : []),
         ...["-filter_complex", graph, "-map", "[v]"],
-        // Uncompressed until `level` sets the volume.
-        ...(hasSound ? ["-map", "[a]", "-c:a", "pcm_s16le"] : []),
+        // Uncompressed until `level` sets the volume, and in floating point:
+        // music and effects mixed over speech can go past full scale, which
+        // 16-bit samples would clip before the limiter could hold it.
+        ...(hasSound ? ["-map", "[a]", "-c:a", "pcm_f32le"] : []),
         // The subtitle file is the input after the clips and the extras.
         ...(sidecar ? ["-map", `${clips.length + extras.filter((a) => a === "-i").length}:s`] : []),
         ...(sidecar ? ["-c:s", "srt"] : []),
@@ -1143,7 +1147,8 @@ async function motion(
           ...["ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", target],
           ...sounds.flatMap((s) => [...(s.loop ? ["-stream_loop", "-1"] : []), "-i", s.path]),
           ...["-filter_complex", graph, "-map", "0:v", "-map", "[a]", "-c:v", "copy"],
-          ...["-c:a", "pcm_s16le", mixing],
+          // Floating point, as in render: the mix can go past full scale.
+          ...["-c:a", "pcm_f32le", mixing],
         ],
         { stderr: "pipe" },
       );
