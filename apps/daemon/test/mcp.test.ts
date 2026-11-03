@@ -1,11 +1,17 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
+  CLIPS_PER_PASS,
   chunks,
   fineClock,
   handle,
+  mcpTools,
   mixGraph,
   PROMPTS,
   renderGraph,
+  seekClips,
   timedLines,
   timedWords,
   wordCaptions,
@@ -148,6 +154,15 @@ test("a fine clock shows hundredths of a second", () => {
   expect(fineClock(3_725_050)).toBe("1:02:05.05");
 });
 
+test("each clip is its own input, opened at its start and read for its length", () => {
+  expect(
+    seekClips("/v.mp4", [
+      { from: 1, to: 2.5 },
+      { from: 10, to: 12 },
+    ]),
+  ).toEqual(["-ss", "1", "-t", "1.5", "-i", "/v.mp4", "-ss", "10", "-t", "2", "-i", "/v.mp4"]);
+});
+
 test("the render graph keeps each clip in order and joins them", () => {
   expect(
     renderGraph(
@@ -158,10 +173,10 @@ test("the render graph keeps each clip in order and joins them", () => {
       { audio: true, vertical: false },
     ),
   ).toBe(
-    "[0:v]trim=start=1:end=2.5,setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1[v0];" +
-      "[0:a]atrim=start=1:end=2.5,asetpts=PTS-STARTPTS[a0];" +
-      "[0:v]trim=start=10:end=12,setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1[v1];" +
-      "[0:a]atrim=start=10:end=12,asetpts=PTS-STARTPTS[a1];" +
+    "[0:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1[v0];" +
+      "[0:a]asetpts=PTS-STARTPTS[a0];" +
+      "[1:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1[v1];" +
+      "[1:a]asetpts=PTS-STARTPTS[a1];" +
       "[v0][a0][v1][a1]concat=n=2:v=1:a=1[joined][speech];[joined]null[v];" +
       "[speech]atrim=duration=3.5,loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a]",
   );
@@ -175,7 +190,7 @@ test("the render graph crops to 9:16, draws captions, and works without sound", 
   });
   expect(graph).not.toContain("[0:a]");
   expect(graph).toBe(
-    "[0:v]trim=start=0:end=5,setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1," +
+    "[0:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1," +
       "crop=w='floor(min(iw,ih*9/16)/1/2)*2':h='floor(min(ih,iw*16/9)/1/2)*2'" +
       ":x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=1080:1920,setsar=1[v0];" +
       "[v0]concat=n=1:v=1:a=0[joined];[joined]null[laid];" +
@@ -192,9 +207,7 @@ test("each clip is framed around its focus, punched in by its zoom", () => {
     { audio: false, vertical: false, size: "1280x720" },
   );
   // Both get square pixels, for concat; only the zoomed clip is cropped.
-  expect(graph).toStartWith(
-    "[0:v]trim=start=0:end=2,setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1[v0];",
-  );
+  expect(graph).toStartWith("[0:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1[v0];");
   expect(graph).toContain(
     "crop=w='floor(iw/1.2/2)*2':h='floor(ih/1.2/2)*2':x='clip(0.3*iw-ow/2,0,iw-ow)':y='clip(0.4*ih-oh/2,0,ih-oh)',scale=1280:720,setsar=1[v1]",
   );
@@ -233,23 +246,32 @@ test("inserts go under the text, and music ducks under the speech", () => {
     },
   );
   const steps = graph.split(";");
-  // Input 1 is the text, 2 the insert, 3 and 4 the sounds.
+  // Inputs 0 and 1 are the clips, 2 the text, 3 the insert, 4 and 5 the sounds.
   const insert = steps.findIndex((s) => s.startsWith("[c0][i0]overlay"));
-  const text = steps.findIndex((s) => s.includes("[1:v]overlay"));
+  const text = steps.findIndex((s) => s.includes("[2:v]overlay"));
   expect(insert).toBeGreaterThan(0);
   expect(text).toBeGreaterThan(insert);
-  expect(graph).toContain("[2:v]trim=duration=1,setpts=PTS-STARTPTS+1/TB,");
+  expect(graph).toContain("[3:v]trim=duration=1,setpts=PTS-STARTPTS+1/TB,");
   expect(graph).toContain("y=main_h*0.5-overlay_h/2:enable='gte(t,0)*lt(t,1)'[v]");
   // The music lasts the 6 seconds of video, and the speech is its key.
   expect(steps).toContain("[speech]asplit=2[voice][key0]");
-  expect(steps).toContain("[3:a]atrim=duration=6,adelay=0:all=1,volume=0.15[s0]");
+  expect(steps).toContain("[4:a]atrim=duration=6,adelay=0:all=1,volume=0.15[s0]");
   expect(steps).toContain(
     "[s0][key0]sidechaincompress=threshold=0.04:ratio=8:attack=100:release=500[m0]",
   );
-  expect(steps).toContain("[4:a]adelay=3000:all=1,volume=1[m1]");
+  expect(steps).toContain("[5:a]adelay=3000:all=1,volume=1[m1]");
   expect(steps.at(-1)).toBe(
     "[voice][m0][m1]amix=inputs=3:duration=longest:normalize=0,atrim=duration=6,loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a]",
   );
+});
+
+test("a batch's sound is left whole, for the last pass to cut and bring to -14 LUFS", () => {
+  const graph = renderGraph([{ from: 0, to: 4 }], {
+    audio: true,
+    vertical: false,
+    loudness: false,
+  });
+  expect(graph).toEndWith("[speech]anull[a]");
 });
 
 test("libass's captions go over the inserts, where captionsY puts them", () => {
@@ -379,4 +401,51 @@ test("a motion script's sounds mix over the video's own, from input 1, cut to it
   ]);
   // No sound at all: nothing to mix.
   expect(mixGraph([], { speech: false, length: 4, first: 1 })).toEqual([]);
+});
+
+describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", () => {
+  const run = (args: Record<string, unknown>) => {
+    const tool = mcpTools(
+      async () => ({}),
+      () => {},
+    ).find((t) => t.name === "render");
+    if (!tool) throw new Error("no render tool");
+    return tool.run(args);
+  };
+  const seconds = (file: string) =>
+    Number(
+      Bun.spawnSync([
+        ...["ffprobe", "-v", "error", "-show_entries", "format=duration"],
+        ...["-of", "csv=p=0", file],
+      ]).stdout.toString(),
+    );
+
+  test("more clips than one pass opens are rendered in batches and joined", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mb-render-"));
+    try {
+      const source = join(dir, "source.mp4");
+      Bun.spawnSync([
+        ...[
+          "ffmpeg",
+          "-loglevel",
+          "error",
+          "-f",
+          "lavfi",
+          "-i",
+          "testsrc2=size=320x240:rate=30:duration=4",
+        ],
+        ...["-f", "lavfi", "-i", "sine=frequency=440:duration=4", "-pix_fmt", "yuv420p", source],
+      ]);
+      // Tenths of a second, round and round the 4-second source.
+      const clips = Array.from({ length: CLIPS_PER_PASS + 1 }, (_, i) => ({
+        from: (i % 30) * 0.1,
+        to: (i % 30) * 0.1 + 0.1,
+      }));
+      const out = join(dir, "out.mp4");
+      expect(await run({ path: source, clips, out })).toStartWith(out);
+      expect(seconds(out)).toBeCloseTo(10.1, 1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 120_000);
 });
