@@ -87,9 +87,14 @@ Other agents: [MCP.md](docs/MCP.md#register-it). Then ask:
 
 The agent transcribes the video, picks the moment, gets the word times,
 looks at stills to frame the speaker, makes the captions and renders. The
-[mockingbird-studio](https://github.com/NirjharBhattacharjee/mockingbird-studio)
-plugin gives Claude Code the editing know-how (hooks, pacing, caption style,
-motion design) as skills.
+editing know-how (hooks, pacing, caption style, motion design) comes with it:
+any agent gets it through the `guide` tool, and Claude Code can also install
+it as a plugin, from [`plugin/`](plugin/README.md):
+
+```text
+/plugin marketplace add NirjharBhattacharjee/mockingbird
+/plugin install mockingbird@mockingbird
+```
 
 ## 🧰 Tools
 
@@ -100,6 +105,7 @@ motion design) as skills.
 | `captions` | Word-by-word captions timed to the finished cut |
 | `render` | Cuts, framing, 9:16 or split layout, captions, titles, b-roll, music and sound effects, −14 LUFS |
 | `motion` | Motion graphics as code (the Canvas 2D API), rendered to video |
+| `guide` | A playbook for one job: shorts, long-form, hooks, captions, motion graphics, review |
 | `status`, `dictionary_list`, `dictionary_add` | What's installed; names to spell right |
 
 Every option: [docs/MCP.md](docs/MCP.md). On the command line,

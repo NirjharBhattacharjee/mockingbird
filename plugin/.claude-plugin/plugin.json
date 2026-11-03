@@ -1,0 +1,23 @@
+{
+  "name": "mockingbird",
+  "version": "0.2.0",
+  "description": "Edit your videos into shorts for Shorts, Reels and TikTok and long-form edits for YouTube: hooks, tight cuts, word-by-word captions, chapters, b-roll and sound, rendered on your Mac by mockingbird.",
+  "author": {
+    "name": "Nirjhar Bhattacharjee",
+    "url": "https://github.com/NirjharBhattacharjee"
+  },
+  "homepage": "https://github.com/NirjharBhattacharjee/mockingbird/tree/main/plugin",
+  "repository": "https://github.com/NirjharBhattacharjee/mockingbird",
+  "license": "MIT",
+  "keywords": [
+    "video",
+    "shorts",
+    "reels",
+    "tiktok",
+    "youtube",
+    "long-form",
+    "captions",
+    "editing",
+    "mockingbird"
+  ]
+}

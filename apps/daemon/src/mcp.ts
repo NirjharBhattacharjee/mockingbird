@@ -16,6 +16,7 @@ import { type Cue, drawCaptions, parseSrt } from "@mockingbird/captions";
 import { applyCorrections, correctNames } from "@mockingbird/store";
 import type { SpeechSegment } from "@mockingbird/vad";
 import { addEntries, formatEntry, readDictionary } from "./dictionary.ts";
+import { guide, INSTRUCTIONS, playbooks } from "./guide.ts";
 import { type Engines, requireFile, spokenLanguage, startEngines } from "./runtime.ts";
 
 /**
@@ -70,6 +71,7 @@ export async function handle(
         protocolVersion: VERSIONS.find((v) => v === params?.protocolVersion) ?? VERSIONS[0],
         capabilities: { tools: {}, prompts: {} },
         serverInfo: { name: "mockingbird", version: "1" },
+        instructions: INSTRUCTIONS,
       });
     case "ping":
       return reply({});
@@ -1522,6 +1524,20 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
           from: seconds(a.from),
           to: seconds(a.to),
         }),
+    },
+    {
+      name: "guide",
+      description: `How to edit with these tools: one job's playbook, from mockingbird's plugin. Call it before an edit and follow it. Topics: ${playbooks()
+        .map((p) => p.topic)
+        .join(", ")}.`,
+      inputSchema: {
+        type: "object",
+        properties: {
+          topic: { type: "string", enum: playbooks().map((p) => p.topic) },
+        },
+        required: ["topic"],
+      },
+      run: async (a) => guide(String(a.topic)),
     },
     {
       name: "status",

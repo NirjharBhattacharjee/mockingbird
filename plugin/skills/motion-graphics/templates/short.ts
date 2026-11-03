@@ -1,0 +1,156 @@
+// The default motion pass for a 9:16 short, over the cut from `render`.
+// Copy it next to the video, replace "KIT" with the kit's absolute path,
+// and change the settings block. Everything else follows from the captions
+// (`captions` with perCue 3, passed to `motion`).
+//
+// What it does, from docs/STYLE-STUDY.md: a hook that slams in on a hit, a
+// new framing every couple of seconds so a single take reads as an edit,
+// punch-ins and a pop on the words that matter, big callouts for the lines
+// worth remembering, captions with a pill that follows the voice, a
+// progress bar, grain and a vignette, and a sound on every beat.
+import { cutPoints, kit, sfx, THEMES, words } from "KIT";
+
+// ---- settings --------------------------------------------------------
+const THEME = THEMES.punch;
+/** The hook, as lines of runs; it holds the screen for the first HOOK_OUT seconds. */
+const HOOK = [[{ text: "STOP WATCHING" }], [{ text: "TUTORIALS", color: THEME.accent }]];
+/** A smaller line under the hook, in the italic serif; "" for none. */
+const HOOK_SUB = "do this instead";
+const HOOK_OUT = 2.6;
+/** A split from render (screen on top, face below), or one full-frame shot. */
+const SPLIT = true;
+/** Where the face is in its area, 0-1, for zooms. */
+const FACE = { x: 0.5, y: 0.4 };
+/** Spoken words that get a punch-in and a pop (lower case, no punctuation). */
+const KEYWORDS = ["tutorials", "never", "stop"];
+/** Lines worth remembering: big text in the upper part while they're said. Two or three a short. */
+const CALLOUTS = [
+  {
+    at: 8.4,
+    out: 10.2,
+    lines: [[{ text: "STOP WATCHING" }], [{ text: "TUTORIALS.", color: THEME.accent }]],
+  },
+  {
+    at: 21.2,
+    out: 23.4,
+    lines: [
+      [{ text: "YOU WILL " }, { text: "not", italic: true, color: THEME.accent }],
+      [{ text: "LEARN" }],
+    ],
+  },
+];
+/** Seconds between new framings: 2 to 2.5 is the pace of the fastest shorts. */
+const SHOT = 2.2;
+// ----------------------------------------------------------------------
+
+const clean = (w: string) => w.toLowerCase().replace(/[^a-z0-9']/g, "");
+
+/** The beats everything hangs off, worked out from the captions. */
+function beats(cues: { start: number; end: number; text: string }[]) {
+  const cuts = cutPoints(cues, SHOT).filter((c) => c > HOOK_OUT - 0.4);
+  let last = -9;
+  const punches = words(cues)
+    .filter((w) => KEYWORDS.includes(clean(w.text)))
+    .filter((w) => {
+      // One punch every 2.5 s at most, or it stops meaning anything.
+      if (w.start - last < 2.5) return false;
+      last = w.start;
+      return true;
+    })
+    .map((w) => ({ at: w.start, zoom: 1.32, hold: 0.9 }));
+  return { cuts, punches };
+}
+
+let plan: ReturnType<typeof beats> | undefined;
+
+export default function draw(ctx, t, m) {
+  plan ??= beats(m.cues ?? []);
+  const { cuts, punches } = plan;
+  const k = kit(ctx, t, m, THEME);
+  const { W, H, u } = k;
+  const seam = SPLIT ? H / 2 : H * 0.72;
+  const hit = [{ at: 0.05, amount: 22 }];
+
+  // Footage through the camera; the face gets the punches and the hit.
+  if (SPLIT) {
+    k.camera({
+      area: { x: 0, y: 0, w: W, h: H / 2 },
+      focus: { x: 0.5, y: 0.5 },
+      cuts,
+      framings: [1, 1.08, 1.04, 1.12],
+    });
+    k.camera({ area: { x: 0, y: H / 2, w: W, h: H / 2 }, focus: FACE, cuts, punches, shakes: hit });
+  } else {
+    k.camera({ focus: FACE, cuts, punches, shakes: hit });
+  }
+
+  // The hook: a dark band behind it, the words slam in, a sub-line rises under them.
+  if (t < HOOK_OUT + 0.6) {
+    k.scrim({ y: seam, h: 840 * u, strength: 0.62, out: HOOK_OUT + 0.4 });
+    k.title({
+      lines: HOOK,
+      at: 0.05,
+      out: HOOK_OUT,
+      y: seam - 30 * u,
+      size: 150,
+      style: "slam",
+      stagger: 0.07,
+    });
+    if (HOOK_SUB) {
+      k.title({
+        lines: [[{ text: HOOK_SUB, italic: true, weight: 400, family: THEME.serif }]],
+        at: 0.5,
+        out: HOOK_OUT,
+        y: seam + 150 * u,
+        size: 64,
+        style: "blur",
+      });
+    }
+  }
+
+  // Callouts: heavy capitals, an italic serif word for the turn.
+  for (const c of CALLOUTS) {
+    k.scrim({
+      y: SPLIT ? H * 0.25 : H * 0.3,
+      h: 700 * u,
+      strength: 0.7,
+      at: c.at - 0.1,
+      out: c.out + 0.3,
+    });
+    k.title({
+      lines: c.lines.map((l) =>
+        l.map((r) => ({
+          ...r,
+          family: r.italic ? THEME.serif : THEME.display,
+          weight: r.italic ? 500 : 900,
+        })),
+      ),
+      at: c.at,
+      out: c.out,
+      y: SPLIT ? H * 0.25 : H * 0.3,
+      size: 130,
+      style: "slam",
+      stagger: 0.06,
+    });
+  }
+
+  // Captions on the seam, once the hook has gone.
+  if (t > HOOK_OUT + 0.2) k.captions({ y: seam, size: 80 });
+
+  k.progress({ y: H * 0.03 });
+  k.leak(HOOK_OUT - 0.2, 0.9);
+  k.flash(0, 0.14);
+  k.vignette(0.5);
+  k.grain(0.06);
+}
+
+/** A hit under the hook, a whoosh as it leaves, a pop on each punch, a shimmer on each callout. */
+export function audio(scene) {
+  const { punches } = beats(scene.cues ?? []);
+  return [
+    { path: sfx("impact"), at: 0, volume: 0.9 },
+    { path: sfx("whoosh"), at: HOOK_OUT - 0.25, volume: 0.7 },
+    ...punches.map((p) => ({ path: sfx("pop"), at: p.at, volume: 0.55 })),
+    ...CALLOUTS.map((c) => ({ path: sfx("shimmer"), at: c.at, volume: 0.45 })),
+  ];
+}
