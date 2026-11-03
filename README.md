@@ -109,7 +109,8 @@ it as a plugin, from [`plugin/`](plugin/README.md):
 | `status`, `dictionary_list`, `dictionary_add` | What's installed; names to spell right |
 
 Every option: [docs/MCP.md](docs/MCP.md). On the command line,
-`mockingbird transcribe`, `dictionary`, `models` and `status` do the same.
+`mockingbird transcribe`, `dictionary`, `models` and `status` do the same, and
+`mockingbird record voiceover.wav` records a voiceover from the mic.
 
 Something not working? See [troubleshooting](docs/README.md#troubleshooting).
 

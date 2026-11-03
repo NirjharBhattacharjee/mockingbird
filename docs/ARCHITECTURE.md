@@ -18,6 +18,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
+| 2026-11-04 | `mockingbird record`: the microphone through ffmpeg (`avfoundation`, the input System Settings picked) into a file, for a voiceover (#142). |
 | 2026-11-04 | mockingbird-studio moved into `plugin/` and is now the `mockingbird` plugin; a `guide` tool and server instructions give every MCP client its playbooks (#140). |
 | 2026-11-04 | Long-form fixes (#127): `render` and `motion` reach −14 LUFS with a measured gain and a limiter instead of one pass of `loudnorm` (−15.9 → −14.3 LUFS on the v2 edit); `captions` hears overlapping padded clips as one stretch (171 s → 62 s for 96 clips); captions in a wide video are subtitle-sized. |
 | 2026-11-03 | `render` opens the source once per clip with a seek instead of trimming one input: 2.4x faster on a 96-clip edit, and frame-accurate. Over 100 clips it renders in batches and joins them, to bound memory (#137). |
@@ -241,6 +242,7 @@ mockingbird/
 │   │   ├── guide.ts         the plugin's playbooks, served by `guide`
 │   │   ├── motion-run.ts    runs a motion script in its own process
 │   │   ├── transcribe.ts    `mockingbird transcribe`
+│   │   ├── record.ts        `mockingbird record`, the mic through ffmpeg
 │   │   ├── dictionary.ts    `mockingbird dictionary`, data.db access
 │   │   ├── models.ts        `mockingbird models`, pinned downloads
 │   │   ├── runtime.ts       model lookup, VAD + whisper-server startup

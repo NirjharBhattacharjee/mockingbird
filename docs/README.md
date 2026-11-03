@@ -101,6 +101,7 @@ export PATH="$HOME/.local/bin:$PATH"
 | Command | Does |
 |---|---|
 | `mockingbird mcp` | Serves the editing tools to an agent over MCP. The agent starts it; you don't run it yourself. |
+| `mockingbird record <file>` | Records the microphone until Enter or Ctrl-C (or `--for <seconds>`), for a voiceover your agent builds a video around. `.wav` is 48 kHz mono, `.m4a` AAC. `--devices` lists the inputs, `--device` picks one. |
 | `mockingbird transcribe <file>` | Prints a file's speech as `[mm:ss]` lines. `--words` gives each word's start and end, `--from`/`--to` (seconds) one stretch. |
 | `mockingbird dictionary` | Lists the words it spells a particular way. `add "Nirjhar Bhattacharjee"`, `add "cat puck => Catppuccin"` (what it hears => what to write), `remove <term>`. |
 | `mockingbird models` | Lists the Whisper models you have. `models use <file>` picks one, `--default` goes back. |
