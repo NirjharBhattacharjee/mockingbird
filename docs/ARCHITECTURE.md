@@ -18,6 +18,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
+| 2026-11-04 | `audio_stats` (#171): loudness, peaks, noise floor, voice against what's between phrases, the 1 to 4 kHz share, tempo and beats, sections. The reviewer playbook checks sound with it. |
 | 2026-11-04 | mockingbird-studio moved into `plugin/` and is now the `mockingbird` plugin; a `guide` tool and server instructions give every MCP client its playbooks (#140). |
 | 2026-11-04 | Long-form fixes (#127): `render` and `motion` reach −14 LUFS with a measured gain and a limiter instead of one pass of `loudnorm` (−15.9 → −14.3 LUFS on the v2 edit); `captions` hears overlapping padded clips as one stretch (171 s → 62 s for 96 clips); captions in a wide video are subtitle-sized. |
 | 2026-11-03 | `render` opens the source once per clip with a seek instead of trimming one input: 2.4x faster on a 96-clip edit, and frame-accurate. Over 100 clips it renders in batches and joins them, to bound memory (#137). |
@@ -137,6 +138,7 @@ tool, with its options, is documented in [MCP.md](./MCP.md):
 |---|---|
 | `transcribe` | timestamped lines, or word times, for a file or a stretch of it |
 | `frames` | stills at an interval, for the agent to look at |
+| `audio_stats` | loudness, peaks, noise floor, voice against the rest, tempo and beats, sections |
 | `captions` | word-by-word SRT timed to the video `render` will make |
 | `render` | cuts, framing, 9:16 or split layout, captions, text, b-roll, music and sound effects, loudness to −14 LUFS |
 | `motion` | a script that draws with the Canvas 2D API, rendered to MP4 |
@@ -238,6 +240,7 @@ mockingbird/
 │   ├── daemon/src/          the engine (the name predates the pivot)
 │   │   ├── cli.ts           every command
 │   │   ├── mcp.ts           the MCP server and its tools
+│   │   ├── audio-stats.ts   `audio_stats`: what a file's sound measures
 │   │   ├── guide.ts         the plugin's playbooks, served by `guide`
 │   │   ├── motion-run.ts    runs a motion script in its own process
 │   │   ├── transcribe.ts    `mockingbird transcribe`
@@ -249,7 +252,8 @@ mockingbird/
 │   │   └── agent.ts         stub launchd still runs on upgraded Macs
 │   └── cli/                 `mockingbird`, the Go command
 ├── packages/
-│   ├── audio/               file decoding through ffmpeg, WAV, PCM helpers
+│   ├── audio/               file decoding through ffmpeg, WAV, PCM helpers,
+│   │                        levels, the speech band, tempo, sections
 │   ├── vad/                 Silero ONNX wrapper
 │   ├── asr/                 whisper-server adapter, word diff (WER)
 │   ├── captions/            SRT parsing, captions drawn with Core Text
