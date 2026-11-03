@@ -242,8 +242,20 @@ HyperFrames. `script` is one of two things:
   later, say when `draw` adds a class, runs from the frame it started on.
   `setTimeout` runs in real time, so nothing should be timed with it.
   `Math.random` is seeded, so a page renders the same every time.
+- **Drawing the video.** With `path`, a page that sets
+  `mockingbird.drawVideo = true` as it loads isn't laid over the video:
+  it gets each of the video's frames as `m.video`, an `ImageBitmap`, before
+  `draw` runs, and draws the whole picture itself. That's how a page zooms,
+  shakes or cuts between framings of the video, puts it in a
+  picture-in-picture, or blurs it behind a glass card:
+  `ctx.drawImage(m.video, …)` on a `<canvas>`. ffmpeg decodes the frames
+  and hands them over as JPEGs (quality 2). On an M3, 150 frames at
+  1080x1920 took 2.8 to 2.9 s this way against 2.0 s laid over the video.
+  A `<video>` element seeking frame by frame took about 290 ms a frame, so
+  the engine doesn't use one.
 - **`mockingbird`** is a global set before the page's own scripts run, and
-  `draw`'s `m`: `width`, `height`, `fps`, `duration`, `frame` and `cues` (from
+  `draw`'s `m`: `width`, `height`, `fps`, `duration`, `frame`, `video` (with
+  `drawVideo`) and `cues` (from
   `captions`, as `{ start, end, text }`). A page can build its captions from
   `cues` as it loads.
 - **Sound:** `mockingbird.audio = [{ path, at, volume, loop, duck }]`, paths

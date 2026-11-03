@@ -67,9 +67,15 @@ export function pageClock(scene: PageScene, epoch: number): string {
       await document.fonts.ready;
       for (const a of document.getAnimations()) born.set(a, 0);
       const audio = m.audio === undefined ? null : JSON.parse(JSON.stringify(m.audio));
-      return { errors, audio };
+      return { errors, audio, drawVideo: m.drawVideo === true };
     },
-    async step(from, to) {
+    // \`picture\`, a JPEG as base64, is the video's frame \`to\`: m.video from then on.
+    async step(from, to, picture) {
+      if (picture) {
+        const bitmap = await createImageBitmap(await (await fetch("data:image/jpeg;base64," + picture)).blob());
+        m.video?.close();
+        m.video = bitmap;
+      }
       for (let f = from; f <= to; f++) {
         now = (f * 1000) / m.fps;
         m.frame = f;
@@ -106,9 +112,11 @@ const TABS = Math.min(8, availableParallelism());
 
 /**
  * Renders the HTML page at `page` frame by frame in the Chrome at `chrome`
- * and encodes it to `out` as H.264. With `video`, the page is laid over each
- * of its frames and its sound is kept; without, a transparent page comes
- * out black. `onLoad` gets the page's `mockingbird.audio` once it has
+ * and encodes it to `out` as H.264. With `video`, its sound is kept and the
+ * page is laid over each of its frames, or, if the page sets
+ * `mockingbird.drawVideo = true`, the page gets each frame as `m.video` (an
+ * ImageBitmap) and draws the whole picture itself. Without, a transparent
+ * page comes out black. `onLoad` gets the page's `mockingbird.audio` once it has
  * loaded, before any frame is drawn. Returns how many frames were drawn.
  */
 export async function renderHtml(
@@ -153,6 +161,8 @@ export async function renderHtml(
   const clock = pageClock(scene, Date.now());
   let chrome: Chrome | undefined;
   let encoder: Subprocess<"pipe", "ignore", "pipe"> | undefined;
+  let decoder: Subprocess<"ignore", "pipe", "pipe"> | undefined;
+  let pictures: AsyncGenerator<Uint8Array> | undefined;
   let drawn = 0;
   try {
     chrome = await launchChrome(chromePath);
@@ -161,13 +171,26 @@ export async function renderHtml(
       Array.from({ length: Math.min(tabCount, total) }, () => openTab(browser, page, scene, clock)),
     );
     onLoad({ audio: tabs[0]?.audio ?? undefined });
+    const drawsVideo = !!video && !!tabs[0]?.drawVideo;
+    if (drawsVideo && video) {
+      decoder = Bun.spawn(
+        [
+          ...["ffmpeg", "-nostdin", "-loglevel", "error", "-i", video, "-an"],
+          ...["-vf", `fps=${fps},scale=${width}:${height},setsar=1`],
+          ...["-f", "image2pipe", "-c:v", "mjpeg", "-q:v", "2", "-"],
+        ],
+        { stdout: "pipe", stderr: "pipe" },
+      );
+      pictures = jpegs(decoder.stdout);
+    }
 
     const png = ["-f", "image2pipe", "-framerate", String(fps), "-c:v", "png", "-i", "-"];
     const inputs = video ? ["-i", video, ...png] : png;
     // The page over the video, or over black, so a half-transparent pixel blends as it shows.
-    const under = video
-      ? `[0:v]fps=${fps},scale=${width}:${height},setsar=1[under]`
-      : `color=c=black:s=${width}x${height}:r=${fps}[under]`;
+    const under =
+      video && !drawsVideo
+        ? `[0:v]fps=${fps},scale=${width}:${height},setsar=1[under]`
+        : `color=c=black:s=${width}x${height}:r=${fps}[under]`;
     const graph = `${under};[under][${video ? 1 : 0}:v]overlay=format=auto:shortest=1[v]`;
     const sound = video && audio ? ["-map", "0:a", "-c:a", "aac", "-b:a", "160k", "-shortest"] : [];
     encoder = Bun.spawn(
@@ -185,13 +208,21 @@ export async function renderHtml(
     const stepped = tabs.map(() => -1);
     const pending: Promise<Buffer>[] = [];
     let next = 0;
+    let picture: Promise<string | undefined> = Promise.resolve(undefined);
     const schedule = () => {
       const i = next++;
       const k = i % tabs.length;
       const tab = tabs[k] as Tab;
+      // In order, one per frame; when the video runs out, the last one stays.
+      const frame = picture.then(async (last) => {
+        const got = await pictures?.next();
+        return got && !got.done ? Buffer.from(got.value).toString("base64") : last;
+      });
+      picture = frame;
       const shot = (queues[k] as Promise<void>).then(async () => {
+        const jpeg = pictures ? JSON.stringify((await frame) ?? "") : '""';
         // Every frame since its last, so its page has seen each of them.
-        await onClock(browser, tab, `step(${(stepped[k] as number) + 1}, ${i})`, i, fps);
+        await onClock(browser, tab, `step(${(stepped[k] as number) + 1}, ${i}, ${jpeg})`, i, fps);
         stepped[k] = i;
         const { data } = await browser.send<{ data: string }>(
           "Page.captureScreenshot",
@@ -233,11 +264,36 @@ export async function renderHtml(
     rmSync(out, { force: true });
     throw error;
   } finally {
+    // A decoder cut short is blocked writing frames nobody reads.
+    decoder?.kill("SIGKILL");
+    await pictures?.return(undefined);
     await chrome?.close();
   }
 }
 
-type Tab = { session: string; audio: unknown };
+/**
+ * The JPEGs in an MJPEG stream, one at a time. Each ends at the end-of-image
+ * marker FF D9, which can't appear inside the coded data (a 0xFF there is
+ * always followed by 0x00).
+ */
+export async function* jpegs(stream: ReadableStream<Uint8Array>): AsyncGenerator<Uint8Array> {
+  let held = new Uint8Array(0);
+  for await (const chunk of stream) {
+    const joined = new Uint8Array(held.length + chunk.length);
+    joined.set(held);
+    joined.set(chunk, held.length);
+    let start = 0;
+    for (let i = Math.max(1, held.length); i < joined.length; i++) {
+      if (joined[i - 1] === 0xff && joined[i] === 0xd9) {
+        yield joined.slice(start, i + 1);
+        start = i + 1;
+      }
+    }
+    held = joined.slice(start);
+  }
+}
+
+type Tab = { session: string; audio: unknown; drawVideo: boolean };
 
 /** A tab the size of the video, transparent, with the clock in and `page` loaded. */
 async function openTab(chrome: Chrome, page: string, scene: PageScene, clock: string) {
@@ -272,9 +328,9 @@ async function openTab(chrome: Chrome, page: string, scene: PageScene, clock: st
   );
   if (errorText) throw new Error(`Chrome couldn't open ${page}: ${errorText}`);
   const ready = await evaluate(chrome, session, "__mockingbird.ready()");
-  const { errors, audio } = ready as { errors: string[]; audio: unknown };
+  const { errors, audio, drawVideo } = ready as Omit<Tab, "session"> & { errors: string[] };
   if (errors.length) throw new Error(`${page} failed while loading: ${errors[0]}`);
-  return { session, audio };
+  return { session, audio, drawVideo };
 }
 
 /** Runs `call` on the page's clock in `tab`, naming `frame` if the page fails. */

@@ -156,6 +156,47 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("renderHtml (integration)"
     expect(first[at(48) + 2]).toBeGreaterThan(200); // the video's blue
   }, 60_000);
 
+  test("a page that draws the video gets each of its frames, in order, in every tab", async () => {
+    // Frame n of the video is red 25n; the page draws it, then a green square.
+    const video = join(dir, "numbered.mp4");
+    Bun.spawnSync([
+      ...["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=64x64:r=10:d=1"],
+      ...["-f", "lavfi", "-i", "sine=d=1", "-vf", "geq=r='N*25':g=0:b=0", "-pix_fmt", "yuv420p"],
+      ...["-shortest", video],
+    ]);
+    const path = page(
+      "draws-video.html",
+      `<canvas id="c" width="64" height="64"></canvas>
+       <div style="position:absolute;left:48px;top:0;width:16px;height:16px;background:#0f0"></div>
+       <script>
+         mockingbird.drawVideo = true;
+         const ctx = document.getElementById("c").getContext("2d");
+         mockingbird.draw = (t, m) => ctx.drawImage(m.video, 0, 0);
+       </script>`,
+    );
+    const out = join(dir, "draws-video.mp4");
+    const frames = await renderHtml(path, {
+      chrome: chrome(),
+      out,
+      width: 64,
+      height: 64,
+      fps: 10,
+      duration: 1,
+      video,
+      audio: true,
+      tabs: 4,
+    });
+    expect(frames).toBe(10);
+    pixels(out, 64, 64).forEach((p, f) => {
+      expect(Math.abs((p[(32 * 64 + 16) * 3] as number) - f * 25)).toBeLessThan(16);
+      expect(p[(8 * 64 + 56) * 3 + 1]).toBeGreaterThan(200); // the page's own square
+    });
+    const streams = Bun.spawnSync([
+      ...["ffprobe", "-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", out],
+    ]).stdout.toString();
+    expect(streams).toContain("audio");
+  }, 60_000);
+
   test("says which frame a page failed on, and what failed while loading", async () => {
     const options = { chrome: chrome(), width: 32, height: 32, fps: 10, duration: 1 };
     const failing = page(
