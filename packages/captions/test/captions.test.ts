@@ -54,6 +54,19 @@ describe.if(process.platform === "darwin")("drawCaptions", () => {
     }
   });
 
+  test("a wide video gets subtitle-sized text: 5% of its height, not 7.5% of its width", () => {
+    const dir = mkdtempSync(join(tmpdir(), "captions-test-"));
+    try {
+      const [tall] = (drawCaptions(["Stop watching"], dir, 1080) ?? []).map(pngSize);
+      const [wide] = (drawCaptions(["Stop watching"], dir, 1920, 1080) ?? []).map(pngSize);
+      expect(wide?.width).toBe(1920);
+      // 54 px text against 81 px, with the same share of outline.
+      expect((wide?.height ?? 0) / (tall?.height ?? 1)).toBeCloseTo(54 / 81, 1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("breaks text with no spaces between characters instead of cutting it off", () => {
     const dir = mkdtempSync(join(tmpdir(), "captions-test-"));
     try {

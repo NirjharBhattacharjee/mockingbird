@@ -44,7 +44,7 @@ after the curl install, or `/opt/homebrew/bin/mockingbird` with Homebrew.
 |---|---|
 | `transcribe(path, from, to, words)` | An audio or video file (anything ffmpeg reads: m4a, mp3, wav, mp4, mov, mkv) as text, in lines timestamped `[mm:ss]`, with names fixed from your dictionary (a `heard => term` entry first, then anything that sounds like a term). Each call starts its own whisper-server, so two can run at once. The client's model does any cleanup or summarising. `from` and `to` (seconds) take one stretch of the file. `words: true` gives one line per word with its start and end, `[01:23.48-01:23.71] Catppuccin`, to cut a clip on; names are fixed one word at a time there, so a name misheard as two words stays as heard. |
 | `frames(path, every, from, to)` | Stills from a video, one every `every` seconds (default 60), saved to a temp folder; returns their paths with `[mm:ss]` times, so a client that reads images can see slides and screen shares, or where the speaker is before framing a clip. `from` and `to` (seconds) take one stretch. Each still is read by seeking to it, so a long 4K phone video takes seconds, not minutes. |
-| `captions(path, clips, perCue, lit, upper)` | Word-by-word captions for the video `render` will make from `clips`, as SRT timed to the finished video: up to `perCue` words a cue (default 3), the word being said written `*like this*` (`lit`, default on), in capitals if `upper`. A new cue starts at each clip, after a sentence, after half a second's pause, or when its words span 1.2 seconds. Each clip is transcribed with two seconds either side, and a word belongs to the clip its middle falls in. |
+| `captions(path, clips, perCue, lit, upper)` | Word-by-word captions for the video `render` will make from `clips`, as SRT timed to the finished video: up to `perCue` words a cue (default 3), the word being said written `*like this*` (`lit`, default on), in capitals if `upper`. A new cue starts at each clip, after a sentence, after half a second's pause, or when its words span 1.2 seconds. Each clip is transcribed with two seconds either side, clips whose padded stretches overlap are transcribed together as one, and a word belongs to the clip its middle falls in. |
 | `render(path, clips, …)` | Cuts `clips` out of a video and joins them into one MP4 with ffmpeg; see [Render options](#render-options). Saves to `out`, or `<name>-short-N.mp4` beside the source, and never overwrites a file. |
 | `motion(script, path, captions, size, duration, fps, out)` | Motion graphics written as code, drawn on the Mac with Core Graphics: see [Motion graphics](#motion-graphics). Saves to `out`, or `<name>-motion-N.mp4` beside the video or script, and never overwrites a file. |
 | `status` | Whether mockingbird is ready: the transcription model in use, the speech detection model, ffmpeg, whisper-server, and how many words the dictionary has. |
@@ -69,7 +69,7 @@ with `MCP_TOOL_TIMEOUT` (milliseconds) if a long file stops partway.
 | `inserts` | `[{ path, from, to }]`: pictures or videos laid over the whole frame for a stretch of the finished video (b-roll) while the speech carries on. They sit under the captions and are scaled to fill. A video's own sound isn't used. |
 | `audio` | `[{ path, at, volume, loop, duck }]`: sounds mixed under the speech from `at` seconds in. Music is `loop: true, duck: true` at about 0.15: it repeats to the end and drops while someone speaks (auto-editor's defaults: 85% down once the speech is above 4%, in 100 ms, back up in 500 ms). A sound effect is a path and an `at`. |
 
-The sound always comes out at −14 LUFS, about the loudness Shorts, Reels and TikTok play at, so a quiet phone recording doesn't sound weak next to everything else in the feed.
+The sound comes out at −14 LUFS (within about half a dB), the loudness Shorts, Reels, TikTok and YouTube play at, with peaks under −1.5 dBTP, so a quiet phone recording doesn't sound weak next to everything else in the feed. The sound is measured, measured again through the peak limiter, and the gain corrected once; a single pass of ffmpeg's `loudnorm` fell 1 to 2 dB short on quiet recordings with loud peaks (#127). The gain stops at +30 dB, so a recording quieter than −44 LUFS comes out under −14, and silence is left as it is.
 
 ## Making a short
 
@@ -90,7 +90,9 @@ the client.
 
 Captions are drawn onto the picture: white bold text with a black outline,
 centred a little below the middle (or at `captionsY`), wrapped to fit, with
-words marked `*like this*` in yellow. mockingbird draws each cue
+words marked `*like this*` in yellow. In a tall video the text is 7.5% of
+the width, as Shorts captions are; in a wide one it's 5% of the height and
+wraps at 60% of the width, as subtitles do, clear of a webcam in a corner. mockingbird draws each cue
 as an image with macOS's own text engine (Core Text) and ffmpeg lays it over
 the video, so this works with Homebrew's `ffmpeg`, which has no libass. Emoji
 and non-Latin scripts come out as macOS draws them anywhere else. If the

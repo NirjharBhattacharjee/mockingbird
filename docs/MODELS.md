@@ -66,7 +66,8 @@ long silences keeps it from dropping or inventing passages.
   per call, and a model per language, come in pivot step 3 (#134).
 - **Padding matters.** Cutting silences out of the middle, or trimming tight
   to the speech, produced wrong words; keeping a second either side
-  produced clean sentences. `captions` pads each clip by two seconds.
+  produced clean sentences. `captions` pads each clip by two seconds, and
+  hears clips whose padding overlaps as one stretch (#127).
 - The integration tests use `base.en` (148 MB) to stay quick. It isn't what
   ships.
 
