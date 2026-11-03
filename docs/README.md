@@ -1,56 +1,66 @@
 # mockingbird docs
 
-The [user guide](#user-guide) comes first: installing, every command and
-option, permissions, troubleshooting, and privacy. After it, the
-[design docs](#design-docs), the project's living design record.
+The [user guide](#user-guide) comes first: installing, connecting an agent,
+every command, troubleshooting and privacy. After it, the
+[design docs](#design-docs).
 
 # User guide
 
 ## Quick start
 
-You need a Mac with Apple Silicon, [Homebrew](https://brew.sh), and about 6 GB of
-free space. Without Homebrew, the installer offers to install it, which needs
-an administrator account.
+You need a Mac with Apple Silicon, [Homebrew](https://brew.sh), about 3 GB of
+free space, and an AI agent that speaks MCP (Claude Code, Codex, Cursor,
+Gemini CLI, Claude Desktop, …). Without Homebrew, the installer offers to
+install it, which needs an administrator account.
 
-**1. Install everything**
+**1. Install**
 
 ```sh
 curl -fsSL https://github.com/NirjharBhattacharjee/mockingbird/releases/latest/download/install.sh | bash
 ```
 
-This installs Bun, whisper-cpp, Ollama and ffmpeg with Homebrew, clones
-mockingbird into `~/mockingbird` at the latest release, and runs
-`mockingbird models pull` for the models (checking each against its sha256)
-and the cleanup model.
-It skips anything you already have, so it's safe to run again. A first
-install then opens `mockingbird setup`, which starts mockingbird and walks you
-through the permissions, the Fn key and a test dictation.
+This installs Bun, whisper-cpp and ffmpeg with Homebrew, clones mockingbird
+into `~/mockingbird` at the latest release, and runs `mockingbird models pull`
+for the speech models (about 1.1 GB, each checked against its sha256). It
+skips anything you already have, so it's safe to run again.
 [Read the script](../scripts/install.sh) first if you like.
 
-Or install it with Homebrew instead:
+Or with Homebrew:
 
 ```sh
 brew install nirjharbhattacharjee/mockingbird/mockingbird
 mockingbird models pull
 ```
 
+**2. Give it to your agent**
+
+```sh
+claude mcp add mockingbird -- mockingbird mcp
+```
+
+Other agents take the same command in their MCP config; see
+[MCP.md](./MCP.md#register-it). Then ask your agent for an edit: "cut a
+60-second vertical short with captions from ~/Movies/talk.mp4".
+
+`mockingbird status` checks that everything it needs is installed.
+
 ### Updating
 
 mockingbird never checks for updates itself: that would be a network call it
 doesn't make. To update, run the install command again. It moves
-`~/mockingbird` to the latest release, refuses if you've edited files there,
-and restarts mockingbird if it's running. With Homebrew, `brew upgrade
-mockingbird`, then `mockingbird restart`.
+`~/mockingbird` to the latest release and refuses if you've edited files
+there. With Homebrew, `brew upgrade mockingbird`.
 
-To test what's coming before it's released, install the beta, the newest
-prerelease if there is one:
+Updating from v0.3.2 or earlier removes dictation: the installer removes its
+background agent and gives the Fn key back to macOS (after you log out). On
+a Homebrew install the same happens by itself, the next time the old agent
+starts. Your dictionary words are kept.
+
+To test what's coming before it's released, install the beta:
 
 ```sh
 curl -fsSL https://github.com/NirjharBhattacharjee/mockingbird/releases/latest/download/install.sh | MOCKINGBIRD_CHANNEL=beta bash
 ```
-
-Running the plain install command again later takes you back to the latest
-release.
 
 ### Uninstalling
 
@@ -58,435 +68,76 @@ release.
 mockingbird uninstall
 ```
 
-It lists what it will remove, with sizes, and asks once. Then it stops the
-agent, gives Fn back if you ran `mockingbird fn`, and offers to keep your
-dictionary words in `~/mockingbird-dictionary.txt` before deleting
-`~/.mockingbird`. It removes the command and the PATH line the installer
-added. It deletes `~/mockingbird` only if that's the installer's clone with
-no changes of yours; a Homebrew install says to run `brew uninstall
-mockingbird` instead. It asks separately before removing the cleanup model,
-since Ollama may serve other programs, and never removes the Homebrew tools.
-At the end it lists what's left, including the three Privacy & Security lists
-to clean by hand. `--yes` answers for you: remove everything, keep a copy of
-the words, keep the cleanup model.
+It lists what it will remove, with sizes, and asks once. It offers to keep
+your dictionary in `~/mockingbird-dictionary.txt` before deleting
+`~/.mockingbird`, removes the command and the PATH line the installer added,
+and deletes `~/mockingbird` only if it's the installer's clone with no changes
+of yours. A Homebrew install says to run `brew uninstall mockingbird`. It
+never removes the Homebrew tools. `--yes` answers for you: remove
+everything, keep a copy of the words.
 
-#### By hand
-
-If the command is broken, or you'd rather do it yourself, run the first two
-while the `mockingbird` command still exists:
-
-```sh
-mockingbird stop
-mockingbird fn --undo  # only if you ran `mockingbird fn`
-```
-
-Fn goes back to what it did before once you log out of your Mac and back in.
-
-If `mockingbird` no longer runs, stop the agent with
-`launchctl bootout gui/$(id -u)/com.mockingbird.agent` instead, and set
-**System Settings → Keyboard → "Press 🌐 key to"** back to what you want Fn to
-do.
-
-Next, delete the agent and `~/.mockingbird`, or your `MOCKINGBIRD_HOME` if you
-set one. That folder holds the models, about 1.1 GB, plus the agent's runner,
-the logs and your dictionary. The `cp` line keeps a copy of your words; leave
-it out if you don't want them:
-
-```sh
-home="${MOCKINGBIRD_HOME:-$HOME/.mockingbird}"
-cp "$home/dictionary.txt" ~/mockingbird-dictionary.txt
-rm ~/Library/LaunchAgents/com.mockingbird.agent.plist
-rm -rf "$home"
-```
-
-Then remove the code and the command. After the curl install, that's
-`rm -rf ~/mockingbird ~/.local/bin/mockingbird`, with your `MOCKINGBIRD_DIR`
-in place of `~/mockingbird` if you set one. The installer may also have added
-`~/.local/bin` to your PATH. This prints the file it changed, if any:
-
-```sh
-grep -l 'Added by the mockingbird installer' "${ZDOTDIR:-$HOME}/.zshrc" \
-  ~/.bash_profile ~/.bash_login ~/.profile 2>/dev/null
-```
-
-Delete that line and the `PATH` line under it.
-
-After a Homebrew install, run `brew uninstall mockingbird`, then
-`brew untap nirjharbhattacharjee/mockingbird`.
-
-The rest is shared with other programs, so remove it only if nothing else
-uses it:
-
-- `ollama rm qwen3:4b-instruct-2507-q4_K_M` deletes the cleanup model, about
-  2.5 GB.
-- `brew uninstall bun whisper-cpp ollama ffmpeg` removes the tools.
-- In **System Settings → Privacy & Security**, the **Microphone**,
-  **Accessibility** and **Input Monitoring** lists each still show
-  mockingbird, or bun on some installs. Select it and click **−**.
+By hand: `rm -rf ~/.mockingbird ~/mockingbird ~/.local/bin/mockingbird`
+(after copying out anything you want), then delete the two lines the
+installer added to your shell profile, under `# Added by the mockingbird
+installer`.
 
 ### Manual install
 
 ```sh
-# Tools
-brew install bun whisper-cpp ollama ffmpeg go
-
-# Code
+brew install bun whisper-cpp ffmpeg go
 git clone https://github.com/NirjharBhattacharjee/mockingbird.git
 cd mockingbird
 bun install
-
-# Models: Whisper and the VAD (pinned, sha256-checked; see
-# apps/daemon/src/models.ts), then the cleanup model through Ollama
 bun apps/daemon/src/cli.ts models pull
-
-# The `mockingbird` command, in Go. It holds no macOS
-# permissions itself, so rebuilding it never drops a Fn or typing grant.
 (cd apps/cli && go build -o mockingbird .)
 mkdir -p ~/.local/bin
 ln -sf "$PWD/apps/cli/mockingbird" ~/.local/bin/mockingbird
-
-# Or, without Go, a shim that runs the TypeScript CLI (no launch animation).
-# Remove the link first, or the shim is written through it over the binary:
-# rm -f ~/.local/bin/mockingbird
-# printf '#!/bin/sh\nexec "%s" "%s/apps/daemon/src/cli.ts" "$@"\n' \
-#   "$(command -v bun)" "$PWD" > ~/.local/bin/mockingbird
-# chmod +x ~/.local/bin/mockingbird
-
-# If ~/.local/bin isn't on your PATH yet, add it to your shell profile:
+# If ~/.local/bin isn't on your PATH yet:
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Re-run the command step if you ever move the clone: it points at this directory.
-
-**2. Turn it on**
-
-```sh
-mockingbird start
-```
-
-That's it — it runs in the background from now on, and starts again by itself
-every time you log in. You don't need to keep a terminal open.
-
-Click into any app (Slack, Notes, a browser), then hold **Fn**, speak, and let
-go: your words are typed where your cursor is. The first time, macOS will ask
-for permission — run `mockingbird status` to see what's still missing, and read
-[Permissions](#permissions) for the one surprise in how macOS grants them.
-Or run `mockingbird setup`, which goes through each permission, the Fn key and
-a test dictation with you, one step at a time, and checks each one worked.
-
-To turn it off again:
-
-```sh
-mockingbird stop
-```
-
-It stays off, including after a reboot, until the next `mockingbird start`.
-
-## Usage
-
-### Running in the background
+## Commands
 
 | Command | Does |
 |---|---|
-| `mockingbird start` | Run in the background, now and at every login |
-| `mockingbird stop` | Stop, and stay stopped across reboots |
-| `mockingbird restart` | Restart it (do this after granting a permission) |
-| `mockingbird setup` | Walk through the permissions, Fn and a test dictation, checking each step |
-| `mockingbird status` | Whether it's running, and what it can see (`--json` for scripts) |
-| `mockingbird fn` | Bind Fn to dictation only, so tapping it stops opening the emoji picker. Changes a system-wide setting, so it's never done for you |
-| `mockingbird fn --undo` | Put back the Fn setting `mockingbird fn` replaced |
-| `mockingbird uninstall` | Remove mockingbird and what it installed, after asking |
-| `mockingbird models` | Pick the cleanup and transcription models with the arrow keys (two tabs); without a terminal, lists both |
-| `mockingbird models use <name>` | Switch to another cleanup model and restart (`--default` goes back); `models use speech <file>` for the Whisper model |
-| `mockingbird dictionary` | The words it should get right, as a table: what each is heard as, its note, how often dictation used it, and whether you added it or it learned it. `/` searches, `s` sorts, `a` adds, `d` removes. Without a terminal, one word per line |
-| `mockingbird dictionary add "cat puck => Catppuccin (a colour theme)"` | Add a word, what it's misheard as, and a note for the cleanup model; `remove <word>`, and `forget` drops every learned word |
+| `mockingbird mcp` | Serves the editing tools to an agent over MCP. The agent starts it; you don't run it yourself. |
+| `mockingbird transcribe <file>` | Prints a file's speech as `[mm:ss]` lines. `--words` gives each word's start and end, `--from`/`--to` (seconds) one stretch. |
+| `mockingbird dictionary` | Lists the words it spells a particular way. `add "Nirjhar Bhattacharjee"`, `add "cat puck => Catppuccin"` (what it hears => what to write), `remove <term>`. |
+| `mockingbird models` | Lists the Whisper models you have. `models use <file>` picks one, `--default` goes back. |
+| `mockingbird models pull` | Downloads the speech models. The only command that uses the network. |
+| `mockingbird status` | Whether the models, ffmpeg and whisper-server are installed. |
+| `mockingbird uninstall` | Removes mockingbird, after asking. |
 
-Dictate a list — "I'm going for groceries, I'll get onions, toilet paper and
-rice" — and it's typed as a list, one item per line. The line breaks are sent
-as Shift+Return, which chat apps take as a new line rather than "send";
-terminals keep getting a single line.
+Settings, as environment variables:
 
-Dictating after text that's already there adds a space first, so "One." then
-"Two." comes out as "One. Two." It doesn't add one at the start of a line or
-after "(". In a terminal it adds the space only right after its own last
-dictation there, so pressing Enter in between means none. Each dictation also starts with a
-capital letter and ends with a period, or a question mark when it sounds like
-a question.
-
-Nothing is printed while it runs — the text goes into your app and nowhere
-else. If something goes wrong, it's in `~/.mockingbird/logs/agent.log`, which
-records what happened but never what you said.
-
-**It tells you out loud**, since there's no screen to look at:
-
-| Sound | Means |
-|---|---|
-| A rising **tink** | recording started — it heard the `Fn` hold |
-| A falling **pop** | you let go; it's transcribing |
-| A low **basso** | it got the words but couldn't type them (the log says why) |
-
-Set `MOCKINGBIRD_CUES=0` to silence them. `mockingbird listen` is quiet by
-default instead, since it draws a live level meter; `--cues` turns them on
-there too.
-
-**You can change how it cleans up.** The cleanup model's instructions are in
-[`packages/llm/prompts/cleanup.md`](../packages/llm/prompts/cleanup.md), in
-sections: `## Rules`, `## Lists`, `## Terminal`, `## Dictionary`. To change
-one, put a section with the same heading in `~/.mockingbird/cleanup.md` and
-run `mockingbird restart`. For example, British spelling:
-
-```markdown
-## Rules
-Rewrite the transcript inside <transcript> in British spelling (colour,
-organise). Remove filler words. Return only the text.
-```
-
-Sections you leave out stay as shipped. Your file replaces a whole section,
-so copy the shipped one and edit it rather than starting from nothing.
-
-### `mockingbird record`: record a meeting to a file
-
-```sh
-mockingbird record        # starts, with a sound, and prints where the file goes
-mockingbird record stop   # stops, and prints the file
-```
-
-Or press **Fn+R** to start, and **Fn+R** again to stop; the file is named in
-the log. The "r" isn't typed into the app in front, as long as mockingbird
-has Accessibility. Recordings go to `~/.mockingbird/recordings/`, as `2026-10-15-1430.m4a`
-(about 22 MB an hour), and stay until you delete them. Holding Fn still
-dictates while one runs. A reminder sound plays every 30 minutes, and a
-recording stops by itself after 3 hours (`MOCKINGBIRD_RECORD_MAX_HOURS`).
-`mockingbird status` shows one that's running. It records your microphone
-and what the Mac plays, so on a call it has both sides; if system audio
-can't start, it records the microphone alone, and the log's `recording to`
-line leaves out "with system audio". **Only record people who agreed to
-it:** in many places, recording a conversation without everyone's consent
-is illegal.
-
-### `mockingbird calibrate`: see how well it hears your voice
-
-```sh
-mockingbird calibrate            # read 25 short sentences aloud
-mockingbird calibrate names      # say your own names and terms
-mockingbird calibrate --forget   # delete every reading
-```
-
-It shows one sentence at a time. Press **Enter**, read it, and press
-**Enter** again. You see what mockingbird heard, with the words it got wrong
-in red, and at the end how many of your words it got right, like "large-v3
-Q5_0 got 94% of your words right." It takes about three minutes and needs
-the background agent running. Run it again after a new microphone, or
-whenever dictation feels off.
-
-Your readings stay in `~/.mockingbird/calibration/`. Nothing leaves your Mac.
-Then run `mockingbird calibrate tune`. In a few minutes, every Whisper model
-you have hears your readings, and it tells you which one is fastest while
-still getting your words right (switch with `mockingbird models`). If your
-voice is quiet or your room noisy, it can also make mockingbird listen more
-closely, after a `mockingbird restart`. It also lists the script words it
-keeps getting wrong in your voice.
-
-At the end of the script, press **n** (or run `mockingbird calibrate names`)
-to teach it the names you dictate, like the people you write to or your
-product. Type one, press **Enter**, say it, and press **Enter** again. Each goes into
-the dictionary (`mockingbird dictionary`). If the model hears it so far off
-that dictation still wouldn't spell it right, what it heard goes in too, as
-`Nerj Herbata Chargy => Nirjhar Bhattacharjee`. That isn't done when what it
-heard is ordinary English ("Childhood" for "Tadhg"), since that would rewrite
-those words in every dictation. These recordings aren't kept.
-
-### `mockingbird listen`: talk live in a terminal
-
-| Key | Does |
-|---|---|
-| **Fn** (hold) | Record while held, from any app |
-| **Fn** (double-tap) | Record hands-free until you press **Fn** again |
-| **Enter** / **Space** | Start or stop recording (this terminal only) |
-| **Esc** | Cancel the recording |
-| **q** | Quit |
-
-Whatever you say is typed into the app in front (Slack, your editor, a
-browser). It's printed here **only when it couldn't be typed** — a missing
-permission, or you switched apps while it was still transcribing — so you never
-lose words, and never get two copies. Use `--no-type` to only print.
-
-Stop the background agent first (`mockingbird stop`), or both will type.
-
-No need to start Ollama yourself: if it isn't running, `listen` starts it and
-stops it again when you quit.
-
-### Permissions
-
-**Three permissions are needed**, all in System Settings → Privacy & Security:
-
-| Permission | For |
-|---|---|
-| **Input Monitoring** | noticing the `Fn` key |
-| **Accessibility** | typing into other apps |
-| **Microphone** | hearing you |
-
-macOS grants these to **whichever program asks**, and that differs between the
-two ways of running mockingbird — this catches everyone out once:
-
-- **`mockingbird start`** (the background agent): grant them to
-  **mockingbird**, at `~/.mockingbird/bin/mockingbird`. Then run
-  `mockingbird restart`.
-- **`mockingbird listen`** (a terminal): grant them to the terminal app itself
-  (Terminal, Ghostty, iTerm, VS Code…), then **quit it with Cmd+Q and reopen
-  it** — closing the window isn't enough. Each terminal app needs its own.
-
-If the program isn't in the list, click **+** and add it. Without these, Enter
-still records in `listen`, and the text is printed instead of typed.
-
-`mockingbird start` and `mockingbird status` both report what the agent can
-actually see, rather than what your terminal can — including the microphone,
-which can't be checked by asking, since a blocked one still returns audio.
-It's just silent.
-
-That `bin/mockingbird` is mockingbird's own copy of the Bun runtime, signed
-under its own name so macOS lists it as "mockingbird" and the permission
-belongs to it alone — your `bun` needs no permission at all. It also holds
-still: editing the code doesn't change it, and neither does `brew upgrade
-bun`, so the grants survive both. See
-[SECURITY_PRIVACY.md](./SECURITY_PRIVACY.md) for what it does mean.
-
-<details>
-<summary>Fn still not working?</summary>
-
-- **`listen` says "Fn key off".** The app you ran it from doesn't have Input
-  Monitoring yet, or hasn't been fully quit and reopened since you allowed it.
-  Each terminal app needs its own permission: allowing VS Code doesn't cover
-  Ghostty.
-- **The background agent does nothing, but `listen` works.** They need
-  separate grants: `listen` uses your terminal's, the agent uses its own.
-  Add `~/.mockingbird/bin/mockingbird` to both lists, then
-  `mockingbird restart`.
-- **You granted the permission but nothing changed.** The agent reads them
-  once at startup. Run `mockingbird restart`.
-- **Holding Fn opens emoji or Apple's dictation.** Run `mockingbird fn`, or
-  in System Settings → Keyboard set **Press 🌐 key to** to **Do Nothing**.
-  mockingbird never changes this on its own; `mockingbird fn --undo` puts back
-  whatever `mockingbird fn` replaced.
-- **Text is typed twice.** The background agent and `mockingbird listen` are
-  both running, or `listen` is open in two windows. Run `mockingbird stop`, or
-  quit the extra window with `q`.
-- **The sounds play but nothing is typed.** It heard you. Either Accessibility
-  is missing, or you switched apps while it was still transcribing — it won't
-  type into an app you didn't dictate into. The log says which.
-- **Recordings come back empty.** Microphone permission. `mockingbird status`
-  and the log both name it.
-
-</details>
-
-To check typing on its own:
-
-```sh
-mockingbird type --check          # is typing allowed? which app is in front?
-mockingbird type "hello there"    # waits 3s, then types into the app you click
-```
-
-Using the wrong microphone? List them and pick one:
-
-```sh
-mockingbird listen --list-devices
-mockingbird listen --device 2
-```
-
-### `mockingbird transcribe`: turn a recording into text
-
-```sh
-mockingbird transcribe ~/Desktop/memo.mp3
-mockingbird transcribe ~/Desktop/memo.mp3 | pbcopy   # copy the text
-```
-
-Works with mp3, m4a, wav, and anything else ffmpeg can open. Tip: type
-`mockingbird transcribe `, then drag the file into the terminal.
-
-<details>
-<summary>More options</summary>
-
-Both commands accept:
-
-| Option | Does |
-|---|---|
-| `--terminal` | No period at the end (for pasting commands) |
-| `--json` | Show everything: raw and cleaned text, timings |
-| `--help` | Show help |
-
-Environment variables:
-
-| Variable | Default |
-|---|---|
-| `MOCKINGBIRD_HOME` (where `models/` is) | `~/.mockingbird` |
-| `MOCKINGBIRD_ASR_MODEL` (a file in `models/`, or a path) | `ggml-large-v3-q5_0.bin` |
-| `MOCKINGBIRD_ASR_VOCABULARY` (read the dictionary to Whisper; can distort other names) | off |
-| `MOCKINGBIRD_ASR_PORT` | `8771` for the agent; `transcribe` and `mcp` pick a free port, so a long file never holds up dictation |
-| `MOCKINGBIRD_LANGUAGE` (what you dictate in: a code like `de`, `es`, `hi`, or `auto` to detect it, ~1.4s slower; learning is off in other languages) | `en` |
-| `MOCKINGBIRD_LEARN` (`0`: don't learn dictionary words from your corrections) | on |
-| `MOCKINGBIRD_LEARN_EXCLUDE` (bundle ids, comma separated, never read to learn from) | none |
-| `MOCKINGBIRD_LLM_URL` | `http://127.0.0.1:11434` |
-| `MOCKINGBIRD_LLM_MODEL` | `qwen3:4b-instruct-2507-q4_K_M` |
-| `MOCKINGBIRD_RECORD_MAX_HOURS` (when a recording stops by itself) | `3` |
-
-The background agent reads them from the shell that last ran `mockingbird start`
-or `restart`, so run `mockingbird restart` after changing one.
-
-</details>
+| Variable | Default | Does |
+|---|---|---|
+| `MOCKINGBIRD_HOME` | `~/.mockingbird` | where models and `data.db` live |
+| `MOCKINGBIRD_ASR_MODEL` | the one `models use` picked | a Whisper file in `models/`, or a path |
+| `MOCKINGBIRD_LANGUAGE` | `en` | what's spoken: a code like `de` or `hi`, or `auto` |
 
 ## Troubleshooting
 
 | Problem | Fix |
 |---|---|
-| `Script not found` | Run it from inside the `mockingbird` folder. |
-| `permission denied` on a file | Put `mockingbird transcribe ` in front of the file path. |
-| `recording was completely silent` or stuck on `waiting for the microphone` | Allow your terminal in **System Settings → Privacy & Security → Microphone**, then restart the terminal. |
-| The level bars don't move | Wrong microphone. Use `--list-devices` and `--device`. |
-| `Fn key off` or `Fn` does nothing | Allow your terminal in **System Settings → Privacy & Security → Input Monitoring**, then quit it with Cmd+Q and reopen. |
-| Tapping `Fn` opens the emoji picker, and the text lands in its search box | macOS has its own action on that key. Set **System Settings → Keyboard → "Press 🌐 key to"** to **Do Nothing**. Holding `Fn` works either way; `mockingbird status` tells you when this is set. |
-| A new sentence runs into the last one, with no space | That app doesn't let mockingbird see the text before the cursor, which is common in web pages, Google Docs, and Electron apps like Slack. There it only adds the space right after its own last dictation, so a key press or click in between means no space. Check with `mockingbird type --check --delay 3` and click into the app. Terminals work the same way: the space comes only right after mockingbird's own last dictation there, so pressing Enter in between means none. |
-| Text prints but isn't typed into the app | The agent needs **Accessibility** on `~/.mockingbird/bin/mockingbird`, then `mockingbird restart`. In `listen`, allow your terminal instead and reopen it. Check with `mockingbird type --check`. |
-| `Ollama isn't running` | `listen` starts Ollama by itself, so this means it's missing or failed to start: run the install command again. You still get text, just not cleaned up. |
-| `… isn't downloaded` | Run `ollama pull qwen3:4b-instruct-2507-q4_K_M` (or the install command again). |
-| `Whisper model not found` | Run the install command again. |
+| The agent can't find `mockingbird` | Give its MCP config the full path: `command -v mockingbird` prints it. |
+| `Whisper model not found` | `mockingbird models pull`. |
+| `whisper-server not ready` | `brew install whisper-cpp`; `mockingbird status` checks. |
+| A long file stops partway | The agent cut the call off. In Claude Code, raise `MCP_TOOL_TIMEOUT` (ms). |
+| A name comes out wrong | `mockingbird dictionary add "<the right spelling>"`, or `"<what it writes> => <the right spelling>"`. |
 | `command not found: bun` | Open a new terminal window. |
 
-The first run pauses for about 15 seconds while macOS prepares the GPU. After
-that it's quick.
-
-## Roadmap
-
-| | |
-|---|---|
-| ✅ | Speech to text, cleanup (removes "um", fixes punctuation) |
-| ✅ | Live microphone with `mockingbird listen` |
-| ✅ | Transcribe recordings with `mockingbird transcribe` |
-| ✅ | Runs in the background from login: `mockingbird start` / `stop` |
-| ✅ | Hold `Fn` to talk, double-tap for hands-free |
-| ✅ | Types into any app: Slack, editors, browsers, terminals |
-| 🔲 | History and custom vocabulary |
-| 🔲 | Terminal dashboard (Catppuccin themed) |
-| ✅ | Homebrew: `brew install nirjharbhattacharjee/mockingbird/mockingbird` |
+The first transcription on a Mac pauses about 15 seconds while macOS prepares
+the GPU.
 
 ## Privacy
 
-- Your audio and text never leave your Mac.
-- mockingbird makes no internet requests. The only downloads are the ones you
-  run in the quick start.
-- No audio or transcript is saved to disk. Live audio is kept in memory only
-  (the last 30 seconds).
-- The one file written is `~/.mockingbird/logs/agent.log`: start-up, errors,
-  and how many characters were typed — never the words themselves. It's capped
-  at 1 MB.
-- **The microphone is held open the whole time mockingbird runs**, so the
-  orange dot stays in your menu bar from login until `mockingbird stop`. That's
-  what makes the first word of a sentence come out intact. Nothing is recorded
-  until you hold Fn.
-- To put a space between sentences, mockingbird reads the one character
-  before your cursor, and nothing else in the app. It isn't logged or kept.
-- Typing uses key events, not the clipboard, so yours is never touched. Line
-  breaks are removed first, so dictation can't send a message or run a command
-  by itself.
+- Your footage is read where it is and never uploaded by mockingbird. The
+  only downloads are `mockingbird models pull`.
+- **The agent decides where results go.** A transcript returned to a cloud
+  model goes to that model's provider. See [MCP.md](./MCP.md#where-your-text-goes).
+- Stills from `frames` go to a temp folder; renders go beside the source and
+  never overwrite a file.
 
 More: [SECURITY_PRIVACY.md](./SECURITY_PRIVACY.md)
 
@@ -495,52 +146,32 @@ More: [SECURITY_PRIVACY.md](./SECURITY_PRIVACY.md)
 | Command | Does |
 |---|---|
 | `bun test` | Unit tests |
-| `bun run test:integration` | All tests, using the real models |
+| `bun run test:integration` | All tests, with the real models, whisper-server and ffmpeg |
 | `bun run typecheck` | Type-check |
 | `bun run lint` / `bun run format` | Check / fix style |
-| `bun run type --check` | Check typing permission and the app in front |
+| `bun run bench:models` | Compare Whisper models |
 | `bun apps/daemon/src/cli.ts <cmd>` | The `mockingbird` command, from a clone |
-| `bun run demo` | Redraw the README GIF (needs `brew install librsvg`) |
 
-Code lives in `apps/daemon` (the commands, the launchd agent, and the session
-wiring they share) and `packages/` (audio, voice detection, speech-to-text,
-cleanup, typing, sounds). The agent skills are a submodule in `agent-skills/`;
-see [AGENTS.md](../AGENTS.md).
+Code lives in `apps/daemon` (the engine: commands and the MCP server) and
+`packages/` (audio, speech detection, speech-to-text, captions, motion
+graphics, storage). The agent skills are a submodule in `agent-skills/`; see
+[AGENTS.md](../AGENTS.md).
 
 # Design docs
 
-- **[PHILOSOPHY.md](./PHILOSOPHY.md)** — why this project exists and what it
-  must never become: always free, open to everyone, local-first and
-  privacy-first by belief, not just by design. Read this before proposing
-  anything that touches monetization, access, or inclusion — for humans and
-  AI agents alike.
-- **[MCP.md](./MCP.md)** — give an AI client (Claude Code, Claude Desktop,
-  Cursor) mockingbird's transcription and dictionary as tools, and where the
-  text goes when you do.
-- **[ARCHITECTURE.md](./ARCHITECTURE.md)** — the bible. Stack, architecture, state
-  ownership, packaging, deployment, CI/CD, and open scope. Every architectural
-  decision should end up reflected here before or shortly after it lands in code.
-  This document is expected to change constantly as v1 becomes v2 becomes v3 —
-  see its changelog at the top for how edits are tracked.
+- **[PHILOSOPHY.md](./PHILOSOPHY.md)** — why this exists and what it must
+  never become: free, every feature, open to everyone, local-first.
+- **[MCP.md](./MCP.md)** — the tools an agent gets, their options, and where
+  results go.
+- **[ARCHITECTURE.md](./ARCHITECTURE.md)** — stack, how an edit flows,
+  rendering, layout, packaging, CI and the roadmap.
 - **[SECURITY_PRIVACY.md](./SECURITY_PRIVACY.md)** — threat model, data
-  inventory, network/storage/permissions policy, and the open privacy risks
-  that local-first design does not by itself close.
-- **[MODELS.md](./MODELS.md)** — every model mockingbird runs (VAD, ASR,
-  cleanup LLM): what each one does, where it sits in the pipeline, how it's
-  invoked, and its licensing.
-- **[DATABASE.md](./DATABASE.md)** — the SQLite schema in full: every table,
-  column, primary/foreign key, index, and the open schema decisions not yet
-  settled.
-- **[TUI.md](./TUI.md)** — the terminal UI's Catppuccin theming (palette,
-  flavors, semantic color mapping) and what each of its four screens
-  (Dashboard, History, Dictionary, Latency waterfall) actually controls.
+  inventory, network policy, and the open risks.
+- **[MODELS.md](./MODELS.md)** — Silero VAD and Whisper: why these, measured.
+- **[DATABASE.md](./DATABASE.md)** — `data.db`: the dictionary and settings.
 
-See also, at the repo root: **[../CONTRIBUTING.md](../CONTRIBUTING.md)** —
-required reading before opening an issue or PR, for humans and AI agents
-alike: standards, workflow, PR checklist, and licensing terms — and
-**[../SECURITY.md](../SECURITY.md)** — where to report a vulnerability
-privately (never in a public issue).
+At the repo root: **[../CONTRIBUTING.md](../CONTRIBUTING.md)**, required
+reading before an issue or PR, and **[../SECURITY.md](../SECURITY.md)**, where
+to report a vulnerability privately.
 
-If a decision made in code contradicts this doc, the doc is wrong and should be
-fixed in the same PR that makes the change. Nobody should have to read git log
-to understand why the system is shaped the way it is.
+If code contradicts a doc, the doc is wrong and gets fixed in the same PR.

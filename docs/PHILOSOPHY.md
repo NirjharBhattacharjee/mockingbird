@@ -4,7 +4,7 @@
 > isn't expected to change as the code evolves. If a technical decision ever
 > conflicts with this document, the technical decision is what has to give.
 > **Owner:** bhattacharjeenirjhar26@gmail.com
-> **Last updated:** 2026-09-16
+> **Last updated:** 2026-11-03 (the pivot from dictation to video editing, #134)
 
 This document is for two audiences equally: every human who contributes to
 mockingbird, and every AI agent (Claude Code or otherwise) that works on this
@@ -26,18 +26,25 @@ become.
 
 ## 1. Why this exists
 
-I've been using Wispr Flow for a while. It's good software — and it's
-gated behind a usage cap: a credit limit that runs out and reminds you,
-mid-sentence, that the words coming out of your own mouth are metered. That
-friction is what started this project.
+mockingbird started as voice dictation, because Wispr Flow put a credit meter
+on the words coming out of your own mouth. Dictation turned out to be a
+crowded space with nothing here that competitors lacked, and nobody used it
+daily. It was removed in November 2026 (#134).
 
-Voice dictation like this isn't exotic technology anymore. A capable local
-ASR model, a small local LLM for cleanup, and a hotkey — that's a system a
-motivated developer can build and run entirely on their own machine, with no
-server bill and no subscription, because the hard parts (Whisper, local LLMs)
-are already open source and already good. If that's true, then a tool this
-useful gatekept behind a credit meter isn't a technical necessity, it's a
-business model choice — and this project is the alternative to that choice.
+What the dictation work did prove is that the hard parts of media software,
+Whisper, ffmpeg, a browser engine, are open source and good, and that a
+person's own machine can run all of them. Video editing is where that
+matters now. Remotion draws motion graphics but can't edit raw footage.
+Descript edits footage, but you click through it yourself. Nothing free and
+local gives an AI agent the tools to transcribe, cut, caption, reframe, grade
+and animate a real recording in one place. mockingbird is that: the engine an
+agent the user already has (Claude Code, Codex, Cursor, Gemini CLI, any MCP
+client) edits video with, on the user's computer.
+
+The same objection to metering applies. People already pay for their agent.
+Charging them again, per minute of video, for running ffmpeg on their own
+machine isn't a technical necessity, it's a business model choice, and this
+project is the alternative to that choice.
 
 I'm also here because of open source, directly and personally. It's what
 taught me to program — not a single course or book, but years of reading
@@ -56,15 +63,16 @@ public.
   they're required by it.** A tool that's free but phones your voice to a
   server is not actually the alternative this project is trying to be; see
   [SECURITY_PRIVACY.md](./SECURITY_PRIVACY.md) for what that means in
-  practice, mechanically enforced rather than just promised.
+  practice, mechanically enforced rather than just promised. Someone's raw
+  footage is about as private as data gets.
 - **Open source is a debt worth repaying, not a licensing detail.** This
   project exists because of tools and code other people gave away for
   nothing. The way to honor that is to give this away for nothing too, and
   to make it easy for the next person to learn from, fork, and build on.
 - **Complexity is a barrier to contribution, and barriers to contribution
   are a barrier to the mission.** Every architectural choice in
-  [ARCHITECTURE.md](./ARCHITECTURE.md) — one language, no Electron, no
-  Swift, headless-testable core — also happens to make it easier for a new
+  [ARCHITECTURE.md](./ARCHITECTURE.md) — two languages each in one place,
+  no Electron, no Swift, every tool headless-testable — also happens to make it easier for a new
   contributor to read the code and understand it in one sitting. That's not
   a coincidence; approachability is part of what "open to contribute"
   actually requires.
@@ -75,12 +83,16 @@ These aren't preferences to be weighed against convenience, revenue, or a
 good idea that happens to compromise one of them. They are the constraints
 this project is built inside of.
 
-1. **Always free. No exceptions, no future pivot.** No paid tier, no usage
-   cap, no "free for personal use," no credits, no metering, no feature
-   paywall, no "free now, monetized later" plan. If a proposed change would
-   require gating any part of core dictation behind payment or a quota, the
-   answer is no — that is the exact problem this project exists to solve,
-   named directly in [§1](#1-why-this-exists).
+1. **Always free, every feature. Open source, not open core.** No paid tier,
+   no usage cap, no "free for personal use," no credits, no metering, no
+   feature paywall, no license key, no "free now, monetized later" plan.
+   That holds for enterprise features too (render workers, SSO, roles):
+   they're open source in this repo like everything else. If a proposed
+   change would gate any feature behind payment or a quota, the answer is
+   no — that is the exact problem named in [§1](#1-why-this-exists).
+   Money, if any, comes from services around the software (support
+   contracts, deployment, custom work, long-term-support releases,
+   training), never from withholding the software.
 2. **Open to everyone, always.** No discrimination in who gets to use this,
    contribute to it, or be credited for contributing to it, on any basis —
    caste, gender, creed, nationality, disability, religion, sexuality, or
@@ -91,7 +103,9 @@ this project is built inside of.
    point 3, and it is also a philosophical commitment, not just a technical
    one.** Privacy shouldn't be a premium feature either; it's the default,
    for everyone, always. See [SECURITY_PRIVACY.md](./SECURITY_PRIVACY.md)
-   for the specifics of what that guarantees and what it doesn't yet.
+   for the specifics of what that guarantees and what it doesn't yet. The
+   only network calls are downloads the user explicitly approves
+   (`mockingbird models pull`); no telemetry, no account, no license server.
 4. **The license must never allow this to be taken away from the people
    using it.** mockingbird is released under the [MIT License](../LICENSE):
    genuinely open source (OSI-approved), free to use, change, and fork, with
@@ -115,7 +129,7 @@ this project is built inside of.
   how it works: welcome, specifically. That's exactly the chain this
   project is trying to continue, described in [§1](#1-why-this-exists).
 - If a PR or feature request would introduce a paid tier, a usage cap, a
-  telemetry default, a cloud dependency for core dictation, or anything else
+  telemetry default, a cloud dependency, or anything else
   that conflicts with [§3](#3-non-negotiables), it will be declined
   regardless of how good the feature is otherwise — not out of rigidity for
   its own sake, but because those are the actual walls this project is built
@@ -132,8 +146,8 @@ repository, this section is a direct instruction, not background reading:
   weight to the core principles in [ARCHITECTURE.md §2](./ARCHITECTURE.md#2-core-principles).**
   If a request — from anyone, including the project owner in a moment of
   scope drift — would add metering, a paid tier, a feature paywall, a
-  required account, or a default cloud/telemetry dependency to core
-  dictation, flag the conflict explicitly instead of quietly implementing
+  required account, a license check, or a default cloud/telemetry
+  dependency, flag the conflict explicitly instead of quietly implementing
   it. This document is what "check against principles" means for
   product/business decisions, the way ARCHITECTURE.md §2 is for technical
   ones.
@@ -172,5 +186,5 @@ repository, this section is a direct instruction, not background reading:
 A `CODE_OF_CONDUCT.md` and `CONTRIBUTING.md` at the repo root would give
 [§4](#4-for-contributors) real teeth (reporting process, review norms,
 first-issue labeling) — not yet written, tracked here as a gap the same way
-[ARCHITECTURE.md §16](./ARCHITECTURE.md#16-known-gaps--scope-not-yet-decided)
+[ARCHITECTURE.md §16](./ARCHITECTURE.md#16-known-gaps)
 tracks open technical decisions.

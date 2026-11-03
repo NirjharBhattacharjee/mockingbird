@@ -50,7 +50,7 @@ be accepted?" questions on your own:
 3. [docs/SECURITY_PRIVACY.md](./docs/SECURITY_PRIVACY.md) — the threat
    model and data-handling rules. Any change touching audio, transcripts,
    network calls, or storage is reviewed against this doc specifically.
-4. [docs/MODELS.md](./docs/MODELS.md) — if you're touching ASR/VAD/LLM code,
+4. [docs/MODELS.md](./docs/MODELS.md) — if you're touching ASR/VAD code,
    know what's already there before adding a fourth model or a new
    dependency.
 5. This document.
@@ -82,7 +82,7 @@ Code isn't the only contribution that matters here:
 
 - **Code** — features, bug fixes, performance work, new platform backends
   (see the Windows/Linux gaps in
-  [ARCHITECTURE.md §16](./docs/ARCHITECTURE.md#16-known-gaps--scope-not-yet-decided)).
+  [ARCHITECTURE.md §16](./docs/ARCHITECTURE.md#16-known-gaps)).
 - **Docs** — fixing drift between the docs and reality is explicitly
   encouraged; [ARCHITECTURE.md §17](./docs/ARCHITECTURE.md#17-versioning--how-this-doc-evolves)
   treats a doc/code mismatch as a bug.
@@ -101,7 +101,7 @@ Code isn't the only contribution that matters here:
   `ARCHITECTURE.md` seriously — a PR that contradicts it gets asked to
   update the doc or change the approach, and that conversation is cheaper
   before the code is written than after.
-- Check [ARCHITECTURE.md §16](./docs/ARCHITECTURE.md#16-known-gaps--scope-not-yet-decided)
+- Check [ARCHITECTURE.md §16](./docs/ARCHITECTURE.md#16-known-gaps)
   first — it's a live list of decisions the project knows are open. If
   you're proposing to resolve one of those, say so explicitly in your
   issue/PR so it can be checked off there too.
@@ -109,13 +109,13 @@ Code isn't the only contribution that matters here:
 ## 5. Development workflow
 
 The workspace follows
-[ARCHITECTURE.md §10](./docs/ARCHITECTURE.md#10-repository-layout). So far
-only the headless pipeline exists (`packages/{audio,vad,asr,llm}` and
-`apps/daemon`); other packages get created when their work starts.
+[ARCHITECTURE.md §10](./docs/ARCHITECTURE.md#10-repository-layout): the
+engine in `apps/daemon`, the Go command in `apps/cli`, and reusable pieces
+in `packages/*`.
 
 1. Fork the repository, clone your fork.
 2. Create a branch off `main`, named for what it does
-   (`fix/hotkey-double-tap-race`, `docs/models-licensing-table`).
+   (`fix/captions-off-by-one`, `docs/models-licensing-table`).
 3. `bun install` at the workspace root (Bun 1.4.2, the version CI pins).
 4. Make your change inside the correct package/app — see
    [§6](#6-coding-standards) for the boundary rules.
@@ -132,24 +132,23 @@ These are enforced, not stylistic suggestions:
 
 - **TypeScript for the engine, Go for the command.** Per
   [ARCHITECTURE.md §2](./docs/ARCHITECTURE.md#2-core-principles), point 1:
-  the daemon and every `packages/*` are `.ts` on Bun; the `mockingbird`
-  command and its terminal UI in `apps/cli` are Go. No other language we
+  the engine in `apps/daemon` and every `packages/*` are `.ts` on Bun; the
+  `mockingbird` command in `apps/cli` is Go. No other language we
   write. Third-party binaries are consumed as subprocesses or prebuilt
   native modules.
 - **No Electron, no Swift, no native GUI toolkit.** Point 2 of the same
-  section. Feedback is audio cues + the Bubble Tea terminal UI.
+  section. A future preview is a local page in the browser.
 - **Respect package boundaries:**
   `packages/*` never imports from `apps/*`
   ([ARCHITECTURE.md §10](./docs/ARCHITECTURE.md#10-repository-layout)).
-  Platform-specific code stays behind the `asr`/`inject`/`context`/`audio`
-  interfaces, not scattered inline.
-- **Headless-testable core.** Point 4 of §2: the pipeline (VAD → ASR → LLM →
-  format) must run and be testable with zero OS integration. If your change
-  makes that untestable without a real mic/hotkey, that's a design problem
-  to raise before merging, not after.
+  Platform-specific code stays inside `packages/*` (`audio`, `captions`,
+  `motion`), not scattered through the engine.
+- **Headless-testable.** Point 4 of §2: every tool must run and be
+  testable with no GUI, mic or permission prompt. If your change makes that
+  untestable, that's a design problem to raise before merging, not after.
 - **Degrade, don't break.** Point 5 of §2: a dependency dying should degrade
-  functionality, not crash dictation outright. New integrations with
-  external processes (a new ASR/LLM backend, say) need a defined fallback
+  functionality, not break every tool. New integrations with external
+  processes (a new ASR backend, say) need a defined fallback
   behavior as part of the PR, not a follow-up.
 - **New dependencies must clear the stack rule** in
   [ARCHITECTURE.md §3](./docs/ARCHITECTURE.md#3-technology-stack): consumed
@@ -158,8 +157,8 @@ These are enforced, not stylistic suggestions:
   `apps/cli`, Go modules are added the usual way, through its `go.mod`.
 - **No dependency, default, or code path that violates
   [PHILOSOPHY.md §3](./docs/PHILOSOPHY.md#3-non-negotiables)** — no
-  telemetry by default, no required account, no cloud call for core
-  dictation, no usage metering.
+  telemetry by default, no required account, no cloud call, no usage
+  metering, no feature behind a payment.
 
 ## 7. Commit messages & changesets
 
@@ -189,33 +188,20 @@ These are the checks a PR must pass
 | Typecheck, all workspaces | `bun run typecheck` | yes |
 | Lint + format check (Biome) | `bun run lint` (`bun run format` fixes) | yes |
 | Unit tests, all packages | `bun test` | yes |
-| Integration tests, incl. fixture WAV → VAD → ASR → LLM → text | `bun run test:integration` | not yet — needs local models |
+| Integration tests: real VAD, whisper-server and ffmpeg on fixtures | `bun run test:integration` | not yet — needs local models |
 | Build smoke test (macOS runner) | `bun build --compile` | not yet — no entry point to compile |
 | Go command: format, vet, tests | `cd apps/cli && gofmt -l . && go vet ./... && go test -race ./...` | yes |
-| Cleanup eval: what the cleanup model makes of dictation | `bun run eval:cleanup` | no — needs local Ollama |
 
 `bun run test:integration` needs, locally:
 
 - `whisper-server` (`brew install whisper-cpp`)
-- `~/.mockingbird/models/ggml-large-v3-turbo-q5_0.bin` and `~/.mockingbird/models/silero_vad.onnx`
-  (the integration tests use `ggml-base.en.bin`, which `scripts/install.sh` no
-  longer downloads: fetch it from the same Hugging Face revision if you run them)
-- Ollama running with `qwen3:4b-instruct-2507-q4_K_M` pulled
+- `ffmpeg` (`brew install ffmpeg`)
+- `~/.mockingbird/models/silero_vad.onnx` (`mockingbird models pull`) and
+  `~/.mockingbird/models/ggml-base.en.bin`, which the tests use to stay
+  quick: fetch it from the same Hugging Face revision as the default model
 
-Override locations with `MOCKINGBIRD_HOME`, `MOCKINGBIRD_LLM_URL`, and
-`MOCKINGBIRD_LLM_MODEL`. Run the integration tests for any change that
-touches `packages/{vad,asr,llm}` or the pipeline.
-
-`bun run eval:cleanup` scores the cleanup step (`cleanUp` in
-`apps/daemon/src/pipeline.ts`, the code the app runs) against the cases in
-`evals/cleanup/tests/` with [promptfoo](https://promptfoo.dev). It needs
-Node and the same Ollama model. promptfoo is a dev-only tool that `npx`
-fetches from npm the first time. It never ships to users. The runner
-switches off its telemetry, update check, sharing and remote test
-generation, and every check is plain code, so no dictation leaves your
-machine. Tune a prompt against the `dev` set, then confirm it on the
-held-out set (`MOCKINGBIRD_EVAL_SET=holdout`). Cases are made up. Keep real
-dictations out of git.
+Override the location with `MOCKINGBIRD_HOME`. Run the integration tests for
+any change that touches `packages/{audio,vad,asr,captions,motion}` or a tool.
 
 Run whichever of these apply to your change locally before opening a PR.
 A PR that only "probably passes CI" is not ready for review — run it first.
@@ -237,7 +223,7 @@ This project treats documentation as load-bearing, not optional:
 
 ## 10. Pull request process
 
-1. **Title:** short, specific, imperative (`Fix double-tap race in hotkey FSM`,
+1. **Title:** short, specific, imperative (`Fix caption timing after a jump cut`,
    not `Fixes`).
 2. **Description:** what changed and why; link the issue it resolves or the
    discussion that preceded it (see [§4](#4-before-you-start--talk-first-for-anything-non-trivial)).
@@ -337,12 +323,12 @@ there's interest, a `CONTRIBUTORS`/`AUTHORS` file or README section.
 ## 15. Open gaps in this process
 
 Named explicitly rather than silently deferred, matching the style of
-[ARCHITECTURE.md §16](./docs/ARCHITECTURE.md#16-known-gaps--scope-not-yet-decided):
+[ARCHITECTURE.md §16](./docs/ARCHITECTURE.md#16-known-gaps):
 
 - **`CODE_OF_CONDUCT.md`** — not yet adopted; [§2](#2-code-of-conduct) states
   the standard inline in the meantime.
 - **Issue labels** (`good first issue`, `help wanted`) — the repo
   ([github.com/NirjharBhattacharjee/mockingbird](https://github.com/NirjharBhattacharjee/mockingbird))
   is live, but labels haven't been set up yet.
-- **Integration tests in CI** — they need whisper-server, Ollama, and about
-  2.7 GB of models, so they only run locally for now.
+- **Integration tests in CI** — they need whisper-server, ffmpeg and the
+  models, so they only run locally for now.

@@ -2,13 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  DEFAULT_ASR_MODEL,
-  dictationLanguage,
-  englishOnly,
-  findAsrModel,
-  readCleanupRules,
-} from "../src/runtime.ts";
+import { DEFAULT_ASR_MODEL, englishOnly, findAsrModel, spokenLanguage } from "../src/runtime.ts";
 
 const modelsWith = (...names: string[]) => {
   const dir = mkdtempSync(join(tmpdir(), "mockingbird-models-"));
@@ -71,35 +65,21 @@ describe("findAsrModel", () => {
   });
 });
 
-describe("readCleanupRules", () => {
-  test("reads the user's file, warns about a heading it won't use, and is quiet when there's none", () => {
-    const home = mkdtempSync(join(tmpdir(), "mb-rules-"));
-    const logs: string[] = [];
-    expect(readCleanupRules(home, (m) => logs.push(m))).toBeUndefined();
-    expect(logs).toEqual([]);
-
-    writeFileSync(join(home, "cleanup.md"), "## Rules\nBe brief.\n## List\nTypo.\n");
-    expect(readCleanupRules(home, (m) => logs.push(m))).toContain("Be brief.");
-    expect(logs[0]).toContain('"## List"');
-    expect(logs[1]).toContain("cleanup rules: yours from");
-  });
-});
-
-describe("dictationLanguage", () => {
+describe("spokenLanguage", () => {
   test("English unless MOCKINGBIRD_LANGUAGE names a language, or auto", () => {
-    expect(dictationLanguage({})).toBe("en");
-    expect(dictationLanguage({ MOCKINGBIRD_LANGUAGE: " DE " })).toBe("de");
-    expect(dictationLanguage({ MOCKINGBIRD_LANGUAGE: "auto" })).toBe("auto");
+    expect(spokenLanguage({})).toBe("en");
+    expect(spokenLanguage({ MOCKINGBIRD_LANGUAGE: " DE " })).toBe("de");
+    expect(spokenLanguage({ MOCKINGBIRD_LANGUAGE: "auto" })).toBe("auto");
     // Whisper takes the language without its region.
-    expect(dictationLanguage({ MOCKINGBIRD_LANGUAGE: "pt-BR" })).toBe("pt");
-    expect(dictationLanguage({ MOCKINGBIRD_LANGUAGE: "en_US" })).toBe("en");
+    expect(spokenLanguage({ MOCKINGBIRD_LANGUAGE: "pt-BR" })).toBe("pt");
+    expect(spokenLanguage({ MOCKINGBIRD_LANGUAGE: "en_US" })).toBe("en");
   });
 
   test("a language Whisper doesn't know falls back to English, with a warning", () => {
     const logged: string[] = [];
     // "chr" (Cherokee) is a real language, but not one Whisper knows.
     for (const wrong of ["german", "xx", "Deutsch!", "chr"])
-      expect(dictationLanguage({ MOCKINGBIRD_LANGUAGE: wrong }, (m) => logged.push(m))).toBe("en");
+      expect(spokenLanguage({ MOCKINGBIRD_LANGUAGE: wrong }, (m) => logged.push(m))).toBe("en");
     expect(logged).toHaveLength(4);
     expect(logged[0]).toContain("MOCKINGBIRD_LANGUAGE=german");
   });

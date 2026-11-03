@@ -1,18 +1,10 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
-import { startWhisperServer } from "@mockingbird/asr";
-import {
-  type DictionaryEntry,
-  isEnglish,
-  isLocalUrl,
-  OllamaProvider,
-  ollamaRunning,
-  startOllamaServer,
-  unknownSections,
-} from "@mockingbird/llm";
-import { detectSpeech, SileroVad } from "@mockingbird/vad";
-import type { PipelineDeps } from "./pipeline.ts";
+import { type AsrEngine, startWhisperServer } from "@mockingbird/asr";
+import type { PcmAudio } from "@mockingbird/audio";
+import { openStore } from "@mockingbird/store";
+import { detectSpeech, SileroVad, type SpeechSegment } from "@mockingbird/vad";
 
 export function requireFile(path: string, what: string, hint = ""): string {
   if (!existsSync(path)) throw new Error(`${what} not found at ${path}${hint}`);
@@ -23,21 +15,16 @@ export function requireFile(path: string, what: string, hint = ""): string {
  * Whisper `large-v3`. Measured against the distilled `large-v3-turbo`: turbo
  * writes South Asian and East Asian names phonetically ("Nurj Harbada
  * Charjee"), large-v3 spells them ("Nirjhar Bhattacharjee") with no help.
- * It costs ~0.5s more on a short dictation (docs/MODELS.md).
+ * It's slower, which matters less for a file than it did for dictation
+ * (docs/MODELS.md).
  */
 export const DEFAULT_ASR_MODEL = "ggml-large-v3-q5_0.bin";
-
-/**
- * The cleanup model Ollama runs, unless `mockingbird models use` picked another
- * or MOCKINGBIRD_LLM_MODEL names one (see cleanupModel).
- */
-export const DEFAULT_LLM_MODEL = "qwen3:4b-instruct-2507-q4_K_M";
 
 const SETUP_HINT = "\nRun `mockingbird models pull` to download it.";
 
 /**
  * Earlier defaults, best first. An install from before the default changed has
- * one of these and not the new one; it keeps dictating on it until
+ * one of these and not the new one; it keeps transcribing with it until
  * `mockingbird models pull` is run, rather than not starting at all.
  */
 const FALLBACK_ASR_MODELS = [
@@ -57,9 +44,9 @@ export const isWhisperFile = (name: string) =>
 
 /**
  * The Whisper model to load. One named in MOCKINGBIRD_ASR_MODEL has to exist;
- * without it, the one `mockingbird models use speech` saved, then the default,
+ * without it, the one `mockingbird models use <file>` saved, then the default,
  * or else the best earlier default that's installed. A saved file that's since
- * been deleted falls through with a warning: dictation shouldn't stop over it.
+ * been deleted falls through with a warning: transcribing shouldn't stop over it.
  */
 export function findAsrModel(
   models: string,
@@ -89,20 +76,38 @@ export function findAsrModel(
   return fallback;
 }
 
+/** The setting `mockingbird models use` writes. */
+export const ASR_MODEL_SETTING = "asr_model";
+
+/** A setting from data.db, or undefined if there's none or data.db can't be read. */
+export function savedSetting(key: string, home = mockingbirdHome()): string | undefined {
+  if (!existsSync(join(home, "data.db"))) return undefined;
+  try {
+    const store = openStore(join(home, "data.db"));
+    try {
+      return store.setting(key);
+    } finally {
+      store.close();
+    }
+  } catch {
+    return undefined;
+  }
+}
+
 export type Engines = {
-  deps: PipelineDeps;
+  detectSpeech(audio: PcmAudio): Promise<SpeechSegment[]>;
+  asr: AsrEngine;
   close(): Promise<void>;
 };
 
-/** `~/.mockingbird`, or MOCKINGBIRD_HOME: models, data.db, logs and the socket. */
+/** `~/.mockingbird`, or MOCKINGBIRD_HOME: models and data.db. */
 export const mockingbirdHome = (env = process.env) =>
   env.MOCKINGBIRD_HOME ?? join(homedir(), ".mockingbird");
 
 /**
- * A free port on this Mac, for a whisper-server of its own. The agent's is on
- * 8771; a one-off run (`transcribe`, `mcp`) that started its own there would
- * fail to bind, get its health check answered by the agent's, and quietly
- * keep that server busy, so dictation would wait behind a long file.
+ * A free port, for a whisper-server of its own: two MCP calls can transcribe
+ * at once, and one that found another's server on a fixed port would get its
+ * health check answered by it and queue behind it.
  */
 export function freePort(): number {
   // ponytail: another process could take it before whisper-server does; rare on one Mac.
@@ -111,13 +116,6 @@ export function freePort(): number {
   probe.stop(true);
   return port;
 }
-
-/**
- * Which cleanup model to run: MOCKINGBIRD_LLM_MODEL if set, then the one
- * `mockingbird models use` saved, then the default.
- */
-export const cleanupModel = (saved?: string, env = process.env) =>
-  env.MOCKINGBIRD_LLM_MODEL ?? saved ?? DEFAULT_LLM_MODEL;
 
 /** The languages Whisper knows, by the codes it takes (whisper.cpp's `g_lang`). */
 const WHISPER_LANGUAGES = new Set(
@@ -128,13 +126,13 @@ const WHISPER_LANGUAGES = new Set(
 );
 
 /**
- * The language to dictate in: MOCKINGBIRD_LANGUAGE, a Whisper code like "de",
- * or "auto" to detect it on every dictation. English if unset. A region is
+ * The language spoken: MOCKINGBIRD_LANGUAGE, a Whisper code like "de", or
+ * "auto" to detect it on every chunk. English if unset. A region is
  * dropped ("pt-BR" is "pt"). Whisper takes a code it doesn't know without
  * complaint and garbles the speech, so one it doesn't know falls back to
  * English with a warning.
  */
-export function dictationLanguage(env = process.env, log: (message: string) => void = () => {}) {
+export function spokenLanguage(env = process.env, log: (message: string) => void = () => {}) {
   const set = env.MOCKINGBIRD_LANGUAGE?.trim().toLowerCase() || "en";
   const language = set.split(/[-_]/)[0] as string;
   if (language === "auto" || WHISPER_LANGUAGES.has(language)) return language;
@@ -145,141 +143,42 @@ export function dictationLanguage(env = process.env, log: (message: string) => v
   return "en";
 }
 
-/**
- * The user's own cleanup rules, `cleanup.md` in the mockingbird folder, if
- * there is one. Read once at startup, so a change needs a restart.
- */
-export function readCleanupRules(home: string, log: (message: string) => void): string | undefined {
-  const path = join(home, "cleanup.md");
-  let text: string;
-  try {
-    text = readFileSync(path, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      log(`warning: couldn't read ${path}, so the shipped cleanup rules apply: ${error}`);
-    }
-    return undefined;
-  }
-  const unknown = unknownSections(text);
-  if (unknown.length) {
-    log(
-      `warning: ${path} has sections mockingbird doesn't use: ${unknown.map((h) => `"## ${h}"`).join(", ")}.` +
-        " Its headings have to match the ones in packages/llm/prompts/cleanup.md.",
-    );
-  }
-  log(`cleanup rules: yours from ${path}, the shipped ones for any section it leaves out`);
-  return text;
-}
-
-/** A saved VAD threshold, if it's one detectSpeech can use; otherwise its default applies. */
-export function vadThreshold(saved: string | undefined): number | undefined {
-  const n = Number(saved);
-  return saved && n > 0 && n < 1 ? n : undefined;
-}
-
-/** Checks the models, loads VAD, starts whisper-server, and checks Ollama. */
+/** Checks the models, loads VAD and starts a whisper-server on `asrPort`. */
 export async function startEngines(
   log: (message: string) => void,
-  dictionary: DictionaryEntry[] = [],
-  savedModel?: string,
-  savedAsrModel?: string,
-  savedVadThreshold?: string,
-  asrPort = Number(process.env.MOCKINGBIRD_ASR_PORT ?? 8771),
+  asrPort = freePort(),
+  env = process.env,
 ): Promise<Engines> {
-  const env = process.env;
   const models = join(mockingbirdHome(env), "models");
-  // MOCKINGBIRD_ASR_MODEL takes a path, or a file name inside models/, so a
-  // smaller model can be used on a slower Mac without touching the code.
-  const whisperModel = findAsrModel(models, env.MOCKINGBIRD_ASR_MODEL, log, savedAsrModel);
+  // MOCKINGBIRD_ASR_MODEL takes a path, or a file name inside models/.
+  const saved = savedSetting(ASR_MODEL_SETTING, mockingbirdHome(env));
+  const whisperModel = findAsrModel(models, env.MOCKINGBIRD_ASR_MODEL, log, saved);
   const vadModel = requireFile(join(models, "silero_vad.onnx"), "Silero VAD model", SETUP_HINT);
-  const language = dictationLanguage(env, log);
-  if (!isEnglish(language) && englishOnly(whisperModel)) {
+  const language = spokenLanguage(env, log);
+  if (language !== "en" && englishOnly(whisperModel)) {
     log(
       `warning: ${basename(whisperModel)} only knows English, and MOCKINGBIRD_LANGUAGE is ${language}. ` +
-        "Pick another with `mockingbird models use speech`.",
+        "Pick another with `mockingbird models use`.",
     );
   }
-  const llmUrl = env.MOCKINGBIRD_LLM_URL ?? "http://127.0.0.1:11434";
-  const llm = new OllamaProvider(llmUrl, cleanupModel(savedModel, env), 60_000);
-
   const vad = await SileroVad.load(vadModel);
-  const threshold = vadThreshold(savedVadThreshold);
-  if (threshold !== undefined) {
-    log(
-      `speech detection: threshold ${threshold}, tuned to your voice (mockingbird calibrate tune)`,
-    );
-  }
-  let closing: Promise<void> | undefined;
-  let stopWhisper = async () => {};
-  let stopOllama = async () => {};
-  const close = () => {
-    closing ??= (async () => {
-      await stopWhisper();
-      await stopOllama();
-      await vad.close();
-    })();
-    return closing;
-  };
-
   try {
-    // Start Ollama if it isn't running, and stop it again on close; one that
-    // was already running (the desktop app, a Homebrew service) is left alone.
-    const ollamaInstalled = Bun.which("ollama") !== null;
-    if (!(await ollamaRunning(llmUrl)) && isLocalUrl(llmUrl) && ollamaInstalled) {
-      log("starting Ollama...");
-      try {
-        stopOllama = (await startOllamaServer({ baseUrl: llmUrl })).stop;
-      } catch (error) {
-        log(`couldn't start Ollama: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
-    if (!(await ollamaRunning(llmUrl))) {
-      log(
-        `warning: Ollama isn't running at ${llmUrl}, so you'll get the raw transcript.\n` +
-          (ollamaInstalled
-            ? "Start it with `ollama serve` to get cleaned-up text."
-            : "Install it with `brew install ollama` to get cleaned-up text."),
-      );
-    } else if (!(await llm.health())) {
-      log(
-        `warning: ${llm.model} isn't downloaded, so you'll get the raw transcript.\n` +
-          `Get it with \`ollama pull ${llm.model}\`.`,
-      );
-    }
-    // The model is not loaded here: an agent running all day would hold it in
-    // memory for a day in which nothing is dictated. It's warmed when a
-    // recording starts instead, which hides the cold load behind the speech.
-    log("starting whisper-server (the first run on a Mac can take ~15s)...");
     const whisper = await startWhisperServer({
       modelPath: whisperModel,
       port: asrPort,
       language,
       readyTimeoutMs: 60_000,
     });
-    stopWhisper = whisper.stop;
-    // Silero carries state from one window to the next, so a calibration take
-    // and a dictation heard at once would mix. One recording at a time.
-    let vadTurn: Promise<unknown> = Promise.resolve();
     return {
-      deps: {
-        detectSpeech: (audio) => {
-          const run = vadTurn.then(() => detectSpeech(vad, audio, { threshold }));
-          vadTurn = run.catch(() => {});
-          return run;
-        },
-        asr: whisper.engine,
-        llm,
-        dictionary,
-        // Opt-in: it fixes a name Whisper never gets, at the risk of bending
-        // ones it already spells correctly (packages/llm/src/dictionary.ts).
-        vocabularyHint: env.MOCKINGBIRD_ASR_VOCABULARY === "1",
-        cleanupRules: readCleanupRules(mockingbirdHome(env), log),
-        language,
+      detectSpeech: (audio) => detectSpeech(vad, audio),
+      asr: whisper.engine,
+      close: async () => {
+        await whisper.stop();
+        await vad.close();
       },
-      close,
     };
   } catch (error) {
-    await close();
+    await vad.close();
     throw error;
   }
 }

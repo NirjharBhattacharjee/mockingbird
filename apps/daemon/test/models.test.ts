@@ -1,8 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  listModels,
   MODEL_FILES,
   type ModelFile,
   modelsCommand,
@@ -141,163 +149,33 @@ describe("pullFile", () => {
 });
 
 describe("pullModels", () => {
-  test("downloads every model file, then the cleanup model through a running Ollama", async () => {
+  test("downloads every model file, and leaves the ones already there", async () => {
     const home = tempDir();
-    // Every pinned file already in place, so only the Ollama step does anything.
-    const fake = MODEL_FILES.map((m) => ({ ...m, sha256: sha256(m.file) }));
-    for (const m of fake) {
-      writeFileSync(join(home, m.file), m.file);
-    }
-    const pulled: string[] = [];
-    const server = Bun.serve({ port: 0, fetch: () => new Response("{}") });
-    try {
-      const code = await pullModels({
-        home,
-        llmUrl: `http://127.0.0.1:${server.port}`,
-        llmModel: "tiny:latest",
-        files: fake,
-        modelsDir: home,
-        ollamaPull: async (_url, model) => {
-          pulled.push(model);
-        },
-        which: () => "/opt/homebrew/bin/ollama",
-        log: () => {},
-      });
-      expect(code).toBe(0);
-      expect(pulled).toEqual(["tiny:latest"]);
-    } finally {
-      server.stop(true);
-    }
+    const files = [modelOf("weights"), { ...modelOf("vad"), name: "VAD", file: "vad.onnx" }];
+    writeFileSync(join(home, "vad.onnx"), "vad");
+    const server = serving("weights");
+    expect(
+      await pullModels({ home, files, modelsDir: home, fetch: server.get, log: () => {} }),
+    ).toBe(0);
+    expect(server.calls).toHaveLength(1);
+    expect(readFileSync(join(home, "model.bin"), "utf8")).toBe("weights");
   });
 
-  test("downloads the files and the cleanup model at the same time", async () => {
-    // The download only finishes once the Ollama pull has started, so pulling
-    // one after the other would never finish and the test would time out.
-    let ollamaStarted = () => {};
-    const started = new Promise<void>((resolve) => {
-      ollamaStarted = resolve;
-    });
-    const get = (async () => {
-      await started;
-      return new Response("weights");
-    }) as unknown as typeof fetch;
-    const server = Bun.serve({ port: 0, fetch: () => new Response("{}") });
-    try {
-      const code = await pullModels({
-        home: tempDir(),
-        llmUrl: `http://127.0.0.1:${server.port}`,
-        files: [modelOf("weights")],
-        fetch: get,
-        ollamaPull: async () => {
-          ollamaStarted();
-        },
-        which: () => "/opt/homebrew/bin/ollama",
-        log: () => {},
-      });
-      expect(code).toBe(0);
-    } finally {
-      server.stop(true);
-    }
-  });
-
-  test("a failed download waits for the Ollama pull before it's reported", async () => {
-    let pullDone = false;
-    const server = Bun.serve({ port: 0, fetch: () => new Response("{}") });
-    try {
-      await expect(
-        pullModels({
-          home: tempDir(),
-          llmUrl: `http://127.0.0.1:${server.port}`,
-          files: [modelOf("weights")],
-          fetch: serving("", 404).get,
-          ollamaPull: async () => {
-            await Bun.sleep(50);
-            pullDone = true;
-          },
-          which: () => "/opt/homebrew/bin/ollama",
-          log: () => {},
-        }),
-      ).rejects.toThrow("HTTP 404");
-      expect(pullDone).toBe(true);
-    } finally {
-      server.stop(true);
-    }
-  });
-
-  test("when both fail, the Ollama error is logged and the download error thrown", async () => {
-    const logged: string[] = [];
-    const server = Bun.serve({ port: 0, fetch: () => new Response("{}") });
-    try {
-      await expect(
-        pullModels({
-          home: tempDir(),
-          llmUrl: `http://127.0.0.1:${server.port}`,
-          files: [modelOf("weights")],
-          fetch: serving("", 404).get,
-          ollamaPull: async () => {
-            throw new Error("ollama exploded");
-          },
-          which: () => "/opt/homebrew/bin/ollama",
-          log: (m) => logged.push(m),
-        }),
-      ).rejects.toThrow("HTTP 404");
-      expect(logged.at(-1)).toContain("ollama exploded");
-    } finally {
-      server.stop(true);
-    }
-  });
-
-  test("a running Ollama still needs the ollama command, which does the pull", async () => {
-    const logged: string[] = [];
-    const server = Bun.serve({ port: 0, fetch: () => new Response("{}") });
-    try {
-      const code = await pullModels({
-        home: tempDir(),
-        llmUrl: `http://127.0.0.1:${server.port}`,
-        files: [],
-        ollamaPull: async () => {},
-        which: () => null,
-        log: (m) => logged.push(m),
-      });
-      expect(code).toBe(1);
-      expect(logged.at(-1)).toContain("brew install ollama");
-    } finally {
-      server.stop(true);
-    }
-  });
-
-  test("won't start an Ollama somewhere other than this Mac", async () => {
-    const logged: string[] = [];
-    const code = await pullModels({
-      home: tempDir(),
-      llmUrl: "http://192.0.2.1:11434",
-      files: [],
-      ollamaPull: async () => {},
-      log: (m) => logged.push(m),
-    });
-    expect(code).toBe(1);
-    expect(logged.at(-1)).toContain("No Ollama answers");
-  });
-});
-
-test("a download of unknown size still leaves the line when it finishes", async () => {
-  const lines: string[] = [];
-  const server = Bun.serve({ port: 0, fetch: () => new Response("{}") });
-  try {
+  test("a download of unknown size still leaves the line when it finishes", async () => {
+    const lines: string[] = [];
     await pullModels({
       home: tempDir(),
-      llmUrl: `http://127.0.0.1:${server.port}`,
       files: [modelOf("weights")],
       fetch: serving("weights").get,
-      ollamaPull: async () => {},
-      which: () => "/opt/homebrew/bin/ollama",
       log: () => {},
       progress: (line) => lines.push(line),
     });
     expect(lines.at(-1)).toBe("");
-  } finally {
-    server.stop(true);
-  }
+  });
+
+  test("pins every model it downloads", () => {
+    for (const m of MODEL_FILES) expect(m.sha256).toMatch(/^[0-9a-f]{64}$/);
+  });
 });
 
 describe("progressLine", () => {
@@ -306,9 +184,9 @@ describe("progressLine", () => {
       progressLine([
         { name: "Whisper", done: 540e6, total: 1081e6 },
         { name: "VAD", done: 2e6, total: 2e6 },
-        { name: "cleanup model", done: 0.3e9, total: 2.5e9 },
+        { name: "Other", done: 0.3e9, total: 2.5e9 },
       ]),
-    ).toBe("Whisper ████░░░░ 0.5/1.1 GB   cleanup model █░░░░░░░ 0.3/2.5 GB");
+    ).toBe("Whisper ████░░░░ 0.5/1.1 GB   Other █░░░░░░░ 0.3/2.5 GB");
   });
 
   test("small files in MB, an unknown size as bytes so far", () => {
@@ -321,26 +199,6 @@ describe("progressLine", () => {
   });
 });
 
-test("pullModels hands the progress line to deps.progress", async () => {
-  const lines: string[] = [];
-  const server = Bun.serve({ port: 0, fetch: () => new Response("{}") });
-  try {
-    await pullModels({
-      home: tempDir(),
-      llmUrl: `http://127.0.0.1:${server.port}`,
-      files: [],
-      ollamaPull: async (_url, _model, onProgress) => onProgress(1e9, 2.5e9),
-      which: () => "/opt/homebrew/bin/ollama",
-      log: () => {},
-      progress: (line) => lines.push(line),
-    });
-    // The last line comes once the pull has ended, however soon after.
-    expect(lines).toEqual(["cleanup model ███░░░░░ 1.0/2.5 GB", ""]);
-  } finally {
-    server.stop(true);
-  }
-});
-
 test("sha256Of matches a known digest", async () => {
   const path = join(tempDir(), "abc");
   writeFileSync(path, "abc");
@@ -350,173 +208,78 @@ test("sha256Of matches a known digest", async () => {
 });
 
 describe("modelsCommand", () => {
-  const ollama = [
-    { name: "mistral:instruct", size: 4.1e9, writes: true },
-    { name: "gemma3:1b", size: 0.8e9, writes: true },
-    { name: "nomic-embed-text:latest", size: 0.3e9, writes: false },
-    { name: "qwen3:4b-instruct-2507-q4_K_M", size: 2.5e9, writes: true },
-  ];
-  /** Deps that answer like a running mockingbird and Ollama, and record what they're told. */
-  function fake(
-    saved?: string,
-    env: Record<string, string | undefined> = {},
-    savedSpeech?: string,
-  ) {
+  /** A home with two Whisper files and the VAD model, which isn't one. */
+  function fake(env: Record<string, string | undefined> = {}) {
     const lines: string[] = [];
-    const told: string[] = [];
-    let restarted = 0;
-    // Two Whisper files, sizes in bytes as written, and the VAD model, which isn't one.
-    const modelsDir = tempDir();
+    const home = tempDir();
+    const modelsDir = join(home, "models");
+    mkdirSync(modelsDir);
     writeFileSync(join(modelsDir, "ggml-large-v3-q5_0.bin"), "x".repeat(30));
     writeFileSync(join(modelsDir, "ggml-base.en.bin"), "x".repeat(10));
     writeFileSync(join(modelsDir, "silero_vad.onnx"), "x");
     const deps = {
+      home,
       modelsDir,
-      savedSpeech: () => savedSpeech,
-      restart: async () => {
-        restarted++;
-        return 0;
-      },
-      list: async () => [...ollama],
-      tell: async (path: string, body: string) => {
-        told.push(`${path} ${body}`);
-        return new Response(`cleanup model: ${body || "the default"}`);
-      },
-      saved: () => saved,
       out: (l: string) => lines.push(l),
       log: (l: string) => lines.push(l),
       env,
     };
-    return { deps, lines, told, restarts: () => restarted };
+    return { deps, lines };
   }
 
-  test("lists both kinds, best first, marks the one in use, and shows no scores", async () => {
-    const f = fake("gemma3:1b");
-    expect(await modelsCommand([], f.deps)).toBe(0);
-    expect(f.lines.slice(1, 4).map((l) => l.split(/\s+/)[0])).toEqual([
-      "qwen3:4b-instruct-2507-q4_K_M",
-      "gemma3:1b",
-      "mistral:instruct",
-    ]);
-    expect(f.lines[1]).toMatch(/default$/);
-    expect(f.lines[2]).toMatch(/in use$/);
+  test("lists the Whisper files, largest first, marking the one in use", () => {
+    const f = fake();
+    expect(modelsCommand([], f.deps)).toBe(0);
     const all = f.lines.join("\n");
-    expect(all).not.toContain("nomic-embed-text");
-    expect(all).not.toMatch(/\/37|\/16|held-out|not measured/);
-    // The default Whisper file is in use, since nothing else was picked.
     expect(all).toMatch(/ggml-large-v3-q5_0\.bin\s+0\.0 GB\s+in use, default/);
     expect(all).toContain("ggml-base.en.bin");
     expect(all).not.toContain("silero_vad");
   });
 
-  test("--json gives the picker both lists, with names it can show", async () => {
-    const f = fake(undefined, {}, "ggml-base.en.bin");
-    expect(await modelsCommand(["--json"], f.deps)).toBe(0);
-    const listing = JSON.parse(f.lines[0] as string);
-    expect(listing.cleanup.map((m: { name: string }) => m.name)[0]).toBe(
-      "qwen3:4b-instruct-2507-q4_K_M",
-    );
-    expect(listing.transcription).toEqual([
-      {
-        name: "large-v3 Q5_0",
-        file: "ggml-large-v3-q5_0.bin",
-        size: 30,
-        inUse: false,
-        isDefault: true,
-      },
-      { name: "base.en", file: "ggml-base.en.bin", size: 10, inUse: true, isDefault: false },
-    ]);
-  });
-
-  test("with Ollama down, the transcription models still list", async () => {
+  test("use saves the choice in data.db, --default clears it, and listModels follows", () => {
     const f = fake();
-    f.deps.list = async () => {
-      throw new Error("ECONNREFUSED");
-    };
-    expect(await modelsCommand(["--json"], f.deps)).toBe(0);
-    const listing = JSON.parse(f.lines[0] as string);
-    expect(listing.cleanup).toEqual([]);
-    expect(listing.cleanupError).toContain("`mockingbird start`");
-    expect(listing.transcription).toHaveLength(2);
+    expect(modelsCommand(["use", "ggml-base.en.bin"], f.deps)).toBe(0);
+    expect(listModels(f.deps).find((m) => m.inUse)?.file).toBe("ggml-base.en.bin");
+    expect(modelsCommand(["use", "--default"], f.deps)).toBe(0);
+    expect(listModels(f.deps).find((m) => m.inUse)?.file).toBe("ggml-large-v3-q5_0.bin");
   });
 
-  test("in another language the .en models are left out, unless one is in use", async () => {
-    const files = async (saved?: string) => {
-      const f = fake(undefined, { MOCKINGBIRD_LANGUAGE: "de" }, saved);
-      expect(await modelsCommand(["--json"], f.deps)).toBe(0);
-      return JSON.parse(f.lines[0] as string).transcription.map((t: { file: string }) => t.file);
-    };
-    expect(await files()).toEqual(["ggml-large-v3-q5_0.bin"]);
-    expect(await files("ggml-base.en.bin")).toEqual(["ggml-large-v3-q5_0.bin", "ggml-base.en.bin"]);
-  });
-
-  test("a Whisper entry that can't be read is left out, not the whole list", async () => {
+  test("refuses a file that isn't a Whisper model in models/", () => {
     const f = fake();
-    symlinkSync(join(f.deps.modelsDir, "nowhere"), join(f.deps.modelsDir, "ggml-broken.bin"));
-    expect(await modelsCommand(["--json"], f.deps)).toBe(0);
-    const listing = JSON.parse(f.lines[0] as string);
-    expect(listing.transcription.map((t: { file: string }) => t.file)).toEqual([
+    expect(modelsCommand(["use", "ggml-tiny.bin"], f.deps)).toBe(1);
+    expect(modelsCommand(["use", "../data.db"], f.deps)).toBe(1);
+    expect(modelsCommand(["use", "silero_vad.onnx"], f.deps)).toBe(1);
+    expect(modelsCommand(["use"], f.deps)).toBe(2);
+  });
+
+  test("says when MOCKINGBIRD_ASR_MODEL will win over the choice", () => {
+    const f = fake({ MOCKINGBIRD_ASR_MODEL: "ggml-large-v3-q5_0.bin" });
+    modelsCommand(["use", "ggml-base.en.bin"], f.deps);
+    expect(f.lines.join("\n")).toContain("wins over this choice");
+  });
+
+  test("in another language the .en models are left out, unless one is in use", () => {
+    const f = fake({ MOCKINGBIRD_LANGUAGE: "de" });
+    expect(listModels(f.deps).map((m) => m.file)).toEqual(["ggml-large-v3-q5_0.bin"]);
+    modelsCommand(["use", "ggml-base.en.bin"], f.deps);
+    expect(listModels(f.deps).map((m) => m.file)).toEqual([
       "ggml-large-v3-q5_0.bin",
       "ggml-base.en.bin",
     ]);
   });
 
-  test("use speech saves the transcription model, and refuses a file that isn't there", async () => {
+  test("a Whisper entry that can't be read is left out, not the whole list", () => {
     const f = fake();
-    expect(await modelsCommand(["use", "speech", "ggml-base.en.bin"], f.deps)).toBe(0);
-    expect(f.told).toEqual(["/settings/asr_model ggml-base.en.bin"]);
-    expect(f.restarts()).toBe(1);
-    expect(await modelsCommand(["use", "speech", "--default"], f.deps)).toBe(0);
-    expect(f.told.at(-1)).toBe("/settings/asr_model ");
-
-    const missing = fake();
-    expect(await modelsCommand(["use", "speech", "ggml-tiny.bin"], missing.deps)).toBe(1);
-    expect(await modelsCommand(["use", "speech", "../data.db"], missing.deps)).toBe(1);
-    // There, but not a Whisper model: whisper-server would fail on it at start.
-    expect(await modelsCommand(["use", "speech", "silero_vad.onnx"], missing.deps)).toBe(1);
-    expect(missing.told).toEqual([]);
+    symlinkSync(join(f.deps.modelsDir, "nowhere"), join(f.deps.modelsDir, "ggml-broken.bin"));
+    expect(listModels(f.deps).map((m) => m.file)).toEqual([
+      "ggml-large-v3-q5_0.bin",
+      "ggml-base.en.bin",
+    ]);
   });
 
   test("names Whisper files the way a person would", () => {
     expect(speechName("ggml-large-v3-turbo-q8_0.bin")).toBe("large-v3-turbo Q8_0");
     expect(speechName("ggml-small.en-q5_1.bin")).toBe("small.en Q5_1");
     expect(speechName("ggml-large-v3.bin")).toBe("large-v3");
-  });
-
-  test("use saves the choice through the daemon and restarts the agent", async () => {
-    const f = fake();
-    expect(await modelsCommand(["use", "gemma3:1b"], f.deps)).toBe(0);
-    expect(f.told).toEqual(["/settings/llm_model gemma3:1b"]);
-    expect(f.restarts()).toBe(1);
-
-    const back = fake("gemma3:1b");
-    expect(await modelsCommand(["use", "--default"], back.deps)).toBe(0);
-    expect(back.told).toEqual(["/settings/llm_model "]);
-  });
-
-  test("refuses a model Ollama doesn't have, naming the pull", async () => {
-    const f = fake();
-    expect(await modelsCommand(["use", "phi4"], f.deps)).toBe(1);
-    expect(f.lines.join("\n")).toContain("ollama pull phi4");
-    expect(await modelsCommand(["use", "nomic-embed-text"], f.deps)).toBe(1);
-    expect(f.lines.at(-1)).toContain("embedding model");
-    expect(f.told).toEqual([]);
-    expect(f.restarts()).toBe(0);
-  });
-
-  test("says when MOCKINGBIRD_LLM_MODEL will win over the choice", async () => {
-    const f = fake(undefined, { MOCKINGBIRD_LLM_MODEL: "mistral:instruct" });
-    await modelsCommand(["use", "gemma3:1b"], f.deps);
-    expect(f.lines.join("\n")).toContain("wins over this choice");
-  });
-
-  test("a stopped mockingbird can't save the choice", async () => {
-    const f = fake();
-    f.deps.tell = async () => {
-      throw new Error("ECONNREFUSED");
-    };
-    expect(await modelsCommand(["use", "gemma3:1b"], f.deps)).toBe(1);
-    expect(f.lines.join("\n")).toContain("`mockingbird start`");
-    expect(f.restarts()).toBe(0);
   });
 });

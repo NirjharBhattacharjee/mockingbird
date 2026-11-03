@@ -1,933 +1,350 @@
-# mockingbird — architecture bible
+# mockingbird — architecture
 
-> **Status:** v1 in progress — the pipeline (VAD → ASR → LLM → format), live microphone capture, the Fn hotkey FSM, text injection, and a `mockingbird` CLI that runs as a login agent exist, and `data.db` holds the dictionary, edited over the IPC socket; history storage and the TUI do not yet.
+> **Status:** pivot step 1 done (#135): dictation is gone, and mockingbird is a
+> video editing engine for AI agents, served over MCP. macOS only so far. The
+> plan for the rest is [#134](https://github.com/NirjharBhattacharjee/mockingbird/issues/134).
 > **Owner:** bhattacharjeenirjhar26@gmail.com
-> **Last updated:** 2026-09-20
+> **Last updated:** 2026-11-03
 
 This document is the single source of truth for what mockingbird is, what it's
-built from, and why. It is written to be read cover to cover once, then used
-as a reference. When architecture changes, this file changes in the same PR —
-it is not a design doc that gets abandoned once code exists.
+built from, and why. When architecture changes, this file changes in the same
+PR.
+
+The dictation-era version of this document (the Fn hotkey state machine, text
+injection, the cleanup model, the launchd agent) is in git:
+`git show v0.3.2:docs/ARCHITECTURE.md`.
 
 ## Changelog
 
 | Date | Change |
 |---|---|
-| 2026-09-15 | Initial version. Stack finalized as TypeScript + Bun, no Electron, no Swift, no Docker for the shipped app. |
-| 2026-09-16 | `packages/llm` scoped to a provider interface + adapters (Ollama, `llama-server`), matching the existing `asr`/`inject` pattern — stays in-process, not a separate service (§6, §10). |
-| 2026-09-16 | Workspace bootstrapped; headless pipeline built in `packages/{audio,vad,asr,llm}` and `apps/daemon/src/pipeline.ts`. Corrected from measurement: VAD windows are 32ms (Silero v5 needs 512 samples), ASR returns `confidence` not `avgLogprob`, whisper-server's endpoint is `/inference`, warm LLM cleanup is ~1.1s not ~200ms (§6). Lint tool: Biome (§14). |
-| 2026-09-16 | `bun run transcribe <file>` (`apps/daemon/src/transcribe.ts`) runs the pipeline on a recording. `packages/audio` now also decodes non-WAV input by piping it through ffmpeg, so ffmpeg is used for file decoding as well as capture (§3, §10). |
-| 2026-09-17 | Live capture: `packages/audio` streams the microphone through ffmpeg into a 30s `RingBuffer`; `apps/daemon` adds the restart `Supervisor` (backoff 250ms→5s, gives up after 5 quick failures), a `Recorder` (300ms pre-roll, 2-minute cap), and `bun run listen`, a keyboard push-to-talk stand-in for the Fn FSM (§5, §10, §16). |
-| 2026-09-17 | License decided: MIT (`LICENSE`). The §16 license gap now only covers the licenses of binaries a release archive would bundle. |
-| 2026-09-18 | Text injection: `packages/inject` types text into the focused app as Unicode key events (`CGEventKeyboardSetUnicodeString` + `CGEventPost` via `bun:ffi`), and `packages/context` reads the frontmost app with `lsappinfo`. Decided against the planned clipboard-paste/`osascript` route: typing Unicode directly needs no clipboard (nothing to clobber or restore) and no AppleScript. Text is sanitized first — newlines become spaces, so dictation can never submit a message or run a shell command (§3, §10). |
-| 2026-09-18 | Fn hotkey works, via a CoreGraphics event tap through `bun:ffi` in a worker thread (`packages/hotkey`) plus the §5 state machine (`apps/daemon/src/hotkey-fsm.ts`), wired into `bun run listen`. Measured: `uiohook-napi` panics Bun 1.4.2 (`unsupported uv function: uv_cond_init`), so it's out; macOS reports Fn as `flagsChanged` keycode 63 with flag `0x800000`. The tap is listen-only and discards every key except Fn and Esc (§3, §5, §10). |
-| 2026-09-18 | `startEngines` starts `ollama serve` itself when nothing answers at a local `MOCKINGBIRD_LLM_URL`, and stops it on close; an Ollama that was already running (desktop app, Homebrew service) is left alone. The model is loaded in the background while whisper-server starts. `scripts/install.sh` sets everything up in one command and only runs Ollama for the model pull. |
-| 2026-09-20 | `mockingbird` is now one command (`apps/daemon/src/cli.ts`) with `start`/`stop`/`restart`/`status` plus the existing `listen`/`transcribe`/`type`. `start` installs a launchd LaunchAgent (`com.mockingbird.agent`, `RunAtLoad`) that runs `apps/daemon/src/agent.ts` headless; `stop` disables it, which is what survives a reboot. The wiring both modes share moved to `apps/daemon/src/session.ts`, leaving `listen.ts` as the terminal UI. Transcribed text is now printed only when it couldn't be typed. The LLM is no longer loaded at startup — it's warmed on Fn-down instead, so an idle agent holds no model. The agent runs as `~/.mockingbird/bin/mockingbird`, a copy of the bun binary re-signed under our own identifier, so macOS names the permission after mockingbird rather than bun. Measured: `bun build --compile` is not yet an option — it embeds the `onnxruntime-node` addon but not the `libonnxruntime.1.dylib` it links against, so VAD fails at runtime (§8, §10, §11, §16). |
-| 2026-09-20 | Typing now stops mid-text when focus leaves the app the words were dictated into: `packages/inject` takes a `stillWanted` guard checked before every chunk and reports how much got through, and `apps/daemon/src/session.ts` polls `frontmostApp` (50ms) alongside the typing. The pre-typing check alone wasn't enough — a long dictation is hundreds of key events with pauses between them, long enough to follow an app switch into somewhere it wasn't meant for (§10, and the injection section of SECURITY_PRIVACY.md). |
-| 2026-09-22 | macOS keeps its own action on Fn (`com.apple.HIToolbox AppleFnUsageType`, emoji picker by default), and a listen-only tap can't take the key away from it: a tap opens the picker, which takes key focus and eats the dictation that follows. Holds are unaffected, which is why only the tap modes broke. Making the tap active would fix it, at the cost of §4's listen-only guarantee and of swallowing Fn for every other app — so mockingbird reads the setting and says so in `start`/`status` (`apps/daemon/src/fn-key.ts`) rather than fighting for the key (§5, §10). |
-| 2026-09-22 | `start` no longer rewrites `AppleFnUsageType` itself: it's a system-wide setting people use for input switching, emoji and Apple Dictation, and `stop` couldn't give it back. `start` and `restart` only point at `mockingbird fn`, which saves the old value to `~/.mockingbird/fn-key.json` before writing, and `mockingbird fn --undo` restores it. |
-| 2026-09-23 | Dictated text after existing text now starts with a space: `packages/context` reads the one character before the cursor in the focused field through Accessibility (`AXSelectedTextRange`, then `AXStringForRange` for that single character, via `bun:ffi`, 250ms messaging timeout), and `session.ts` passes a `prefix` to `typeText` unless that character is whitespace, an opening bracket or quote, or unreadable. Terminals are skipped. This is the first time mockingbird reads anything from the target app, so the injection section of SECURITY_PRIVACY.md now says what exactly (§10). |
-| 2026-09-23 | Where the character before the cursor can't be read (Chrome pages, Google Docs, Electron apps), `apps/daemon/src/spacing.ts` falls back to the end of mockingbird's own last dictation into that app, but only if no key (other than Fn) was pressed and no mouse clicked since. That comes from the Fn event tap, which now also takes mouse-downs and reports other key-downs as a bare `input` event with the keycode dropped; mockingbird marks its own typed events (`kCGEventSourceUserData`) so the tap ignores them, and any key press within 300ms of a Fn press or release is treated as part of it, whatever its keycode. The log says which of these decided each space. macOS's idle clock (`CGEventSourceSecondsSinceLastEventType`) was used first and dropped: with it, double-tap dictations never got their space while hold-to-talk ones did, which points to a quick Fn tap registering there as a key press. `formatText` now finishes every non-terminal dictation as a sentence (capital first letter; a period, or a question mark when it opens like a question), since dictations of four words or fewer skip the cleanup model and Whisper often leaves both off. The cleanup prompt asks for end punctuation explicitly (§6). |
-| 2026-09-24 | Accuracy and latency pass. Ships Whisper `large-v3-turbo` Q5_0 instead of `base.en` (`scripts/install.sh`, `apps/daemon/src/runtime.ts`, with a `MOCKINGBIRD_ASR_MODEL` override), pins `language=en` on each request, and adds `bun run bench:models`. Measured on an M3, warm, 4.5s clip: base.en 177ms, small.en Q5_1 533ms, medium.en Q5_0 1508ms, turbo Q8_0 2142ms, turbo Q5_0 2248ms — accuracy chosen over speed, with the env override as the escape hatch. `packages/audio` gained `normalizeLoudness`, applied in `pipeline.ts` before VAD so a quiet voice reaches both the VAD and Whisper at a normal level. The LLM gate now also skips cleanup for confident transcripts with no filler or stutter (`looksClean`), which is where the 400-1500ms cleanup went on most dictations, and Ollama requests cap `num_predict` (§6, §10). |
-| 2026-09-24 | Pauses no longer reach Whisper as silence: `spliceSpeech` (`packages/vad`) joins the speech segments with a 150ms gap instead of keeping everything between the first and last word, since `large-v3-turbo` writes "..." or `[BLANK_AUDIO]` for a pause where `base.en` wrote nothing. `stripNonSpeech` (`packages/asr`) drops those artifacts if they appear anyway, square-bracket tags only — a dictated "(page 3)" is real text. `acceptCleanup` now needs a long cleanup to keep 80% of its length (50% for short text, where "um, yes" → "Yes." is legitimate), so the cleanup model can't quietly drop sentences from a long dictation (§6). |
-| 2026-09-24 | Measured on a 57s recording of a real voice (`bun run bench:record`, `bench/voice/`, gitignored), which reversed two guesses from earlier today: splicing the silences out of the audio (`spliceSpeech`) makes Whisper *worse*, not better, as does trimming tight to the speech — both produced wrong words and mid-sentence capitals, where keeping the silence and padding ~1s either side produced clean sentences. `spliceSpeech` is gone; `trimToSpeech` takes a `padMs` (700ms, on top of the VAD's own 300ms). The same recording put `large-v3-turbo` Q8_0 ahead of Q5_0 on both accuracy and speed (4843ms vs 5007ms), so Q8_0 is what ships. Normalizing the level stays: without it Whisper dropped ~20s of quieter speech from the middle of that recording (§6, MODELS.md). |
-| 2026-09-24 | Long dictations were losing whole passages: with 700ms of padding around the speech, `large-v3-turbo` dropped a 20s stretch from the middle of a 57s recording (373 chars vs 650). `trimToSpeech` now pads 1500ms. Whisper's own no-speech threshold (`-nth`) and non-speech-token suppression (`-sns`) made no difference; `large-v3` (non-turbo) never dropped it but runs ~2x slower for no better accuracy on this voice, so `large-v3-turbo` Q8_0 stays the default (MODELS.md). |
-| 2026-09-24 | Names: `large-v3-turbo` writes South Asian and East Asian names phonetically ("Nurj Harbada Charjee", "Aishwarya Venkatasan") because distillation shrinks the decoder that holds them; full `large-v3` Q5_0 spells them with no help, for ~0.5s more on a short dictation, so it becomes the default (turbo Q8_0 remains one `MOCKINGBIRD_ASR_MODEL` away). Adds the user dictionary `~/.mockingbird/dictionary.txt` (`packages/llm/src/dictionary.ts`): `heard => term` lines are applied as replacements to the finished text, and terms are passed to the cleanup model as spellings to keep. Reading them to Whisper as a `prompt` is opt-in (`MOCKINGBIRD_ASR_VOCABULARY=1`): measured, it fixes a name the model never gets ("Zaya Mingjiao" → "Xiaoming Zhao") but bends ones it already spells ("Bhattacharjee" → "Bhattacharje") (§6, MODELS.md §4a). |
-| 2026-09-24 | Dictionary terms are now matched by sound rather than spelling (`correctNames`/`soundOf` in `packages/llm/src/dictionary.ts`): Whisper writes an unknown name as it hears it and never the same way twice, so "Nurj Harbada Charjee" and "Nerj Herbata Chargy" both resolve to the dictionary's "Nirjhar Bhattacharjee". Consonant skeleton, aspirates folded (`bh`→`b`), spans of one to four words, and a word joins a span only if it improves the match. Measured: no false positives on "llama", "categorise the puck", "Richard", "Sid and Ash". Also measured and rejected: f16 `large-v3` (3.1 GB) spells names *worse* than Q5_0 (§6, MODELS.md §4a). |
-| 2026-09-24 | Dictated lists. Speech that enumerates things is typed as a heading plus `- ` lines: `looksLikeList` stops the gate skipping such speech, the cleanup prompt carries a worked example (without it qwen3 kept "I will get" on every line), `formatText` preserves the lines and leaves items without full stops, and `acceptCleanup` allows a list down to 0.3 of the raw length. Typing keeps line breaks only when the caller asks (`lineBreaks`), and posts each as **Shift+Return** — a new line in chat apps, never "send". Terminals still get spaces, so the §3 rule that dictation can never submit a message or run a command holds (SECURITY_PRIVACY.md, §6, §10). |
-| 2026-09-24 | Lists, continued: with a single grocery example in the prompt, qwen3 left "I need to" on every line of a dictated task list. The prompt now carries a task example and a rule to keep each item's own detail, and `bulletize` (`packages/llm`) is the deterministic backstop — repeated lead-ins are stripped and the lines bulleted without a second round trip, with a time word moved onto the end of its item (§6, MODELS.md). |
-| 2026-09-24 | Lists cover sequences too: ordered steps ("first ... then ... finally", "number one ...") become a numbered `1.` list, unordered things stay `- ` bullets, and a list of fewer than three items falls back to the sentence. A line break is typed as a real Shift press around Return rather than a Return carrying the Shift flag, so apps that track the modifier themselves see Shift+Return too. |
-| 2026-10-01 | Releases. `release.yml` publishes a GitHub Release for each `v*.*.*` tag on `main`: the checks again, then a `git archive` source tarball and its sha256, then a PR bumping the Homebrew formula in `NirjharBhattacharjee/homebrew-mockingbird` (needs the `TAP_TOKEN` secret). Re-running `scripts/install.sh` now updates: it moves `~/mockingbird` to the newest tag (refusing if the clone has local edits) and restarts a running agent. Model downloads moved from `install.sh` into `mockingbird models pull` (`apps/daemon/src/models.ts`). Under Homebrew the shim sets `MOCKINGBIRD_ROOT` to the unversioned `opt` path, because Bun resolves symlinks in `import.meta.url` and the launch agent would otherwise name a Cellar folder that `brew upgrade` deletes (§12, §14, §16). |
-| 2026-10-01 | whisper-server runs with `-nlp` (`speedFlags` in `packages/asr`, only when its `--help` lists the flag, since an unknown flag stops it starting). Without it, each `verbose_json` request ran the encoder twice, the second time only to report a language probability: measured with `large-v3` on an M3, a 0.9s clip went from 2626ms to 1379ms and a 4.5s clip from 2928ms to 1778ms, with identical transcripts. Also measured and not shipped: a smaller encoder window (`audio_ctx`) breaks `large-v3` outright (empty or looping output), and `large-v3-turbo`, though ~0.6s faster again, drops all punctuation on a 57s dictation. |
-| 2026-10-03 | The `mockingbird` command and terminal UI move to **Go with Bubble Tea**, in `apps/cli` only. The dictation engine (daemon and `packages/*`) stays TypeScript on Bun, and Swift, Objective-C and Rust stay out. The Go command talks to the engine through its commands and the IPC socket, never its code, reads `data.db` read-only and never writes it, and needs no macOS permissions of its own, which stay with the engine's runner binary. Replaces the planned OpenTUI dashboard, which had not been built (§2, §3, §10, §15, TUI.md). |
-| 2026-10-03 | Cleanup eval loop. `bun run eval:cleanup` runs promptfoo against the cleanup step (`cleanUp`, now split out of `runPipeline` so the app and the eval share it), served to promptfoo on localhost, with local Ollama only and promptfoo's telemetry and sharing off. 28 dev and 11 held-out cases, made up, with deterministic checks. Baseline with `qwen3:4b-instruct-2507-q4_K_M` on an M3: dev 22/28, held-out 11/11. The dev failures are real: fillers left in, "I think" dropped from a stutter, "the deploy" reworded to "Deployment", two comma-separated lists the gate never sent to the model, and a paragraph split into one line per sentence in 5.4s (§6, §14). |
-| 2026-10-03 | The cleanup prompt moves to `packages/llm/prompts/cleanup.md`, assembled per dictation: the rules always, the list section only when `looksLikeList` says so, terminal and dictionary sections when they apply. The rules now say to keep the speaker's words (collapse "I I", don't delete it; don't reword; keep a paragraph one paragraph). `looksLikeList` now counts "a, b and c" with one comma, since that's how people say a list. Eval, one case at a time on an M3: dev 22/28 to 28/28, held-out 11/11 to 11/11. A list dictation right after a non-list one costs about 0.5s more than before, because Ollama has to process the list section afresh (MODELS.md §5). |
-| 2026-10-03 | First Go code in `apps/cli`: the `mockingbird` binary, on Bubble Tea v2. `mockingbird start` plays the website's launch animation, the pixel bird and wordmark from TUI.md §5, while the engine's own `start` runs underneath. The status line shows the engine's latest line, and when it's done the binary prints the engine's output and exits with its code. Every other command, and `start` when output isn't a terminal, `exec`s `bun apps/daemon/src/cli.ts`, so they behave exactly as before. The binary finds the engine through `MOCKINGBIRD_ROOT`, or by walking up from its own path. CI gains a `cli` job running `gofmt`, `go vet` and `go test -race`. `install.sh` and the Homebrew formula don't build it yet, so the installed shim still runs the TypeScript CLI (§3, §11, §14). |
-| 2026-10-03 | Model comparison. `bench:models` now scores every Whisper model on 64 synthetic clips (8 voices, 3 of them Indian English) for word error, names, memory and size, and `bench:cleanup` runs the cleanup eval per Ollama model. Neither default changes: `large-v3` Q5_0 (3.2% word error, 17/32 names) and `qwen3:4b-instruct-2507-q4_K_M` (30/30, 11/11) are the most accurate, and every faster or smaller model loses accuracy. Full tables in MODELS.md §7a. |
-
-| 2026-10-03 | Users get the Go `mockingbird` command. `release.yml` tests and builds `apps/cli` into `mockingbird-darwin-arm64`, with the tag built in for `--version`, and publishes it with its sha256 in `checksums.txt`. `install.sh` downloads it for the release it checks out, checks the sha256, keeps it at `apps/cli/mockingbird` in the clone, and writes a shim that runs it with bun's folder on the PATH. A clone that isn't on a release builds it with `go` if that's installed. Without either, or for a release from before the Go command, the shim runs the TypeScript CLI as before. The Homebrew formula builds it from source with `go` as a build-only dependency. The binary holds no macOS permissions, so replacing it on an update drops no grant (§12, §14, README.md). |
-| 2026-10-04 | Installs run in parallel and quietly. `mockingbird models pull` downloads the Whisper and VAD files while Ollama pulls the cleanup model, since they come from different servers, so the wait is the longer of the two rather than the sum; it still waits for both before reporting a failure. `install.sh` installs whatever tools are missing in one `brew install`, clones or updates the code at the same time, then runs `bun install`, then the model pull and the command download together. Each step writes its own log, `~/.mockingbird/logs/install-<step>.log`, so a step running alongside can't push a failure's reason out of view; the terminal shows one line per step and a ticking clock, and on a failure the end of that step's log, after every running step has finished. Writing the installer in Go was considered and not done: the time is in Homebrew and the downloads, which a Go installer would wait on just the same (§12). |
-| 2026-10-04 | Cleanup is typed as it's written. `OllamaProvider.stream` reads Ollama's reply as it comes, and `cleanUp` hands the session each safe piece (`verifiedPrefix`: the transcript's own words, in order) instead of waiting for the whole cleanup. The eval's cases on an M3: first words after a median 240ms instead of 626ms, long passage 1.1s instead of 3.8s, dev 30/30 and held-out 11/11 as before. A cleanup rejected after it began typing continues with the raw transcript rather than deleting anything (§6, SECURITY_PRIVACY.md). |
-| 2026-10-04 | Spoken corrections and symbols. The LLM gate no longer skips a transcript with a correction after a comma (", no wait", ", sorry", ", actually", ", make that", ", I meant") or a spoken symbol ("dash", "slash", "underscore"), however short or confident. Before, "docker ps dash a" and "at five, sorry, at six" were typed as said. The cleanup rules gain a self-correction rule. 12 new eval cases; with `qwen3:4b-instruct-2507-q4_K_M` on an M3, dev 35/37 → 36/37 and held-out 14/16 → 16/16, and the median model call no slower. The dev miss is a correction too short for `acceptCleanup`'s floor, which stays at half the transcript (MODELS.md §5). |
-| 2026-10-11 | Downloads show how far they've got. `mockingbird models pull` counts the bytes of each Whisper and VAD file as they arrive, and pulls the cleanup model through Ollama's `/api/pull` (`pullOllamaModel` in `packages/llm`) instead of running the `ollama` command, which printed its own bars. It draws one line, `Whisper ███░░░░░ 0.4/1.1 GB   cleanup model █░░░░░░░ 0.3/2.5 GB`, in place on a terminal. When `install.sh` sets `MOCKINGBIRD_PROGRESS`, it also writes that line to the file, and the install shows it instead of the clock while a download is running. Same downloads, same servers: only the display changed (§9). |
-| 2026-10-11 | The dictionary moves into SQLite (#61). `packages/store` opens `data.db` with the `dictionary` table (DATABASE.md §5); the daemon imports `~/.mockingbird/dictionary.txt` once and renames it `.imported`. The daemon counts a use when a typed transcript contains a term, and a dictionary over 50 terms gives the cleanup prompt only the terms this transcript seems to say, then the most used (MODELS.md §4a). First IPC: the daemon listens on `~/.mockingbird/mockingbird.sock` (`0600`) and `mockingbird dictionary add/remove` asks it to write; `list` reads `data.db` read-only. The socket speaks HTTP (`Bun.serve({ unix })`) for these request/reply edits; the TUI's live event stream (NDJSON) isn't built yet. If data.db can't be opened, dictation runs without the dictionary. |
-| 2026-10-11 | Bare `mockingbird` opens a home screen in the Go command: the agent's state and the engine's commands, picked with the arrow keys and run as if typed. The engine owns the list: `COMMANDS` in `apps/daemon/src/cli.ts` builds both `--help` and `help --json`, which the Go command reads along with the agent's state, so the Go side copies nothing. It also shows the permissions the running agent last reported missing (its own `checks:` line, not the terminal's grants) and a Fn key macOS has taken, from `mockingbird status --json`, and the cursor starts on the command that fixes the first problem. Output that isn't a terminal, or a terminal under 40×20, still gets the plain usage text (TUI.md §5). |
-| 2026-10-11 | `mockingbird setup` guides the first run in the Go command: start the agent, switch on each permission it reports missing (opening System Settings, then restarting the agent to check), offer to free Fn after a yes, and a test dictation confirmed from the agent's log. The engine does every step; Go only draws the checklist and calls `status --json`, `start`, `restart`, `fn`, `setup open <pane>` and `setup await-dictation`. When to tell someone to restart their Mac is left out until real cases show it (TUI.md §5). |
-| 2026-10-12 | `mockingbird uninstall` (#55) removes what an install put on the Mac after one question: the agent and its plist, Fn given back, `~/.mockingbird` (offering to keep the dictionary words as text first), the command and the installer's PATH line, and the code only when it's the installer's clean clone. A Homebrew install is pointed at `brew uninstall`. It asks again before `ollama rm` and never removes the Homebrew tools. macOS's Privacy entries are left for the user to clear by hand: `tccutil reset` hasn't been tested on a real Mac (`apps/daemon/src/uninstall.ts`). |
-| 2026-10-12 | The cleanup model can be picked with a command (#51). `mockingbird models` lists what Ollama has that can write text (`listOllamaModels` in `packages/llm`, using `/api/tags` and each model's capabilities from `/api/show`), with the eval's scores. `models use <name>` asks the daemon over its socket to save `llm_model` in the new `settings` table and restarts the agent, which reads it at start. Order of precedence: `MOCKINGBIRD_LLM_MODEL`, then the saved choice, then the default. A plist variable was ruled out: `start` rebuilds the agent's environment from the shell each time, so a choice kept there would be lost. |
-| 2026-10-12 | The agent runs from an app bundle, `~/.mockingbird/bin/mockingbird.app`, instead of a bare copy of bun (#36). The bundle carries an `Info.plist` and the logo and is signed ad-hoc as `com.mockingbird.agent`, so Login Items and the Privacy lists show mockingbird's name and icon rather than a generic executable. The move is a new identity to macOS, so every install re-grants Microphone, Accessibility and Input Monitoring once (§8, SECURITY_PRIVACY §4). |
-| 2026-10-13 | A first install ends in `mockingbird setup` (#54): when the Go command is in place and the install's output is a terminal, `install.sh` runs it with the keyboard read from `/dev/tty`, since under `curl \| bash` stdin is the script. Updates, output to a file and installs without the Go command keep the printed ending. `fn` and `fn --undo` now say "log out of your Mac (Apple menu → Log Out)" and that `mockingbird restart` isn't enough: a tester read "restart" as the command. |
-| 2026-10-14 | When recording starts in a browser, the session does one accessibility read of the caret and ignores the result (#32). The first such read switches Chrome's accessibility on, and Google Docs rebuilds its editor in response; in a fresh Doc, a dictation typed right after that first read was lost entirely. Doing it while the user speaks lets the editor settle before typing. `packages/context` gained `isBrowser`, a list of bundle IDs. This replaces a change typing one character per key event in browsers, which was reverted: Docs in Chrome takes 20-character events in full. |
-| 2026-10-14 | An interrupted model download continues where it stopped (#30): `models pull` keeps the `.part` file and asks for the rest with an HTTP `Range` request, and starts over if the server sends the whole file instead. Both hosts honour it (GitHub for the VAD model, Hugging Face for Whisper). The sha256 check is unchanged, so a damaged part is still thrown away. A first install also checks for about 5 GB free before downloading anything, and says it takes about 10 minutes. |
-| 2026-10-16 | Decided how to capture system audio, the other side of a call (#90): a Core Audio process tap, reached from `bun:ffi` and `objc_msgSend` with no Swift or Objective-C of ours. A spike built the tap and an aggregate device around it and recorded it with ffmpeg like a microphone, on macOS 26. Nothing ships yet; #89 builds it. Details in [§16](#16-known-gaps--scope-not-yet-decided). |
-| 2026-10-16 | `mockingbird mcp` (#88): an MCP server over stdin/stdout, hand-rolled (`initialize`, `ping`, `tools/list`, `tools/call`) rather than the SDK, which would be a dependency for about 60 lines of JSON-RPC. Its tools are `transcribe`, `frames`, `status`, `dictionary_list` and `dictionary_add`. `transcribe` splits a file at the VAD's speech segments into pieces of up to 30 seconds, sends each to Whisper, and timestamps lines from Whisper's word times (a new line at a sentence end after 20 s, always by 60 s). It skips the cleanup model, since the client's is stronger on a whole meeting. One-off runs (`transcribe`, `mcp`) now start their own whisper-server on a free port: on 8771 they had quietly shared the agent's, so a long file would have held up dictation. A 27-minute file took 262 s on an M3. |
-| 2026-10-16 | Recordings (#89, the command half). `mockingbird record` and `record stop` ask the agent over its socket (`POST /record/start`, `/record/stop`, `GET /record`), since the agent owns the microphone. The agent copies the capture stream dictation already reads into an ffmpeg encoder (`startEncoder` in `packages/audio`), so dictating during a recording opens nothing new and cuts no gap. Files are fragmented MP4, flushed every packet: one cut off by a crash still plays, and the next start renames its `.part` file into place. A recording stops on `record stop`, after 3 hours, when ffmpeg exits, or when the agent stops. The Fn+R hotkey from the issue isn't built: the tap is listen-only, so Fn+R also types an "R" into the focused app. A key that types nothing comes later. |
-| 2026-10-16 | A recording has both sides of a call (#94). `mockingbird record` starts a system-audio tap in a child process (`startSystemAudio` in `packages/audio`) and the encoder mixes its device into the microphone with `amix`. A crash in the tap loses system audio, not dictation; a tap that won't start leaves the recording microphone only. `mockingbird.app` gains `NSAudioCaptureUsageDescription`, without which the tap records silence; adding it rebuilds the bundle, so an upgrade re-asks for the three permissions once. Details in [§16](#16-known-gaps--scope-not-yet-decided). |
-| 2026-10-16 | Shorts over MCP (#95). `transcribe` takes `from`/`to` and `words` (each word's start and end, from Whisper's word times), a new `render` tool cuts and joins clips with one ffmpeg run, crops to 9:16 and adds captions, and a `make_short` prompt (MCP prompts, so `initialize` now declares `prompts`) tells the client how to use them together. The client picks the moments and writes the captions; mockingbird makes no editing choices. Homebrew's ffmpeg has no libass, so `render` checks `ffmpeg -filters` and, without `subtitles`, adds the captions as a `mov_text` track plus an `.srt` instead of drawing them on. Output names are claimed with an exclusive create, because tool calls run side by side and two renders could otherwise write the same file. |
-| 2026-10-16 | Fn+R starts and stops a recording (#89). The tap now reports R while Fn is held, and only then, and drops that R (press, repeats, release) so the focused app never types it. Dropping needs a tap that can block keys, which needs Accessibility; without it the tap falls back to listen-only and logs that Fn+R types an "r" as well. Blocking costs nothing per key: the callback runs on the tap's own worker, which does nothing else. The tap also switches itself back on when macOS turns it off for being slow. Measured with synthetic events and a second tap appended after ours: on `main`, both the Fn+R and a plain R reached apps; on this branch only the plain R did. In the FSM (§5), R moves any state to `CHORD`, which drops a dictation the press began and makes the release do nothing. |
-| 2026-10-18 | `mockingbird models` is a picker (TUI.md §5): Cleanup and Transcription tabs, arrow keys and Enter. The engine gained `models --json` and `models use speech <file>`; the transcription model is saved as `asr_model` in `settings` through the agent, like the cleanup model, and loaded at start after `MOCKINGBIRD_ASR_MODEL` and before the default. A saved file that's been deleted falls back to the default with a warning. The plain list drops the eval scores and lists both kinds. |
-| 2026-10-20 | A dictation into a terminal now gets a space when it follows mockingbird's own last dictation there, with no key pressed or click since: `session.ts` sends terminals through `decideSpacing` with nothing read, like an app that hides its text. Before, terminals never got one, so consecutive dictations into Claude Code in Ghostty ran together ("the bugRun the tests"). The terminal is still never read, and Enter counts as a key, so a new shell command starts without a space. The exception is Enter pressed within 300ms of Fn, which the tracker excuses as part of the Fn tap (`FN_WINDOW_MS`); the command then gets one leading space and still runs. Telling Enter apart in the event tap would close that, but the tap deliberately reports no key identity beyond Fn, Escape and R. |
-| 2026-10-20 | `mockingbird dictionary` is a table in a terminal (#102, TUI.md §5): WORD, HEARD AS, NOTE, USES and ADDED, sorted by uses, with `/` to filter, `s` to sort, and `a`/`d` to add and remove through the engine. The store gained `table()` (every column, for display; `dictionary()` stays what the pipeline reads), and the engine `dictionary list --json`, read-only. The Go command still never writes `data.db`. |
-| 2026-10-25 | `render` draws captions onto the picture with Homebrew's ffmpeg (#111). The new `packages/captions` parses the SRT and draws each cue as a transparent PNG with Core Text and Core Graphics through `bun:ffi` (white bold system font, black outline, wrapped at 90% of the short side); `render` lays the images over the video with ffmpeg's `overlay`, one per cue, enabled from its start until just before its end, so back-to-back cues never overlap. No dependency and no download, so #111's plan to fetch a libass ffmpeg isn't needed. ffmpeg's `subtitles` filter, then the `mov_text` track and `.srt`, stay as fallbacks for when the images can't be drawn (off macOS, or a Core Text failure). A 9-second, five-cue short rendered in about the same time as before (2.2–2.7 s on an M3 against 2.2–2.5 s for the subtitle track). |
-| 2026-10-26 | A dictation that comes back completely silent restarts the microphone's ffmpeg when that ffmpeg had sound earlier. One ffmpeg captures for the agent's whole life, and after six days of sleep and wake one kept running while sending only zeros, so every Fn press was silent until `mockingbird restart`. An ffmpeg that's silent from its first sample isn't restarted: that's permission or a dead input, and restarting it again would only trip the supervisor's give-up. |
-| 2026-10-27 | Stopping the microphone's ffmpeg sends SIGKILL if it hasn't exited 1 s after SIGTERM. The ffmpeg behind the silent dictations was stuck at 100% CPU for six days and ignored SIGTERM, so the restart above waited on it forever, and `mockingbird restart` left it running as an orphan after launchd killed the hung agent. |
-| 2026-10-28 | `mockingbird calibrate` (#106, TUI.md §5): the user reads 25 sentences (`apps/daemon/src/calibration.md`) one at a time and sees what Whisper heard, with the misses marked, then the share of their words it got right. The agent records each take from the microphone it already has open, so calibrate needs no second capture and no new permission. It hears the take with `hear()`, the VAD and Whisper half of `runPipeline` split out so calibration and dictation hear the same way. Takes are saved as `~/.mockingbird/calibration/<run>-<sentence>.wav` and as rows in the new `calibration` table (DATABASE.md §9), written by the daemon over the socket. `wordDiff` (`packages/asr`) aligns the words and replaces bench's own counter, so bench's numbers don't change. A synthetic Indian English voice (`say -v Rishi`) through the real screen and `large-v3-q5_0` scored 99% of 300 words; the one real miss was "chef" heard as "shape". |
-| 2026-10-28 | `mockingbird calibrate tune` (#107, MODELS.md §7) tunes to one voice from its latest calibration run. Every installed Whisper file hears the run on its own whisper-server (on a free port) beside the agent's, one at a time, and the fastest within a point of the best is recommended, never switched to. The model in use then hears it at VAD thresholds 0.5, 0.4, 0.3 and 0.2, and the best is saved as `vad_threshold` (settings, written by the daemon; `startEngines` reads it) only if it hears at least two more words, and 1% more, than the default. Silence length isn't tuned: `trimToSpeech` keeps everything from the first word to the last, so it changes nothing Whisper hears. Only the threshold decides whether quiet speech is found at all. It also reports clipping, speech too quiet to bring up, and a room within 10 dB of the voice. On the #106 synthetic voice, all seven models scored 98–99% and the threshold changed nothing. With pink noise 14 dB under the voice, `base.en` fell to 95.3% and the pick moved to `small.en Q5_1` (97.7%, 0.3 s a sentence). With the voice buried 4 dB above the noise, the default threshold found no speech in 8 of 25 sentences, and 0.2 heard 14 more words (6.2% → 11.2%) and was saved, with the room flagged. |
-| 2026-10-30 | Qt apps (Anki for now, `isQtApp` in `packages/context`) get text one character per key event with a 1 ms pause between events (#117). Qt drops an event that carries more than one character, so a dictation into Anki had been arriving as nothing, or as its last letter. Every other app still gets 20 UTF-16 units per event. |
-| 2026-10-30 | The one-character-per-event typing from #117 is for QtWebEngine apps, not all Qt apps (#119). A plain Qt text box (OBS, a bare `QLineEdit` on Anki's own PyQt6) took 20-character events whole; a QtWebEngine `<textarea>` on the same Qt kept only the last character. `frontmostApp` now also reports the bundle path (`LSBundlePath`, from the same `lsappinfo` call), and `isQtWebEngineApp` checks it for `Contents/Frameworks/QtWebEngineCore.framework`. Anki keeps its Qt under `Contents/Resources`, so it stays on a bundle-ID list. |
-| 2026-10-30 | Dictation in other languages (#105). `MOCKINGBIRD_LANGUAGE` (a Whisper code like `de`, or `auto`; default `en`) goes to whisper-server instead of the pinned `en`, which had been translating German, Spanish, French and Hindi speech into English. An unknown code, or one Whisper doesn't take (`pt-BR` becomes `pt`), falls back to English with a warning. Outside English: the gate never skips cleanup (its filler list and `formatText`'s question words are English); the prompt gains a Language section; `acceptCleanup` rejects a cleanup where fewer than half the words (`Intl.Segmenter`, so Japanese and Chinese count too) were in the transcript (qwen3 still translated "Übersetze das ins Englische: …"); dictionary names aren't matched by sound, since `soundOf` is English ("marca" became "Marco"), though `heard => term` replacements still apply; learning is off (its word list is English); `.en` models are left out of `mockingbird models`, with a startup warning if one is in use. `-nlp` stays: `auto` still detects the language with it. Measured with `large-v3-q5_0` on 9 synthetic clips (macOS `say`, de/es/fr/hi): word error 53% → 0% (5 of 9 came back translated into English before); cleanup now runs on every dictation, +0.7–2.5s; `auto` adds ~1.4s to Whisper (1.8s → 3.2s). Cleanup eval: English dev 36/37 and held-out 16/16, unchanged; the 6 new non-English cases pass. |
-| 2026-10-30 | `mockingbird calibrate names` (#108, TUI.md §5): the user types a name or term and says it. The agent (`Calibration.stopTerm`, route `/calibrate/term`) adds it to the dictionary. If dictation still wouldn't write it from what Whisper heard (`applyCorrections` then `correctNames`, with the term in the dictionary), what was heard is saved as `heard => term`. That's skipped when what was heard is ordinary English (learn.ts's `ordinaryWords`, macOS's `/usr/share/dict/words`, which now also takes a word plus an s), runs more than two words past the term, or dictation isn't in English (#105: no sound matching, and the word list is English): `Childhood => Tadhg` would rewrite every "childhood". The take's audio isn't kept. `calibrate tune` also lists script words missed in two takes or more, and only lists them, as learn.ts explains. Measured on 16 names, each said alone on the names page and then in a sentence by `say`, with large-v3 Q5_0: the names written right in the sentence went from 4 to 11 (Rishi, en_IN) and from 10 to 13 (Moira, en_IE). The saved mishearings added nothing there: in a sentence, the model heard each of those names differently. Without the English check, 4 of Rishi's 7 saved mishearings were ordinary phrases. |
-| 2026-10-30 | Fine-tuning Whisper to one voice (#109) is a no-go (MODELS.md §4b). A LoRA on `base.en`, for one synthetic voice in a noisy room, made both test voices worse with one calibration run's 3 minutes of audio (15.6% → 16.7% WER on the voice, 9.7% → 12.2% on another). Thirty minutes gained 2.3 points on the voice and cost the other 0.5. It would also need a 921 MB Python toolchain and a ggml conversion step the installer would have to fetch. Nothing in the app changes. |
-| 2026-10-31 | Shorts that look edited (#125). `render` frames each clip around a `focus` with an optional `zoom` punch-in, can `split` a screen recording and its webcam corner into one 1080x1920 frame, draws `*marked*` caption words yellow (a third Core Text pass at `CTLineGetOffsetForStringIndex`), and adds `texts`, `inserts` (b-roll) and `audio` (music ducked under the speech with `sidechaincompress`, sound effects); the sound is always brought to −14 LUFS. A new `captions` tool turns clips into word-by-word SRT timed to the finished video, so the client no longer does the time arithmetic. `frames` seeks to each still (a 7-minute 4K phone video: over 200 s → 6 s) and takes `from`/`to`. `loadAudio` sniffs the 12-byte WAV header instead of reading the whole file: a 5 GB phone video ran Bun out of memory. Still no editing choices in mockingbird: the [mockingbird-studio](https://github.com/NirjharBhattacharjee/mockingbird-studio) plugin holds those as skills. Pop-in caption animation is left out; ffmpeg overlays can't do it cheaply. |
-| 2026-11-01 | Motion graphics written as code (#128). The new `packages/motion` gives a script the browser's Canvas 2D API (paths, transforms, gradients, shadows, text, images, blend modes), implemented over Core Graphics and Core Text through `bun:ffi` the way `packages/captions` draws captions, so there's no browser, no Swift and nothing to download. A new MCP tool, `motion`, imports a client's `draw(ctx, t, m)` script, calls it once per frame, and pipes the frames to ffmpeg: over a video (its frame drawn first and handed to the script, so it can be zoomed or moved, and its sound kept) or on their own. `m` adds the timing helpers (`interpolate`, `spring`, easings), `cues` from an SRT, and `image(path)`. Measured on an M3: 6 seconds of 1080x1920 over a short, with a spring title, a zoom, popping captions and a progress bar, took 3.8 s (about 47 frames a second, counting decode, drawing and the x264 encode). Apple silicon only, because a CGRect or CGAffineTransform has to cross the FFI by value and Bun can only do that by following arm64's rules. Each call runs the script in a fresh Bun process (`apps/daemon/src/motion-run.ts`) under `sandbox-exec` with the network denied, so a client's code can't break §9's one-download rule or crash the MCP server (SECURITY_PRIVACY.md §6). Built to compete with Remotion and HyperFrames, which render through a headless Chromium; it depends on neither (§3, §10, MCP.md). |
-| 2026-11-01 | Path2D, `ctx.filter` and sound for motion scripts (#130). `Path2D` records its calls and replays them into the canvas's path recorder when it's drawn, so the current transform applies; SVG path data, arcs included, becomes those calls. A filter draws each fill, stroke, text or picture alone into an offscreen layer, runs the CSS filter functions on it (blur and the colour matrices with Accelerate's vImage, a C API reached through `bun:ffi` like Core Graphics; `drop-shadow()` with Core Graphics's own shadow), then lays it on the canvas, in the HTML spec's order. A script's `audio` export is mixed in with the graph `render` uses (`mixGraph`), cut to the video and brought to −14 LUFS. Measured on an M3: 4 s of 1080x1920 over a video, with a blurred glow, a drop shadow, an SVG icon and a sound, took 3.2 s. |
-
----
+| 2026-11-03 | Pivot step 1 (#135). Deleted dictation and the meeting recorder: `packages/{hotkey,inject,context,llm,cue}`, mic capture and the system audio tap in `packages/audio`, the launchd agent, the pipeline and its FSM, learning, calibration, Ollama, the Bubble Tea screens and TUI.md. The dictionary's parsing and name matching moved to `packages/store`. With no daemon, every process opens `data.db` read-write. `apps/daemon/src/agent.ts` is now a stub that removes an upgraded Mac's leftover agent. |
+| 2026-11-02 | `motion` draws gradient-outlined text, and refuses a font that isn't installed instead of falling back to Helvetica (#133). |
+| 2026-11-01 | `motion`: Path2D, `ctx.filter`, and sound from the script (#131). Motion graphics written as code, drawn with Core Graphics through `bun:ffi` (`packages/motion`, #129). |
+| 2026-10-31 | `render` gains framing, word captions, text, b-roll and sound for shorts (#126). |
+| 2026-10-24 | `mockingbird mcp`: the engine's tools over the Model Context Protocol (#88). |
 
 ## Table of contents
 
 1. [What this is](#1-what-this-is)
 2. [Core principles](#2-core-principles)
 3. [Technology stack](#3-technology-stack)
-4. [System architecture](#4-system-architecture)
-5. [The hotkey state machine](#5-the-hotkey-state-machine)
-6. [The dictation pipeline](#6-the-dictation-pipeline)
-7. [Where SQLite fits](#7-where-sqlite-fits)
-8. [State ownership map](#8-state-ownership-map)
+4. [How an edit flows](#4-how-an-edit-flows)
+5. [The tools](#5-the-tools)
+6. [Transcription](#6-transcription)
+7. [Rendering](#7-rendering)
+8. [State](#8-state)
 9. [Everything is local](#9-everything-is-local)
 10. [Repository layout](#10-repository-layout)
 11. [Packaging](#11-packaging)
-12. [Deployment / distribution](#12-deployment--distribution)
-13. [Is Docker needed?](#13-is-docker-needed)
+12. [Distribution](#12-distribution)
+13. [Upgrading from dictation](#13-upgrading-from-dictation)
 14. [CI/CD pipeline](#14-cicd-pipeline)
-15. [v1 scope](#15-v1-scope)
-16. [Known gaps — scope not yet decided](#16-known-gaps--scope-not-yet-decided)
+15. [Roadmap](#15-roadmap)
+16. [Known gaps](#16-known-gaps)
 17. [Versioning & how this doc evolves](#17-versioning--how-this-doc-evolves)
 
 ---
 
 ## 1. What this is
 
-mockingbird is a local, open-source, voice-to-text dictation tool. Press and
-hold a hotkey (Fn on macOS by default), speak, release — the transcribed,
-cleaned-up text is typed into whatever field has focus, in any application
-(terminal, browser, editor, anything). Double-tap the hotkey to lock into
-hands-free dictation until pressed again.
+mockingbird is the engine an AI agent edits video with. The user brings the
+agent (Claude Code, Codex, Cursor, Gemini CLI, any MCP client) and its
+subscription; mockingbird gives it tools to read footage (transcripts with
+word times, stills), and to cut, frame, caption, animate and render it. The
+agent decides the edit. mockingbird runs ffmpeg, Whisper and its own
+renderers on the user's computer, and never calls a model or a server.
 
-It is explicitly positioned as a local alternative to tools like Wispr Flow:
-no audio or text ever leaves the machine, no account, no cloud model calls.
-
-Target platform for v1 is **macOS only**. Windows and Linux are designed for
-but not built in v1 — see [§16](#16-known-gaps--scope-not-yet-decided).
+The editing know-how (hooks, pacing, caption style, motion design) lives in
+the [mockingbird-studio](https://github.com/NirjharBhattacharjee/mockingbird-studio)
+plugin as skills. It moves into this repo in pivot step 3.
 
 ## 2. Core principles
 
-These are constraints, not preferences. Any proposed change should be checked
-against this list.
+Constraints, not preferences. Check any proposed change against them.
 
-1. **Two languages, each with one job.** The dictation engine (the daemon
-   and every `packages/*`) is TypeScript on Bun. The `mockingbird` command
-   users type, and its terminal UI, is Go with Bubble Tea, in `apps/cli`
-   only. Go never appears in the engine, and the engine never depends on
-   the Go command. It runs, and is tested, without it. Third-party binaries
-   we depend on, like ffmpeg, the ASR server and the LLM server, run as
-   subprocesses or prebuilt native modules. We never hand-write them in
-   another language. See [§3](#3-technology-stack) for the exact boundary.
-2. **No Electron, no Swift, no native GUI toolkit.** Feedback is audio cues
-   and a Bubble Tea terminal UI, not a windowed app.
-3. **Local-first, no exceptions.** No network call happens as part of normal
-   operation. The only network activity in the entire system is an explicit,
-   user-initiated model download. See [§9](#9-everything-is-local).
-4. **Headless-testable core.** The pipeline (VAD → ASR → LLM → format) must
-   run and be tested with zero OS integration — feed it a WAV file, assert on
-   text. Platform-specific code (hotkey, injection, context) is isolated
-   behind narrow interfaces so it can be swapped or mocked.
-5. **Degrade, don't break.** If the LLM cleanup server dies, dictation falls
-   back to raw ASR output instead of stopping. If ffmpeg dies, it restarts.
-   The user should almost never see dictation simply stop working.
+1. **Two languages, each with one job.** The engine (`apps/daemon` and every
+   `packages/*`) is TypeScript on Bun. The `mockingbird` command users type
+   is Go, in `apps/cli` only; today it finds the engine and hands it every
+   command. Third-party programs (ffmpeg, whisper-server) run as
+   subprocesses. We never write a `.swift`, `.mm` or `.rs` file; native
+   macOS APIs are reached through `bun:ffi`.
+2. **No Electron, no native GUI toolkit.** A future preview runs as a local
+   page in the browser.
+3. **Local-first, no exceptions.** No network call happens in normal
+   operation. The only network activity is a download the user asks for
+   (`mockingbird models pull`). See [§9](#9-everything-is-local).
+4. **Headless-testable.** Every tool runs and is tested with no GUI, no mic
+   and no permission prompt: feed it a file, assert on the output.
+5. **Degrade, don't break.** A missing piece narrows what works instead of
+   stopping everything: no dictionary means names come out as heard, no
+   Core Text captions means ffmpeg's `subtitles` filter or a sidecar `.srt`.
 
 ## 3. Technology stack
 
-| Concern | Technology | Version (verified) | Runs as |
-|---|---|---|---|
-| Language / runtime (engine) | TypeScript on **Bun** | Bun ≥ 1.2 | our process |
-| Language (command + TUI) | **Go**, in `apps/cli` only | Go ≥ 1.26 | our process, a single compiled binary |
-| Package manager / workspaces | Bun workspaces | — | — |
-| Microphone capture, audio file decoding | `ffmpeg` (avfoundation on macOS) | system binary | subprocess, piped stdout |
-| Global hotkey | **`bun:ffi` → CoreGraphics event tap** (`uiohook-napi` crashes Bun, see §16) | — | FFI in a worker thread |
-| Voice activity detection | Silero VAD via `onnxruntime-node` | — | native module in-process |
-| Speech-to-text (ASR) | `whisper.cpp` (`whisper-server`), model: `large-v3-turbo` Q5_0 | — | subprocess, HTTP :8771 |
-| Cleanup / formatting LLM | Ollama **or** `llama-server` (llama.cpp), model: Qwen3-4B-Instruct Q4 | Ollama v0.11.4 (Go) | subprocess, HTTP :8772 |
-| Text injection | **`bun:ffi` → `CGEventKeyboardSetUnicodeString` + `CGEventPost`** | — | FFI, in-process |
-| Frontmost app | `lsappinfo` (needs no TCC grant, unlike System Events) | system binary | subprocess |
-| Persistent storage | **`bun:sqlite`** (built into Bun) + `sqlite-vec` extension | bundled with Bun | in-process, embedded |
-| Terminal UI | **Bubble Tea** v2 + Lip Gloss (Charm, MIT), Catppuccin palette | Bubble Tea v2.0.10 | the Go `mockingbird` binary |
-| Validation / IPC contract | `zod` + hand-written protocol types | — | shared package |
-| Testing | `bun test` | built-in | — |
-| Release versioning | Changesets | — | — |
+| Concern | Technology | Runs as |
+|---|---|---|
+| Engine | TypeScript on **Bun** ≥ 1.2, Bun workspaces | our process |
+| Command | **Go** ≥ 1.26, `apps/cli` | one compiled binary |
+| Decoding, cutting, mixing, encoding | `ffmpeg` | subprocess |
+| Speech detection | Silero VAD via `onnxruntime-node` | native module in-process |
+| Speech-to-text | `whisper.cpp`'s `whisper-server`, default model `large-v3` Q5_0 | subprocess, HTTP on a free `127.0.0.1` port per call |
+| Captions | Core Text through `bun:ffi`, drawn to PNGs that ffmpeg overlays | in-process |
+| Motion graphics | Canvas 2D API implemented over Core Graphics, Core Text and vImage through `bun:ffi` | in-process, the script under `sandbox-exec` |
+| Storage | `bun:sqlite` (`data.db`: the dictionary and settings) | in-process |
+| Agent protocol | MCP, JSON-RPC over stdin/stdout | `mockingbird mcp` |
+| Tests | `bun test`, `go test` | — |
 
-**The rule that resolves "is X allowed":** if we call it via `fetch()`,
-`Bun.spawn()`, or install it as a prebuilt N-API module, it's fine regardless
-of what language it's written in internally — we never read or compile its
-source. Go we write ourselves is allowed in `apps/cli` and nowhere else. If
-we would need to write a `.swift`, `.mm`, or `.rs` file ourselves to make it
-work, it's out, full stop, for v1.
+**Is X allowed?** If we call it with `fetch()`, `Bun.spawn()`, or load it as
+a prebuilt N-API module, yes, whatever it's written in. If it needs a
+`.swift`, `.mm` or `.rs` file we write ourselves, no.
 
-**Why Go for the command.** Decided 2026-10-03. The command is the first
-thing a user installs and sees. A Go binary starts instantly and ships as
-one file, with no runtime to install before it can run. Bubble Tea and
-Lip Gloss cover the launch animation and the screens in TUI.md. The command
-needs none of the macOS permissions the engine holds. Those stay with the
-engine's runner, `~/.mockingbird/bin/mockingbird.app`, so rebuilding the
-command never drops a user's Fn or typing grant. The engine stays
-TypeScript. It works, it's tested headlessly, and a rewrite would gain
-nothing.
-
-Ollama being written in Go is not a stack violation for the same reason
-Postgres being written in C isn't one for a Node web app: it's a server we
-talk HTTP to.
-
-## 4. System architecture
-
-```mermaid
-flowchart TB
-    subgraph OS["macOS"]
-        direction TB
-
-        subgraph Daemon["mockingbirdd (Bun process, always running)"]
-            direction TB
-            HKW["Hotkey Worker\n(bun:ffi CGEventTap)\nblocking CFRunLoop"]
-            FSM["Hotkey FSM\n(main thread)"]
-            RB["Ring Buffer\n(30s circular, PCM)"]
-            SEG["Segmenter + VAD"]
-            GATE["LLM Gate"]
-            FMT["Formatter\n(voice commands,\nper-app rules)"]
-            INJ["Injector"]
-            CTX["Context Poller\n(frontmost app, 500ms)"]
-            IPC["IPC Server\n(unix socket)"]
-            DB[("bun:sqlite\n~/.mockingbird/data.db")]
-
-            HKW -->|postMessage| FSM
-            FSM --> RB
-            RB --> SEG
-            SEG --> GATE
-            GATE --> FMT
-            FMT --> INJ
-            CTX -.cached lookup.-> FMT
-            FSM -.state.-> IPC
-            GATE -.raw+final.-> DB
-            IPC <--> DB
-        end
-
-        subgraph Children["Supervised child processes"]
-            FFMPEG["ffmpeg\n(avfoundation → PCM stream)"]
-            WHISPER["whisper-server\n:8771"]
-            LLM["llama-server / ollama\n:8772"]
-        end
-
-        subgraph TUIProc["mockingbird (Go + Bubble Tea)"]
-            TUI["Dashboard, history,\ndictionary editor,\nlatency view"]
-        end
-
-        subgraph SystemAPIs["macOS system APIs (not written by us)"]
-            CG["CoreGraphics\nevent tap + injection"]
-            AV["avfoundation\naudio device"]
-            AXAPI["Accessibility /\nSystem Events"]
-        end
-
-        FFMPEG -->|stdout: 16kHz s16le PCM| RB
-        SEG -->|HTTP| WHISPER
-        GATE -->|HTTP| LLM
-        INJ -->|spawn osascript| AXAPI
-        HKW --> CG
-        FFMPEG --> AV
-        TUI <-->|unix socket, NDJSON| IPC
-    end
-```
-
-Two processes are ours to run at all times: **mockingbirdd** (the daemon —
-always on, owns all state) and, optionally, the **`mockingbird`** command's TUI (Go; attaches and
-detaches freely, holds no source of truth). Three more are supervised
-children the daemon manages: **ffmpeg**, **whisper-server**, **llama-server**.
-
-## 5. The hotkey state machine
-
-```mermaid
-stateDiagram-v2
-    [*] --> IDLE
-    IDLE --> ARMED: fn↓
-    ARMED --> CAPTURE_PTT: held > 180ms
-    ARMED --> TAP_WAIT: fn↑ (< 180ms)
-    TAP_WAIT --> CAPTURE_LOCK: fn↓ (2nd tap, < 300ms)
-    TAP_WAIT --> IDLE: timeout 300ms (discard)
-    CAPTURE_PTT --> FINALIZING: fn↑
-    CAPTURE_LOCK --> CAPTURE_LOCK: VAD silence 700ms\n(emit chunk, stays locked)
-    CAPTURE_LOCK --> FINALIZING: fn↓ (stop lock)
-    FINALIZING --> IDLE: injected
-    ARMED --> IDLE: Esc (abort)
-    CAPTURE_PTT --> IDLE: Esc (abort, discard)
-    CAPTURE_LOCK --> IDLE: Esc (abort, discard)
-    ARMED --> CHORD: R (Fn+R: start or stop a recording)
-    CAPTURE_PTT --> CHORD: R (dictation discarded)
-    CHORD --> IDLE: fn↑ (nothing to stop)
-```
-
-Fn+R starts or stops a recording (`mockingbird record`), whatever the press
-had begun: a dictation it started is discarded, and releasing Fn does nothing.
-A hands-free dictation already running is different: the Fn press stops it as
-usual, before R arrives, so its words are typed rather than lost. An R held
-from before Fn went down stays an ordinary key; whether it's Fn+R is settled by
-R's first press, not its repeats.
-`TAP_WAIT`'s 300ms window is what distinguishes a double-tap (lock mode) from
-two rapid push-to-talks. This FSM lives entirely on the daemon's main thread
-and is the single source of truth for what mockingbird is currently doing —
-the TUI only ever displays it, never owns a copy of it.
-
-## 6. The dictation pipeline
+## 4. How an edit flows
 
 ```mermaid
 sequenceDiagram
-    participant User
-    participant HK as Hotkey Worker
-    participant FSM
-    participant RB as Ring Buffer
-    participant VAD
-    participant ASR as whisper-server
-    participant Gate as LLM Gate
-    participant LLM as llama-server
-    participant Fmt as Formatter
-    participant Inj as Injector
-    participant DB as bun:sqlite
-    participant TUI
-
-    User->>HK: holds Fn
-    HK->>FSM: fn_down
-    FSM->>RB: mark t0 - 300ms (pre-roll)
-    loop while held
-        RB->>VAD: 32ms windows (512 samples)
-    end
-    User->>HK: releases Fn
-    HK->>FSM: fn_up
-    FSM->>RB: cut segment [t0-300ms, t1]
-    RB->>ASR: POST /inference (WAV)
-    ASR-->>Gate: {text, confidence, words}
-    alt short + high confidence
-        Gate->>Fmt: raw text (skip LLM)
-    else needs cleanup
-        Gate->>LLM: raw text + dictionary + app context
-        LLM-->>Fmt: cleaned text, streamed
-    end
-    Fmt->>Inj: final text, the user's own words as they arrive
-    Inj->>Inj: spawn osascript (paste or keystroke)
-    Inj->>DB: store {raw, final, timings, app}
-    Inj->>TUI: broadcast "final" event over IPC
+    participant U as User
+    participant A as Agent (Claude Code, Codex, …)
+    participant M as mockingbird mcp
+    participant F as ffmpeg / whisper-server
+    U->>A: "cut a short from talk.mp4"
+    A->>M: transcribe(talk.mp4)
+    M->>F: decode, VAD, Whisper
+    M-->>A: [mm:ss] lines
+    A->>M: transcribe(from, to, words: true) · frames(from, to)
+    M-->>A: word times · stills
+    A->>M: captions(clips) → render(clips, vertical, captions, …)
+    M->>F: one ffmpeg filter graph
+    M-->>A: talk-short-1.mp4
+    A-->>U: the file, and what it covers
 ```
 
-The cleanup is typed while the model writes it (`cleanUp` in
-`apps/daemon/src/pipeline.ts`, with an `onText` callback the session types
-from). Typed text can't be taken back, so only words `verifiedPrefix` passes
-go early: whole words from the transcript, in its order, on the first line,
-with a few held back when a dictionary term could still change them. The
-rest waits for the whole cleanup and `acceptCleanup`. Measured on an M3 with
-the eval's cases, the first words appear after a median 240ms instead of the
-whole cleanup's 626ms, and a long passage starts at 1.1s instead of 3.8s.
-Lists (the heading is the model's word) and terminals (a stray word is a
-command) are still typed whole.
+Each tool is one call with the whole edit in its parameters. The timeline
+(`project.json` with small edit verbs) replaces that in pivot step 5.
 
-Pre-roll (starting capture 300ms *before* the key registers, using the
-always-running ring buffer) is what prevents the first syllable of every
-utterance from being clipped. The same 300ms is used as padding when VAD trims
-a segment before ASR; 100ms was measured to cut soft onsets like "um". The LLM
-gate exists so a two-word confirmation like "yes please" doesn't pay LLM
-latency it doesn't need. That latency is larger than first assumed: measured
-on an Apple M3, warm Qwen3-4B Q4 cleanup of a 13-word sentence takes ~1.1s,
-against ~0.2s for `base.en` ASR (see the integration test in
-`apps/daemon/test/pipeline.integration.test.ts`).
+## 5. The tools
 
-`confidence` is the mean probability of the spoken (non-punctuation) words
-whisper-server returns; whisper.cpp exposes per-word probabilities, not an
-average log-probability. The gate currently skips the LLM for utterances of
-at most 4 words with confidence ≥ 0.7. Both thresholds were tuned on synthetic
-`say` speech only and need retuning on real recordings once `bench/` exists.
+The MCP server (`apps/daemon/src/mcp.ts`) is the product's surface. Each
+tool, with its options, is documented in [MCP.md](./MCP.md):
 
-`packages/llm` sits behind a single provider interface (`complete()`,
-`health()`), with thin adapters per backend (Ollama, `llama-server`, and
-later a remote-LAN target per [§13](#13-is-docker-needed)) — the same
-interface-plus-adapter shape `packages/asr` and `packages/inject` already
-use. This is what makes the base-URL/model swap in [§3](#3-technology-stack)
-and the fallback-to-raw-ASR behavior in [§2](#2-core-principles) (point 5) a
-property of one small class instead of logic scattered across the Gate. It
-stays in-process inside `mockingbirdd` — this is *not* a separate service or
-process; that's a deliberate scope cut, tracked as a possible future step
-only if a second consumer beyond mockingbird ever needs the LLM independently
-of the dictation daemon's lifecycle.
+| Tool | Does |
+|---|---|
+| `transcribe` | timestamped lines, or word times, for a file or a stretch of it |
+| `frames` | stills at an interval, for the agent to look at |
+| `captions` | word-by-word SRT timed to the video `render` will make |
+| `render` | cuts, framing, 9:16 or split layout, captions, text, b-roll, music and sound effects, loudness to −14 LUFS |
+| `motion` | a script that draws with the Canvas 2D API, rendered to MP4 |
+| `status` | what's installed |
+| `dictionary_list`, `dictionary_add` | names to spell right |
 
-## 7. Where SQLite fits
+`mockingbird transcribe`, `dictionary`, `models` and `status` are the same
+functions as plain commands.
 
-SQLite — via `bun:sqlite`, built into Bun with zero external dependency — is
-**the entire persistence and memory layer**. This replaces the Redis idea
-from the original concept: Redis would mean shipping and supervising a
-separate daemon and a port, for data that's actually structured, queryable,
-and wanted durable — not cache-shaped. `bun:sqlite` gives us that in one file
-with no extra process.
+## 6. Transcription
 
-```mermaid
-erDiagram
-    UTTERANCE {
-        text id PK
-        integer created_at
-        text raw_text
-        text final_text
-        text app_bundle
-        integer duration_ms
-        integer t_vad
-        integer t_asr
-        integer t_llm
-        integer t_inject
-        text asr_model
-        text llm_model
-        text audio_path "nullable, opt-in retention"
-    }
-    UTTERANCE_FTS {
-        text final_text "FTS5 virtual table, content=UTTERANCE"
-    }
-    DICTIONARY {
-        text term PK
-        text hint
-        integer uses
-    }
-    APP_PROFILE {
-        text bundle PK
-        text style
-        text inject_method
-    }
-    CORRECTION {
-        integer id PK
-        text from_text
-        text to_text
-        integer count
-    }
-    SETTINGS {
-        text key PK
-        text value
-    }
+`transcribe` and `captions` decode the file with ffmpeg to 16 kHz mono, find
+speech with Silero VAD, cut it into chunks of up to 30 seconds, and send
+each to a whisper-server started for that call on a free port. Word times
+come back per chunk and are offset to the file. Names are then fixed from
+the dictionary: a `heard => term` entry replaces that exact phrase, and any
+stretch of one to three words that sounds like a term (a consonant skeleton
+compared by edit distance, `packages/store/src/dictionary.ts`) is replaced
+by it.
 
-    UTTERANCE ||--o| UTTERANCE_FTS : indexes
-```
+The model is `MOCKINGBIRD_ASR_MODEL` if set, else the one
+`mockingbird models use` saved in `data.db`, else `large-v3` Q5_0, else the
+best earlier default that's downloaded. `MOCKINGBIRD_LANGUAGE` sets the
+language (default `en`, or `auto`). Per-call `model` and `language`, and a
+model per language, come in pivot step 3. [MODELS.md](./MODELS.md) has the
+measurements behind the default.
 
-What lives in it:
+## 7. Rendering
 
-- **`utterance`** — every transcription, both `raw_text` (straight from ASR)
-  and `final_text` (after LLM + formatting), plus per-stage timings. This is
-  what powers the TUI's latency waterfall and the raw-vs-cleaned diff view.
-- **`utterance_fts`** — FTS5 virtual table for instant full-text search over
-  history in the TUI.
-- **`dictionary`** — user vocabulary (proper nouns, jargon, codenames) fed
-  into the LLM prompt as context.
-- **`app_profile`** — per-application formatting rules (e.g. Terminal gets no
-  auto-capitalization; Slack stays casual) and the preferred injection method
-  for that app.
-- **`correction`** — learned from user edits after the fact, this is the
-  closest thing to "memory" the system has: patterns of what gets corrected
-  feed back into dictionary suggestions.
-- **`settings`** — everything configurable: active hotkey binding, ASR/LLM
-  model choice, lock-mode silence threshold, etc.
+`render` builds one ffmpeg filter graph from its parameters: a `trim` and
+`atrim` per clip, a crop and scale per clip for framing and zoom (or two
+crops stacked for a split), `concat`, overlays for b-roll, then the
+captions and text as PNG overlays drawn by `packages/captions` with Core
+Text, and an audio graph that mixes music and effects under the speech with
+sidechain ducking and normalises to −14 LUFS. It never overwrites a file.
 
-**Vector memory (optional, v1.x):** the `sqlite-vec` extension loads directly
-into the same database file via `db.loadExtension()`, giving semantic search
-over utterance history and dictionary terms without a separate vector store.
+`motion` imports the agent's script in a separate Bun process under
+`sandbox-exec` with the network denied (`apps/daemon/src/motion-run.ts`),
+calls its `draw(ctx, t, m)` for every frame against `packages/motion`'s
+Canvas, and pipes raw frames to ffmpeg.
 
-**Concurrency model:** only the daemon writes; the TUI reads. WAL mode is
-enabled so the TUI can query history/search while the daemon is actively
-writing a new utterance, with no lock contention.
+Pivot step 7 replaces `packages/motion` (macOS only) with HTML and CSS
+rendered in a pinned headless Chrome; see #134.
 
-## 8. State ownership map
+## 8. State
 
-Every piece of state in the system has exactly one owner. This table is the
-tie-breaker any time it's unclear where something should live.
+There's no daemon and nothing runs in the background. Each command and each
+MCP server is its own short-lived process.
 
-| State | Lives in | Persisted? | Owner |
-|---|---|---|---|
-| Current FSM state (IDLE/ARMED/CAPTURING/...) | Daemon main-thread memory | no | daemon |
-| Live audio (last 30s) | Ring buffer, daemon memory | no | daemon |
-| In-flight session (current utterance being processed) | Daemon memory | no | daemon |
-| Frontmost app cache | Daemon memory, refreshed every 500ms | no | daemon |
-| Utterance history, timings | `bun:sqlite` | **yes** | daemon (writer) |
-| Dictionary / vocabulary | `bun:sqlite` | **yes** | daemon (writer) |
-| Per-app formatting rules | `bun:sqlite` | **yes** | daemon (writer) |
-| User settings (hotkey binding, model choice) | `bun:sqlite` | **yes** | daemon (writer) |
-| ASR model weights | `~/.mockingbird/models/` (flat files) | yes, on disk | filesystem |
-| LLM model weights | `~/.mockingbird/models/` (flat files) | yes, on disk | filesystem |
-| Bundled binaries (ffmpeg, whisper-server) | `~/.mockingbird/bin/` | yes, on disk | filesystem |
-| Logs | `~/.mockingbird/logs/` | yes, rotated | filesystem |
-| Unix socket, PID file | `~/.mockingbird/` | yes (ephemeral, deleted on clean stop) | filesystem |
-| ASR model weights **in RAM** | `whisper-server` process memory | no | child process |
-| LLM weights **in RAM/VRAM** | `llama-server`/Ollama process memory | no | child process |
-| TUI view state (scroll position, active tab) | TUI process memory | no, or tiny local prefs file | TUI |
-| macOS permission grants (Mic, Accessibility, Input Monitoring) | TCC database | yes | **macOS itself**, not us |
+| What | Where | Written by |
+|---|---|---|
+| Dictionary, settings | `~/.mockingbird/data.db` ([DATABASE.md](./DATABASE.md)) | any mockingbird process (WAL, 5 s busy timeout) |
+| Models | `~/.mockingbird/models/` | `mockingbird models pull` |
+| Renders, stills | beside the source, or a temp folder for stills | `render`, `motion`, `frames` |
 
-The single rule this enforces: **the daemon is the only writer to durable
-state.** The TUI, and any future client, is a read-only view over IPC plus
-direct read-only SQLite queries. This is what makes "headless-testable core"
-in [§2](#2-core-principles) actually true — you can kill every UI and the
-system still fully works from a script talking to the socket.
+`MOCKINGBIRD_HOME` moves `~/.mockingbird`.
 
 ## 9. Everything is local
 
-This is a hard product guarantee, not an aspiration, and it should be
-verifiable, not just promised.
-
-- **No cloud ASR, no cloud LLM.** Transcription and cleanup run on-device via
-  `whisper-server` and `llama-server`/Ollama, both bound to `127.0.0.1` only.
-- **No telemetry, no analytics, no crash reporting phones home.** If we ever
-  add opt-in anonymous usage stats, it is default-off and requires an
-  explicit, separate opt-in — never bundled into a general "yes" during
-  onboarding.
+- **No cloud model.** Transcription runs in whisper-server, bound to
+  `127.0.0.1`. The agent's model is the agent's business: what a tool
+  returns goes wherever that agent sends it ([MCP.md](./MCP.md#where-your-text-goes)).
+- **No telemetry, no analytics, no crash reporting.** If opt-in usage stats
+  are ever added, they're off by default and asked for separately from
+  setup.
 - **No account, no login, no license server.**
-- **The only network activity in the entire system is model download**,
-  which is user-triggered (`mockingbird models pull`), shows exactly
-  what URL it's fetching from (Hugging Face / ggml model repos), and never
-  happens silently in the background.
-- **Audio never leaves the ring buffer** unless the hotkey fires a capture.
-  The ring buffer itself never touches disk unless the user explicitly
-  enables audio retention (`audio_path` in the schema is nullable and off by
-  default) for debugging/training-their-own-dictionary purposes.
-- **The IPC socket is a Unix domain socket with `0600` permissions**, not a
-  TCP port — nothing on the network, even the local network, can reach it.
-- **The MCP server is the one way text leaves mockingbird, and only to the
-  user's own AI client.** `mockingbird mcp` speaks over stdin/stdout to a
-  client the user registered, with no port. If that client sends the text to
-  a cloud model, that's the client's network call, not mockingbird's
-  ([MCP.md](./MCP.md), [SECURITY_PRIVACY.md §3](./SECURITY_PRIVACY.md#3-network-policy)).
-- **Enforced, not just claimed:** the shipped binary requests no outbound
-  network entitlement beyond what's needed for the explicit model-download
-  command. Anyone can `lsof -i` while dictating and see nothing outbound.
+- **The only network activity is a download the user runs**
+  (`mockingbird models pull`), which names each URL and checks each file's
+  sha256. mockingbird never checks for updates.
+- **`mockingbird mcp` opens no port.** It speaks over stdin and stdout to the
+  agent that started it.
+- **An agent's motion script can't reach the network.** It runs under
+  `sandbox-exec` with `deny network*`.
+
+Pivot step 3 adds one more explicit, user-approved download in
+`mockingbird setup`: a pinned headless Chrome for the HTML motion engine.
 
 ## 10. Repository layout
 
 ```
 mockingbird/
-├── docs/
-│   ├── README.md
-│   └── ARCHITECTURE.md          ← this file
 ├── apps/
-│   ├── daemon/                  mockingbirdd — supervisor, FSM, IPC server
-│   │   └── src/
-│   │       ├── cli.ts           `mockingbird` — the one command users run
-│   │       ├── agent.ts         headless entry launchd runs (no TTY)
-│   │       ├── agent/plist.ts   LaunchAgent plist, as a pure function
-│   │       ├── agent/launchctl.ts  launchctl argv + output parsing
-│   │       ├── session.ts       engines + capture + Fn + pipeline, no UI
-│   │       ├── hotkey-fsm.ts     Fn hold / double-tap state machine (§5)
-│   │       ├── supervisor.ts    child process lifecycle + restart policy
-│   │       ├── recorder.ts      ring buffer → recordings, with pre-roll and a length cap
-│   │       ├── pipeline.ts      VAD → ASR → LLM gate → format
-│   │       ├── calibrate.ts     `mockingbird calibrate`'s takes, heard and scored
-│   │       ├── calibration.md   the script it asks the user to read
-│   │       ├── tune.ts          `calibrate tune`: model, VAD threshold and loudness for one voice
-│   │       ├── runtime.ts       model checks, engine startup shared by the CLIs
-│   │       ├── transcribe.ts    `bun run transcribe <file>` CLI
-│   │       ├── listen.ts        `bun run listen` CLI (keyboard push-to-talk)
-│   │       ├── listen-controller.ts
-│   │       └── main.ts
-│   └── cli/                     `mockingbird` — Go + Bubble Tea command and TUI
+│   ├── daemon/src/          the engine (the name predates the pivot)
+│   │   ├── cli.ts           every command
+│   │   ├── mcp.ts           the MCP server and its tools
+│   │   ├── motion-run.ts    runs a motion script in its own process
+│   │   ├── transcribe.ts    `mockingbird transcribe`
+│   │   ├── dictionary.ts    `mockingbird dictionary`, data.db access
+│   │   ├── models.ts        `mockingbird models`, pinned downloads
+│   │   ├── runtime.ts       model lookup, VAD + whisper-server startup
+│   │   ├── uninstall.ts     `mockingbird uninstall`
+│   │   ├── retire.ts        removes what dictation left on a Mac (§13)
+│   │   └── agent.ts         stub launchd still runs on upgraded Macs
+│   └── cli/                 `mockingbird`, the Go command
 ├── packages/
-│   ├── protocol/                shared IPC types + zod schemas
-│   ├── audio/                   ring buffer, ffmpeg capture + file decoding, per-OS args
-│   ├── captions/                SRT parsing, captions drawn as PNGs with Core Text via bun:ffi
-│   ├── motion/                  Canvas 2D API over Core Graphics (filters with vImage) via bun:ffi; motion scripts to MP4
-│   ├── vad/                     Silero ONNX wrapper
-│   ├── asr/                     engine interface + whisper-server adapter, word diff (WER)
-│   ├── llm/                     provider interface + adapters (Ollama,
-│   │                            llama-server), prompt assembly, per-app
-│   │                            profiles, caching
-│   ├── hotkey/                  CGEventTap via bun:ffi, run in a worker thread
-│   ├── inject/                  types text as Unicode key events (x11/win32 later)
-│   ├── context/                 frontmost app via lsappinfo, terminal detection,
-│   │                            the char before the cursor via Accessibility
-│   └── store/                   bun:sqlite, migrations, FTS5, sqlite-vec
-├── bench/                       WER + latency harness over a fixed corpus
-├── scripts/                     setup, model download, release packaging
-├── .github/workflows/           CI/CD — see §14
-├── package.json                 Bun workspace root
-├── bunfig.toml
-└── LICENSE
+│   ├── audio/               file decoding through ffmpeg, WAV, PCM helpers
+│   ├── vad/                 Silero ONNX wrapper
+│   ├── asr/                 whisper-server adapter, word diff (WER)
+│   ├── captions/            SRT parsing, captions drawn with Core Text
+│   ├── motion/              Canvas 2D over Core Graphics, motion scripts to MP4
+│   └── store/               data.db, the dictionary's parsing and name matching
+├── bench/                   Whisper model comparison over a synthetic corpus
+├── scripts/                 install.sh, fixture generation
+└── .github/workflows/       ci.yml, release.yml
 ```
 
-Two structural rules, unchanged from earlier design passes and still load-
-bearing:
+Two rules, load-bearing:
 
 1. `packages/*` never imports from `apps/*`.
-2. Every platform-specific concern is hidden behind `asr`, `inject`,
-   `context`, and `audio` — the entire Windows/Linux port surface later.
+2. Platform-specific code stays inside `packages/*` (`audio`, `captions`,
+   `motion`) so the Linux and Windows ports in step 4 touch those and
+   nothing else.
 
 ## 11. Packaging
 
-Bun compiles a TypeScript project into a **single, self-contained native
-executable** with `bun build --compile` — the Bun runtime is embedded, so end
-users need not install Bun themselves.
+The engine ships as source and runs on Bun. `bun build --compile` isn't used
+yet: it embeds the `onnxruntime-node` addon but not the
+`libonnxruntime.1.dylib` it links against, so VAD fails at runtime.
 
-```mermaid
-flowchart LR
-    SRC["apps/daemon/src/main.ts\n(+ all packages/*, bundled)"]
-    SRC -->|bun build --compile\n--target=bun-darwin-arm64| BIN1["mockingbirdd\n(arm64 binary)"]
-    SRC -->|--target=bun-darwin-x64| BIN2["mockingbirdd\n(x64 binary)"]
+The `mockingbird` command is a Go binary from `apps/cli`. It finds the engine
+through `MOCKINGBIRD_ROOT` or by walking up from its own path, and replaces
+itself with `bun apps/daemon/src/cli.ts <args>`.
 
-    subgraph Archive["release archive: mockingbird-darwin-arm64.tar.gz"]
-        BIN1
-        FF["ffmpeg (static)"]
-        WS["whisper-server (prebuilt)"]
-        TUIBIN["mockingbird\n(Go command + TUI)"]
-    end
+## 12. Distribution
 
-    Archive -->|first run| SETUP["mockingbird setup\n→ TCC permission prompts\n→ creates ~/.mockingbird/"]
-    SETUP -->|explicit, user-triggered| MODELS["mockingbird models pull\n→ downloads weights to\n~/.mockingbird/models/"]
-```
+- **Homebrew:** `brew install nirjharbhattacharjee/mockingbird/mockingbird`.
+  The formula downloads the release's source tarball, checks its sha256,
+  runs `bun install --production` into `libexec`, builds the Go command with
+  Homebrew's `go`, and writes a shim that sets `MOCKINGBIRD_ROOT`.
+- **`install.sh`:** `curl -fsSL …/releases/latest/download/install.sh | bash`.
+  Installs Bun, whisper-cpp and ffmpeg with Homebrew, clones the repo at the
+  newest release tag on `main`, downloads that release's Go binary and checks
+  it against `checksums.txt`, runs `models pull`, and writes
+  `~/.local/bin/mockingbird`. Each step logs to `~/.mockingbird/logs/`.
+- **From a clone:** `bun install`, then `bun apps/daemon/src/cli.ts`.
 
-What's **compiled into** the binary: all of our TypeScript, across every
-`packages/*`. What's **bundled alongside it** in the release archive: ffmpeg
-and whisper-server as prebuilt platform binaries — small enough to ship,
-needed on every run. What's **downloaded separately, on demand**: model
-weights (hundreds of MB to a few GB) — too large to bundle, and the user
-should get to choose which ASR/LLM size fits their machine.
+Updating is always something the user runs: the install command again, or
+`brew upgrade`.
 
-The `mockingbird` command is compiled from `apps/cli` (Go) as its own
-binary and runs as its own process. The user runs it to install, start or
-look at mockingbird, and dictation works without it. For now it hands every
-command to the engine's TypeScript CLI (`exec bun apps/daemon/src/cli.ts`),
-which it finds through `MOCKINGBIRD_ROOT` or by walking up from its own
-path, and adds only the launch animation around `start`.
+## 13. Upgrading from dictation
 
-## 12. Deployment / distribution
-
-There is no server-side "deployment" — this is a desktop tool, so
-"deployment" means **getting a binary onto the user's machine**.
-
-```mermaid
-flowchart TB
-    TAG["git tag v1.2.0"] --> REL["GitHub Release\n(built by CI, §14)"]
-    REL --> ASSET1["mockingbird-darwin-arm64.tar.gz"]
-    REL --> ASSET2["mockingbird-darwin-x64.tar.gz"]
-    REL --> CHECKSUMS["checksums.txt (sha256)"]
-
-    ASSET1 --> HOMEBREW["Homebrew tap:\nNirjharBhattacharjee/homebrew-mockingbird\n(formula auto-bumped by CI)"]
-    ASSET1 --> CURL["curl -fsSL install.sh | sh\n(downloads + verifies checksum)"]
-    ASSET1 --> MANUAL["Manual download\nfrom GitHub Releases page"]
-    SRC2["Source checkout"] --> BUNRUN["bun install && bun run build\n(contributors / unsupported platforms)"]
-
-    HOMEBREW --> USER["User's Mac"]
-    CURL --> USER
-    MANUAL --> USER
-    BUNRUN --> USER
-```
-
-Primary channel for v1 is a **Homebrew tap**
-(`brew install nirjharbhattacharjee/mockingbird/mockingbird`) since the target
-user is a developer on macOS. A `curl | sh` installer is the fallback for
-anyone without Homebrew. Building from source via `bun install` is always
-supported and is how contributors and unsupported architectures run it.
-
-**Today** both channels ship the engine as source, not the archives in the
-diagram. Only the `mockingbird` command is compiled:
-
-- **Homebrew:** the formula downloads the release's source tarball, checks
-  its sha256, runs `bun install --production` into `libexec`, and writes a
-  `mockingbird` shim. It depends on Homebrew's `bun`, `ffmpeg`, `ollama` and
-  `whisper.cpp`. The shim sets `MOCKINGBIRD_ROOT` to the `opt` path so the
-  launch agent survives `brew upgrade`. For a release that has `apps/cli`,
-  it builds the Go command with Homebrew's `go`, a build-only dependency,
-  and the shim runs that. Models aren't part of the install: the caveats
-  point at `mockingbird models pull`.
-- **`install.sh`:** clones the repo and checks out the newest release tag
-  on `main` (a tag pushed on another branch never went through
-  `release.yml`, so it's skipped), or follows `main` while no tag exists.
-  It then downloads that release's `mockingbird-darwin-arm64`, checks it
-  against `checksums.txt`, and writes a shim that runs it. Steps that don't
-  depend on each other run together (tools with code, models with the
-  command), and each writes its own log in `~/.mockingbird/logs/`
-  rather than the terminal. A clone that
-  isn't on a release builds the command with `go`, if installed. Failing
-  both, the shim runs the TypeScript CLI directly.
-
-**Updating is always something the user runs**, never something mockingbird
-does: re-running the install command, or `brew upgrade`. Either one brings
-the code up to the latest release, and the agent keeps running the old code
-until it restarts (`install.sh` restarts it; after `brew upgrade` the user
-runs `mockingbird restart`). mockingbird itself never checks for a new
-version, which keeps [§9](#9-everything-is-local) intact.
-
-## 13. Is Docker needed?
-
-**Not for the shipped app — and it can't be, structurally.** The daemon needs
-direct host access to: the microphone, the Accessibility/Input-Monitoring TCC
-grants, and the ability to inject keystrokes into *other host GUI
-applications*. None of that is reachable from inside a container. On macOS
-specifically, Docker Desktop runs containers inside a Linux VM with no path
-to host TCC-gated APIs at all — a containerized mockingbird literally cannot
-dictate into your terminal, because your terminal isn't inside the
-container.
-
-So: **the end-user daemon is never containerized.** That's not a limitation
-we're working around, it's a correct reflection of what this tool is.
-
-Docker still earns a place in two auxiliary roles:
-
-```mermaid
-flowchart LR
-    subgraph NotUsed["Not used for"]
-        A["Running mockingbirdd\nfor end users"]
-    end
-    subgraph UsedFor["Used for"]
-        B["CI Linux build/test matrix\n(§14)"]
-        C["Optional devcontainer for\ncontributors on any OS"]
-        D["Optional: remote GPU inference\n(power users only, v1.x+)\nwhisper-server / llama-server\non a LAN box, still zero cloud"]
-    end
-```
-
-That last one (D) is worth naming explicitly since it's the one legitimate
-future case: someone with a beefy GPU box on their home network might want to
-run `whisper-server`/`llama-server` there instead of their laptop, and point
-mockingbird at `http://192.168.x.x:8771` instead of `127.0.0.1`. That's still
-"local" in the sense that matters (nothing leaves the user's own network, no
-third party ever sees the data) — it's just not *the same machine*. This is
-explicitly out of scope for v1 (default and only mode is single-machine,
-`127.0.0.1`) but the `asr`/`llm` packages should be designed so the base URL
-is configuration, not a hardcoded assumption, so this door isn't closed.
+v0.3.2 and earlier installed a launchd agent
+(`~/Library/LaunchAgents/com.mockingbird.agent.plist`) that ran
+`apps/daemon/src/agent.ts` through a copy of bun in
+`~/.mockingbird/bin/mockingbird.app`, and `mockingbird fn` may have changed
+the system Fn setting. After an upgrade, `agent.ts` is a stub: the next time
+launchd starts it, it calls `retireDictation()` (`retire.ts`), which puts the
+Fn setting back from `~/.mockingbird/fn-key.json`, removes the app and the
+plist, and boots the agent out. `install.sh` and `mockingbird uninstall` call
+the same function. The old `data.db` is migrated: its words stay, learned
+ones included, and the dictation tables go ([DATABASE.md](./DATABASE.md)).
 
 ## 14. CI/CD pipeline
 
-Two workflows: one that gates every change, one that ships releases.
+**`ci.yml`**, on every push and pull request:
 
-```mermaid
-flowchart TB
-    subgraph PR["On every push / PR — ci.yml"]
-        direction TB
-        P1["bun install"] --> P2["bun run typecheck\n(tsc --noEmit, all workspaces)"]
-        P2 --> P3["bun run lint"]
-        P3 --> P4["bun test\n(unit tests, all packages)"]
-        P4 --> P5["headless pipeline test:\nfixture WAV → ASR → LLM → text\n(tiny whisper model, no mic/hotkey)"]
-        P5 --> P6["bun build --compile\nsmoke test (macos runner)"]
-        P6 --> GATE{"all green?"}
-        GATE -->|yes| MERGE["mergeable"]
-        GATE -->|no| BLOCK["blocked"]
-    end
+1. `check` (macOS): `bun install --frozen-lockfile`, `bun run typecheck`,
+   `bun run lint` (Biome), `bun test`. Integration tests
+   (`MOCKINGBIRD_INTEGRATION=1`) need whisper-server, ffmpeg and downloaded
+   models, so they run locally with `bun run test:integration`.
+2. `cli` (macOS): `gofmt`, `go vet`, `go test -race` in `apps/cli`.
+3. `dco` (pull requests): every commit carries a `Signed-off-by` line for
+   its author ([CONTRIBUTING.md §11](../CONTRIBUTING.md#11-contributor-licensing--dco-not-a-cla)).
 
-    subgraph REL["On tag push v*.*.* — release.yml"]
-        direction TB
-        R1["changeset version check"] --> R2["matrix build:\nmacos-14 (arm64)\nmacos-13 (x64)"]
-        R2 --> R3["bun build --compile\nper target"]
-        R3 --> R4["bundle ffmpeg + whisper-server\ninto tar.gz per target"]
-        R4 --> R5["sha256sum → checksums.txt"]
-        R5 --> R6["bench/ latency+WER report\nattached as release artifact"]
-        R6 --> R7["gh release create\n(changelog from Changesets)"]
-        R7 --> R8["PR to homebrew-mockingbird tap:\nbump version + sha256"]
-    end
-
-    MERGE -.eventually tagged.-> R1
-```
-
-**`ci.yml`** (runs on every PR and push to any branch):
-
-1. `bun install` — deterministic via `bun.lock`.
-2. Typecheck every workspace with `tsc --noEmit`.
-3. Lint and format check with Biome (`biome.json`) — one fast binary, no
-   separate Prettier.
-4. `bun test` across all `packages/*` — this is where the FSM, ring buffer,
-   formatter, and store logic get unit tested with zero OS dependency.
-5. **Headless pipeline integration test** — the one that matters most: feed a
-   committed fixture WAV through the real `asr` → `llm` → formatter chain
-   (using a small/fast model in CI, not the shipping-size one) and assert on
-   output. This is only possible because of the "headless-testable core"
-   principle in [§2](#2-core-principles) — no hotkey, no mic, no injection
-   needed to test 90% of the interesting logic.
-6. A `bun build --compile` smoke test on a macOS runner — catches bundling
-   breakage before release day.
-7. On pull requests, a `dco` job checks every commit carries a
-   `Signed-off-by` line for its author
-   ([CONTRIBUTING.md §11](../CONTRIBUTING.md#11-contributor-licensing--dco-not-a-cla)).
-
-**`release.yml`** (runs on `v*.*.*` tag push). What it does today:
+**`release.yml`**, on a `v*.*.*` tag:
 
 1. Refuse a tag that isn't on `main`.
-2. Rerun install, typecheck, lint and unit tests on the tagged commit.
-3. Test `apps/cli` and build it into `mockingbird-darwin-arm64`, with the
-   tag built in for `mockingbird --version`.
-4. Pack the source with `git archive` into `mockingbird-<version>.tar.gz`
-   and write its sha256, the binary's and `install.sh`'s to `checksums.txt`.
-5. Create the GitHub Release with those four files and notes generated from
-   the merged PRs. `install.sh` is attached so the README's install command
-   (`releases/latest/download/install.sh`) runs the released installer, not
-   whatever `main` has. A tag with a `-` (`v0.2.0-rc.1`) is published as a
-   prerelease, which GitHub never marks latest.
-6. Except for a prerelease, open a PR on `NirjharBhattacharjee/homebrew-mockingbird` setting the
-   formula's `url` and `sha256` to the new tarball. The workflow's own token
-   can't write to another repo, so this needs a `TAP_TOKEN` secret (a
-   fine-grained token with contents and pull-request write access to the
-   tap); without it the step warns and the release still ships.
+2. Rerun the checks on the tagged commit.
+3. Build `apps/cli` into `mockingbird-darwin-arm64` with the tag built in.
+4. Pack the source with `git archive`, and write the sha256 of it, the
+   binary and `install.sh` to `checksums.txt`.
+5. Create the GitHub Release with those files. A tag with a `-` is a
+   prerelease, which the installer only takes with `MOCKINGBIRD_CHANNEL=beta`
+   and the tap never does.
+6. Open a PR on `NirjharBhattacharjee/homebrew-mockingbird` with the new
+   `url` and `sha256` (needs the `TAP_TOKEN` secret).
 
-Once the compiled binary exists, it grows into the full version:
+**`main` is staging, releases are production.** Rulesets require a pull
+request, squash merges, green `check` and `cli`, and resolved threads on
+`main`, and let only an admin create a `v*` tag.
 
-1. Build the compiled binaries for each macOS target in a matrix.
-2. Bundle the platform-appropriate ffmpeg/whisper-server binaries alongside.
-3. Generate checksums.
-4. Run the `bench/` harness and attach its report to the release — so every
-   release has a recorded latency/WER baseline, and regressions are visible
-   in the release history itself, not just in someone's terminal.
-5. Create the GitHub Release with a changelog generated by **Changesets**
-   (contributors add a changeset describing their change; release CI
-   aggregates them into the changelog and bumps versions across the
-   workspace).
-6. Open an automated PR against the `homebrew-mockingbird` tap repo bumping
-   the formula's version and sha256 — reviewed and merged by us, not
-   auto-merged, at least until the process has proven itself.
+## 15. Roadmap
 
-**`main` is staging, releases are production.** Merging a PR changes `main`
-and nothing users run: the installer and the Homebrew tap both install the
-latest release tag. Two GitHub rulesets hold this in place. On `main`: a pull
-request for every change, squash merge only, `check` and `cli` green, review
-threads resolved, no force-push or deletion. On `v*` tags: only a repository
-admin can create, move or delete one, and `release.yml` refuses any not on
-`main`. A prerelease tag is the beta channel: the installer only picks it up
-with `MOCKINGBIRD_CHANNEL=beta`, and the Homebrew tap never does.
+From [#134](https://github.com/NirjharBhattacharjee/mockingbird/issues/134),
+each step shippable on its own:
 
-**Why Changesets specifically:** this is a multi-package Bun workspace
-(`packages/protocol`, `packages/asr`, etc.) and Changesets is built for
-exactly that shape — each PR declares which packages it bumped and why, and
-release tooling turns the accumulated changesets into both version bumps and
-a human-readable changelog, without hand-writing either.
+1. ~~Delete dictation~~ (#135).
+2. Render speed on today's engine: hardware encoding, parallel segments.
+3. Plugin and install: mockingbird-studio moves into `plugin/`; `setup`,
+   `doctor`, `record`, `guide` over MCP; model and language per call.
+4. Linux and Windows.
+5. The timeline: `project.json` and edit verbs.
+6. Render pipeline: segment cache, smart stream copy, proxies.
+7. The HTML motion engine in a pinned headless Chrome, and Web Audio music.
+8. Effects catalog, phase 1: color, scopes, transitions, speed, audio cleanup.
+9. Effects catalog, phase 2: keying, masks, stabilization; FCPXML and OTIO export.
+10. Self-hosted cloud.
+11. Effects catalog, phase 3: tracking, AI masks, multicam.
 
-## 15. v1 scope
+## 16. Known gaps
 
-What "v1" concretely means, so "this project will be made better with time"
-has a fixed line to improve past:
-
-- macOS only (arm64 primary, x64 best-effort).
-- Fn key push-to-talk + double-tap lock mode.
-- Local ASR (whisper.cpp) + local LLM cleanup (Ollama or llama.cpp), both
-  swappable via config.
-- Text injection into any focused field via clipboard-paste or synthetic
-  keystrokes.
-- Per-app formatting rules (at least Terminal vs. everything-else).
-- User dictionary (manually edited).
-- SQLite-backed history with full-text search, exposed via the TUI.
-- Bubble Tea dashboard (Go, `apps/cli`): live state, latency waterfall,
-  history browser, dictionary editor.
-- A home screen for bare `mockingbird`: the agent's state and every command,
-  picked with the arrow keys ([TUI.md §5](./TUI.md#home-screen-built)).
-- Homebrew + curl installer distribution.
-- No GUI app, no menubar icon, no floating HUD — audio cues + TUI only.
-
-## 16. Known gaps — scope not yet decided
-
-Flagged explicitly rather than silently deferred. Each of these needs an
-actual decision before or during v1, not an assumption:
-
-- **Licenses of bundled binaries.** mockingbird itself is MIT (decided
-  2026-09-17, see `LICENSE`). Still open: checking every binary a release
-  archive would bundle. whisper.cpp and llama.cpp are MIT, but a static
-  ffmpeg build can be GPL depending on how it was configured (Homebrew's is
-  built with `--enable-gpl`), which matters if it ships inside our archive.
-- **Windows & Linux hotkey/inject/context backends.** Designed for (see
-  [§10](#10-repository-layout)'s package boundaries) but not implemented.
-  Notably: **Fn does not exist on Windows** (handled in keyboard firmware,
-  never reaches the OS) — the default binding there must be something else
-  entirely (e.g. double-tap Right Ctrl), not a Fn fallback.
-- **Wayland.** No global shortcuts by design on Wayland compositors; needs
-  `xdg-desktop-portal` GlobalShortcuts + `libei`/`uinput`, and support is
-  compositor-uneven. Likely X11-only at first on Linux.
-- **"Scratch that" / undo of already-injected text.** Only tractable via the
-  keystroke-injection path (need to know exactly how many characters we
-  typed to backspace them); the clipboard-paste path can't be undone this
-  way. Needs a design decision, not just a TODO.
-- ~~**Auto-launch on login.**~~ Settled 2026-09-20: `mockingbird start` writes
-  `~/Library/LaunchAgents/com.mockingbird.agent.plist` with `RunAtLoad`, and
-  `mockingbird stop` runs `launchctl disable`, whose state persists across
-  reboots — so the plist stays on disk and the agent stays off until the next
-  `start`. `KeepAlive` is `Crashed`-only, so a deliberate exit (no microphone,
-  a missing model) doesn't relaunch every 10s forever. macOS attributes the Fn
-  and typing permissions to the binary launchd runs, which is
-  `~/.mockingbird/bin/mockingbird.app/Contents/MacOS/mockingbird`: a copy of
-  the bun binary inside an app bundle signed as `com.mockingbird.agent`, so the
-  Privacy lists and Login Items show mockingbird's name and logo, and `bun`
-  itself stays unprivileged. What that copy costs is in SECURITY_PRIVACY §4; a truly
-  compiled binary is still blocked on `onnxruntime-node`.
-- ~~**Auto-update.**~~ Settled 2026-10-01: there is no self-update command.
-  Updating is re-running the install command or `brew upgrade`, both run by
-  the user and neither part of mockingbird, so the app's only network call
-  stays `mockingbird models pull` ([§12](#12-deployment--distribution)).
-- **Diagnostics / bug reports.** An explicit `mockingbird diagnostics export`
-  command bundling logs + config (never audio, never transcripts, unless the
-  user opts in per-export) for attaching to a GitHub issue by hand — no
-  automatic crash reporting.
-- **Long-session memory bounds.** Partly settled: the ring buffer is fixed at
-  30s (~1 MB), and a single push-to-talk recording stops growing at 2 minutes
-  (`Recorder.maxRecordingMs`). Lock mode, which emits a chunk per silence
-  instead of one recording, still needs its own cutoff.
-- **Config surface.** Dictionary editing is planned in the TUI; broader
-  settings (model choice, thresholds, hotkey rebinding) need either more TUI
-  screens or a `mockingbird config` CLI — undecided which.
-- **Device picker.** Partly settled: capture uses the system default input
-  (avfoundation `:default`), and `bun run listen --list-devices` /
-  `--device <n|name>` override it per run. Not yet decided: persisting the
-  choice in `settings`, and following the system default when it changes
-  while mockingbird is running (today that needs a restart).
-- **System audio (#90, built in #94).** A call's other voices come
-  through system audio, which ffmpeg can't capture. A Core Audio process tap
-  can (macOS 14.2+), and needs no driver. `packages/audio/src/system-tap.ts`
-  does this in a child process of its own, since a wrong Objective-C call
-  crashes the process that makes it, and `mockingbird record` mixes the
-  device into the microphone with ffmpeg's `amix`:
-  1. `[[CATapDescription alloc] initStereoGlobalTapButExcludeProcesses:@[]]`
-     through `objc_msgSend`, left public and unmuted, then
-     `AudioHardwareCreateProcessTap`.
-  2. `AudioHardwareCreateAggregateDevice` with the tap in `taps`,
-     `tapautostart`, and the default output device as `master` and only
-     sub-device. Without that clock the tap records silence.
-  3. ffmpeg records the aggregate device with avfoundation, like a
-     microphone, so the capture code stays as it is.
-
-  Measured in a spike: with the Mac's output muted, the recording still
-  held the speech at a mean of −17.7 dB, and transcribed word for word. The
-  tap and the device go away when the process that made them exits.
-
-  Permission, measured running as `mockingbird.app` (#94): without
-  `NSAudioCaptureUsageDescription` in its `Info.plist`, the tap hands over
-  silence and nothing asks. With it, reading the device is microphone
-  access, so the existing Microphone grant covers it, and no separate
-  "System Audio Recording" prompt appeared on macOS 26. Adding the key
-  rebuilds the bundle, so an upgrade asks for all three permissions once.
-  If the tap can't start (older macOS, a Core Audio error), the recording
-  carries on with the microphone only, and the agent's log says why.
-
-  Before macOS 14.2 there are no process taps. The fallback, set up by the
-  user:
-  1. `brew install blackhole-2ch`, which installs the BlackHole 2ch device.
-  2. In Audio MIDI Setup, **+** → Create Multi-Output Device, with the
-     speakers (or headphones) and BlackHole 2ch both ticked.
-  3. In System Settings → Sound → Output, pick that Multi-Output Device.
-
-  ffmpeg then records BlackHole 2ch with avfoundation, as it is.
-- **End-to-end latency target.** Each stage is timed (`vadMs`, `asrMs`,
-  `llmMs`) and the changelog above records what those numbers were at each
-  change, but nothing sets how long the whole release-to-typed-text path
-  may take, per stage or in total, or fails a change that makes it slower.
-  Needs a number and a check, ideally in the `bench/` harness from
-  [§14](#14-cicd-pipeline).
-- **Uninstall story.** What `brew uninstall` leaves behind in `~/.mockingbird/`
-  (models, history, logs) and whether/how to offer full cleanup.
+- **macOS only.** Captions and motion use Core Text and Core Graphics.
+- **No compiled engine** ([§11](#11-packaging)): Bun has to be installed.
+- **One render call per edit.** Any change re-renders everything (step 5).
+- **The agent sees a few stills, not the video.** Tool outputs stay small so
+  an edit doesn't use up the user's subscription; token cost per edit isn't
+  measured yet.
+- **No eval** of edit quality: pacing, caption accuracy, reviewer pass rate.
 
 ## 17. Versioning & how this doc evolves
 
-This document is versioned alongside the code, not separately. Practically:
-
-- Any PR that changes architecture, adds/removes a dependency, or changes
-  where state lives **must** update the relevant section of this file in the
-  same PR.
-- The [Changelog](#changelog) table at the top gets a new row per
-  architecturally-significant change, dated, one line.
-- When a "known gap" in [§16](#16-known-gaps--scope-not-yet-decided) gets
-  decided and built, it moves out of that list and into the relevant section
-  above — the gap list should shrink over time, not just grow.
-- Nothing here is precious. If reality diverges from this doc, the doc is
-  wrong and gets fixed — treat contradictions between this file and the
-  actual code as a bug against the doc, filed and fixed like any other.
+- A PR that changes architecture, data handling, a model or a tool updates
+  the matching doc (this one, [SECURITY_PRIVACY.md](./SECURITY_PRIVACY.md),
+  [MODELS.md](./MODELS.md), [DATABASE.md](./DATABASE.md), [MCP.md](./MCP.md))
+  in the same PR, and adds a changelog row here when it changes this one.
+- Releases follow semver on the git tag. The `0.x` series can still change
+  any tool's parameters; the timeline in step 5 will.

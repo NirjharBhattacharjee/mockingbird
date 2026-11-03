@@ -16,11 +16,6 @@
         "@mockingbird/asr": "workspace:*",
         "@mockingbird/audio": "workspace:*",
         "@mockingbird/captions": "workspace:*",
-        "@mockingbird/context": "workspace:*",
-        "@mockingbird/cue": "workspace:*",
-        "@mockingbird/hotkey": "workspace:*",
-        "@mockingbird/inject": "workspace:*",
-        "@mockingbird/llm": "workspace:*",
         "@mockingbird/motion": "workspace:*",
         "@mockingbird/store": "workspace:*",
         "@mockingbird/vad": "workspace:*",
@@ -38,32 +33,11 @@
     "packages/captions": {
       "name": "@mockingbird/captions",
     },
-    "packages/context": {
-      "name": "@mockingbird/context",
-    },
-    "packages/cue": {
-      "name": "@mockingbird/cue",
-    },
-    "packages/hotkey": {
-      "name": "@mockingbird/hotkey",
-      "dependencies": {
-        "@mockingbird/inject": "workspace:*",
-      },
-    },
-    "packages/inject": {
-      "name": "@mockingbird/inject",
-    },
-    "packages/llm": {
-      "name": "@mockingbird/llm",
-    },
     "packages/motion": {
       "name": "@mockingbird/motion",
     },
     "packages/store": {
       "name": "@mockingbird/store",
-      "dependencies": {
-        "@mockingbird/llm": "workspace:*",
-      },
     },
     "packages/vad": {
       "name": "@mockingbird/vad",
@@ -98,17 +72,7 @@
 
     "@mockingbird/captions": ["@mockingbird/captions@workspace:packages/captions"],
 
-    "@mockingbird/context": ["@mockingbird/context@workspace:packages/context"],
-
-    "@mockingbird/cue": ["@mockingbird/cue@workspace:packages/cue"],
-
     "@mockingbird/daemon": ["@mockingbird/daemon@workspace:apps/daemon"],
-
-    "@mockingbird/hotkey": ["@mockingbird/hotkey@workspace:packages/hotkey"],
-
-    "@mockingbird/inject": ["@mockingbird/inject@workspace:packages/inject"],
-
-    "@mockingbird/llm": ["@mockingbird/llm@workspace:packages/llm"],
 
     "@mockingbird/motion": ["@mockingbird/motion@workspace:packages/motion"],
 

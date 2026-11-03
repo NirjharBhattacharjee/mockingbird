@@ -3,22 +3,16 @@ export type DictionaryEntry = {
   term: string;
   /** What it sounds like, for a term Whisper keeps mishearing the same way. */
   heard?: string;
-  /** A note for the cleanup model, e.g. "a person". */
+  /** A note for whoever reads the list, e.g. "a person". */
   hint?: string;
 };
-
-/**
- * Whisper takes at most 224 tokens of vocabulary; well under that keeps room
- * for the audio's own context.
- */
-const MAX_PROMPT_CHARS = 600;
 
 /**
  * Reads the dictionary file: one entry per line, blank lines and `#` comments
  * ignored.
  *
  *   Nirjhar Bhattacharjee        the spelling to use
- *   Catppuccin (a colour theme)  with a note for the cleanup model
+ *   Catppuccin (a colour theme)  with a note
  *   cat puck => Catppuccin       what it hears => what to write
  */
 export function parseDictionary(text: string): DictionaryEntry[] {
@@ -42,32 +36,12 @@ export function parseDictionary(text: string): DictionaryEntry[] {
   return entries;
 }
 
-/**
- * The vocabulary hint for Whisper, which is off by default — see
- * MOCKINGBIRD_ASR_VOCABULARY. Measured both ways on the same sentence: the
- * hint turns a name Whisper doesn't know ("Zaya Mingjiao") into the right one
- * ("Xiaoming Zhao"), but distorts names it did know, "Bhattacharjee" becoming
- * "Bhattacharje" and "Aishwarya" becoming "Aiishwarya". It biases the whole
- * decode, not only the word it was given.
- */
-export function buildVocabularyPrompt(entries: DictionaryEntry[]): string | undefined {
-  const terms: string[] = [];
-  let length = 0;
-  for (const { term } of entries) {
-    if (length + term.length + 2 > MAX_PROMPT_CHARS) break;
-    terms.push(term);
-    length += term.length + 2;
-  }
-  return terms.length ? `Glossary: ${terms.join(", ")}.` : undefined;
-}
-
 /** Escapes a term so it can go in a regex. */
 const escapeForRegex = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
  * Applies the `heard => term` entries: the fix for a name mangled the same way
- * every time, which neither the vocabulary hint nor the cleanup model is
- * guaranteed to catch. Matching ignores case, and only at word boundaries, so
+ * every time, which matching by sound can miss. Matching ignores case, and only at word boundaries, so
  * "cat puck" doesn't rewrite "cat pucker".
  */
 export function applyCorrections(text: string, entries: DictionaryEntry[]): string {
@@ -121,51 +95,6 @@ function distance(a: string, b: string): number {
     previous = row;
   }
   return previous[b.length] ?? 0;
-}
-
-/** 0..1, how alike two words sound. */
-export function soundsLike(a: string, b: string): number {
-  const [x, y] = [soundOf(a), soundOf(b)];
-  if (!x || !y) return 0;
-  return 1 - distance(x, y) / Math.max(x.length, y.length);
-}
-
-/**
- * The terms `text` contains, matched whole and ignoring case: what counts as a
- * use of a term, and what the cleanup prompt keeps of a long dictionary.
- */
-export function mentions(text: string, entries: DictionaryEntry[]): string[] {
-  return entries
-    .filter(({ term }) =>
-      new RegExp(`(?<![\\p{L}\\p{N}])${escapeForRegex(term)}(?![\\p{L}\\p{N}])`, "iu").test(text),
-    )
-    .map(({ term }) => term);
-}
-
-/**
- * Past this many terms the cleanup prompt is long enough to slow every
- * cleanup down. ponytail: a fixed cap; measure prompt time against dictionary
- * size before tuning it.
- */
-const MAX_PROMPT_TERMS = 50;
-
-/**
- * The terms worth giving the cleanup model for this transcript. A dictionary
- * that fits goes in whole. A larger one gives the terms the transcript seems
- * to say, by spelling or by sound, then the rest in the order given, which
- * the store makes most used first.
- */
-export function promptTerms(
-  text: string,
-  entries: DictionaryEntry[],
-  max = MAX_PROMPT_TERMS,
-): DictionaryEntry[] {
-  if (entries.length <= max) return entries;
-  const said = new Set(mentions(correctNames(applyCorrections(text, entries), entries), entries));
-  return [
-    ...entries.filter((e) => said.has(e.term)),
-    ...entries.filter((e) => !said.has(e.term)),
-  ].slice(0, max);
 }
 
 /** Below this, a match is more likely to be a different word than a misheard one. */

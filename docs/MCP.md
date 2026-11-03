@@ -1,10 +1,11 @@
 # mockingbird for AI clients (MCP)
 
-`mockingbird mcp` gives an AI client, such as Claude Code, Claude Desktop or
-Cursor, mockingbird's local transcription and dictionary as tools. Ask your
-client to "summarise this recording" or "turn this meeting into a spec", and it
-transcribes the file with mockingbird on your Mac, then does the rest with its
-own model.
+`mockingbird mcp` gives an AI agent, such as Claude Code, Codex, Cursor or
+Gemini CLI, mockingbird's video editing tools: transcription with word times,
+stills, word-by-word captions, cutting and framing, motion graphics, and a
+dictionary of names. Ask your agent to "cut three shorts from this talk", and
+it reads the footage with these tools on your computer, decides the edit with
+its own model, and renders it here.
 
 ## Where your text goes
 
@@ -41,14 +42,14 @@ after the curl install, or `/opt/homebrew/bin/mockingbird` with Homebrew.
 
 | Tool | What it does |
 |---|---|
-| `transcribe(path, from, to, words)` | An audio or video file (anything ffmpeg reads: m4a, mp3, wav, mp4, mov, mkv) as text, in lines timestamped `[mm:ss]`, with names fixed from your dictionary. Uses its own whisper-server, so dictation keeps working meanwhile. No cleanup model: the client's model does that better with a whole meeting. `from` and `to` (seconds) take one stretch of the file. `words: true` gives one line per word with its start and end, `[01:23.48-01:23.71] Catppuccin`, to cut a clip on; names are fixed one word at a time there, so a name misheard as two words stays as heard. |
+| `transcribe(path, from, to, words)` | An audio or video file (anything ffmpeg reads: m4a, mp3, wav, mp4, mov, mkv) as text, in lines timestamped `[mm:ss]`, with names fixed from your dictionary (a `heard => term` entry first, then anything that sounds like a term). Each call starts its own whisper-server, so two can run at once. The client's model does any cleanup or summarising. `from` and `to` (seconds) take one stretch of the file. `words: true` gives one line per word with its start and end, `[01:23.48-01:23.71] Catppuccin`, to cut a clip on; names are fixed one word at a time there, so a name misheard as two words stays as heard. |
 | `frames(path, every, from, to)` | Stills from a video, one every `every` seconds (default 60), saved to a temp folder; returns their paths with `[mm:ss]` times, so a client that reads images can see slides and screen shares, or where the speaker is before framing a clip. `from` and `to` (seconds) take one stretch. Each still is read by seeking to it, so a long 4K phone video takes seconds, not minutes. |
 | `captions(path, clips, perCue, lit, upper)` | Word-by-word captions for the video `render` will make from `clips`, as SRT timed to the finished video: up to `perCue` words a cue (default 3), the word being said written `*like this*` (`lit`, default on), in capitals if `upper`. A new cue starts at each clip, after a sentence, after half a second's pause, or when its words span 1.2 seconds. Each clip is transcribed with two seconds either side, and a word belongs to the clip its middle falls in. |
 | `render(path, clips, …)` | Cuts `clips` out of a video and joins them into one MP4 with ffmpeg; see [Render options](#render-options). Saves to `out`, or `<name>-short-N.mp4` beside the source, and never overwrites a file. |
 | `motion(script, path, captions, size, duration, fps, out)` | Motion graphics written as code, drawn on the Mac with Core Graphics: see [Motion graphics](#motion-graphics). Saves to `out`, or `<name>-motion-N.mp4` beside the video or script, and never overwrites a file. |
-| `status` | Whether the background agent is running, which permissions it's missing, and whether macOS still has the Fn key. |
+| `status` | Whether mockingbird is ready: the transcription model in use, the speech detection model, ffmpeg, whisper-server, and how many words the dictionary has. |
 | `dictionary_list` | Your dictionary: the names, places and jargon mockingbird spells a particular way. |
-| `dictionary_add(entry)` | Adds a word, like `mockingbird dictionary add`: `"Catppuccin"`, `"Catppuccin (a colour theme)"`, or `"cat puck => Catppuccin"`. Needs mockingbird running. |
+| `dictionary_add(entry)` | Adds a word, like `mockingbird dictionary add`: `"Catppuccin"`, `"Catppuccin (a colour theme)"`, or `"cat puck => Catppuccin"`. |
 
 Measured on an M3 MacBook Pro with the default `large-v3` model: a
 27-minute recording took about 4½ minutes, including starting whisper-server.
@@ -193,15 +194,6 @@ internet; see
 
 ## Without MCP
 
-A client with a shell can already run `mockingbird transcribe <file>`, which
-prints the cleaned-up text with no timestamps. The MCP server adds the
-timestamps, word times, the video stills, cutting and the dictionary, and
-works in clients that have no shell.
-
-## Recording a meeting
-
-Press Fn+R (or run `mockingbird record`) to start, and again (or
-`mockingbird record stop`) to stop. The recording is saved under
-`~/.mockingbird/recordings/`; hand its path to `transcribe`. It has both
-sides of a call when system audio starts, and only your microphone when it
-doesn't: the log says `recording to … , with system audio` for the first.
+An agent with a shell can run `mockingbird transcribe <file>` (with
+`--words`, `--from` and `--to`, the same as the tool) and `mockingbird
+dictionary`. The rest of the tools are MCP only for now.

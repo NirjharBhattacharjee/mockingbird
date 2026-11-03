@@ -37,9 +37,6 @@ function installed({ root, answers = true }: { root?: string; answers?: boolean 
   const store = openStore(join(mb, "data.db"));
   store.addTerms([{ term: "Catppuccin", heard: "cat puck" }]);
   store.close();
-  const plist = join(home, "Library", "LaunchAgents", "com.mockingbird.agent.plist");
-  mkdirSync(join(plist, ".."), { recursive: true });
-  writeFileSync(plist, "<plist/>");
   const clone = cloneAt(join(home, "mockingbird"));
   mkdirSync(join(home, ".local", "bin"), { recursive: true });
   writeFileSync(
@@ -48,63 +45,46 @@ function installed({ root, answers = true }: { root?: string; answers?: boolean 
   );
   writeFileSync(join(home, ".zshrc"), PROFILE);
   const calls: string[] = [];
-  /** Records a call and succeeds, like the real command would. */
-  const did = async (call: string) => {
-    calls.push(call);
-    return 0;
-  };
   const logged: string[] = [];
   const deps: UninstallDeps = {
     home,
     mockingbirdHome: mb,
     root: root ?? clone,
-    plistPath: plist,
-    cleanupModel: "qwen3:4b",
     ask: (question) => {
       calls.push(`ask ${question}`);
       return answers;
     },
     log: (m) => logged.push(m),
-    stopAgent: () => did("stop"),
-    undoFn: () => did("fn --undo"),
-    fnBackupPath: join(mb, "fn-key.json"),
+    retire: () => {
+      calls.push("retire");
+      return [];
+    },
     git,
-    ollamaRm: (m) => did(`ollama rm ${m}`),
     sizeOf: () => "1.1G",
-    unregisterApp: (app) => calls.push(`unregister ${app}`),
   };
-  return { home, mb, plist, clone, deps, calls, logged };
+  return { home, mb, clone, deps, calls, logged };
 }
 
 describe("uninstall", () => {
-  test("tells LaunchServices mockingbird.app is gone before deleting it", async () => {
-    const m = installed();
-    expect(await uninstall(["--yes"], m.deps)).toBe(0);
-    expect(m.calls).toContain(`unregister ${join(m.mb, "bin", "mockingbird.app")}`);
-  });
-
   test("a no removes nothing and stops nothing", async () => {
     const m = installed({ answers: false });
     expect(await uninstall([], m.deps)).toBe(0);
     expect(m.calls).toEqual(["ask Remove all of this? [y/N]"]);
-    for (const p of [m.mb, m.plist, m.clone]) expect(existsSync(p)).toBe(true);
+    for (const p of [m.mb, m.clone]) expect(existsSync(p)).toBe(true);
     expect(m.logged.at(-1)).toBe("Nothing was removed.");
   });
 
   test("removes everything the curl install put there, keeping the user's words", async () => {
     const m = installed();
-    writeFileSync(join(m.mb, "fn-key.json"), '{"kind":"unset"}');
     expect(await uninstall([], m.deps)).toBe(0);
-    for (const p of [m.mb, m.plist, m.clone, join(m.home, ".local", "bin", "mockingbird")]) {
+    for (const p of [m.mb, m.clone, join(m.home, ".local", "bin", "mockingbird")]) {
       expect(existsSync(p)).toBe(false);
     }
     expect(readFileSync(join(m.home, ".zshrc"), "utf8")).toBe('alias ll="ls -l"\n\n');
     expect(readFileSync(join(m.home, "mockingbird-dictionary.txt"), "utf8")).toBe(
       "cat puck => Catppuccin\n",
     );
-    expect(m.calls).toContain("stop");
-    expect(m.calls).toContain("fn --undo");
-    expect(m.calls).toContain("ollama rm qwen3:4b");
+    expect(m.calls).toContain("retire");
   });
 
   test("asks about recordings, and keeps them by default", async () => {
@@ -124,11 +104,10 @@ describe("uninstall", () => {
     );
   });
 
-  test("--yes keeps the shared model, and leaves a Homebrew or edited clone alone", async () => {
+  test("--yes asks nothing, and leaves a Homebrew or edited clone alone", async () => {
     const brew = installed({ root: "/opt/homebrew/Cellar/mockingbird/0.2.0/libexec" });
     expect(await uninstall(["--yes"], brew.deps)).toBe(0);
     expect(brew.calls.some((c) => c.startsWith("ask"))).toBe(false);
-    expect(brew.calls.some((c) => c.startsWith("ollama"))).toBe(false);
     expect(existsSync(join(brew.home, "mockingbird-dictionary.txt"))).toBe(true);
     expect(brew.logged.join("\n")).toContain("brew uninstall mockingbird");
 
@@ -169,26 +148,40 @@ describe("clonePristine", () => {
 });
 
 describe("uninstall stops before losing anything", () => {
-  test("an agent that won't stop, or Fn that can't be given back, removes nothing", async () => {
-    const stuck = installed();
-    stuck.deps.stopAgent = async () => 1;
-    expect(await uninstall(["--yes"], stuck.deps)).toBe(1);
-    for (const p of [stuck.mb, stuck.plist, stuck.clone]) expect(existsSync(p)).toBe(true);
-
-    const fn = installed();
-    writeFileSync(fn.deps.fnBackupPath, '{"kind":"unset"}');
-    fn.deps.undoFn = async () => 1;
-    expect(await uninstall(["--yes"], fn.deps)).toBe(1);
-    expect(existsSync(fn.deps.fnBackupPath)).toBe(true);
-    expect(fn.calls).not.toContain("stop");
-  });
-
   test("a dictionary that can't be read stops it before anything goes", async () => {
     const m = installed();
     writeFileSync(join(m.mb, "data.db"), "not a database");
     expect(await uninstall(["--yes"], m.deps)).toBe(1);
     expect(existsSync(join(m.mb, "data.db"))).toBe(true);
-    expect(m.calls).not.toContain("stop");
+    expect(m.calls).not.toContain("retire");
+  });
+
+  test("a Fn setting that couldn't be given back stops it, keeping the backup", async () => {
+    const m = installed();
+    // What retireDictation leaves when `defaults write` fails.
+    writeFileSync(join(m.mb, "fn-key.json"), '{"kind":"taken","value":2}');
+    expect(await uninstall(["--yes"], m.deps)).toBe(1);
+    expect(existsSync(join(m.mb, "fn-key.json"))).toBe(true);
+    expect(m.logged.join("\n")).toContain("Fn couldn't be given back");
+  });
+
+  test("an old agent that can't be removed stops it", async () => {
+    const m = installed();
+    m.deps.retire = () => {
+      throw new Error("EACCES");
+    };
+    expect(await uninstall(["--yes"], m.deps)).toBe(1);
+    expect(existsSync(m.mb)).toBe(true);
+    expect(m.logged.join("\n")).toContain("couldn't be removed, so nothing else was");
+  });
+
+  test("a dictionary.txt that can't be imported stops it too", async () => {
+    const m = installed();
+    // A folder by that name: it can't be read as text.
+    mkdirSync(join(m.mb, "dictionary.txt"));
+    expect(await uninstall(["--yes"], m.deps)).toBe(1);
+    expect(existsSync(join(m.mb, "dictionary.txt"))).toBe(true);
+    expect(m.calls).not.toContain("retire");
   });
 
   test("keeps words not imported yet, and never overwrites an earlier copy", async () => {
@@ -212,15 +205,5 @@ describe("uninstall stops before losing anything", () => {
     expect(existsSync(m.clone)).toBe(true);
     expect(existsSync(join(m.home, ".local", "bin", "mockingbird"))).toBe(true);
     expect(m.logged.join("\n")).toContain("so you can run this again");
-  });
-
-  test("an ollama that's gone still lets it finish", async () => {
-    const m = installed();
-    m.deps.ollamaRm = async () => {
-      throw new Error("ollama: command not found");
-    };
-    expect(await uninstall([], m.deps)).toBe(0);
-    expect(existsSync(m.clone)).toBe(false);
-    expect(m.logged.join("\n")).toContain("still in Ollama");
   });
 });

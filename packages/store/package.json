@@ -4,8 +4,5 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
-  },
-  "dependencies": {
-    "@mockingbird/llm": "workspace:*"
   }
 }

@@ -13,11 +13,10 @@ import { basename, dirname, extname, join, resolve } from "node:path";
 import { type AsrWord, stripNonSpeech } from "@mockingbird/asr";
 import { loadAudio, type PcmAudio } from "@mockingbird/audio";
 import { type Cue, drawCaptions, parseSrt } from "@mockingbird/captions";
-import { correctNames } from "@mockingbird/llm";
+import { applyCorrections, correctNames } from "@mockingbird/store";
 import type { SpeechSegment } from "@mockingbird/vad";
-import { formatEntry, readDictionary, tellDaemon } from "./dictionary.ts";
-import type { PipelineDeps } from "./pipeline.ts";
-import { freePort, requireFile, startEngines } from "./runtime.ts";
+import { addEntries, formatEntry, readDictionary } from "./dictionary.ts";
+import { type Engines, requireFile, spokenLanguage, startEngines } from "./runtime.ts";
 
 /**
  * `mockingbird mcp` (#88): mockingbird's local functions as Model Context
@@ -184,22 +183,23 @@ const clock = (ms: number) => {
 export const fineClock = (ms: number) =>
   `${clock(ms)}.${String(Math.floor((ms % 1000) / 10)).padStart(2, "0")}`;
 
-/** The user's dictionary, or none if data.db can't be read: names then come out as heard. */
-function names(log: (m: string) => void): ReturnType<typeof readDictionary> {
+/**
+ * Spells words the user's way: their `heard => term` corrections, then names
+ * matched by sound, which only works for English (as dictation's cleanup
+ * did). If data.db can't be read, words come out as heard.
+ */
+function speller(log: (m: string) => void): (text: string) => string {
+  let dictionary: ReturnType<typeof readDictionary> = [];
   try {
-    return readDictionary();
+    dictionary = readDictionary();
   } catch (error) {
     log(`warning: couldn't read the dictionary from data.db: ${error}`);
-    return [];
   }
-}
-
-/**
- * Engines with a whisper-server of their own, so the agent's stays free for
- * dictation. A port per call, since two requests can run at once.
- */
-function ownEngines(log: (m: string) => void, dictionary: ReturnType<typeof readDictionary>) {
-  return startEngines(log, dictionary, undefined, undefined, undefined, freePort());
+  const english = spokenLanguage() === "en";
+  return (text) => {
+    const fixed = applyCorrections(text, dictionary);
+    return english ? correctNames(fixed, dictionary) : fixed;
+  };
 }
 
 /**
@@ -209,7 +209,7 @@ function ownEngines(log: (m: string) => void, dictionary: ReturnType<typeof read
 async function* hear(
   audio: PcmAudio,
   startMs: number,
-  { detectSpeech, asr }: Pick<PipelineDeps, "detectSpeech" | "asr">,
+  { detectSpeech, asr }: Pick<Engines, "detectSpeech" | "asr">,
 ) {
   const rate = audio.sampleRate;
   for (const c of chunks(await detectSpeech(audio), 30 * rate)) {
@@ -226,7 +226,7 @@ async function* hear(
  * (seconds) take one stretch of the file; `words` gives each word's start and
  * end instead of lines, to cut a clip on.
  */
-async function transcribe(
+export async function transcribe(
   path: string,
   log: (m: string) => void,
   { from, to }: { from?: number; to?: number } = {},
@@ -244,22 +244,23 @@ async function transcribe(
   }
   const audio = { sampleRate: rate, samples: file.samples.subarray(first, last) };
   const startMs = (first / rate) * 1000;
-  const dictionary = names(log);
-  const engines = await ownEngines(log, dictionary);
+  const spell = speller(log);
+  // A whisper-server per call, since two requests can run at once.
+  const engines = await startEngines(log);
   try {
     const lines: string[] = [];
-    for await (const { heard, offsetMs } of hear(audio, startMs, engines.deps)) {
+    for await (const { heard, offsetMs } of hear(audio, startMs, engines)) {
       if (words) {
         // ponytail: names are fixed one word at a time, so a name misheard as
         // two words stays as heard; the line transcript fixes those.
         for (const w of timedWords(heard, offsetMs)) {
-          const word = correctNames(w.word, dictionary);
+          const word = spell(w.word);
           lines.push(`[${fineClock(w.startMs)}-${fineClock(w.endMs)}] ${word}`);
         }
         continue;
       }
       for (const line of timedLines(heard, offsetMs)) {
-        const text = correctNames(line.text, dictionary);
+        const text = spell(line.text);
         if (text) lines.push(`[${clock(line.atMs)}] ${text}`);
       }
     }
@@ -962,8 +963,9 @@ async function captions(
 ): Promise<string> {
   const file = await loadAudio(requireFile(path, "File"));
   const rate = file.sampleRate;
-  const dictionary = names(log);
-  const engines = await ownEngines(log, dictionary);
+  const spell = speller(log);
+  // A whisper-server per call, since two requests can run at once.
+  const engines = await startEngines(log);
   try {
     const words: AsrWord[][] = [];
     for (const { from, to } of clips) {
@@ -972,9 +974,12 @@ async function captions(
       const last = Math.min(file.samples.length, Math.round((to + 2) * rate));
       const audio = { sampleRate: rate, samples: file.samples.subarray(first, last) };
       const heard: AsrWord[] = [];
-      for await (const c of hear(audio, (first / rate) * 1000, engines.deps)) {
+      for await (const c of hear(audio, (first / rate) * 1000, engines)) {
         for (const w of timedWords(c.heard, c.offsetMs)) {
-          heard.push({ ...w, word: correctNames(w.word, dictionary) });
+          heard.push({
+            ...w,
+            word: spell(w.word),
+          });
         }
       }
       words.push(heard);
@@ -1307,7 +1312,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
     {
       name: "status",
       description:
-        "Whether mockingbird's background agent is running, which permissions it's missing, and whether macOS still has the Fn key.",
+        "Whether mockingbird is ready: the transcription model in use, and whether ffmpeg and whisper-server are installed.",
       inputSchema: { type: "object", properties: {} },
       run: async () => JSON.stringify(await status()),
     },
@@ -1320,22 +1325,13 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
     {
       name: "dictionary_add",
       description:
-        'Teach mockingbird a word: "Catppuccin", "Catppuccin (a colour theme)", or "cat puck => Catppuccin" (what it hears => what to write). Needs mockingbird running.',
+        'Teach mockingbird a word for transcripts and captions: "Catppuccin", "Catppuccin (a colour theme)", or "cat puck => Catppuccin" (what it hears => what to write).',
       inputSchema: {
         type: "object",
         properties: { entry: { type: "string" } },
         required: ["entry"],
       },
-      run: async (a) => {
-        const reply = await tellDaemon("/dictionary/add", String(a.entry)).catch(() => {
-          throw new Error(
-            "mockingbird isn't running, so the dictionary can't change: `mockingbird start`.",
-          );
-        });
-        const text = await reply.text();
-        if (!reply.ok) throw new Error(text);
-        return text;
-      },
+      run: async (a) => addEntries(String(a.entry)),
     },
   ];
 }

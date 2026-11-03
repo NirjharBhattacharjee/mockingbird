@@ -1,92 +1,65 @@
 import { parseArgs } from "node:util";
-import { loadAudio } from "@mockingbird/audio";
-import type { DictionaryEntry } from "@mockingbird/llm";
-import { readDictionary } from "./dictionary.ts";
-import { describeTimings, runPipeline } from "./pipeline.ts";
-import { freePort, requireFile, startEngines } from "./runtime.ts";
+import { transcribe } from "./mcp.ts";
 
-const USAGE = `Usage: bun run transcribe <audio-file> [--terminal] [--json]
+const USAGE = `Usage: mockingbird transcribe <file> [--words] [--from <s>] [--to <s>]
 
-Runs an audio file through the local pipeline and prints the cleaned-up text.
-Any format ffmpeg can read works (wav, m4a, mp3, ...).
+Prints an audio or video file's speech as timestamped lines, names spelled
+the dictionary's way. Any format ffmpeg can read works.
 
 Options:
-  --terminal   format for a terminal (no trailing period)
-  --json       print the full result: raw text, final text, timings
+  --words      each word with its start and end, to cut on
+  --from, --to only this stretch, in seconds
   -h, --help   show this help
 
 Environment:
   MOCKINGBIRD_HOME       default ~/.mockingbird (models are read from its models/)
-  MOCKINGBIRD_ASR_MODEL  Whisper model file (default ggml-large-v3-q5_0.bin)
-  MOCKINGBIRD_ASR_PORT   default: a free port, not the agent's 8771
-  MOCKINGBIRD_LANGUAGE   what is spoken: a code like de, or auto (default en)
-  MOCKINGBIRD_LLM_URL    default http://127.0.0.1:11434
-  MOCKINGBIRD_LLM_MODEL  default qwen3:4b-instruct-2507-q4_K_M`;
+  MOCKINGBIRD_ASR_MODEL  Whisper model file (default: the one \`models use\` picked)
+  MOCKINGBIRD_LANGUAGE   what is spoken: a code like de, or auto (default en)`;
 
-class UsageError extends Error {}
+export class UsageError extends Error {
+  override name = "UsageError";
+}
 
 const log = (message: string) => console.error(message);
 
-function parse(argv: string[]) {
+const seconds = (value: string | undefined) => {
+  if (value === undefined) return undefined;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) throw new UsageError(`not a time in seconds: ${value}`);
+  return n;
+};
+
+export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> {
+  let parsed: ReturnType<typeof parse>;
   try {
-    return parseArgs({
-      args: argv,
-      options: {
-        terminal: { type: "boolean" },
-        json: { type: "boolean" },
-        help: { type: "boolean", short: "h" },
-      },
-      allowPositionals: true,
-    });
+    parsed = parse(argv);
   } catch (error) {
     throw new UsageError(error instanceof Error ? error.message : String(error));
   }
-}
-
-export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> {
-  const { values, positionals } = parse(argv);
+  const { values, positionals } = parsed;
   if (values.help) {
     console.log(USAGE);
     return 0;
   }
   if (positionals.length !== 1 || !positionals[0]) {
-    throw new UsageError("expected exactly one audio file");
+    throw new UsageError("expected exactly one file");
   }
-
-  const audio = await loadAudio(requireFile(positionals[0], "Audio file"));
-  let dictionary: DictionaryEntry[] = [];
-  try {
-    dictionary = readDictionary();
-  } catch (error) {
-    log(`warning: couldn't read the dictionary from data.db: ${error}`);
-  }
-  // A whisper-server of its own, so the agent's stays free for dictation.
-  process.env.MOCKINGBIRD_ASR_PORT ??= String(freePort());
-  const engines = await startEngines(log, dictionary);
-  process.once("SIGINT", () => {
-    void engines.close().finally(() => process.exit(130));
-  });
-
-  try {
-    const result = await runPipeline(
-      { audio, style: values.terminal ? "terminal" : "default" },
-      engines.deps,
-    );
-
-    if (values.json) {
-      console.log(JSON.stringify(result, null, 2));
-    } else if (result.finalText) {
-      console.log(result.finalText);
-    } else {
-      log("no speech detected");
-    }
-    if (result.llmOutcome === "failed") log(`cleanup failed: ${result.llmError}`);
-    if (!values.json) log(describeTimings(result));
-    return result.finalText ? 0 : 1;
-  } finally {
-    await engines.close();
-  }
+  const range = { from: seconds(values.from), to: seconds(values.to) };
+  console.log(await transcribe(positionals[0], log, range, values.words ?? false));
+  return 0;
 }
+
+const parse = (args: string[]) =>
+  parseArgs({
+    args,
+    options: {
+      words: { type: "boolean" },
+      from: { type: "string" },
+      to: { type: "string" },
+      help: { type: "boolean", short: "h" },
+    },
+    allowPositionals: true,
+  });
 
 if (import.meta.main) {
   main().then(
