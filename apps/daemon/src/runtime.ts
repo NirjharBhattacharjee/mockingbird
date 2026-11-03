@@ -44,9 +44,9 @@ export const isWhisperFile = (name: string) =>
 
 /**
  * The Whisper model to load. One named in MOCKINGBIRD_ASR_MODEL has to exist;
- * without it, the one `mockingbird models use speech` saved, then the default,
+ * without it, the one `mockingbird models use <file>` saved, then the default,
  * or else the best earlier default that's installed. A saved file that's since
- * been deleted falls through with a warning: dictation shouldn't stop over it.
+ * been deleted falls through with a warning: transcribing shouldn't stop over it.
  */
 export function findAsrModel(
   models: string,

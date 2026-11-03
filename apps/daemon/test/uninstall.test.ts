@@ -156,6 +156,15 @@ describe("uninstall stops before losing anything", () => {
     expect(m.calls).not.toContain("retire");
   });
 
+  test("a Fn setting that couldn't be given back stops it, keeping the backup", async () => {
+    const m = installed();
+    // What retireDictation leaves when `defaults write` fails.
+    writeFileSync(join(m.mb, "fn-key.json"), '{"kind":"taken","value":2}');
+    expect(await uninstall(["--yes"], m.deps)).toBe(1);
+    expect(existsSync(join(m.mb, "fn-key.json"))).toBe(true);
+    expect(m.logged.join("\n")).toContain("Fn couldn't be given back");
+  });
+
   test("a dictionary.txt that can't be imported stops it too", async () => {
     const m = installed();
     // A folder by that name: it can't be read as text.

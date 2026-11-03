@@ -5,7 +5,7 @@ import { mcpTools, serve } from "./mcp.ts";
 import { listModels, modelsCommand, pullModels } from "./models.ts";
 import { retireDictation } from "./retire.ts";
 import { mockingbirdHome } from "./runtime.ts";
-import { main as transcribeMain } from "./transcribe.ts";
+import { main as transcribeMain, UsageError } from "./transcribe.ts";
 import { uninstall } from "./uninstall.ts";
 
 /** The commands, for `--help`. */
@@ -35,8 +35,6 @@ ${[...COMMANDS, { name: "-h, --help", summary: "show this help" }]
   .join("\n")}
 
 Run a command with --help for its own options, e.g. \`mockingbird transcribe --help\`.`;
-
-class UsageError extends Error {}
 
 const log = (message: string) => console.error(message);
 
@@ -169,7 +167,7 @@ if (import.meta.main) {
   main().then(
     (code) => process.exit(code),
     (error) => {
-      if (error instanceof UsageError || error?.name === "UsageError") {
+      if (error instanceof UsageError) {
         log(`error: ${error.message}\n\n${USAGE}`);
         process.exit(2);
       }

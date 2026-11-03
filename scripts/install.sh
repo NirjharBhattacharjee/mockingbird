@@ -333,7 +333,9 @@ SHIM
 
   # An update from a version with dictation (v0.3.2 and earlier) removes its
   # background agent and gives the Fn key back (apps/daemon/src/retire.ts).
-  if [ -e "$HOME/Library/LaunchAgents/com.mockingbird.agent.plist" ]; then
+  local mb_home="${MOCKINGBIRD_HOME:-$HOME/.mockingbird}"
+  if [ -e "$HOME/Library/LaunchAgents/com.mockingbird.agent.plist" ] ||
+    [ -e "$mb_home/fn-key.json" ] || [ -e "$mb_home/bin/mockingbird.app" ]; then
     STEP=retire
     (cd "$dir" && quietly bun -e 'import { retireDictation } from "./apps/daemon/src/retire.ts"; retireDictation();') || report retire
     done_ "removed dictation's background agent; dictation is gone from mockingbird"

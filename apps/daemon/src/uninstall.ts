@@ -127,9 +127,6 @@ export async function uninstall(args: string[], deps: UninstallDeps): Promise<nu
     return 0;
   }
 
-  // Fn's backup is in the folder about to go, so this runs first.
-  for (const line of deps.retire()) log(line);
-
   const failed: string[] = [];
   const attempt = (what: string, remove: () => void): boolean => {
     try {
@@ -140,6 +137,19 @@ export async function uninstall(args: string[], deps: UninstallDeps): Promise<nu
       return false;
     }
   };
+
+  // Fn's backup is in the folder about to go, so this runs first.
+  attempt("dictation's background agent", () => {
+    for (const line of deps.retire()) log(line);
+  });
+  const fnBackup = join(mb, "fn-key.json");
+  if (existsSync(fnBackup)) {
+    log(
+      `Fn couldn't be given back, so nothing else was removed. Set Fn in System Settings → ` +
+        `Keyboard, delete ${fnBackup}, and run this again.`,
+    );
+    return 1;
+  }
   let dataSafe = true;
   if (
     words.length > 0 &&
@@ -177,6 +187,9 @@ export async function uninstall(args: string[], deps: UninstallDeps): Promise<nu
   const kept: string[] = [
     "Bun, whisper-cpp and ffmpeg are still installed, since other things use them: " +
       "`brew uninstall bun whisper-cpp ffmpeg`.",
+    "If you used dictation (v0.3.2 and earlier), System Settings → Privacy & Security may " +
+      "still list mockingbird under Microphone, Accessibility and Input Monitoring. Select it " +
+      "in each and click −.",
   ];
   if (isHomebrew(root)) {
     kept.push("The code and the command came from Homebrew: `brew uninstall mockingbird`.");

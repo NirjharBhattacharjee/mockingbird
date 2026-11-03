@@ -13,7 +13,7 @@ export {
  * The schema, one step per release that changed it. `PRAGMA user_version`
  * records how many have run, so each runs once. Append, never edit.
  */
-const MIGRATIONS = [
+const MIGRATIONS: (string | ((db: Database) => void))[] = [
   `CREATE TABLE dictionary (
      term        TEXT PRIMARY KEY COLLATE NOCASE,
      heard       TEXT,
@@ -53,10 +53,19 @@ const MIGRATIONS = [
      PRIMARY KEY (run, sentence)
    )`,
   // Dictation is gone (#135): learning, use counts and calibration with it.
-  `DROP TABLE correction;
-   DROP TABLE calibration;
-   ALTER TABLE dictionary DROP COLUMN learned;
-   ALTER TABLE dictionary DROP COLUMN uses`,
+  // Safe to run twice: v0.3.2 and earlier set user_version back to 4 when
+  // they open data.db, so this runs again after one of them has.
+  (db) => {
+    db.run("DROP TABLE IF EXISTS correction");
+    db.run("DROP TABLE IF EXISTS calibration");
+    const columns = db
+      .query<{ name: string }, []>("SELECT name FROM pragma_table_info('dictionary')")
+      .all();
+    for (const column of ["learned", "uses"]) {
+      if (columns.some((c) => c.name === column))
+        db.run(`ALTER TABLE dictionary DROP COLUMN ${column}`);
+    }
+  },
 ];
 
 export type Store = {
@@ -87,8 +96,12 @@ export function openStore(path: string): Store {
     const { user_version: version } = db.query("PRAGMA user_version").get() as {
       user_version: number;
     };
-    for (const sql of MIGRATIONS.slice(version)) db.run(sql);
-    db.run(`PRAGMA user_version = ${MIGRATIONS.length}`);
+    for (const step of MIGRATIONS.slice(version)) {
+      if (typeof step === "string") db.run(step);
+      else step(db);
+    }
+    // Never lowered: a newer mockingbird's data.db stays at its version.
+    db.run(`PRAGMA user_version = ${Math.max(version, MIGRATIONS.length)}`);
   }).immediate();
 
   const upsert = db.query(

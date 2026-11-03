@@ -75,6 +75,18 @@ describe("dictionary", () => {
       .map((t) => t.name);
     expect(tables.sort()).toEqual(["dictionary", "settings"]);
   });
+
+  test("opens again after a dictation-era mockingbird set it back to version 4", () => {
+    const path = dbPath();
+    openStore(path).close();
+    const old = new Database(path);
+    old.run("PRAGMA user_version = 4");
+    old.close();
+    const store = openStore(path);
+    store.addTerms([{ term: "Bun" }]);
+    expect(store.dictionary()).toEqual([{ term: "Bun" }]);
+    store.close();
+  });
 });
 
 describe("settings", () => {
