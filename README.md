@@ -75,13 +75,15 @@ To remove it, follow [Uninstalling](docs/README.md#uninstalling).
 
 ## 🎬 Use it
 
-Connect it to your agent once. For Claude Code:
+Connect it to your agents once:
 
 ```sh
-claude mcp add mockingbird -- mockingbird mcp
+mockingbird setup
 ```
 
-Other agents: [MCP.md](docs/MCP.md#register-it). Then ask:
+It adds mockingbird to Claude Code, Cursor, Codex, Gemini CLI and VS Code,
+whichever you have, after asking. By hand: [MCP.md](docs/MCP.md#register-it).
+`mockingbird doctor` checks the install. Then ask:
 
 > Cut a 60-second vertical short with captions from ~/Movies/talk.mp4.
 
@@ -109,7 +111,7 @@ it as a plugin, from [`plugin/`](plugin/README.md):
 | `status`, `dictionary_list`, `dictionary_add` | What's installed; names to spell right |
 
 Every option: [docs/MCP.md](docs/MCP.md). On the command line,
-`mockingbird transcribe`, `dictionary`, `models` and `status` do the same.
+`mockingbird transcribe`, `dictionary`, `models`, `status` and `doctor` do the same.
 
 Something not working? See [troubleshooting](docs/README.md#troubleshooting).
 

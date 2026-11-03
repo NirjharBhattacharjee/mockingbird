@@ -32,17 +32,20 @@ brew install nirjharbhattacharjee/mockingbird/mockingbird
 mockingbird models pull
 ```
 
-**2. Give it to your agent**
+**2. Give it to your agents**
 
 ```sh
-claude mcp add mockingbird -- mockingbird mcp
+mockingbird setup
 ```
 
-Other agents take the same command in their MCP config; see
-[MCP.md](./MCP.md#register-it). Then ask your agent for an edit: "cut a
-60-second vertical short with captions from ~/Movies/talk.mp4".
+It finds Claude Code, Cursor, Codex, Gemini CLI and VS Code, and adds
+mockingbird to each after asking, editing their config files rather than
+replacing them. It also offers to install anything still missing. To add it
+by hand instead, see [MCP.md](./MCP.md#register-it). Then ask your agent for
+an edit: "cut a 60-second vertical short with captions from
+~/Movies/talk.mp4".
 
-`mockingbird status` checks that everything it needs is installed.
+`mockingbird doctor` checks every part and says how to fix what's broken.
 
 ### Updating
 
@@ -105,6 +108,8 @@ export PATH="$HOME/.local/bin:$PATH"
 | `mockingbird dictionary` | Lists the words it spells a particular way. `add "Nirjhar Bhattacharjee"`, `add "cat puck => Catppuccin"` (what it hears => what to write), `remove <term>`. |
 | `mockingbird models` | Lists the Whisper models you have. `models use <file>` picks one, `--default` goes back. |
 | `mockingbird models pull` | Downloads the speech models. The only command that uses the network. |
+| `mockingbird setup` | Installs what's missing (ffmpeg, whisper-cpp, the models), then adds mockingbird to your coding agents. Asks before each step; `--yes` doesn't. |
+| `mockingbird doctor` | Checks every part, names what's broken and how to fix it, and lists which agents have mockingbird. `--json` for agents. |
 | `mockingbird status` | Whether the models, ffmpeg and whisper-server are installed. |
 | `mockingbird uninstall` | Removes mockingbird, after asking. |
 

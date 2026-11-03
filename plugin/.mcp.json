@@ -1,5 +1,5 @@
 {
   "mcpServers": {
-    "mockingbird": { "command": "mockingbird", "args": ["mcp"] }
+    "mockingbird": { "command": "sh", "args": ["${CLAUDE_PLUGIN_ROOT}/launch.sh"] }
   }
 }

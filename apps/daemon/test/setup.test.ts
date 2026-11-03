@@ -1,0 +1,164 @@
+import { describe, expect, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { agents } from "../src/agents.ts";
+import { PLUGIN } from "../src/guide.ts";
+import { checks, setup } from "../src/setup.ts";
+
+/** A home with Cursor, Gemini CLI, VS Code and Codex folders, and no `claude` command. */
+function home() {
+  const dir = mkdtempSync(join(tmpdir(), "mb-setup-"));
+  for (const d of [".cursor", ".gemini", ".codex", "Library/Application Support/Code/User"]) {
+    mkdirSync(join(dir, d), { recursive: true });
+  }
+  return dir;
+}
+const none = () => null;
+
+describe("agents", () => {
+  test("adds mockingbird to each config, keeping what's there", () => {
+    const h = home();
+    writeFileSync(join(h, ".cursor", "mcp.json"), '{"mcpServers":{"other":{"command":"x"}}}');
+    writeFileSync(join(h, ".codex", "config.toml"), 'model = "o4"\n');
+    const found = agents("/usr/local/bin/mockingbird", { home: h, which: none });
+    expect(found.map((a) => [a.name, a.registered])).toEqual([
+      ["Cursor", false],
+      ["Gemini CLI", false],
+      ["VS Code", false],
+      ["Codex", false],
+    ]);
+    for (const a of found) a.register();
+    const cursor = JSON.parse(readFileSync(join(h, ".cursor", "mcp.json"), "utf8"));
+    expect(cursor.mcpServers).toEqual({
+      other: { command: "x" },
+      mockingbird: { command: "/usr/local/bin/mockingbird", args: ["mcp"] },
+    });
+    const vscode = join(h, "Library/Application Support/Code/User/mcp.json");
+    expect(JSON.parse(readFileSync(vscode, "utf8")).servers.mockingbird.type).toBe("stdio");
+    expect(readFileSync(join(h, ".codex", "config.toml"), "utf8")).toBe(
+      'model = "o4"\n\n[mcp_servers.mockingbird]\ncommand = "/usr/local/bin/mockingbird"\nargs = ["mcp"]\n',
+    );
+    // Run again: each one now has it, and nothing is added twice.
+    expect(
+      agents("/usr/local/bin/mockingbird", { home: h, which: none }).every((a) => a.registered),
+    ).toBe(true);
+  });
+
+  test("a config that isn't plain JSON is left alone, with what to add", () => {
+    const h = home();
+    const file = join(h, ".cursor", "mcp.json");
+    writeFileSync(file, "{ // mine\n}");
+    const cursor = agents("mb", { home: h, which: none }).find((a) => a.name === "Cursor");
+    expect(() => cursor?.register()).toThrow(
+      'isn\'t plain JSON, so it was left alone. Add this to it: {"mcpServers"',
+    );
+    expect(readFileSync(file, "utf8")).toBe("{ // mine\n}");
+  });
+
+  test("Claude Code counts as having it through `claude mcp add` or the plugin", () => {
+    const empty = mkdtempSync(join(tmpdir(), "mb-setup-"));
+    const claude = (out: string) =>
+      agents("mb", {
+        home: empty,
+        which: (n) => (n === "claude" ? "/bin/claude" : null),
+        run: () => ({ code: 0, out }),
+      })[0];
+    expect(claude("other: x - ✔ Connected\n")?.registered).toBe(false);
+    expect(claude("mockingbird: mockingbird mcp - ✔ Connected\n")?.registered).toBe(true);
+    expect(claude("plugin:mockingbird:mockingbird: sh launch.sh - ✔ Connected\n")?.registered).toBe(
+      true,
+    );
+  });
+});
+
+test("setup installs missing tools and models after asking, then adds the agents", async () => {
+  const h = home();
+  const mb = join(h, ".mockingbird");
+  const ran: string[] = [];
+  const asked: string[] = [];
+  let pulled = false;
+  const tools = new Set(["brew"]);
+  const code = await setup([], {
+    home: h,
+    mbHome: mb,
+    which: (n) => (tools.has(n) ? `/opt/homebrew/bin/${n}` : null),
+    run: (argv) => {
+      ran.push(argv.join(" "));
+      if (argv[0] === "brew") for (const t of ["ffmpeg", "whisper-server"]) tools.add(t);
+      return { code: 0, out: argv[0] === "ffmpeg" ? "libx264" : "" };
+    },
+    ask: (q) => {
+      asked.push(q);
+      return true;
+    },
+    pull: async () => {
+      pulled = true;
+      mkdirSync(join(mb, "models"), { recursive: true });
+      writeFileSync(join(mb, "models", "silero_vad.onnx"), "");
+      writeFileSync(join(mb, "models", "ggml-large-v3-q5_0.bin"), "");
+      return 0;
+    },
+    log: () => {},
+  });
+  expect(asked[0]).toBe("Install ffmpeg and whisper-cpp with Homebrew? [Y/n]");
+  expect(asked[1]).toMatch(
+    /^Download the speech models \(1\.1 GB\) from huggingface\.co and github\.com\?/,
+  );
+  expect(asked[2]).toBe("Add mockingbird to Cursor, Gemini CLI, VS Code, Codex? [Y/n]");
+  expect(ran).toContain("brew install ffmpeg whisper-cpp");
+  expect(pulled).toBe(true);
+  expect(existsSync(join(h, ".gemini", "settings.json"))).toBe(true);
+  expect(code).toBe(0);
+});
+
+test("a no to the download stops setup before anything is added", async () => {
+  const h = home();
+  const code = await setup([], {
+    home: h,
+    mbHome: join(h, ".mockingbird"),
+    which: (n) => `/opt/homebrew/bin/${n}`,
+    run: () => ({ code: 0, out: "libx264" }),
+    ask: (q) => !q.startsWith("Download"),
+    log: () => {},
+  });
+  expect(code).toBe(1);
+  expect(existsSync(join(h, ".cursor", "mcp.json"))).toBe(false);
+});
+
+test("doctor's needed checks name a fix", () => {
+  const h = home();
+  const broken = checks({ home: h, mbHome: join(h, "mb"), which: none }).filter(
+    (c) => !c.ok && c.needed,
+  );
+  expect(broken.map((c) => [c.name, c.fix])).toEqual([
+    ["ffmpeg", "install ffmpeg"],
+    ["whisper-server", "install whisper-cpp"],
+    ["speech model", "`mockingbird models pull`"],
+    ["speech detection model", "`mockingbird models pull`"],
+  ]);
+});
+
+test("the plugin's launcher answers MCP itself when mockingbird isn't installed", () => {
+  const requests = [
+    { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18" } },
+    { jsonrpc: "2.0", method: "notifications/initialized" },
+    { jsonrpc: "2.0", id: "b", method: "tools/list" },
+    { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "install_mockingbird" } },
+    { jsonrpc: "2.0", id: 4, method: "resources/list" },
+  ];
+  const r = Bun.spawnSync(["sh", join(PLUGIN, "launch.sh")], {
+    stdin: Buffer.from(`${requests.map((m) => JSON.stringify(m)).join("\n")}\n`),
+    env: { HOME: mkdtempSync(join(tmpdir(), "mb-setup-")), PATH: "/usr/bin:/bin" },
+  });
+  const replies = r.stdout
+    .toString()
+    .trim()
+    .split("\n")
+    .map((l) => JSON.parse(l));
+  expect(replies.map((m) => m.id)).toEqual([1, "b", 3, 4]);
+  expect(replies[0].result.instructions).toContain("isn't installed");
+  expect(replies[1].result.tools[0].name).toBe("install_mockingbird");
+  expect(replies[2].result.content[0].text).toContain("AGENT_INSTALL.md");
+  expect(replies[3].error.code).toBe(-32601);
+});
