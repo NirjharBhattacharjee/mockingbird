@@ -371,15 +371,16 @@ function frame({ focus = { x: 0.5, y: 0.5 }, zoom = 1 }: Clip, vertical: boolean
 }
 
 /**
- * The ffmpeg filter graph that keeps `clips` in order and joins them, each
- * framed by its focus and zoom, cropped to 9:16 if `vertical`, or with
- * `split`'s two areas stacked into 1080x1920. Then, over the picture: `inserts`
- * (images or videos, the inputs after the overlays), and `overlays` (text
- * drawn as images, inputs 1, 2, …), each for its stretch of the finished video
- * in seconds, its middle at `y` of the height. `burn` draws the captions in
- * CAPTIONS over all of it, at `captionsY`. `sounds` (the inputs after the
- * inserts) are mixed under the speech, the sound cut to the picture's length
- * and brought to LOUDNESS. `size` is the source picture's, `WxH`. Ends in
+ * The ffmpeg filter graph that joins `clips` in order, each its own input
+ * (0, 1, …, from seekClips), framed by its focus and zoom, cropped to 9:16
+ * if `vertical`, or with `split`'s two areas stacked into 1080x1920. Then,
+ * over the picture: `inserts` (images or videos, the inputs after the
+ * overlays), and `overlays` (text drawn as images, the inputs after the
+ * clips), each for its stretch of the finished video in seconds, its middle
+ * at `y` of the height. `burn` draws the captions in CAPTIONS over all of it,
+ * at `captionsY`. `sounds` (the inputs after the inserts) are mixed under the
+ * speech, the sound cut to the picture's length and brought to LOUDNESS
+ * unless `loudness` is false. `size` is the source picture's, `WxH`. Ends in
  * [v], and [a] if there's sound.
  */
 export function renderGraph(
@@ -394,6 +395,7 @@ export function renderGraph(
     overlays = [],
     inserts = [],
     sounds = [],
+    loudness = true,
   }: {
     audio: boolean;
     vertical: boolean;
@@ -404,15 +406,15 @@ export function renderGraph(
     overlays?: (Omit<Cue, "text"> & { y?: number })[];
     inserts?: Omit<Cue, "text">[];
     sounds?: Sound[];
+    loudness?: boolean;
   },
 ): string {
   const out = vertical || split ? "1080x1920" : size;
   // A split takes its areas from the whole picture, so its clips aren't framed one by one.
   const parts = clips.map((clip, i) => {
-    const { from, to } = clip;
     const look = split ? "" : frame(clip, vertical, out);
-    const v = `[0:v]trim=start=${from}:end=${to},setpts=PTS-STARTPTS,${SQUARE}${look}[v${i}]`;
-    return audio ? `${v};[0:a]atrim=start=${from}:end=${to},asetpts=PTS-STARTPTS[a${i}]` : v;
+    const v = `[${i}:v]setpts=PTS-STARTPTS,${SQUARE}${look}[v${i}]`;
+    return audio ? `${v};[${i}:a]asetpts=PTS-STARTPTS[a${i}]` : v;
   });
   const inputs = clips.map((_, i) => (audio ? `[v${i}][a${i}]` : `[v${i}]`)).join("");
   const joined = `${inputs}concat=n=${clips.length}:v=1:a=${audio ? 1 : 0}[joined]${audio ? "[speech]" : ""}`;
@@ -425,8 +427,13 @@ export function renderGraph(
   const base = stacked ? "[stacked]" : "[joined]";
   // Inserts go under the text, so captions stay readable over b-roll.
   const layers = [
-    ...inserts.map((cue, i) => ({ ...cue, y: 0, input: overlays.length + 1 + i, insert: true })),
-    ...overlays.map((cue, i) => ({ ...cue, input: i + 1, insert: false })),
+    ...inserts.map((cue, i) => ({
+      ...cue,
+      y: 0,
+      input: clips.length + overlays.length + i,
+      insert: true,
+    })),
+    ...overlays.map((cue, i) => ({ ...cue, input: clips.length + i, insert: false })),
   ];
   const label = (i: number) => (i < layers.length ? `[c${i}]` : burn ? "[laid]" : "[v]");
   const laid = layers.flatMap(({ start, end, y = CAPTIONS_Y, input, insert }, i) => {
@@ -454,18 +461,29 @@ export function renderGraph(
     `${base}null${label(0)}`,
     ...laid,
     ...burnt,
-    ...mixGraph(sounds, { speech: audio, length, first: overlays.length + inserts.length + 1 }),
+    ...mixGraph(sounds, {
+      speech: audio,
+      length,
+      first: clips.length + overlays.length + inserts.length,
+      loudness,
+    }),
   ].join(";");
 }
 
 /**
  * The filter steps that mix `sounds` (inputs `first`, `first + 1`, …) under
  * the speech, labelled [speech] if there is any, cut to `length` seconds and
- * brought to LOUDNESS. Ends in [a] if there's any sound at all.
+ * brought to LOUDNESS unless `loudness` is false. Ends in [a] if there's any
+ * sound at all.
  */
 export function mixGraph(
   sounds: Sound[],
-  { speech: audio, length, first }: { speech: boolean; length: number; first: number },
+  {
+    speech: audio,
+    length,
+    first,
+    loudness = true,
+  }: { speech: boolean; length: number; first: number; loudness?: boolean },
 ): string[] {
   const ducked = sounds.filter((s) => s.duck).length;
   const keyLabels = sounds.flatMap((s, i) => (s.duck ? [`[key${i}]`] : [])).join("");
@@ -485,7 +503,7 @@ export function mixGraph(
   });
   const tracks = [audio && speech, ...sounds.map((_, i) => `[m${i}]`)].filter(Boolean);
   // No sound runs past the picture, even a long one under a silent video.
-  const level = `atrim=duration=${length},${LOUDNESS}[a]`;
+  const level = `atrim=duration=${length}${loudness ? `,${LOUDNESS}` : ""}[a]`;
   const sound = tracks.length
     ? [
         tracks.length === 1
@@ -686,6 +704,69 @@ export type Text = { text: string; from: number; to: number; y?: number };
 /** A picture or video laid over the finished video from `from` to `to` seconds; its sound isn't used. */
 export type Insert = { path: string; from: number; to: number };
 
+/**
+ * ffmpeg's inputs for `clips`: the source once per clip, opened at its start
+ * and read for its length. Seeking decodes only what's kept, where trimming
+ * one input decodes the whole source and drifts a frame here and there (#137).
+ */
+export const seekClips = (path: string, clips: Clip[]) =>
+  clips.flatMap(({ from, to }) => ["-ss", String(from), "-t", String(to - from), "-i", path]);
+
+/**
+ * The most clips one ffmpeg opens at once. Each is an input with its own
+ * decoder, about 23 MB at 1080p, so 100 is about 2.3 GB. More are rendered
+ * in batches and joined (#137).
+ */
+export const CLIPS_PER_PASS = 100;
+
+/** Runs ffmpeg with `args`, throwing its error output if it fails. */
+async function ffmpeg(args: string[], what: string): Promise<void> {
+  const proc = Bun.spawn(["ffmpeg", "-nostdin", "-y", "-loglevel", "error", ...args], {
+    stderr: "pipe",
+  });
+  if ((await proc.exited) !== 0) {
+    throw new Error(`ffmpeg couldn't ${what}: ${(await new Response(proc.stderr).text()).trim()}`);
+  }
+}
+
+/**
+ * `clips` cut, framed and joined into one file in `dir`, CLIPS_PER_PASS at
+ * a time: each batch is encoded at a high quality, and the batches are joined
+ * without encoding again. The sound isn't brought to LOUDNESS: render's last
+ * pass does that over all of it.
+ */
+async function joinBatches(
+  path: string,
+  clips: Clip[],
+  dir: string,
+  look: { audio: boolean; vertical: boolean; size: string; split?: { top: Area; bottom: Area } },
+): Promise<string> {
+  const batches: string[] = [];
+  for (let i = 0; i < clips.length; i += CLIPS_PER_PASS) {
+    const batch = clips.slice(i, i + CLIPS_PER_PASS);
+    const file = join(dir, `batch-${batches.length}.mkv`);
+    await ffmpeg(
+      [
+        ...seekClips(path, batch),
+        ...["-filter_complex", renderGraph(batch, { ...look, loudness: false }), "-map", "[v]"],
+        ...(look.audio ? ["-map", "[a]", "-c:a", "pcm_s16le"] : []),
+        // Encoded once more in the last pass, so near-lossless here.
+        ...["-c:v", "libx264", "-crf", "10", "-preset", "veryfast", "-pix_fmt", "yuv420p", file],
+      ],
+      `render clips ${i + 1}-${i + batch.length} of ${path}`,
+    );
+    batches.push(file);
+  }
+  const list = join(dir, "batches.txt");
+  writeFileSync(list, batches.map((b) => `file '${b}'`).join("\n"));
+  const joined = join(dir, "joined.mkv");
+  await ffmpeg(
+    ["-f", "concat", "-safe", "0", "-i", list, "-c", "copy", joined],
+    `join ${path}'s clips`,
+  );
+  return joined;
+}
+
 /** Files ffmpeg reads as one still picture, which then has to be repeated to last. */
 const STILL = /\.(png|jpe?g|webp|heic|bmp|tiff?)$/i;
 
@@ -708,6 +789,7 @@ async function render(
     inserts = [],
     sounds = [],
     out,
+    named = path,
   }: {
     vertical?: boolean;
     split?: { top: Area; bottom: Area };
@@ -717,6 +799,8 @@ async function render(
     inserts?: Insert[];
     sounds?: (Sound & { path: string })[];
     out?: string;
+    /** The file the default output is named after and put beside: the source, unless this is render's last pass over joined batches. */
+    named?: string;
   },
 ): Promise<string> {
   requireFile(path, "File");
@@ -733,6 +817,27 @@ async function render(
   const over = clips.find((c) => source.seconds && c.to > source.seconds);
   if (over)
     throw new Error(`A clip ends at ${over.to}s, after the end of ${path} (${source.seconds}s).`);
+  if (clips.length > CLIPS_PER_PASS) {
+    const batches = mkdtempSync(join(tmpdir(), "mockingbird-batches-"));
+    try {
+      const look = { audio: source.audio, vertical, size: source.size, split };
+      const joined = await joinBatches(path, clips, batches, look);
+      // Its own length, which rounding to whole frames can leave a hair short of the clips'.
+      const { seconds } = await probe(joined);
+      // Framed and split already; this pass lays everything else over it.
+      return await render(joined, [{ from: 0, to: seconds }], {
+        captions,
+        captionsY,
+        texts,
+        inserts,
+        sounds,
+        out,
+        named,
+      });
+    } finally {
+      rmSync(batches, { recursive: true, force: true });
+    }
+  }
   const text = captions?.trim();
   const cues = text ? parseSrt(text) : [];
 
@@ -746,7 +851,7 @@ async function render(
     const images = lines.length ? drawCaptions(lines, dir, width) : undefined;
     const burn = !!text && !images && (await canBurn());
     sidecar = !!text && !images && !burn;
-    target = outputFor(path, out, sidecar);
+    target = outputFor(named, out, sidecar);
     const srt = text && !images ? join(dir, CAPTIONS) : undefined;
     if (srt) writeFileSync(srt, `${text}\n`);
     const graph = renderGraph(clips, {
@@ -772,13 +877,13 @@ async function render(
     const proc = Bun.spawn(
       [
         "ffmpeg",
-        ...["-nostdin", "-y", "-loglevel", "error", "-i", path],
+        ...["-nostdin", "-y", "-loglevel", "error", ...seekClips(path, clips)],
         ...extras,
         ...(sidecar ? ["-i", CAPTIONS] : []),
         ...["-filter_complex", graph, "-map", "[v]"],
         ...(hasSound ? ["-map", "[a]", "-c:a", "aac", "-b:a", "160k"] : []),
-        // The subtitle file is the input after the source and the extras.
-        ...(sidecar ? ["-map", `${1 + extras.filter((a) => a === "-i").length}:s`] : []),
+        // The subtitle file is the input after the clips and the extras.
+        ...(sidecar ? ["-map", `${clips.length + extras.filter((a) => a === "-i").length}:s`] : []),
         ...(sidecar ? ["-c:s", "mov_text"] : []),
         ...["-c:v", "libx264", "-crf", "18", "-preset", "veryfast", "-pix_fmt", "yuv420p"],
         ...["-movflags", "+faststart", target],

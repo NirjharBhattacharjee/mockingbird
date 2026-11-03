@@ -18,6 +18,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
+| 2026-11-03 | `render` opens the source once per clip with a seek instead of trimming one input: 2.4x faster on a 96-clip edit, and frame-accurate. Over 100 clips it renders in batches and joins them, to bound memory (#137). |
 | 2026-11-03 | Pivot step 1 (#135). Deleted dictation and the meeting recorder: `packages/{hotkey,inject,context,llm,cue}`, mic capture and the system audio tap in `packages/audio`, the launchd agent, the pipeline and its FSM, learning, calibration, Ollama, the Bubble Tea screens and TUI.md. The dictionary's parsing and name matching moved to `packages/store`. With no daemon, every process opens `data.db` read-write. `apps/daemon/src/agent.ts` is now a stub that removes an upgraded Mac's leftover agent. |
 | 2026-11-02 | `motion` draws gradient-outlined text, and refuses a font that isn't installed instead of falling back to Helvetica (#133). |
 | 2026-11-01 | `motion`: Path2D, `ctx.filter`, and sound from the script (#131). Motion graphics written as code, drawn with Core Graphics through `bun:ffi` (`packages/motion`, #129). |
@@ -160,12 +161,23 @@ measurements behind the default.
 
 ## 7. Rendering
 
-`render` builds one ffmpeg filter graph from its parameters: a `trim` and
-`atrim` per clip, a crop and scale per clip for framing and zoom (or two
-crops stacked for a split), `concat`, overlays for b-roll, then the
-captions and text as PNG overlays drawn by `packages/captions` with Core
-Text, and an audio graph that mixes music and effects under the speech with
-sidechain ducking and normalises to −14 LUFS. It never overwrites a file.
+`render` builds one ffmpeg filter graph from its parameters: each clip is
+its own input, the source opened at the clip's start (`-ss`) and read for
+its length (`-t`), so only what's kept is decoded. Then a crop and scale per
+clip for framing and zoom (or two crops stacked for a split), `concat`,
+overlays for b-roll, then the captions and text as PNG overlays drawn by
+`packages/captions` with Core Text, and an audio graph that mixes music and
+effects under the speech with sidechain ducking and normalises to −14 LUFS.
+It never overwrites a file.
+
+Each input costs a decoder, about 23 MB at 1080p, so one pass opens at most
+100 clips (`CLIPS_PER_PASS`). More are cut and joined in batches of 100,
+encoded near-lossless (x264 CRF 10, PCM sound), joined with the concat
+demuxer, and then given the overlays, sound and loudness in one last pass.
+Measured on an M3 with a 96-clip edit of a 908 s 1080p60 recording
+(#137): 152.9 s with one trimmed input, 63.4 s seeking, 103.1 s in two
+batches. VideoToolbox's H.264 encoder was slower than x264 `veryfast` there
+(about 213 fps against 557), so encoding stays on x264.
 
 `motion` imports the agent's script in a separate Bun process under
 `sandbox-exec` with the network denied (`apps/daemon/src/motion-run.ts`),
