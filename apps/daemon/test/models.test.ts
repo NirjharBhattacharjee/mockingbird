@@ -434,4 +434,25 @@ describe("Chrome", () => {
     expect(existsSync(old)).toBe(false);
     expect(existsSync(pin.program)).toBe(true);
   });
+
+  test("one pull at a time; a lock left by a pull that died is taken over", async () => {
+    const home = tempDir();
+    const pin = pinnedChrome(home);
+    if (!pin) return;
+    mkdirSync(join(pin.program, ".."), { recursive: true });
+    writeFileSync(pin.program, "");
+    const lock = join(home, "bin", ".chrome-pull.lock");
+    const said: string[] = [];
+    const { get, calls } = serving("");
+    writeFileSync(lock, String(process.pid));
+    expect(await pullChrome({ home, fetch: get, log: (m) => said.push(m) })).toBe(1);
+    expect(said.join("\n")).toContain(`pid ${process.pid}`);
+    expect(existsSync(lock)).toBe(true);
+
+    const gone = Bun.spawnSync(["true"]).pid; // exited, so not running
+    writeFileSync(lock, String(gone));
+    expect(await pullChrome({ home, fetch: get, log: () => {} })).toBe(0);
+    expect(existsSync(lock)).toBe(false);
+    expect(calls).toEqual([]);
+  });
 });

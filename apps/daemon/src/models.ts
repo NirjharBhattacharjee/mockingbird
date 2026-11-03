@@ -2,12 +2,15 @@ import {
   closeSync,
   createReadStream,
   existsSync,
+  linkSync,
   mkdirSync,
   openSync,
   readdirSync,
+  readFileSync,
   renameSync,
   rmSync,
   statSync,
+  writeFileSync,
   writeSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -249,8 +252,72 @@ export async function pullChrome(deps: PullDeps = {}): Promise<number> {
     log(`There's no pinned Chrome for ${process.platform}-${process.arch} yet.`);
     return 1;
   }
+  const bin = dirname(pin.dir);
+  mkdirSync(bin, { recursive: true });
+  // One pull at a time: two would share the download and the unpacking folder.
+  const lock = join(bin, ".chrome-pull.lock");
+  const holder = takeLock(lock);
+  if (holder) {
+    log(`Another \`mockingbird models pull chrome\` (pid ${holder}) is running; wait for it.`);
+    return 1;
+  }
+  try {
+    await installChrome(pin, bin, deps);
+  } finally {
+    rmSync(lock, { force: true });
+  }
+  log(`Chrome ${CHROME_VERSION} is downloaded.`);
+  return 0;
+}
+
+/**
+ * Takes the lock file at `lock` for this process, or returns the pid of the
+ * running one that holds it. The pid is written before the lock appears (a
+ * hard link fails if the name is taken), so it's never seen empty. A lock
+ * whose process has gone is taken over.
+ * ponytail: two pulls taking over the same stale lock at once can both win.
+ */
+function takeLock(lock: string): number | undefined {
+  const mine = `${lock}.${process.pid}`;
+  writeFileSync(mine, String(process.pid));
+  try {
+    for (;;) {
+      try {
+        linkSync(mine, lock);
+        return undefined;
+      } catch {}
+      let holder = 0;
+      try {
+        holder = Number(readFileSync(lock, "utf8"));
+      } catch {
+        continue; // released meanwhile: try again
+      }
+      if (alive(holder)) return holder;
+      rmSync(lock, { force: true });
+    }
+  } finally {
+    rmSync(mine, { force: true });
+  }
+}
+
+/** Whether a process with this pid is running. */
+function alive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM: it's there, run by someone else.
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+async function installChrome(
+  pin: NonNullable<ReturnType<typeof pinnedChrome>>,
+  bin: string,
+  deps: PullDeps,
+) {
   if (!existsSync(pin.program)) {
-    const bin = dirname(pin.dir);
     await pullFiles([pin.zip], bin, deps);
     const zip = join(bin, pin.zip.file);
     // Unpacked beside the target and renamed into place, so a half-unpacked Chrome is never found.
@@ -265,13 +332,11 @@ export async function pullChrome(deps: PullDeps = {}): Promise<number> {
     renameSync(unpacking, pin.dir);
     rmSync(zip, { force: true });
   }
-  for (const old of readdirSync(dirname(pin.dir))) {
-    if (old.startsWith("chrome-headless-shell-") && join(dirname(pin.dir), old) !== pin.dir) {
-      rmSync(join(dirname(pin.dir), old), { recursive: true, force: true });
+  for (const old of readdirSync(bin)) {
+    if (old.startsWith("chrome-headless-shell-") && join(bin, old) !== pin.dir) {
+      rmSync(join(bin, old), { recursive: true, force: true });
     }
   }
-  log(`Chrome ${CHROME_VERSION} is downloaded.`);
-  return 0;
 }
 
 export type ModelsDeps = {

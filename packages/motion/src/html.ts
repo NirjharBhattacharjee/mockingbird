@@ -72,7 +72,17 @@ export function pageClock(scene: PageScene, epoch: number): string {
         for (const cb of due) cb(now);
         if (typeof m.draw === "function") await m.draw(now / 1000, m);
         seek();
+        this.check();
       }
+    },
+    // An error the page caught nowhere, from a frame or from work it left running.
+    check() {
+      if (errors.length) throw new Error(errors[0]);
+    },
+    // After the last frame: anything still running gets a turn to fail.
+    async done() {
+      await new Promise((r) => setTimeout(r, 0));
+      this.check();
     },
   } });
 })();`;
@@ -168,7 +178,8 @@ export async function renderHtml(
       const k = i % tabs.length;
       const tab = tabs[k] as Tab;
       const shot = (queues[k] as Promise<void>).then(async () => {
-        await stepTo(browser, tab, (stepped[k] as number) + 1, i, fps);
+        // Every frame since its last, so its page has seen each of them.
+        await onClock(browser, tab, `step(${(stepped[k] as number) + 1}, ${i})`, i, fps);
         stepped[k] = i;
         const { data } = await browser.send<{ data: string }>(
           "Page.captureScreenshot",
@@ -192,6 +203,8 @@ export async function renderHtml(
       await encoder.stdin.flush();
       drawn++;
     }
+    // A page that failed after its last frame was captured fails the render too.
+    for (const tab of tabs) await onClock(browser, tab, "done()", total - 1, fps);
     await encoder.stdin.end();
     if ((await encoder.exited) !== 0) {
       throw new Error(
@@ -233,6 +246,10 @@ async function openTab(chrome: Chrome, page: string, scene: PageScene, clock: st
   );
   // Without Page.enable, Chrome keeps the script but doesn't run it.
   await chrome.send("Page.enable", {}, session);
+  // Animations stand still in real time, so one can't play out, end and vanish
+  // while a slow page loads; each frame seeks them instead.
+  await chrome.send("Animation.enable", {}, session);
+  await chrome.send("Animation.setPlaybackRate", { playbackRate: 0 }, session);
   await chrome.send("Page.addScriptToEvaluateOnNewDocument", { source: clock }, session);
   const { errorText } = await chrome.send<{ errorText?: string }>(
     "Page.navigate",
@@ -246,13 +263,15 @@ async function openTab(chrome: Chrome, page: string, scene: PageScene, clock: st
   return { session, audio };
 }
 
-/** Steps `tab` through frames `from` to `to`, so its page has seen each of them. */
-async function stepTo(chrome: Chrome, tab: Tab, from: number, to: number, fps: number) {
+/** Runs `call` on the page's clock in `tab`, naming `frame` if the page fails. */
+async function onClock(chrome: Chrome, tab: Tab, call: string, frame: number, fps: number) {
   try {
-    await evaluate(chrome, tab.session, `__mockingbird.step(${from}, ${to})`);
+    await evaluate(chrome, tab.session, `__mockingbird.${call}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`the page failed by ${(to / fps).toFixed(2)} s (frame ${to}): ${message}`);
+    throw new Error(
+      `the page failed by ${(frame / fps).toFixed(2)} s (frame ${frame}): ${message}`,
+    );
   }
 }
 
