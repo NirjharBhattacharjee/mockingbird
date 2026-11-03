@@ -93,7 +93,15 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("renderHtml (integration)"
     // real time it would be over before the page had loaded.
     const server = Bun.serve({
       port: 0,
-      fetch: () => Bun.sleep(1000).then(() => new Response("", { status: 404 })),
+      // A 1x1 transparent GIF, a second late.
+      fetch: () =>
+        Bun.sleep(1000).then(
+          () =>
+            new Response(
+              Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64"),
+              { headers: { "content-type": "image/gif" } },
+            ),
+        ),
     });
     const path = page(
       "slow.html",
@@ -166,6 +174,19 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("renderHtml (integration)"
     );
     await expect(renderHtml(later, { ...options, out })).rejects.toThrow("lost");
     expect(existsSync(out)).toBe(false);
+
+    const missing = page(
+      "missing-import.html",
+      `<script type="module">import { nope } from "./missing.js";</script>`,
+    );
+    await expect(renderHtml(missing, { ...options, out })).rejects.toThrow(
+      "failed while loading: a <script> or something it imports didn't load",
+    );
+
+    const image = page("missing-image.html", `<img src="nowhere.png">`);
+    await expect(renderHtml(image, { ...options, out })).rejects.toThrow(
+      /failed while loading: couldn't load file:.*nowhere\.png/,
+    );
 
     const broken = page("broken.html", `<script>nope()</script>`);
     await expect(renderHtml(broken, { ...options, out })).rejects.toThrow(

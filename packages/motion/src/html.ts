@@ -43,7 +43,14 @@ export function pageClock(scene: PageScene, epoch: number): string {
     return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
   };
   const errors = [];
-  addEventListener("error", (e) => errors.push(e.message));
+  // Captured, so a script, image or stylesheet that fails to load counts too.
+  addEventListener("error", (e) => {
+    const el = e.target;
+    if (!el || el === window || !el.tagName) return errors.push(e.message);
+    const from = el.src || el.href;
+    // An inline module's failed import names no file here; the element is the best clue.
+    errors.push(from ? "couldn't load " + from : "a <" + el.tagName.toLowerCase() + "> or something it imports didn't load");
+  }, true);
   addEventListener("unhandledrejection", (e) => errors.push(String(e.reason?.message ?? e.reason)));
   const seek = () => {
     for (const a of document.getAnimations()) {
