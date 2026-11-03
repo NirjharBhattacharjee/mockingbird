@@ -47,3 +47,11 @@ test("does nothing on a Mac that never had dictation", () => {
   expect(retireDictation(home, join(home, ".mockingbird"), run)).toEqual([]);
   expect(ran).toEqual([]);
 });
+
+test("keeps the Fn backup when macOS won't take the setting, to try again", () => {
+  const m = dictationMac();
+  writeFileSync(join(m.mb, "fn-key.json"), '{"kind":"taken","value":2}');
+  const done = retireDictation(m.home, m.mb, (argv) => (argv[0] === "defaults" ? 1 : 0));
+  expect(existsSync(join(m.mb, "fn-key.json"))).toBe(true);
+  expect(done[0]).toStartWith("couldn't give the Fn key back");
+});

@@ -156,6 +156,15 @@ describe("uninstall stops before losing anything", () => {
     expect(m.calls).not.toContain("retire");
   });
 
+  test("a dictionary.txt that can't be imported stops it too", async () => {
+    const m = installed();
+    // A folder by that name: it can't be read as text.
+    mkdirSync(join(m.mb, "dictionary.txt"));
+    expect(await uninstall(["--yes"], m.deps)).toBe(1);
+    expect(existsSync(join(m.mb, "dictionary.txt"))).toBe(true);
+    expect(m.calls).not.toContain("retire");
+  });
+
   test("keeps words not imported yet, and never overwrites an earlier copy", async () => {
     const m = installed();
     writeFileSync(join(m.mb, "dictionary.txt"), "Nirjhar\n");

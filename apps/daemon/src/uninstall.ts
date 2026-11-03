@@ -85,6 +85,9 @@ export async function uninstall(args: string[], deps: UninstallDeps): Promise<nu
   // Reading also moves a dictionary.txt not yet imported into data.db.
   try {
     words = readDictionary(mb).map(formatEntry);
+    // Still there means its import failed, and its words aren't in `words`.
+    if (existsSync(join(mb, "dictionary.txt")))
+      throw new Error("dictionary.txt couldn't be imported");
   } catch (error) {
     log(`Couldn't read your dictionary in ${mb}, so nothing was removed: ${error}`);
     return 1;

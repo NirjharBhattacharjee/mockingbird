@@ -19,13 +19,20 @@ export function retireDictation(
     try {
       const saved = JSON.parse(readFileSync(backup, "utf8")) as { kind: string; value?: number };
       const key = ["com.apple.HIToolbox", "AppleFnUsageType"];
+      let restored = true;
       if (saved.kind === "taken" && Number.isInteger(saved.value)) {
-        run(["defaults", "write", ...key, "-int", String(saved.value)]);
+        restored = run(["defaults", "write", ...key, "-int", String(saved.value)]) === 0;
       } else {
+        // Fails when the key is already gone, which is the goal.
         run(["defaults", "delete", ...key]);
       }
-      rmSync(backup, { force: true });
-      done.push("gave the Fn key back to macOS (it applies after you log out)");
+      if (restored) {
+        rmSync(backup, { force: true });
+        done.push("gave the Fn key back to macOS (it applies after you log out)");
+      } else {
+        // The backup stays, so the next run tries again.
+        done.push("couldn't give the Fn key back; set it in System Settings → Keyboard");
+      }
     } catch {
       // A backup that can't be read is left for the user; Fn is in System Settings → Keyboard.
     }

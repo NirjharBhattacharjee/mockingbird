@@ -16,7 +16,7 @@ import { type Cue, drawCaptions, parseSrt } from "@mockingbird/captions";
 import { applyCorrections, correctNames } from "@mockingbird/store";
 import type { SpeechSegment } from "@mockingbird/vad";
 import { addEntries, formatEntry, readDictionary } from "./dictionary.ts";
-import { type Engines, requireFile, startEngines } from "./runtime.ts";
+import { type Engines, requireFile, spokenLanguage, startEngines } from "./runtime.ts";
 
 /**
  * `mockingbird mcp` (#88): mockingbird's local functions as Model Context
@@ -183,14 +183,23 @@ const clock = (ms: number) => {
 export const fineClock = (ms: number) =>
   `${clock(ms)}.${String(Math.floor((ms % 1000) / 10)).padStart(2, "0")}`;
 
-/** The user's dictionary, or none if data.db can't be read: names then come out as heard. */
-function names(log: (m: string) => void): ReturnType<typeof readDictionary> {
+/**
+ * Spells words the user's way: their `heard => term` corrections, then names
+ * matched by sound, which only works for English (as dictation's cleanup
+ * did). If data.db can't be read, words come out as heard.
+ */
+function speller(log: (m: string) => void): (text: string) => string {
+  let dictionary: ReturnType<typeof readDictionary> = [];
   try {
-    return readDictionary();
+    dictionary = readDictionary();
   } catch (error) {
     log(`warning: couldn't read the dictionary from data.db: ${error}`);
-    return [];
   }
+  const english = spokenLanguage() === "en";
+  return (text) => {
+    const fixed = applyCorrections(text, dictionary);
+    return english ? correctNames(fixed, dictionary) : fixed;
+  };
 }
 
 /**
@@ -235,7 +244,7 @@ export async function transcribe(
   }
   const audio = { sampleRate: rate, samples: file.samples.subarray(first, last) };
   const startMs = (first / rate) * 1000;
-  const dictionary = names(log);
+  const spell = speller(log);
   // A whisper-server per call, since two requests can run at once.
   const engines = await startEngines(log);
   try {
@@ -245,13 +254,13 @@ export async function transcribe(
         // ponytail: names are fixed one word at a time, so a name misheard as
         // two words stays as heard; the line transcript fixes those.
         for (const w of timedWords(heard, offsetMs)) {
-          const word = correctNames(applyCorrections(w.word, dictionary), dictionary);
+          const word = spell(w.word);
           lines.push(`[${fineClock(w.startMs)}-${fineClock(w.endMs)}] ${word}`);
         }
         continue;
       }
       for (const line of timedLines(heard, offsetMs)) {
-        const text = correctNames(applyCorrections(line.text, dictionary), dictionary);
+        const text = spell(line.text);
         if (text) lines.push(`[${clock(line.atMs)}] ${text}`);
       }
     }
@@ -954,7 +963,7 @@ async function captions(
 ): Promise<string> {
   const file = await loadAudio(requireFile(path, "File"));
   const rate = file.sampleRate;
-  const dictionary = names(log);
+  const spell = speller(log);
   // A whisper-server per call, since two requests can run at once.
   const engines = await startEngines(log);
   try {
@@ -969,7 +978,7 @@ async function captions(
         for (const w of timedWords(c.heard, c.offsetMs)) {
           heard.push({
             ...w,
-            word: correctNames(applyCorrections(w.word, dictionary), dictionary),
+            word: spell(w.word),
           });
         }
       }
