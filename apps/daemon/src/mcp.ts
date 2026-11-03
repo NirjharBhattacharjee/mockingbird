@@ -473,8 +473,8 @@ export function renderGraph(
 /**
  * The filter steps that mix `sounds` (inputs `first`, `first + 1`, …) under
  * the speech, labelled [speech] if there is any, cut to `length` seconds and
- * brought to LOUDNESS unless `loudness` is false. Ends in [a] if there's any
- * sound at all.
+ * brought to LOUDNESS; with `loudness` false, a batch's, left as it is. Ends
+ * in [a] if there's any sound at all.
  */
 export function mixGraph(
   sounds: Sound[],
@@ -503,7 +503,10 @@ export function mixGraph(
   });
   const tracks = [audio && speech, ...sounds.map((_, i) => `[m${i}]`)].filter(Boolean);
   // No sound runs past the picture, even a long one under a silent video.
-  const level = `atrim=duration=${length}${loudness ? `,${LOUDNESS}` : ""}[a]`;
+  // A batch keeps its sound whole: concat pads each clip's sound to its
+  // picture, which runs a little over from whole frames, so cutting it to
+  // `length` would leave a gap where the next batch joins (#137).
+  const level = loudness ? `atrim=duration=${length},${LOUDNESS}[a]` : "anull[a]";
   const sound = tracks.length
     ? [
         tracks.length === 1
@@ -744,7 +747,6 @@ async function joinBatches(
   const batches: string[] = [];
   for (let i = 0; i < clips.length; i += CLIPS_PER_PASS) {
     const batch = clips.slice(i, i + CLIPS_PER_PASS);
-    const length = batch.reduce((sum, { from, to }) => sum + to - from, 0);
     const file = `batch-${batches.length}.mkv`;
     await ffmpeg(
       [
@@ -753,9 +755,7 @@ async function joinBatches(
         ...(look.audio ? ["-map", "[a]", "-c:a", "pcm_s16le"] : []),
         // Encoded once more in the last pass, so near-lossless here.
         ...["-c:v", "libx264", "-crf", "10", "-preset", "veryfast", "-pix_fmt", "yuv420p"],
-        // The picture ends with the sound, give or take a frame: the join
-        // starts the next batch where the longer of the two ends.
-        ...["-t", String(length), join(dir, file)],
+        join(dir, file),
       ],
       `render clips ${i + 1}-${i + batch.length} of ${path}`,
     );

@@ -265,13 +265,13 @@ test("inserts go under the text, and music ducks under the speech", () => {
   );
 });
 
-test("a batch's sound is left for the last pass to bring to -14 LUFS", () => {
+test("a batch's sound is left whole, for the last pass to cut and bring to -14 LUFS", () => {
   const graph = renderGraph([{ from: 0, to: 4 }], {
     audio: true,
     vertical: false,
     loudness: false,
   });
-  expect(graph).toEndWith("[speech]atrim=duration=4[a]");
+  expect(graph).toEndWith("[speech]anull[a]");
 });
 
 test("libass's captions go over the inserts, where captionsY puts them", () => {
