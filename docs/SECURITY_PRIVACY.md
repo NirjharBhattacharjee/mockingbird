@@ -65,6 +65,7 @@ grants, dictation history) is in git: `git show v0.3.2:docs/SECURITY_PRIVACY.md`
 | Dictionary (names, jargon) | Medium | `data.db`, `dictionary` | yes, until removed |
 | Settings (the model in use) | Low | `data.db`, `settings` | yes |
 | Model weights | None (public files) | `~/.mockingbird/models/` | yes |
+| Headless Chrome | None (public files) | `~/.mockingbird/bin/` | yes |
 | Install logs | Low | `~/.mockingbird/logs/` | yes |
 
 An upgraded Mac may still have dictation's `~/.mockingbird/recordings/` and
@@ -80,9 +81,10 @@ Enforced by [ARCHITECTURE.md §9](./ARCHITECTURE.md#9-everything-is-local):
 - **No telemetry, analytics or crash reporting.** Any future opt-in stats
   are off by default and asked for on their own.
 - **No account, login or license server.**
-- **The only download is one you run:** `mockingbird models pull`, which
-  prints each URL and checks each file against a pinned sha256. No update
-  checks.
+- **The only download is one you run:** `mockingbird models pull`, and
+  `models pull chrome` for the headless Chrome `motion` renders HTML in.
+  Each prints its URL and checks the file against a pinned sha256. No
+  update checks.
 - **`mockingbird mcp` opens no port.** The agent starts it and talks over
   stdin and stdout.
 - **The stack rule is a security control.** Every dependency is code in
@@ -113,6 +115,7 @@ flowchart LR
     MCP -->|spawn| FF["ffmpeg"]
     MCP <-->|HTTP, 127.0.0.1, free port| WS["whisper-server"]
     MCP -->|spawn under sandbox-exec,\nnetwork denied| MS["motion script"]
+    MS -->|spawn, pipe| CH["headless Chrome\n(HTML pages)"]
 ```
 
 - **`motion` runs a script the agent wrote** ([MCP.md](./MCP.md#motion-graphics)).
@@ -123,6 +126,14 @@ flowchart LR
   a way to run code. The server never fetches a script; it runs a path the
   agent gives it. An agent that shouldn't run code on your computer
   shouldn't be given `mockingbird mcp`.
+- **An HTML page renders in Chrome inside that sandbox.** Chrome is
+  started from the sandboxed process, so the network is denied to it and
+  to the page as well; a `fetch` from a page fails there. Chrome's own
+  sandbox can't start inside another, so it runs with `--no-sandbox`. The
+  page can read files as you, through `file://`, as a script can. Chrome is
+  pinned to one version and checked against its sha256 when pulled. A
+  security fix in Chrome reaches users only when mockingbird bumps the pin,
+  so the pin should move with Chrome's stable releases.
 - **Every tool reads any path the agent passes.** The agent can usually
   read those files itself; mockingbird adds no new reach.
 - **Model files and media are untrusted input to native code.** whisper.cpp,
@@ -151,7 +162,7 @@ flowchart LR
 2. **Stills sit in temp folders** until macOS clears them.
 3. **Backups** (Time Machine, sync tools) copy `data.db` and renders like any
    other file.
-4. **`models pull` tells the host** (Hugging Face, GitHub) which file you
+4. **`models pull` tells the host** (Hugging Face, GitHub, Google for Chrome) which file you
    fetched, from your IP, at that time. Disclosed, user-run, still a leak.
 5. **The dictionary can be more sensitive than it looks**: client names,
    codenames, people's names.

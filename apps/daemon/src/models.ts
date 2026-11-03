@@ -10,7 +10,7 @@ import {
   statSync,
   writeSync,
 } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { withStore } from "./dictionary.ts";
 import {
   ASR_MODEL_SETTING,
@@ -159,30 +159,118 @@ export function progressLine(downloads: Download[]): string {
 }
 
 /**
- * The only network call mockingbird makes (ARCHITECTURE.md §9): the Whisper
- * and VAD models. It runs when the user asks for it and says where each
- * download comes from.
+ * The only network calls mockingbird makes (ARCHITECTURE.md §9) are this,
+ * the Whisper and VAD models, and pullChrome. Each runs when the user asks
+ * for it and says where each download comes from.
  */
 export async function pullModels(deps: PullDeps = {}): Promise<number> {
   const log = deps.log ?? ((m: string) => console.error(m));
   const home = deps.home ?? mockingbirdHome();
-  const modelsDir = deps.modelsDir ?? join(home, "models");
+  await pullFiles(deps.files ?? MODEL_FILES, deps.modelsDir ?? join(home, "models"), deps);
+  log("All models are downloaded.");
+  return 0;
+}
+
+async function pullFiles(files: ModelFile[], dir: string, deps: PullDeps) {
+  const log = deps.log ?? ((m: string) => console.error(m));
   let shown = 0;
-  for (const model of deps.files ?? MODEL_FILES) {
+  for (const model of files) {
     const progress = (done: number, total: number) => {
       if (Date.now() - shown < 250) return;
       shown = Date.now();
       deps.progress?.(progressLine([{ name: model.name, done, total }]));
     };
     try {
-      await pullFile(model, modelsDir, { fetch: deps.fetch, log, onProgress: progress });
+      await pullFile(model, dir, { fetch: deps.fetch, log, onProgress: progress });
     } finally {
       // A pull that has ended leaves the line straight away, so the last
       // thing shown is never a stale byte count.
       deps.progress?.("");
     }
   }
-  log("All models are downloaded.");
+}
+
+/**
+ * The headless Chrome that `motion` renders HTML pages in. One version,
+ * checked against its sha256, so a page renders the same on every machine.
+ * Chrome for Testing publishes no checksums; these are of the zips as
+ * downloaded on 2026-11-04.
+ */
+export const CHROME_VERSION = "156.0.8078.80";
+const CHROME_BUILDS: Record<string, { platform: string; sha256: string }> = {
+  "darwin-arm64": {
+    platform: "mac-arm64",
+    sha256: "ea615baa2e9caf0d02d1898a6562b5f8fa9c35239707dae0f592178df5b986ac",
+  },
+  "darwin-x64": {
+    platform: "mac-x64",
+    sha256: "535d417d9034cbd11e7dacd1a71aa3d6e1b525e6d5dcd2671eb2532f01481228",
+  },
+};
+
+/**
+ * The pinned Chrome for this computer: its zip, the folder it unpacks to in
+ * `~/.mockingbird/bin`, and the program in it. None for a platform that has
+ * no pin yet.
+ */
+export function pinnedChrome(
+  home = mockingbirdHome(),
+  system = `${process.platform}-${process.arch}`,
+) {
+  const build = CHROME_BUILDS[system];
+  if (!build) return undefined;
+  const name = `chrome-headless-shell-${build.platform}`;
+  const dir = join(home, "bin", `chrome-headless-shell-${CHROME_VERSION}`);
+  const zip: ModelFile = {
+    name: "Chrome",
+    file: `${name}-${CHROME_VERSION}.zip`,
+    url: `https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/${build.platform}/${name}.zip`,
+    sha256: build.sha256,
+  };
+  return { zip, dir, program: join(dir, name, "chrome-headless-shell") };
+}
+
+/** The Chrome to render in: MOCKINGBIRD_CHROME, or the pinned one once it's pulled. */
+export function findChrome(env = process.env, home = mockingbirdHome(env)): string | undefined {
+  if (env.MOCKINGBIRD_CHROME) return env.MOCKINGBIRD_CHROME;
+  const program = pinnedChrome(home)?.program;
+  return program && existsSync(program) ? program : undefined;
+}
+
+/**
+ * `mockingbird models pull chrome`: downloads the pinned Chrome, unpacks it
+ * into `~/.mockingbird/bin`, and removes any other version found there.
+ */
+export async function pullChrome(deps: PullDeps = {}): Promise<number> {
+  const log = deps.log ?? ((m: string) => console.error(m));
+  const home = deps.home ?? mockingbirdHome();
+  const pin = pinnedChrome(home);
+  if (!pin) {
+    log(`There's no pinned Chrome for ${process.platform}-${process.arch} yet.`);
+    return 1;
+  }
+  if (!existsSync(pin.program)) {
+    const bin = dirname(pin.dir);
+    await pullFiles([pin.zip], bin, deps);
+    const zip = join(bin, pin.zip.file);
+    // Unpacked beside the target and renamed into place, so a half-unpacked Chrome is never found.
+    const unpacking = `${pin.dir}.part`;
+    rmSync(unpacking, { recursive: true, force: true });
+    const unzip = Bun.spawnSync(["unzip", "-q", zip, "-d", unpacking], { stderr: "pipe" });
+    if (unzip.exitCode !== 0) {
+      rmSync(unpacking, { recursive: true, force: true });
+      throw new Error(`couldn't unpack ${zip}: ${unzip.stderr.toString().trim()}`);
+    }
+    rmSync(pin.dir, { recursive: true, force: true });
+    renameSync(unpacking, pin.dir);
+    rmSync(zip, { force: true });
+  }
+  for (const old of readdirSync(dirname(pin.dir))) {
+    if (old.startsWith("chrome-headless-shell-") && join(dirname(pin.dir), old) !== pin.dir) {
+      rmSync(join(dirname(pin.dir), old), { recursive: true, force: true });
+    }
+  }
+  log(`Chrome ${CHROME_VERSION} is downloaded.`);
   return 0;
 }
 
