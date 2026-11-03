@@ -105,7 +105,8 @@ this project is built inside of.
    for everyone, always. See [SECURITY_PRIVACY.md](./SECURITY_PRIVACY.md)
    for the specifics of what that guarantees and what it doesn't yet. The
    only network calls are downloads the user explicitly approves
-   (`mockingbird models pull`); no telemetry, no account, no license server.
+   (`mockingbird models pull`, or `mockingbird setup` after it asks); no
+   telemetry, no account, no license server.
 4. **The license must never allow this to be taken away from the people
    using it.** mockingbird is released under the [MIT License](../LICENSE):
    genuinely open source (OSI-approved), free to use, change, and fork, with

@@ -18,6 +18,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
+| 2026-11-04 | `mockingbird setup` and `doctor`, and the plugin's `launch.sh`, which answers MCP with an install tool when mockingbird isn't installed (#141). |
 | 2026-11-04 | mockingbird-studio moved into `plugin/` and is now the `mockingbird` plugin; a `guide` tool and server instructions give every MCP client its playbooks (#140). |
 | 2026-11-04 | Long-form fixes (#127): `render` and `motion` reach −14 LUFS with a measured gain and a limiter instead of one pass of `loudnorm` (−15.9 → −14.3 LUFS on the v2 edit); `captions` hears overlapping padded clips as one stretch (171 s → 62 s for 96 clips); captions in a wide video are subtitle-sized. |
 | 2026-11-03 | `render` opens the source once per clip with a seek instead of trimming one input: 2.4x faster on a 96-clip edit, and frame-accurate. Over 100 clips it renders in batches and joins them, to bound memory (#137). |
@@ -78,8 +79,9 @@ Constraints, not preferences. Check any proposed change against them.
 2. **No Electron, no native GUI toolkit.** A future preview runs as a local
    page in the browser.
 3. **Local-first, no exceptions.** No network call happens in normal
-   operation. The only network activity is a download the user asks for
-   (`mockingbird models pull`). See [§9](#9-everything-is-local).
+   operation. The only network activity is a download the user asks for:
+   `mockingbird models pull`, or `mockingbird setup`, which runs the same
+   download and `brew install` after asking. See [§9](#9-everything-is-local).
 4. **Headless-testable.** Every tool runs and is tested with no GUI, no mic
    and no permission prompt: feed it a file, assert on the output.
 5. **Degrade, don't break.** A missing piece narrows what works instead of
@@ -221,7 +223,10 @@ MCP server is its own short-lived process.
 - **No account, no login, no license server.**
 - **The only network activity is a download the user runs**
   (`mockingbird models pull`), which names each URL and checks each file's
-  sha256. mockingbird never checks for updates.
+  sha256. `mockingbird setup` runs the same download only after showing its
+  size and hosts and getting a yes, and asks before `brew install` for a
+  missing ffmpeg or whisper-cpp (Homebrew fetches and checks those itself).
+  mockingbird never checks for updates.
 - **`mockingbird mcp` opens no port.** It speaks over stdin and stdout to the
   agent that started it.
 - **An agent's motion script can't reach the network.** It runs under
@@ -244,6 +249,8 @@ mockingbird/
 │   │   ├── dictionary.ts    `mockingbird dictionary`, data.db access
 │   │   ├── models.ts        `mockingbird models`, pinned downloads
 │   │   ├── runtime.ts       model lookup, VAD + whisper-server startup
+│   │   ├── setup.ts         `mockingbird setup` and `doctor`
+│   │   ├── agents.ts        the coding agents' MCP configs, read and added to
 │   │   ├── uninstall.ts     `mockingbird uninstall`
 │   │   ├── retire.ts        removes what dictation left on a Mac (§13)
 │   │   └── agent.ts         stub launchd still runs on upgraded Macs

@@ -66,8 +66,9 @@ greploop have something to check a "fix" against.
   from onboarding.
 - No required account, login, or license server.
 - No exception to local-first: the *only* network calls anywhere in the
-  system are explicit, user-approved downloads, today only
-  `mockingbird models pull`
+  system are explicit, user-approved downloads: `mockingbird models pull`,
+  and `mockingbird setup`, which runs that same download and `brew install`
+  only after the user says yes (or passes `--yes`)
   ([ARCHITECTURE.md §9](./docs/ARCHITECTURE.md#9-everything-is-local)).
 - No CLA — contributor licensing is DCO-only
   ([CONTRIBUTING.md §11](./CONTRIBUTING.md#11-contributor-licensing--dco-not-a-cla)).

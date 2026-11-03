@@ -23,8 +23,8 @@ import {
   spokenLanguage,
 } from "./runtime.ts";
 
-/** `name` is what the progress line calls it. */
-export type ModelFile = { name: string; file: string; url: string; sha256: string };
+/** `name` is what the progress line calls it; `bytes` is its size, shown before a download. */
+export type ModelFile = { name: string; file: string; url: string; sha256: string; bytes?: number };
 
 /**
  * What `mockingbird models pull` downloads. Each one is pinned to a fixed
@@ -37,12 +37,14 @@ export const MODEL_FILES: ModelFile[] = [
     file: DEFAULT_ASR_MODEL,
     url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-large-v3-q5_0.bin",
     sha256: "d75795ecff3f83b5faa89d1900604ad8c780abd5739fae406de19f23ecd98ad1",
+    bytes: 1_081_140_203,
   },
   {
     name: "VAD",
     file: "silero_vad.onnx",
     url: "https://github.com/snakers4/silero-vad/raw/v6.2.2/src/silero_vad/data/silero_vad.onnx",
     sha256: "1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3",
+    bytes: 2_327_524,
   },
 ];
 
