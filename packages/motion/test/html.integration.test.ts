@@ -88,6 +88,37 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("renderHtml (integration)"
     });
   }, 60_000);
 
+  test("a short animation is still there when a page is slow to load", async () => {
+    // 0.3 s with no fill, on a page whose image takes a second to arrive: in
+    // real time it would be over before the page had loaded.
+    const server = Bun.serve({
+      port: 0,
+      fetch: () => Bun.sleep(1000).then(() => new Response("", { status: 404 })),
+    });
+    const path = page(
+      "slow.html",
+      `<div style="width:32px;height:32px;animation:r 0.3s linear"></div>
+       <style>@keyframes r { from { background: rgb(250,0,0) } to { background: rgb(0,0,0) } }</style>
+       <img src="http://127.0.0.1:${server.port}/slow.png">`,
+    );
+    const out = join(dir, "slow.mp4");
+    try {
+      await renderHtml(path, {
+        chrome: chrome(),
+        out,
+        width: 32,
+        height: 32,
+        fps: 10,
+        duration: 0.5,
+      });
+    } finally {
+      server.stop(true);
+    }
+    const reds = pixels(out, 32, 32).map((p) => p[(16 * 32 + 16) * 3] as number);
+    expect(reds[0]).toBeGreaterThan(220);
+    expect(Math.abs((reds[1] as number) - 167)).toBeLessThan(20);
+  }, 60_000);
+
   test("lays the page over a video and keeps its sound", async () => {
     const video = join(dir, "under.mp4");
     Bun.spawnSync([
@@ -127,6 +158,13 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("renderHtml (integration)"
     await expect(renderHtml(failing, { ...options, out })).rejects.toThrow(
       "the page failed by 0.30 s (frame 3): Error: boom",
     );
+    expect(existsSync(out)).toBe(false);
+
+    const later = page(
+      "later.html",
+      `<script>mockingbird.draw = (t, m) => { if (m.frame === 9) Promise.reject(new Error("lost")) }</script>`,
+    );
+    await expect(renderHtml(later, { ...options, out })).rejects.toThrow("lost");
     expect(existsSync(out)).toBe(false);
 
     const broken = page("broken.html", `<script>nope()</script>`);
