@@ -5,12 +5,13 @@
  */
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { type Agent, agents } from "./agents.ts";
 import { readDictionary } from "./dictionary.ts";
 import { playbooks } from "./guide.ts";
-import { listModels, MODEL_FILES } from "./models.ts";
-import { mockingbirdHome } from "./runtime.ts";
+import { MODEL_FILES } from "./models.ts";
+import { ASR_MODEL_SETTING, findAsrModel, mockingbirdHome, savedSetting } from "./runtime.ts";
+import { UsageError } from "./transcribe.ts";
 
 export type Check = { name: string; ok: boolean; detail: string; fix?: string; needed: boolean };
 
@@ -24,7 +25,36 @@ export type SetupDeps = {
   /** `models pull`, with its progress shown. */
   pull?: () => Promise<number>;
   platform?: string;
+  env?: Record<string, string | undefined>;
 };
+
+export const SETUP_USAGE = `usage: mockingbird setup [--yes]
+
+Installs what's missing (ffmpeg and whisper-cpp with Homebrew, the speech
+models), then adds mockingbird to the coding agents on this computer. It asks
+before each step; --yes answers yes to all of them.`;
+
+export const DOCTOR_USAGE = `usage: mockingbird doctor [--json]
+
+Checks every part mockingbird needs and says how to fix what's broken, then
+lists the coding agents on this computer and whether each has mockingbird.
+Exits 1 if something transcribe or render needs is missing.`;
+
+/** Throws a UsageError for anything but \`allowed\`; true when help was asked for and printed. */
+function helped(
+  args: string[],
+  allowed: string,
+  usage: string,
+  log: (line: string) => void,
+): boolean {
+  if (args.some((a) => a === "-h" || a === "--help")) {
+    log(usage);
+    return true;
+  }
+  const other = args.find((a) => a !== allowed);
+  if (other) throw new UsageError(`unknown option "${other}"\n\n${usage}`);
+  return false;
+}
 
 const runIt = (argv: string[]) => {
   const r = Bun.spawnSync(argv, { stderr: "pipe" });
@@ -70,13 +100,30 @@ export function checks(deps: SetupDeps = {}): Check[] {
     detail: whisper ?? "missing",
     fix: `${brew} whisper-cpp${brew.startsWith("`") ? "`" : ""}`,
   });
-  const speech = listModels({ home: mb }).find((m) => m.inUse)?.file;
+  // The model transcribe would load: MOCKINGBIRD_ASR_MODEL, the saved
+  // choice, or the default, as findAsrModel picks it.
+  let speech: string;
+  let speechOk = true;
+  try {
+    const env = deps.env ?? process.env;
+    speech = basename(
+      findAsrModel(
+        join(mb, "models"),
+        env.MOCKINGBIRD_ASR_MODEL,
+        () => {},
+        savedSetting(ASR_MODEL_SETTING, mb),
+      ),
+    );
+  } catch (error) {
+    speechOk = false;
+    speech = error instanceof Error ? (error.message.split("\n")[0] ?? "missing") : "missing";
+  }
   list.push({
     name: "speech model",
     needed: true,
-    ok: !!speech,
-    detail: speech ?? "missing",
-    fix: "`mockingbird models pull`",
+    ok: speechOk,
+    detail: speech,
+    fix: "`mockingbird models pull`, or set MOCKINGBIRD_ASR_MODEL to a model that's there",
   });
   const vad = existsSync(join(mb, "models", "silero_vad.onnx"));
   list.push({
@@ -124,6 +171,7 @@ export function checks(deps: SetupDeps = {}): Check[] {
 /** `mockingbird doctor`: each check, then each agent, then 0 if everything needed is there. */
 export function doctor(args: string[], deps: SetupDeps = {}): number {
   const log = deps.log ?? ((line: string) => console.log(line));
+  if (helped(args, "--json", DOCTOR_USAGE, log)) return 0;
   const all = checks(deps);
   const found = agents(commandPath(deps), deps);
   if (args.includes("--json")) {
@@ -150,6 +198,7 @@ export function doctor(args: string[], deps: SetupDeps = {}): number {
 /** `mockingbird setup [--yes]`: installs what's missing, after asking, and adds mockingbird to each agent. */
 export async function setup(args: string[], deps: SetupDeps = {}): Promise<number> {
   const log = deps.log ?? ((line: string) => console.log(line));
+  if (helped(args, "--yes", SETUP_USAGE, log)) return 0;
   const yes = args.includes("--yes");
   const ask = (question: string, fallback = true) =>
     yes || (deps.ask ?? (() => fallback))(question, fallback);
@@ -175,9 +224,11 @@ export async function setup(args: string[], deps: SetupDeps = {}): Promise<numbe
       return 1;
     }
   }
-  if (broken.some((c) => c.name.endsWith("model"))) {
-    const size = MODEL_FILES.reduce((sum, m) => sum + (m.bytes ?? 0), 0);
-    const from = [...new Set(MODEL_FILES.map((m) => new URL(m.url).host))].join(" and ");
+  const mb = deps.mbHome ?? mockingbirdHome();
+  const absent = MODEL_FILES.filter((m) => !existsSync(join(mb, "models", m.file)));
+  if (broken.some((c) => c.name.endsWith("model")) && absent.length) {
+    const size = absent.reduce((sum, m) => sum + (m.bytes ?? 0), 0);
+    const from = [...new Set(absent.map((m) => new URL(m.url).host))].join(" and ");
     if (!ask(`Download the speech models (${gb(size)}) from ${from}? [Y/n]`)) return 1;
     const code = await (deps.pull ?? (() => Promise.resolve(1)))();
     if (code !== 0) return code;

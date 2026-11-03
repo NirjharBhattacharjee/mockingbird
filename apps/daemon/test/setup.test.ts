@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { agents } from "../src/agents.ts";
 import { PLUGIN } from "../src/guide.ts";
-import { checks, setup } from "../src/setup.ts";
+import { checks, doctor, setup } from "../src/setup.ts";
 
 /** A home with Cursor, Gemini CLI, VS Code and Codex folders, and no `claude` command. */
 function home() {
@@ -45,6 +45,17 @@ describe("agents", () => {
     ).toBe(true);
   });
 
+  test("an empty config file counts as no servers yet", () => {
+    const h = home();
+    writeFileSync(join(h, ".cursor", "mcp.json"), "");
+    const cursor = agents("mb", { home: h, which: none }).find((a) => a.name === "Cursor");
+    cursor?.register();
+    expect(
+      JSON.parse(readFileSync(join(h, ".cursor", "mcp.json"), "utf8")).mcpServers.mockingbird
+        .command,
+    ).toBe("mb");
+  });
+
   test("a config that isn't plain JSON is left alone, with what to add", () => {
     const h = home();
     const file = join(h, ".cursor", "mcp.json");
@@ -54,6 +65,18 @@ describe("agents", () => {
       'isn\'t plain JSON, so it was left alone. Add this to it: {"mcpServers"',
     );
     expect(readFileSync(file, "utf8")).toBe("{ // mine\n}");
+  });
+
+  test("Codex's table counts however TOML names it, and another mention is left alone", () => {
+    const h = home();
+    const file = join(h, ".codex", "config.toml");
+    const codex = () => agents("mb", { home: h, which: none }).find((a) => a.name === "Codex");
+    writeFileSync(file, '[mcp_servers."mockingbird"]\ncommand = "mb"\n');
+    expect(codex()?.registered).toBe(true);
+    writeFileSync(file, '[mcp_servers]\nmockingbird = { command = "mb" }\n');
+    expect(codex()?.registered).toBe(false);
+    expect(() => codex()?.register()).toThrow("already mentions mockingbird");
+    expect(readFileSync(file, "utf8")).toBe('[mcp_servers]\nmockingbird = { command = "mb" }\n');
   });
 
   test("Claude Code counts as having it through `claude mcp add` or the plugin", () => {
@@ -134,9 +157,41 @@ test("doctor's needed checks name a fix", () => {
   expect(broken.map((c) => [c.name, c.fix])).toEqual([
     ["ffmpeg", "install ffmpeg"],
     ["whisper-server", "install whisper-cpp"],
-    ["speech model", "`mockingbird models pull`"],
+    [
+      "speech model",
+      "`mockingbird models pull`, or set MOCKINGBIRD_ASR_MODEL to a model that's there",
+    ],
     ["speech detection model", "`mockingbird models pull`"],
   ]);
+});
+
+test("a model MOCKINGBIRD_ASR_MODEL points at outside models/ counts", () => {
+  const h = home();
+  const model = join(h, "ggml-mine.bin");
+  writeFileSync(model, "");
+  const speech = checks({
+    home: h,
+    mbHome: join(h, "mb"),
+    which: none,
+    env: { MOCKINGBIRD_ASR_MODEL: model },
+  }).find((c) => c.name === "speech model");
+  expect(speech).toMatchObject({ ok: true, detail: "ggml-mine.bin" });
+});
+
+test("--help shows help, and an unknown option stops before anything runs", async () => {
+  const lines: string[] = [];
+  const deps = {
+    log: (l: string) => lines.push(l),
+    run: () => {
+      throw new Error("ran something");
+    },
+  };
+  expect(await setup(["--help", "--yes"], deps)).toBe(0);
+  expect(doctor(["-h"], deps)).toBe(0);
+  expect(lines.join("\n")).toContain("usage: mockingbird setup [--yes]");
+  expect(lines.join("\n")).toContain("usage: mockingbird doctor [--json]");
+  expect(setup(["--yse"], deps)).rejects.toThrow('unknown option "--yse"');
+  expect(() => doctor(["--jsno"], deps)).toThrow('unknown option "--jsno"');
 });
 
 test("the plugin's launcher answers MCP itself when mockingbird isn't installed", () => {

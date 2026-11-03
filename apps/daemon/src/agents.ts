@@ -32,8 +32,11 @@ const runIt = (argv: string[]) => {
 function jsonConfig(name: string, file: string, key: string, entry: object): Agent {
   const read = (): Record<string, Record<string, unknown>> => {
     if (!existsSync(file)) return {};
+    const text = readFileSync(file, "utf8");
+    // Cursor can leave an empty mcp.json: that's no servers, not a broken file.
+    if (!text.trim()) return {};
     try {
-      return JSON.parse(readFileSync(file, "utf8"));
+      return JSON.parse(text);
     } catch {
       const by = JSON.stringify({ [key]: { mockingbird: entry } });
       throw new Error(`${file} isn't plain JSON, so it was left alone. Add this to it: ${by}`);
@@ -108,8 +111,19 @@ export function agents(command: string, deps: AgentDeps = {}): Agent[] {
     found.push({
       name: "Codex",
       where: file,
-      registered: /^\[mcp_servers\.mockingbird\]/m.test(text),
+      // The table as TOML can name it: bare, "quoted" or 'literal'.
+      registered:
+        /^\s*\[\s*mcp_servers\s*\.\s*(mockingbird|"mockingbird"|'mockingbird')\s*\]/m.test(text),
       register: () => {
+        // Any other mention (an inline table, a [mcp_servers] key) would
+        // become a duplicate, and Codex rejects a config with one.
+        const before = existsSync(file) ? readFileSync(file, "utf8") : "";
+        if (/mockingbird/.test(before.replace(/^\s*#.*$/gm, ""))) {
+          throw new Error(
+            `${file} already mentions mockingbird in a form this doesn't read, so it was left alone. ` +
+              `Check that its [mcp_servers.mockingbird] runs ${JSON.stringify(command)} with args ["mcp"].`,
+          );
+        }
         // A JSON string is a TOML basic string, quotes and backslashes alike.
         const table = `[mcp_servers.mockingbird]\ncommand = ${JSON.stringify(command)}\nargs = ["mcp"]\n`;
         const current = existsSync(file) ? readFileSync(file, "utf8") : "";

@@ -158,8 +158,10 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
     case "setup":
       return setup(rest, {
         ask: (question, fallback) => {
-          const answer = prompt(question)?.trim();
-          return answer ? /^y/i.test(answer) : fallback;
+          const answer = prompt(question);
+          // No input at all (closed, or not a terminal) is a no, never the default.
+          if (answer === null) return false;
+          return answer.trim() ? /^y/i.test(answer.trim()) : fallback;
         },
         pull: pullWithProgress,
       });
