@@ -14,6 +14,7 @@ import { type AsrWord, stripNonSpeech } from "@mockingbird/asr";
 import { loadAudio, type PcmAudio } from "@mockingbird/audio";
 import { type Cue, drawCaptions, parseSrt } from "@mockingbird/captions";
 import { applyCorrections, correctNames } from "@mockingbird/store";
+import { compile, edit, load } from "@mockingbird/timeline";
 import type { SpeechSegment } from "@mockingbird/vad";
 import { addEntries, formatEntry, readDictionary } from "./dictionary.ts";
 import { guide, INSTRUCTIONS, playbooks } from "./guide.ts";
@@ -327,9 +328,16 @@ const CAPTIONS = "captions.srt";
 /**
  * A stretch of the source to keep, in seconds. `focus` is the point to keep
  * in frame (0–1 of the width and height, default the middle) and `zoom`
- * how far to punch in on it (1 to 4, default 1).
+ * how far to punch in on it (1 to 4, default 1). `path` is its own source,
+ * for a project's clips; without it, render's.
  */
-export type Clip = { from: number; to: number; focus?: { x: number; y: number }; zoom?: number };
+export type Clip = {
+  from: number;
+  to: number;
+  focus?: { x: number; y: number };
+  zoom?: number;
+  path?: string;
+};
 
 /** An area of the source: its left, top, width and height, each 0–1 of the picture. */
 export type Area = { x: number; y: number; w: number; h: number };
@@ -369,14 +377,22 @@ const fill = ({ x, y, w, h }: Area, size: string) =>
   `crop=w='floor(${w}*iw/2)*2':h='floor(${h}*ih/2)*2':x='${x}*iw':y='${y}*ih',` +
   `scale=${size.replace("x", ":")}:force_original_aspect_ratio=increase,crop=${size.replace("x", ":")}`;
 
+const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
+
 /**
- * The filters that frame one clip: a 9:16 window around its focus if
- * `vertical`, punched in by its zoom, and scaled back to `size`.
+ * The filters that frame one clip: a window of `shape`'s width to height
+ * around its focus if given, punched in by its zoom, and scaled to `size`.
  */
-function frame({ focus = { x: 0.5, y: 0.5 }, zoom = 1 }: Clip, vertical: boolean, size: string) {
-  if (!vertical && zoom === 1) return "";
-  // The widest 9:16 window, or the whole picture, made smaller by the zoom.
-  const [w, h] = vertical ? ["min(iw,ih*9/16)", "min(ih,iw*16/9)"] : ["iw", "ih"];
+function frame(
+  { focus = { x: 0.5, y: 0.5 }, zoom = 1 }: Clip,
+  shape: string | undefined,
+  size: string,
+) {
+  if (!shape && zoom === 1) return "";
+  const [sw = 1, sh = 1] = (shape ?? "1x1").split("x").map(Number);
+  const [a, b] = [sw / gcd(sw, sh), sh / gcd(sw, sh)];
+  // The widest window of that shape, or the whole picture, made smaller by the zoom.
+  const [w, h] = shape ? [`min(iw,ih*${a}/${b})`, `min(ih,iw*${b}/${a})`] : ["iw", "ih"];
   const crop =
     `crop=w='floor(${w}/${zoom}/2)*2':h='floor(${h}/${zoom}/2)*2'` +
     `:x='clip(${focus.x}*iw-ow/2,0,iw-ow)':y='clip(${focus.y}*ih-oh/2,0,ih-oh)'`;
@@ -395,13 +411,18 @@ function frame({ focus = { x: 0.5, y: 0.5 }, zoom = 1 }: Clip, vertical: boolean
  * speech, the sound cut to the picture's length unless `whole`, and left
  * for `level` to bring to LUFS. `size` is the source picture's, `WxH`. Ends in
  * [v], and [a] if there's sound.
+ *
+ * With `fps`, the clips come from sources that may differ (a project's): each
+ * is cropped to `size`'s shape around its focus, scaled to `size`, and set
+ * to `fps`, so they join; a `silent` clip's sound is silence.
  */
 export function renderGraph(
-  clips: Clip[],
+  clips: (Clip & { silent?: boolean })[],
   {
     audio,
     vertical,
     size = "1920x1080",
+    fps,
     split,
     burn = false,
     captionsY = CAPTIONS_Y,
@@ -413,6 +434,7 @@ export function renderGraph(
     audio: boolean;
     vertical: boolean;
     size?: string;
+    fps?: number;
     split?: { top: Area; bottom: Area };
     burn?: boolean;
     captionsY?: number;
@@ -423,11 +445,20 @@ export function renderGraph(
   },
 ): string {
   const out = vertical || split ? "1080x1920" : size;
-  // A split takes its areas from the whole picture, so its clips aren't framed one by one.
+  // A split takes its areas from the whole picture, so its clips aren't framed
+  // one by one, only brought to one size if they're from different sources.
   const parts = clips.map((clip, i) => {
-    const look = split ? "" : frame(clip, vertical, out);
+    const look = fps
+      ? `${frame(split ? { from: 0, to: 0 } : clip, size, size)},fps=${fps}`
+      : split
+        ? ""
+        : frame(clip, vertical ? out : undefined, out);
     const v = `[${i}:v]setpts=PTS-STARTPTS,${SQUARE}${look}[v${i}]`;
-    return audio ? `${v};[${i}:a]asetpts=PTS-STARTPTS[a${i}]` : v;
+    if (!audio) return v;
+    const a = clip.silent
+      ? `aevalsrc=0:c=stereo:s=48000:d=${clip.to - clip.from}[a${i}]`
+      : `[${i}:a]asetpts=PTS-STARTPTS[a${i}]`;
+    return `${v};${a}`;
   });
   const inputs = clips.map((_, i) => (audio ? `[v${i}][a${i}]` : `[v${i}]`)).join("");
   const joined = `${inputs}concat=n=${clips.length}:v=1:a=${audio ? 1 : 0}[joined]${audio ? "[speech]" : ""}`;
@@ -531,17 +562,23 @@ export function mixGraph(
 }
 
 /**
- * The streams in a media file, how long it is, and its picture's size as
- * played (`WxH`, turned for a phone video recorded on its side) and short side.
+ * The streams in a media file, how long it is, its picture's size as played
+ * (`WxH`, turned for a phone video recorded on its side) and short side, and
+ * its frame rate.
  */
-async function probe(
-  path: string,
-): Promise<{ video: boolean; audio: boolean; seconds: number; side: number; size: string }> {
+async function probe(path: string): Promise<{
+  video: boolean;
+  audio: boolean;
+  seconds: number;
+  side: number;
+  size: string;
+  fps: number;
+}> {
   const proc = Bun.spawn(
     [
       "ffprobe",
       ...["-v", "error", "-show_entries"],
-      "stream=codec_type,width,height,sample_aspect_ratio:stream_side_data=rotation:format=duration",
+      "stream=codec_type,width,height,sample_aspect_ratio,avg_frame_rate:stream_side_data=rotation:format=duration",
       ...["-of", "json", path],
     ],
     { stderr: "pipe" },
@@ -558,6 +595,7 @@ async function probe(
     width?: number;
     height?: number;
     sample_aspect_ratio?: string;
+    avg_frame_rate?: string;
     side_data_list?: { rotation?: number }[];
   };
   const has = (type: string) => streams.some((s: Stream) => s.codec_type === type);
@@ -569,7 +607,11 @@ async function probe(
   // with its pixel ratio turned over too. The size is SQUARE's, so every clip matches it.
   const turned = Math.abs(picture?.side_data_list?.find((d) => d.rotation)?.rotation ?? 0) === 90;
   const [width, height] = turned ? [even(h / sar), w] : [even(w * sar), h];
+  // "30000/1001"; a still picture or an odd file says "0/0".
+  const [fn, fd] = (picture?.avg_frame_rate ?? "0/0").split("/").map(Number);
+  const fps = fn && fd ? Number((fn / fd).toFixed(3)) : 30;
   return {
+    fps,
     video: has("video"),
     audio: has("audio"),
     seconds: Number(format?.duration ?? 0),
@@ -728,7 +770,7 @@ export type Insert = { path: string; from: number; to: number };
  * one input decodes the whole source and drifts a frame here and there (#137).
  */
 export const seekClips = (path: string, clips: Clip[]) =>
-  clips.flatMap(({ from, to }) => ["-ss", String(from), "-t", String(to - from), "-i", path]);
+  clips.flatMap((c) => ["-ss", String(c.from), "-t", String(c.to - c.from), "-i", c.path ?? path]);
 
 /**
  * The most clips one ffmpeg opens at once. Each is an input with its own
@@ -802,9 +844,15 @@ async function level(file: string, out: string): Promise<void> {
  */
 async function joinBatches(
   path: string,
-  clips: Clip[],
+  clips: (Clip & { silent?: boolean })[],
   dir: string,
-  look: { audio: boolean; vertical: boolean; size: string; split?: { top: Area; bottom: Area } },
+  look: {
+    audio: boolean;
+    vertical: boolean;
+    size: string;
+    fps?: number;
+    split?: { top: Area; bottom: Area };
+  },
 ): Promise<string> {
   const batches: string[] = [];
   for (let i = 0; i < clips.length; i += CLIPS_PER_PASS) {
@@ -842,12 +890,19 @@ const STILL = /\.(png|jpe?g|webp|heic|bmp|tiff?)$/i;
  * of those; this only runs ffmpeg. Captions are drawn as images with Core
  * Text and laid over the picture; failing that, drawn by ffmpeg if it has
  * libass; failing that, put in a subtitle track and an .srt beside the video.
+ *
+ * A project's clips each have their own `path` and come with `fit`: each is
+ * framed to `size` (default the first clip's source) at `fps` (default its
+ * rate), so clips from different sources join.
  */
 async function render(
   path: string,
   clips: Clip[],
   {
     vertical = false,
+    fit = false,
+    size,
+    fps,
     split,
     captions,
     captionsY = CAPTIONS_Y,
@@ -856,8 +911,12 @@ async function render(
     sounds = [],
     out,
     named = path,
+    kind = "short",
   }: {
     vertical?: boolean;
+    fit?: boolean;
+    size?: string;
+    fps?: number;
     split?: { top: Area; bottom: Area };
     captions?: string;
     captionsY?: number;
@@ -867,6 +926,8 @@ async function render(
     out?: string;
     /** The file the default output is named after and put beside: the source, unless this is render's last pass over joined batches. */
     named?: string;
+    /** The default output is `<named>-<kind>-N.mp4`. */
+    kind?: string;
   },
 ): Promise<string> {
   requireFile(path, "File");
@@ -876,18 +937,34 @@ async function render(
       throw new Error(`A clip needs 0 <= from < to, in seconds; got ${JSON.stringify(c)}.`);
     }
   }
-  for (const file of [...inserts, ...sounds]) requireFile(file.path, "File");
-  const source = await probe(path);
-  if (!source.video) throw new Error(`${path} has no video, only audio.`);
-  // A clip past the end would come out short, and captions timed to it would drift.
-  const over = clips.find((c) => source.seconds && c.to > source.seconds);
-  if (over)
-    throw new Error(`A clip ends at ${over.to}s, after the end of ${path} (${source.seconds}s).`);
+  const files = [...new Set([path, ...clips.map((c) => c.path ?? path)])];
+  for (const file of [...files, ...inserts.map((i) => i.path), ...sounds.map((s) => s.path)]) {
+    requireFile(file, "File");
+  }
+  const probes = new Map(await Promise.all(files.map(async (f) => [f, await probe(f)] as const)));
+  const of = (c: Clip) => probes.get(c.path ?? path) as Awaited<ReturnType<typeof probe>>;
+  const source = probes.get(path) as Awaited<ReturnType<typeof probe>>;
+  for (const c of clips) {
+    const from = of(c);
+    if (!from.video) throw new Error(`${c.path ?? path} has no video, only audio.`);
+    // A clip past the end would come out short, and captions timed to it would drift.
+    if (from.seconds && c.to > from.seconds) {
+      throw new Error(
+        `A clip ends at ${c.to}s, after the end of ${c.path ?? path} (${from.seconds}s).`,
+      );
+    }
+  }
+  // The whole cut has sound if any clip does; a clip without fills its stretch with silence.
+  const audio = clips.some((c) => of(c).audio);
+  const shaped = clips.map((c) => ({ ...c, silent: audio && !of(c).audio }));
+  // A split takes its areas from one picture, so a project's clips are brought to the first's size.
+  const frameSize = fit && !split ? (size ?? source.size) : source.size;
+  const rate = fit ? (fps ?? source.fps) : undefined;
   if (clips.length > CLIPS_PER_PASS) {
     const batches = mkdtempSync(join(tmpdir(), "mockingbird-batches-"));
     try {
-      const look = { audio: source.audio, vertical, size: source.size, split };
-      const joined = await joinBatches(path, clips, batches, look);
+      const look = { audio, vertical, size: frameSize, fps: rate, split };
+      const joined = await joinBatches(path, shaped, batches, look);
       // Its own length, which rounding to whole frames can leave a hair short of the clips'.
       const { seconds } = await probe(joined);
       // Framed and split already; this pass lays everything else over it.
@@ -899,6 +976,7 @@ async function render(
         sounds,
         out,
         named,
+        kind,
       });
     } finally {
       rmSync(batches, { recursive: true, force: true });
@@ -913,17 +991,18 @@ async function render(
   let made = false;
   try {
     const lines = [...cues.map((c) => c.text), ...texts.map((t) => t.text)];
-    const [width, height] = vertical || split ? [1080, 1920] : source.size.split("x").map(Number);
+    const [width, height] = (vertical || split ? "1080x1920" : frameSize).split("x").map(Number);
     const images = lines.length ? drawCaptions(lines, dir, width ?? 1080, height) : undefined;
     const burn = !!text && !images && (await canBurn());
     sidecar = !!text && !images && !burn;
-    target = outputFor(named, out, sidecar);
+    target = outputFor(named, out, sidecar, kind);
     const srt = text && !images ? join(dir, CAPTIONS) : undefined;
     if (srt) writeFileSync(srt, `${text}\n`);
-    const graph = renderGraph(clips, {
-      audio: source.audio,
+    const graph = renderGraph(shaped, {
+      audio,
       vertical,
-      size: source.size,
+      size: frameSize,
+      fps: rate,
       split,
       burn,
       captionsY,
@@ -939,7 +1018,7 @@ async function render(
       ...inserts.flatMap((i) => [...(STILL.test(i.path) ? ["-loop", "1"] : []), "-i", i.path]),
       ...sounds.flatMap((s) => [...(s.loop ? ["-stream_loop", "-1"] : []), "-i", s.path]),
     ];
-    const hasSound = source.audio || sounds.length > 0;
+    const hasSound = audio || sounds.length > 0;
     const unlevelled = join(dir, "unlevelled.mkv");
     const proc = Bun.spawn(
       [
@@ -1172,38 +1251,87 @@ async function motion(
   return `${target} (${clock((frames / fps) * 1000)}, ${width}x${height}, ${fps} fps), drawn in ${took} s`;
 }
 
+/**
+ * Each clip's words, timed in its source (`path`, or its own), names fixed
+ * from the dictionary. Each source is heard once, over the stretches its
+ * clips need; a source with no sound has no words.
+ */
+async function clipWords(path: string, clips: Clip[], log: (m: string) => void) {
+  const spell = speller(log);
+  const words: AsrWord[][] = clips.map(() => []);
+  // A whisper-server per call, since two requests can run at once.
+  const engines = await startEngines(log);
+  try {
+    for (const source of new Set(clips.map((c) => c.path ?? path))) {
+      const mine = clips.flatMap((c, i) => ((c.path ?? path) === source ? [{ c, i }] : []));
+      if (!(await probe(requireFile(source, "File"))).audio) continue;
+      const file = await loadAudio(source);
+      const rate = file.sampleRate;
+      const stretches = spans(mine.map(({ c }) => c));
+      const heard: AsrWord[][] = [];
+      for (const { from, to } of stretches) {
+        const first = Math.round(from * rate);
+        const last = Math.min(file.samples.length, Math.round(to * rate));
+        const audio = { sampleRate: rate, samples: file.samples.subarray(first, last) };
+        const said: AsrWord[] = [];
+        for await (const c of hear(audio, (first / rate) * 1000, engines)) {
+          for (const w of timedWords(c.heard, c.offsetMs)) said.push({ ...w, word: spell(w.word) });
+        }
+        heard.push(said);
+      }
+      // Each clip gets the words of the stretch it's in; wordCaptions keeps the ones inside it.
+      for (const { c, i } of mine) {
+        words[i] = heard[stretches.findIndex((s) => s.from <= c.from && c.to <= s.to)] ?? [];
+      }
+    }
+    return words;
+  } finally {
+    await engines.close();
+  }
+}
+
 async function captions(
   path: string,
   log: (m: string) => void,
   clips: Clip[],
   options: Parameters<typeof wordCaptions>[2],
 ): Promise<string> {
-  const file = await loadAudio(requireFile(path, "File"));
-  const rate = file.sampleRate;
-  const spell = speller(log);
-  // A whisper-server per call, since two requests can run at once.
-  const engines = await startEngines(log);
-  try {
-    const heard: AsrWord[][] = [];
-    const stretches = spans(clips);
-    for (const { from, to } of stretches) {
-      const first = Math.round(from * rate);
-      const last = Math.min(file.samples.length, Math.round(to * rate));
-      const audio = { sampleRate: rate, samples: file.samples.subarray(first, last) };
-      const said: AsrWord[] = [];
-      for await (const c of hear(audio, (first / rate) * 1000, engines)) {
-        for (const w of timedWords(c.heard, c.offsetMs)) said.push({ ...w, word: spell(w.word) });
-      }
-      heard.push(said);
-    }
-    // Each clip gets the words of the stretch it's in; wordCaptions keeps the ones inside it.
-    const words = clips.map(
-      ({ from, to }) => heard[stretches.findIndex((s) => s.from <= from && to <= s.to)] ?? [],
-    );
-    return wordCaptions(clips, words, options) || "No speech in those clips.";
-  } finally {
-    await engines.close();
-  }
+  const words = await clipWords(path, clips, log);
+  return wordCaptions(clips, words, options) || "No speech in those clips.";
+}
+
+/**
+ * The project in `file` rendered: its clips from their sources, framed to
+ * its size, with captions made for the cut as it is now and everything on
+ * it timed from its clips. Saved beside the project as `<name>-render-N.mp4`.
+ */
+async function renderProject(file: string, log: (m: string) => void, out?: string) {
+  const { project, created } = load(file);
+  if (created) throw new Error(`No project at ${file}; make one with \`edit\`.`);
+  const cut = compile(project, dirname(file));
+  const first = cut.clips[0]?.path;
+  if (!first) throw new Error(`${file} has no clips yet; add some with \`edit\`.`);
+  const said = cut.captions
+    ? wordCaptions(cut.clips, await clipWords(first, cut.clips, log), {
+        perCue: cut.captions.perCue ?? 3,
+        lit: cut.captions.lit ?? true,
+        upper: cut.captions.upper ?? false,
+      })
+    : undefined;
+  return render(first, cut.clips, {
+    fit: true,
+    size: cut.size,
+    fps: cut.fps,
+    split: cut.split,
+    captions: said,
+    captionsY: cut.captions?.y ?? CAPTIONS_Y,
+    texts: cut.texts,
+    inserts: cut.inserts,
+    sounds: cut.sounds,
+    out,
+    named: file,
+    kind: "render",
+  });
 }
 
 /** A tool's seconds argument: absent stays absent, anything else must be a number. */
@@ -1298,12 +1426,42 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
         transcribe(String(a.path), log, { from: seconds(a.from), to: seconds(a.to) }, !!a.words),
     },
     {
-      name: "render",
-      description:
-        "Cut clips out of a video and join them into one MP4, for a Short or Reel. You choose the clips (cut on word ends from `transcribe` with `words: true`) and write the captions; this runs ffmpeg on the Mac. Returns the new file's path and length. It never overwrites a file.",
+      name: "edit",
+      description: `Edit a project file (project.json): an edit kept between calls, whose clips can come from several sources and whose texts, b-roll and sounds stay on their clips as the cut changes. Applies \`ops\` in order, all or none, saves, and returns an outline: each clip's place in the finished video and what's on it. Makes the file if it isn't there; no ops only reads it. You can also edit the JSON by hand. Times: a clip's from/to are seconds in its source (as \`transcribe\` gives them); a text's, insert's or sound's are seconds from the start of its \`clip\` in the finished video, or of the video without one. Ops:
+- {op:"add", type:"clip", path, from, to, focus?:{x,y}, zoom?, index?}: on the main track, which plays in order with no gaps (default at the end)
+- {op:"add", type:"text", text, from, to, clip?, y?}: drawn like the captions, *words* yellow
+- {op:"add", type:"insert", path, from, to, clip?}: a picture or video over the whole frame (b-roll)
+- {op:"add", type:"audio", path, at?, clip?, volume?, loop?, duck?}: music or a sound effect under the speech
+- {op:"remove", id}: a clip goes with everything on it, and the cut closes up
+- {op:"split", id, at}: a clip in two at a source time; what's on the second half moves with it
+- {op:"trim", id, from?, to?}: a clip's source times; what's on it stays on the same picture
+- {op:"move", id, index}: a clip to another place in the cut
+- {op:"set", id, ...fields}: change an item (null clears a field); without id, the project's size ("1080x1920" makes it vertical, cropping each clip around its focus), fps, split {top, bottom} and captions {perCue?, lit?, upper?, y?} (null for none). Ids are given out as c1, t1, b1, a1.`,
       inputSchema: {
         type: "object",
         properties: {
+          project: { type: "string", description: "Absolute path to the project's .json file" },
+          ops: { type: "array", items: { type: "object" }, description: "The ops, in order" },
+        },
+        required: ["project"],
+      },
+      run: async (a) => {
+        if (!Array.isArray(a.ops ?? [])) throw new Error("ops must be a list");
+        return edit(resolve(String(a.project)), (a.ops ?? []) as unknown[]);
+      },
+    },
+    {
+      name: "render",
+      description:
+        "Render an `edit` project to MP4 (`project`), or cut clips out of one video and join them (`path` and `clips`), for a Short, Reel or long-form video. You choose the clips (cut on word ends from `transcribe` with `words: true`) and write the captions; this runs ffmpeg on the Mac. A project's captions are made from its clips' words when it renders. Returns the new file's path and length. It never overwrites a file.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          project: {
+            type: "string",
+            description:
+              "Absolute path to a project file from `edit`. Takes the place of everything else but `out`; the video goes beside it as <name>-render-N.mp4",
+          },
           path,
           clips: {
             type: "array",
@@ -1395,11 +1553,13 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
             description: "Absolute path for the MP4. Default: <source>-short-N.mp4 beside it",
           },
         },
-        required: ["path", "clips"],
       },
       // Absolute paths, since ffmpeg runs in a temp folder.
-      run: (a) =>
-        render(
+      run: (a) => {
+        const out = a.out === undefined ? undefined : resolve(String(a.out));
+        if (a.project !== undefined) return renderProject(resolve(String(a.project)), log, out);
+        if (a.path === undefined) throw new Error("Give a `project`, or a `path` and `clips`.");
+        return render(
           resolve(String(a.path)),
           items(a.clips).map((c, i) => {
             const focus = c.focus as Record<string, unknown> | undefined;
@@ -1441,9 +1601,10 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
               loop: !!t.loop,
               duck: !!t.duck,
             })),
-            out: a.out === undefined ? undefined : resolve(String(a.out)),
+            out,
           },
-        ),
+        );
+      },
     },
     {
       name: "captions",

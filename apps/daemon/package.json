@@ -8,6 +8,7 @@
     "@mockingbird/captions": "workspace:*",
     "@mockingbird/motion": "workspace:*",
     "@mockingbird/store": "workspace:*",
+    "@mockingbird/timeline": "workspace:*",
     "@mockingbird/vad": "workspace:*"
   }
 }

@@ -18,6 +18,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
+| 2026-11-04 | Timeline, first part (#148): `packages/timeline` keeps an edit in a project file; the `edit` tool changes it with ops; `render` renders one, with clips from several sources framed to one size and rate, and captions made for the cut. |
 | 2026-11-04 | mockingbird-studio moved into `plugin/` and is now the `mockingbird` plugin; a `guide` tool and server instructions give every MCP client its playbooks (#140). |
 | 2026-11-04 | Long-form fixes (#127): `render` and `motion` reach −14 LUFS with a measured gain and a limiter instead of one pass of `loudnorm` (−15.9 → −14.3 LUFS on the v2 edit); `captions` hears overlapping padded clips as one stretch (171 s → 62 s for 96 clips); captions in a wide video are subtitle-sized. |
 | 2026-11-03 | `render` opens the source once per clip with a seek instead of trimming one input: 2.4x faster on a 96-clip edit, and frame-accurate. Over 100 clips it renders in batches and joins them, to bound memory (#137). |
@@ -125,8 +126,10 @@ sequenceDiagram
     A-->>U: the file, and what it covers
 ```
 
-Each tool is one call with the whole edit in its parameters. The timeline
-(`project.json` with small edit verbs) replaces that in pivot step 5.
+`render` can take the whole edit in its parameters, as above, or render a
+project file the agent builds up with `edit` (pivot step 5, #148): clips
+from any number of sources, with texts, b-roll and sounds attached to the
+clips they belong to, so changing the cut doesn't break their timing.
 
 ## 5. The tools
 
@@ -138,7 +141,8 @@ tool, with its options, is documented in [MCP.md](./MCP.md):
 | `transcribe` | timestamped lines, or word times, for a file or a stretch of it |
 | `frames` | stills at an interval, for the agent to look at |
 | `captions` | word-by-word SRT timed to the video `render` will make |
-| `render` | cuts, framing, 9:16 or split layout, captions, text, b-roll, music and sound effects, loudness to −14 LUFS |
+| `edit` | changes a project file with ops (add, remove, split, trim, move, set) and returns an outline |
+| `render` | a project, or cuts from one video: framing, 9:16 or split layout, captions, text, b-roll, music and sound effects, loudness to −14 LUFS |
 | `motion` | a script that draws with the Canvas 2D API, rendered to MP4 |
 | `status` | what's installed |
 | `dictionary_list`, `dictionary_add` | names to spell right |
@@ -188,6 +192,15 @@ Measured on an M3 with a 96-clip edit of a 908 s 1080p60 recording
 (#137): 152.9 s with one trimmed input, 63.4 s seeking, 103.1 s in two
 batches. VideoToolbox's H.264 encoder was slower than x264 `veryfast` there
 (about 213 fps against 557), so encoding stays on x264.
+
+A project (`packages/timeline`) compiles into the same inputs: each clip
+with its own source, everything laid over the cut timed in the finished
+video from the clip it's on, and captions made with `wordCaptions` from each
+source's words. Its clips can differ in size and frame rate, so each is
+cropped to the project's shape, scaled to its size and set to its rate
+before `concat`, and a clip from a source with no sound gets silence
+(`aevalsrc`). The package does no I/O beyond reading and writing the
+project file; probing and rendering stay in the engine.
 
 `motion` imports the agent's script in a separate Bun process under
 `sandbox-exec` with the network denied (`apps/daemon/src/motion-run.ts`),
@@ -254,6 +267,7 @@ mockingbird/
 │   ├── asr/                 whisper-server adapter, word diff (WER)
 │   ├── captions/            SRT parsing, captions drawn with Core Text
 │   ├── motion/              Canvas 2D over Core Graphics, motion scripts to MP4
+│   ├── timeline/            project files: format, checks, edit ops, outline
 │   └── store/               data.db, the dictionary's parsing and name matching
 ├── plugin/                  the Claude Code plugin: skills, the reviewer agent,
 │                            the motion kit, templates, sound effects, research

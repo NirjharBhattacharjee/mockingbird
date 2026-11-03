@@ -54,7 +54,8 @@ instead.
    recording with a webcam (screen on top, webcam below, `captionsY: 0.5`).
    Punch in with `zoom` per **retention-editing**.
 6. **Render the cut.** One `render` call per short, `vertical: true` (or
-   `split`), with b-roll only where the speech names something worth seeing,
+   `split`), or a project per short from `edit` (`size: "1080x1920"`, which
+   also takes clips from more than one video and makes the captions itself), with b-roll only where the speech names something worth seeing,
    music low and ducked, and a sound effect only on a beat that matters. For
    a plain captioned short (or where `motion` isn't available), pass the
    captions here and go to step 8. For anything that moves, leave captions

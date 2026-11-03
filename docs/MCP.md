@@ -45,7 +45,8 @@ after the curl install, or `/opt/homebrew/bin/mockingbird` with Homebrew.
 | `transcribe(path, from, to, words)` | An audio or video file (anything ffmpeg reads: m4a, mp3, wav, mp4, mov, mkv) as text, in lines timestamped `[mm:ss]`, with names fixed from your dictionary (a `heard => term` entry first, then anything that sounds like a term). Each call starts its own whisper-server, so two can run at once. The client's model does any cleanup or summarising. `from` and `to` (seconds) take one stretch of the file. `words: true` gives one line per word with its start and end, `[01:23.48-01:23.71] Catppuccin`, to cut a clip on; names are fixed one word at a time there, so a name misheard as two words stays as heard. |
 | `frames(path, every, from, to)` | Stills from a video, one every `every` seconds (default 60), saved to a temp folder; returns their paths with `[mm:ss]` times, so a client that reads images can see slides and screen shares, or where the speaker is before framing a clip. `from` and `to` (seconds) take one stretch. Each still is read by seeking to it, so a long 4K phone video takes seconds, not minutes. |
 | `captions(path, clips, perCue, lit, upper)` | Word-by-word captions for the video `render` will make from `clips`, as SRT timed to the finished video: up to `perCue` words a cue (default 3), the word being said written `*like this*` (`lit`, default on), in capitals if `upper`. A new cue starts at each clip, after a sentence, after half a second's pause, or when its words span 1.2 seconds. Each clip is transcribed with two seconds either side, clips whose padded stretches overlap are transcribed together as one, and a word belongs to the clip its middle falls in. |
-| `render(path, clips, …)` | Cuts `clips` out of a video and joins them into one MP4 with ffmpeg; see [Render options](#render-options). Saves to `out`, or `<name>-short-N.mp4` beside the source, and never overwrites a file. |
+| `edit(project, ops)` | Changes a project file, an edit kept between calls; see [Projects](#projects). Applies `ops` in order, all of them or none, saves the file, and returns an outline of the cut. Makes the file if it isn't there; with no ops it only reads it. |
+| `render(project)` or `render(path, clips, …)` | Renders a project, or cuts `clips` out of one video and joins them, into one MP4 with ffmpeg; see [Render options](#render-options). Saves to `out`, or `<name>-render-N.mp4` beside the project (`<name>-short-N.mp4` beside the source), and never overwrites a file. |
 | `motion(script, path, captions, size, duration, fps, out)` | Motion graphics written as code, drawn on the Mac with Core Graphics: see [Motion graphics](#motion-graphics). Saves to `out`, or `<name>-motion-N.mp4` beside the video or script, and never overwrites a file. |
 | `guide(topic)` | A playbook for one job, from [`plugin/`](../plugin/README.md): `viral-short`, `long-form`, `hooks`, `retention-editing`, `captions`, `motion-graphics`, `style-match`, or `reviewer` (the checks a finished video has to pass). It starts with the folder holding the playbook's scripts, kit and templates. |
 | `status` | Whether mockingbird is ready: the transcription model in use, the speech detection model, ffmpeg, whisper-server, and how many words the dictionary has. |
@@ -71,6 +72,82 @@ with `MCP_TOOL_TIMEOUT` (milliseconds) if a long file stops partway.
 | `audio` | `[{ path, at, volume, loop, duck }]`: sounds mixed under the speech from `at` seconds in. Music is `loop: true, duck: true` at about 0.15: it repeats to the end and drops while someone speaks (auto-editor's defaults: 85% down once the speech is above 4%, in 100 ms, back up in 500 ms). A sound effect is a path and an `at`. |
 
 The sound comes out at −14 LUFS (within about half a dB), the loudness Shorts, Reels, TikTok and YouTube play at, with peaks under −1.5 dBTP, so a quiet phone recording doesn't sound weak next to everything else in the feed. The sound is measured, measured again through the peak limiter, and the gain corrected once; a single pass of ffmpeg's `loudnorm` fell 1 to 2 dB short on quiet recordings with loud peaks (#127). The gain stops at +30 dB, so a recording quieter than −44 LUFS comes out under −14, and silence is left as it is.
+
+## Projects
+
+A project file (`project.json`) holds one edit, so it isn't re-sent on every
+call and changing the cut doesn't break the timing of what's laid over it
+(#148). The agent changes it with `edit`, or by hand: it's plain JSON.
+
+```json
+{
+  "version": 1,
+  "size": "1080x1920",
+  "fps": 30,
+  "captions": { "perCue": 3 },
+  "clips": [
+    { "id": "c1", "path": "talk.mp4", "from": 22, "to": 26 },
+    { "id": "c2", "path": "IMG_5921.MOV", "from": 63, "to": 69, "zoom": 1.1 }
+  ],
+  "texts": [{ "id": "t1", "text": "The *phone* clip", "clip": "c2", "from": 0.2, "to": 2, "y": 0.2 }],
+  "inserts": [],
+  "audio": [
+    { "id": "a1", "path": "whoosh.wav", "clip": "c2", "at": 0, "volume": 0.8 },
+    { "id": "a2", "path": "music.m4a", "at": 0, "volume": 0.15, "loop": true, "duck": true }
+  ]
+}
+```
+
+- **`clips`** is the main track: the clips play in order with no gaps. A
+  clip's `from`/`to` are seconds in its own source, as `transcribe` gives
+  them, and each clip can come from a different file. Every clip is cropped
+  to the project's shape around its `focus`, punched in by its `zoom`,
+  scaled to `size` and set to `fps` (defaults: the first clip's source), so
+  a 16:9 talk and a portrait phone clip join in one 1080x1920 video. A
+  source with no sound plays silence.
+- **`texts`, `inserts` and `audio`** take the options `render`'s do. With
+  `clip`, their times are seconds from that clip's start in the finished
+  video, so they move with it when clips before it change; without, from
+  the start of the video.
+- **`captions`** makes word-by-word captions for the cut as it is when it's
+  rendered, as the `captions` tool does: `perCue`, `lit`, `upper`, and `y`
+  (where their middle sits). Leave it out, or `null`, for none.
+- **`split`** is `render`'s split; its clips are brought to the first
+  clip's size first.
+- Paths are absolute, or relative to the project file's folder.
+
+`edit`'s ops:
+
+| Op | What it does |
+|---|---|
+| `{op: "add", type: "clip", path, from, to, focus?, zoom?, index?}` | A clip on the main track, at `index` (default the end). |
+| `{op: "add", type: "text" \| "insert" \| "audio", …}` | A text, picture or video, or sound, with the fields above. |
+| `{op: "remove", id}` | Removes an item. A clip takes what's on it with it, and the cut closes up. |
+| `{op: "split", id, at}` | Splits a clip in two at `at` seconds in its source. What starts on the second half moves to the new clip. |
+| `{op: "trim", id, from?, to?}` | Changes a clip's source times. What's on it moves with the picture: trimming 2 s off the start moves its texts 2 s earlier, and drops any that were only on what's gone. |
+| `{op: "move", id, index}` | Moves a clip to another place in the cut. |
+| `{op: "set", id?, …fields}` | Sets fields of an item (`null` clears one), or without `id` the project's `size`, `fps`, `split` and `captions`. Unlike `trim`, setting a clip's `from`/`to` leaves what's on it where it is. |
+
+New items get ids like `c1`, `t1`, `b1` and `a1` unless given one. A field
+the project doesn't have is an error, not ignored, so a misspelling is
+caught. The outline `edit` returns lists each clip at its place in the
+finished video, with what's on it under it:
+
+```
+two.json: 1080x1920, 30 fps, 0:15.50, captions on (3 a cue)
+c4  0:00.00-0:04.00  talk.mp4 22-26
+c2  0:04.00-0:10.00  IMG_5921.MOV 63-69  zoom 1.1
+    t1  0:04.20-0:06.00  text "The *phone* clip" y 0.2
+    a1  0:04.00  audio whoosh.wav volume 0.8
+a2  0:00.00  audio music.m4a volume 0.15 loop duck
+```
+
+A project renders to the same video the same edit gives as `render`'s
+parameters: on a 17.5 s vertical edit of three clips with a title and
+ducked music, every frame matched and both came out at the same loudness.
+A 15.5 s project joining a 1080p60 screen recording and a 4K HEVC portrait
+phone video, with captions, rendered in 17.3 s on an M3, most of it hearing
+the clips for the captions; the phone video is 5 GB.
 
 ## Making a short
 
