@@ -4,18 +4,27 @@ export class AudioDecodeError extends Error {
   override name = "AudioDecodeError";
 }
 
-export type DecodeOptions = { ffmpeg?: string; sampleRate?: number };
+export type DecodeOptions = {
+  ffmpeg?: string;
+  sampleRate?: number;
+  /** Seconds into the file to start and stop decoding (ffmpeg's -ss and -to). */
+  from?: number;
+  to?: number;
+};
 
 export async function decodeWithFfmpeg(
   path: string,
-  { ffmpeg = "ffmpeg", sampleRate = 16000 }: DecodeOptions = {},
+  { ffmpeg = "ffmpeg", sampleRate = 16000, from, to }: DecodeOptions = {},
 ): Promise<PcmAudio> {
   let proc: ReturnType<typeof Bun.spawn<"ignore", "pipe", "pipe">>;
   try {
     proc = Bun.spawn(
       [
         ffmpeg,
-        ...["-nostdin", "-hide_banner", "-loglevel", "error", "-i", path],
+        ...["-nostdin", "-hide_banner", "-loglevel", "error"],
+        ...(from ? ["-ss", String(from)] : []),
+        ...(to !== undefined ? ["-to", String(to)] : []),
+        ...["-i", path],
         ...["-f", "s16le", "-acodec", "pcm_s16le", "-ac", "1", "-ar", String(sampleRate), "-"],
       ],
       { stdin: "ignore", stdout: "pipe", stderr: "pipe" },
@@ -39,7 +48,12 @@ export async function loadAudio(path: string, options: DecodeOptions = {}): Prom
   // Only a WAV is read whole: a phone video can be gigabytes.
   // As bytes: the size in bytes 4-7 can decode as one UTF-8 character and shift "WAVE".
   const head = Buffer.from(await Bun.file(path).slice(0, 12).arrayBuffer());
-  if (head.toString("latin1", 0, 4) === "RIFF" && head.toString("latin1", 8, 12) === "WAVE") {
+  const whole = options.from === undefined && options.to === undefined;
+  if (
+    whole &&
+    head.toString("latin1", 0, 4) === "RIFF" &&
+    head.toString("latin1", 8, 12) === "WAVE"
+  ) {
     try {
       const audio = await readWavFile(path);
       if (audio.sampleRate === sampleRate) return audio;

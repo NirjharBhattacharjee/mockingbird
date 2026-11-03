@@ -13,10 +13,17 @@ fails, where, and which render option fixes it.
    A short is 1080x1920 and 15–180 s. Long-form matches the source: run the
    same `ffprobe` on the source path you were given and compare width and
    height. With no source path, say the size wasn't checked.
-2. **Loudness.** `ffmpeg -hide_banner -nostats -i <video> -vn -af ebur128=peak=true -f null - 2>&1 | grep -E "I:|Peak:"`.
-   Pass: −14 LUFS ±1, true peak at or below −1 dBTP. A quiet source can come
-   out below −15 LUFS (mockingbird#127); report it as a fail with the measured
-   number, since a re-render won't change it.
+2. **Sound.** mockingbird's `audio_stats` on the video.
+   Pass: −14 LUFS ±1, true peak at or below −1 dBTP, and a sample peak below
+   full scale (at full scale it's clipped). A quiet source can come out below
+   −15 LUFS (mockingbird#127); report it as a fail with the measured number,
+   since a re-render won't change it. With music under speech, the sound
+   between phrases should sit 18 to 24 dB under the voice: closer fails
+   (lower the music's `volume` or turn on `duck`), further is a note, not a
+   fail. Report the 1 to 4 kHz share and the noise floor as they are; a
+   floor above −50 dBFS in a talking-head video is hiss or room noise worth
+   naming. If cuts are meant to land on the beat, run `audio_stats` on the
+   music file and compare its beat times with the cuts.
 3. **Black and frozen frames.** `ffmpeg -hide_banner -nostats -i <video> -an -vf "blackdetect=d=0,freezedetect=n=-60dB:d=0.5" -f null - 2>&1 | grep -E "black_start|freeze_start"`.
    Any black frame fails, however short. A freeze of half a second or more
    fails in a short; in long-form, a slide held still is fine.

@@ -43,6 +43,7 @@ after the curl install, or `/opt/homebrew/bin/mockingbird` with Homebrew.
 | Tool | What it does |
 |---|---|
 | `transcribe(path, from, to, words)` | An audio or video file (anything ffmpeg reads: m4a, mp3, wav, mp4, mov, mkv) as text, in lines timestamped `[mm:ss]`, with names fixed from your dictionary (a `heard => term` entry first, then anything that sounds like a term). Each call starts its own whisper-server, so two can run at once. The client's model does any cleanup or summarising. `from` and `to` (seconds) take one stretch of the file. `words: true` gives one line per word with its start and end, `[01:23.48-01:23.71] Catppuccin`, to cut a clip on; names are fixed one word at a time there, so a name misheard as two words stays as heard. |
+| `audio_stats(path, from, to)` | What a file's sound measures, since the agent can't listen: see [Measuring sound](#measuring-sound). |
 | `frames(path, every, from, to)` | Stills from a video, one every `every` seconds (default 60), saved to a temp folder; returns their paths with `[mm:ss]` times, so a client that reads images can see slides and screen shares, or where the speaker is before framing a clip. `from` and `to` (seconds) take one stretch. Each still is read by seeking to it, so a long 4K phone video takes seconds, not minutes. |
 | `captions(path, clips, perCue, lit, upper)` | Word-by-word captions for the video `render` will make from `clips`, as SRT timed to the finished video: up to `perCue` words a cue (default 3), the word being said written `*like this*` (`lit`, default on), in capitals if `upper`. A new cue starts at each clip, after a sentence, after half a second's pause, or when its words span 1.2 seconds. Each clip is transcribed with two seconds either side, clips whose padded stretches overlap are transcribed together as one, and a word belongs to the clip its middle falls in. |
 | `render(path, clips, …)` | Cuts `clips` out of a video and joins them into one MP4 with ffmpeg; see [Render options](#render-options). Saves to `out`, or `<name>-short-N.mp4` beside the source, and never overwrites a file. |
@@ -109,6 +110,38 @@ short from a 60 fps screen recording, with word-by-word captions, a title, a
 picture insert, ducked music and a sound effect, took 2.8 seconds; 9 seconds
 cut from a 4K HEVC phone video took 11.5. `captions` for five clips took about
 5 seconds, most of it starting whisper-server.
+
+## Measuring sound
+
+`audio_stats` gives an agent numbers in place of listening. On a file, or
+one stretch of it with `from` and `to`, it reports:
+
+- **Loudness** from ffmpeg's `ebur128`: integrated LUFS (platforms play
+  everything at about −14), loudness range, true peak (above −1 dBTP a
+  platform's encoder may clip it) and sample peak (at full scale, it's
+  clipped).
+- **Noise floor**, the level of the quietest tenth of 400 ms windows. Under
+  −60 dBFS is clean; hiss, hum and room tone raise it.
+- **Speech and the rest**, with Silero finding the speech (its padded
+  segments merged, so no sample counts twice): how much of it is
+  speech and at what level, the level between phrases and how far under the
+  voice that is, and how much of the energy between phrases is in 1 to
+  4 kHz, the band speech needs. Music under speech usually sits 18 to 24 dB
+  under the voice. Between phrases is where music isn't ducked, so the real
+  gap under words is at least this big. Without the VAD model this part is
+  left out.
+- **The beat**: tempo, how far apart beats are and where the first one is,
+  when there's a steady one, from the autocorrelation of onset strength.
+  Speech over music hides its beat, so measure the music file itself. One
+  tempo for the whole track: a track that speeds up or slows down gets the
+  average.
+- **Sections**, where the level changes by 4 dB or more for at least 4
+  seconds on both sides: music dropping out, a chorus starting. In a file
+  that's mostly speech the level follows the speaker, so they're left out
+  there; measure the music file.
+
+On a 13.5 s file of speech with a 96 BPM kick mixed 20 dB under it, it
+reported 19.1 dB under the voice; on the kick alone, 96.0 BPM and clipping.
 
 ## Motion graphics
 
