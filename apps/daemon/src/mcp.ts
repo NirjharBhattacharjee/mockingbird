@@ -744,26 +744,30 @@ async function joinBatches(
   const batches: string[] = [];
   for (let i = 0; i < clips.length; i += CLIPS_PER_PASS) {
     const batch = clips.slice(i, i + CLIPS_PER_PASS);
-    const file = join(dir, `batch-${batches.length}.mkv`);
+    const length = batch.reduce((sum, { from, to }) => sum + to - from, 0);
+    const file = `batch-${batches.length}.mkv`;
     await ffmpeg(
       [
         ...seekClips(path, batch),
         ...["-filter_complex", renderGraph(batch, { ...look, loudness: false }), "-map", "[v]"],
         ...(look.audio ? ["-map", "[a]", "-c:a", "pcm_s16le"] : []),
         // Encoded once more in the last pass, so near-lossless here.
-        ...["-c:v", "libx264", "-crf", "10", "-preset", "veryfast", "-pix_fmt", "yuv420p", file],
+        ...["-c:v", "libx264", "-crf", "10", "-preset", "veryfast", "-pix_fmt", "yuv420p"],
+        // The picture ends with the sound, give or take a frame: the join
+        // starts the next batch where the longer of the two ends.
+        ...["-t", String(length), join(dir, file)],
       ],
       `render clips ${i + 1}-${i + batch.length} of ${path}`,
     );
     batches.push(file);
   }
+  // Names beside the list, so no path in it needs quoting.
   const list = join(dir, "batches.txt");
   writeFileSync(list, batches.map((b) => `file '${b}'`).join("\n"));
   const joined = join(dir, "joined.mkv");
-  await ffmpeg(
-    ["-f", "concat", "-safe", "0", "-i", list, "-c", "copy", joined],
-    `join ${path}'s clips`,
-  );
+  await ffmpeg(["-f", "concat", "-i", list, "-c", "copy", joined], `join ${path}'s clips`);
+  // Only the joined file is needed now, which halves the disk this takes.
+  for (const b of batches) rmSync(join(dir, b), { force: true });
   return joined;
 }
 

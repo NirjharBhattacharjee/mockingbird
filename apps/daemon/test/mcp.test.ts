@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -422,26 +422,30 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
 
   test("more clips than one pass opens are rendered in batches and joined", async () => {
     const dir = mkdtempSync(join(tmpdir(), "mb-render-"));
-    const source = join(dir, "source.mp4");
-    Bun.spawnSync([
-      ...[
-        "ffmpeg",
-        "-loglevel",
-        "error",
-        "-f",
-        "lavfi",
-        "-i",
-        "testsrc2=size=320x240:rate=30:duration=4",
-      ],
-      ...["-f", "lavfi", "-i", "sine=frequency=440:duration=4", "-pix_fmt", "yuv420p", source],
-    ]);
-    // Tenths of a second, round and round the 4-second source.
-    const clips = Array.from({ length: CLIPS_PER_PASS + 1 }, (_, i) => ({
-      from: (i % 30) * 0.1,
-      to: (i % 30) * 0.1 + 0.1,
-    }));
-    const out = join(dir, "out.mp4");
-    expect(await run({ path: source, clips, out })).toStartWith(out);
-    expect(seconds(out)).toBeCloseTo(10.1, 1);
+    try {
+      const source = join(dir, "source.mp4");
+      Bun.spawnSync([
+        ...[
+          "ffmpeg",
+          "-loglevel",
+          "error",
+          "-f",
+          "lavfi",
+          "-i",
+          "testsrc2=size=320x240:rate=30:duration=4",
+        ],
+        ...["-f", "lavfi", "-i", "sine=frequency=440:duration=4", "-pix_fmt", "yuv420p", source],
+      ]);
+      // Tenths of a second, round and round the 4-second source.
+      const clips = Array.from({ length: CLIPS_PER_PASS + 1 }, (_, i) => ({
+        from: (i % 30) * 0.1,
+        to: (i % 30) * 0.1 + 0.1,
+      }));
+      const out = join(dir, "out.mp4");
+      expect(await run({ path: source, clips, out })).toStartWith(out);
+      expect(seconds(out)).toBeCloseTo(10.1, 1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }, 120_000);
 });
