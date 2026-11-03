@@ -6,14 +6,22 @@ import { agents } from "../src/agents.ts";
 import { PLUGIN } from "../src/guide.ts";
 import { checks, doctor, setup } from "../src/setup.ts";
 
-/** A home with Cursor, Gemini CLI, VS Code and Codex folders, and no `claude` command. */
+/** A home with Cursor, Gemini CLI, VS Code and Codex folders, `mockingbird` in .local/bin, and no `claude` command. */
 function home() {
   const dir = mkdtempSync(join(tmpdir(), "mb-setup-"));
-  for (const d of [".cursor", ".gemini", ".codex", "Library/Application Support/Code/User"]) {
+  for (const d of [
+    ".cursor",
+    ".gemini",
+    ".codex",
+    "Library/Application Support/Code/User",
+    ".local/bin",
+  ]) {
     mkdirSync(join(dir, d), { recursive: true });
   }
+  writeFileSync(join(dir, ".local/bin/mockingbird"), "");
   return dir;
 }
+const mbAt = (h: string) => join(h, ".local/bin/mockingbird");
 const none = () => null;
 
 describe("agents", () => {
@@ -21,7 +29,7 @@ describe("agents", () => {
     const h = home();
     writeFileSync(join(h, ".cursor", "mcp.json"), '{"mcpServers":{"other":{"command":"x"}}}');
     writeFileSync(join(h, ".codex", "config.toml"), 'model = "o4"\n');
-    const found = agents("/usr/local/bin/mockingbird", { home: h, which: none });
+    const found = agents(mbAt(h), { home: h, which: none });
     expect(found.map((a) => [a.name, a.registered])).toEqual([
       ["Cursor", false],
       ["Gemini CLI", false],
@@ -32,17 +40,15 @@ describe("agents", () => {
     const cursor = JSON.parse(readFileSync(join(h, ".cursor", "mcp.json"), "utf8"));
     expect(cursor.mcpServers).toEqual({
       other: { command: "x" },
-      mockingbird: { command: "/usr/local/bin/mockingbird", args: ["mcp"] },
+      mockingbird: { command: mbAt(h), args: ["mcp"] },
     });
     const vscode = join(h, "Library/Application Support/Code/User/mcp.json");
     expect(JSON.parse(readFileSync(vscode, "utf8")).servers.mockingbird.type).toBe("stdio");
     expect(readFileSync(join(h, ".codex", "config.toml"), "utf8")).toBe(
-      'model = "o4"\n\n[mcp_servers.mockingbird]\ncommand = "/usr/local/bin/mockingbird"\nargs = ["mcp"]\n',
+      `model = "o4"\n\n[mcp_servers.mockingbird]\ncommand = ${JSON.stringify(mbAt(h))}\nargs = ["mcp"]\n`,
     );
     // Run again: each one now has it, and nothing is added twice.
-    expect(
-      agents("/usr/local/bin/mockingbird", { home: h, which: none }).every((a) => a.registered),
-    ).toBe(true);
+    expect(agents(mbAt(h), { home: h, which: none }).every((a) => a.registered)).toBe(true);
   });
 
   test("an empty config file counts as no servers yet", () => {
@@ -132,7 +138,11 @@ test("setup installs missing tools and models after asking, then adds the agents
   expect(ran).toContain("brew install ffmpeg whisper-cpp");
   expect(pulled).toBe(true);
   expect(existsSync(join(h, ".gemini", "settings.json"))).toBe(true);
-  expect(code).toBe(0);
+  // This pull writes an empty VAD file, and doctor's sha256 check catches it.
+  expect(code).toBe(1);
+  expect(
+    checks({ home: h, mbHome: mb }).find((c) => c.name === "speech detection model")?.detail,
+  ).toBe("missing or damaged");
 });
 
 test("a no to the download stops setup before anything is added", async () => {
@@ -200,7 +210,8 @@ test("the plugin's launcher answers MCP itself when mockingbird isn't installed"
     { jsonrpc: "2.0", method: "notifications/initialized" },
     { jsonrpc: "2.0", id: "b", method: "tools/list" },
     { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "install_mockingbird" } },
-    { jsonrpc: "2.0", id: 4, method: "resources/list" },
+    { jsonrpc: "2.0", id: 4, method: "resources/list", params: { method: "ping" } },
+    { jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "transcribe" } },
   ];
   const r = Bun.spawnSync(["sh", join(PLUGIN, "launch.sh")], {
     stdin: Buffer.from(`${requests.map((m) => JSON.stringify(m)).join("\n")}\n`),
@@ -211,9 +222,12 @@ test("the plugin's launcher answers MCP itself when mockingbird isn't installed"
     .trim()
     .split("\n")
     .map((l) => JSON.parse(l));
-  expect(replies.map((m) => m.id)).toEqual([1, "b", 3, 4]);
+  expect(replies.map((m) => m.id)).toEqual([1, "b", 3, 4, 5]);
+  expect(replies[0].result.protocolVersion).toBe("2025-06-18");
   expect(replies[0].result.instructions).toContain("isn't installed");
   expect(replies[1].result.tools[0].name).toBe("install_mockingbird");
   expect(replies[2].result.content[0].text).toContain("AGENT_INSTALL.md");
+  // The method is the request's, not one inside its params.
   expect(replies[3].error.code).toBe(-32601);
+  expect(replies[4].error.code).toBe(-32602);
 });

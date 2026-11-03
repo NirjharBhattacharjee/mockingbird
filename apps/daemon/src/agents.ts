@@ -4,7 +4,7 @@
  * are listed. A config is edited, never replaced: one that can't be read
  * is left alone, with what to add by hand.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -22,6 +22,13 @@ export type AgentDeps = {
   which?: (name: string) => string | null;
   run?: (argv: string[]) => { code: number; out: string };
 };
+
+/** Written beside it and renamed over it, so a write cut short never leaves half a config. */
+function replace(file: string, text: string) {
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(`${file}.mockingbird-tmp`, text);
+  renameSync(`${file}.mockingbird-tmp`, file);
+}
 
 const runIt = (argv: string[]) => {
   const r = Bun.spawnSync(argv, { stderr: "pipe" });
@@ -42,9 +49,11 @@ function jsonConfig(name: string, file: string, key: string, entry: object): Age
       throw new Error(`${file} isn't plain JSON, so it was left alone. Add this to it: ${by}`);
     }
   };
+  // An entry whose command has gone (moved, or uninstalled) doesn't count, so setup repairs it.
   let registered = false;
   try {
-    registered = !!read()[key]?.mockingbird;
+    const command = (read()[key]?.mockingbird as { command?: unknown } | undefined)?.command;
+    registered = typeof command === "string" && (!command.includes("/") || existsSync(command));
   } catch {}
   return {
     name,
@@ -53,8 +62,7 @@ function jsonConfig(name: string, file: string, key: string, entry: object): Age
     register: () => {
       const config = read();
       config[key] = { ...config[key], mockingbird: entry };
-      mkdirSync(dirname(file), { recursive: true });
-      writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`);
+      replace(file, `${JSON.stringify(config, null, 2)}\n`);
     },
   };
 }
@@ -107,7 +115,11 @@ export function agents(command: string, deps: AgentDeps = {}): Agent[] {
   if (existsSync(join(home, ".codex"))) {
     // ponytail: TOML by hand, since appending one table needs no parser.
     const file = join(home, ".codex", "config.toml");
-    const text = existsSync(file) ? readFileSync(file, "utf8") : "";
+    // An unreadable config shows as not having mockingbird; register() then says why.
+    let text = "";
+    try {
+      text = existsSync(file) ? readFileSync(file, "utf8") : "";
+    } catch {}
     found.push({
       name: "Codex",
       where: file,
@@ -126,10 +138,9 @@ export function agents(command: string, deps: AgentDeps = {}): Agent[] {
         }
         // A JSON string is a TOML basic string, quotes and backslashes alike.
         const table = `[mcp_servers.mockingbird]\ncommand = ${JSON.stringify(command)}\nargs = ["mcp"]\n`;
-        const current = existsSync(file) ? readFileSync(file, "utf8") : "";
         const gap =
-          current === "" || current.endsWith("\n\n") ? "" : current.endsWith("\n") ? "\n" : "\n\n";
-        writeFileSync(file, `${current}${gap}${table}`);
+          before === "" || before.endsWith("\n\n") ? "" : before.endsWith("\n") ? "\n" : "\n\n";
+        replace(file, `${before}${gap}${table}`);
       },
     });
   }

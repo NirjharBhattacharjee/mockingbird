@@ -3,7 +3,7 @@
  * `mockingbird setup` fixes it, asking first, then adds mockingbird to the
  * coding agents on this computer (#141). Both work from the same checks.
  */
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { type Agent, agents } from "./agents.ts";
@@ -25,6 +25,7 @@ export type SetupDeps = {
   /** `models pull`, with its progress shown. */
   pull?: () => Promise<number>;
   platform?: string;
+  arch?: string;
   env?: Record<string, string | undefined>;
 };
 
@@ -62,11 +63,21 @@ const runIt = (argv: string[]) => {
 };
 
 /** The full path an agent's config should run: the `mockingbird` command the installer or Homebrew put in place. */
-export function commandPath(deps: SetupDeps = {}): string {
+export function commandPath(deps: SetupDeps = {}): string | undefined {
   const which = deps.which ?? ((name: string) => Bun.which(name));
   const home = deps.home ?? homedir();
   const known = [join(home, ".local", "bin", "mockingbird"), "/opt/homebrew/bin/mockingbird"];
-  return which("mockingbird") ?? known.find((p) => existsSync(p)) ?? "mockingbird";
+  // Undefined when there's none: an agent's own PATH may not have a bare `mockingbird`.
+  return which("mockingbird") ?? known.find((p) => existsSync(p));
+}
+
+/** Whether a pinned model is there and whole: the small VAD file is checked against its sha256. */
+function modelThere(mb: string, file: string): boolean {
+  const path = join(mb, "models", file);
+  if (!existsSync(path)) return false;
+  const pinned = MODEL_FILES.find((m) => m.file === file);
+  if (!pinned || (pinned.bytes ?? 0) > 50e6) return true;
+  return new Bun.CryptoHasher("sha256").update(readFileSync(path)).digest("hex") === pinned.sha256;
 }
 
 const gb = (bytes: number) => `${(bytes / 1e9).toFixed(1)} GB`;
@@ -81,6 +92,9 @@ export function checks(deps: SetupDeps = {}): Check[] {
 
   const ffmpeg = which("ffmpeg");
   const encoders = ffmpeg ? run(["ffmpeg", "-hide_banner", "-encoders"]).out : "";
+  // Homebrew's ffmpeg has libx264; another one earlier on the PATH can hide it.
+  const brewed = "/opt/homebrew/bin/ffmpeg";
+  const hidden = !!ffmpeg && ffmpeg !== brewed && existsSync(brewed);
   list.push({
     name: "ffmpeg",
     needed: true,
@@ -90,7 +104,9 @@ export function checks(deps: SetupDeps = {}): Check[] {
       : encoders.includes("libx264")
         ? ffmpeg
         : `${ffmpeg} has no libx264, which render encodes with`,
-    fix: `${brew} ffmpeg${brew.startsWith("`") ? "`" : ""}`,
+    fix: hidden
+      ? `put /opt/homebrew/bin before ${ffmpeg?.replace(/\/ffmpeg$/, "")} on your PATH, so Homebrew's ffmpeg is used`
+      : `${brew} ffmpeg${brew.startsWith("`") ? "`" : ""}`,
   });
   const whisper = which("whisper-server");
   list.push({
@@ -125,12 +141,12 @@ export function checks(deps: SetupDeps = {}): Check[] {
     detail: speech,
     fix: "`mockingbird models pull`, or set MOCKINGBIRD_ASR_MODEL to a model that's there",
   });
-  const vad = existsSync(join(mb, "models", "silero_vad.onnx"));
+  const vad = modelThere(mb, "silero_vad.onnx");
   list.push({
     name: "speech detection model",
     needed: true,
     ok: vad,
-    detail: vad ? "silero_vad.onnx" : "missing",
+    detail: vad ? "silero_vad.onnx" : "missing or damaged",
     fix: "`mockingbird models pull`",
   });
   let words: string;
@@ -150,12 +166,18 @@ export function checks(deps: SetupDeps = {}): Check[] {
   });
   const mac = (deps.platform ?? process.platform) === "darwin";
   list.push({
-    name: "captions and motion",
+    name: "captions",
     needed: false,
     ok: mac,
-    detail: mac
-      ? "drawn with Core Text and Core Graphics"
-      : "need macOS; captions become a subtitle track",
+    detail: mac ? "drawn with Core Text" : "need macOS; they become a subtitle track",
+  });
+  // packages/motion's canvas needs Apple silicon.
+  const appleSilicon = mac && (deps.arch ?? process.arch) === "arm64";
+  list.push({
+    name: "motion",
+    needed: false,
+    ok: appleSilicon,
+    detail: appleSilicon ? "drawn with Core Graphics" : "needs a Mac with Apple silicon",
   });
   const books = playbooks().length;
   list.push({
@@ -173,7 +195,8 @@ export function doctor(args: string[], deps: SetupDeps = {}): number {
   const log = deps.log ?? ((line: string) => console.log(line));
   if (helped(args, "--json", DOCTOR_USAGE, log)) return 0;
   const all = checks(deps);
-  const found = agents(commandPath(deps), deps);
+  const command = commandPath(deps);
+  const found = command ? agents(command, deps) : [];
   if (args.includes("--json")) {
     const agentList = found.map(({ name, where, registered }) => ({ name, where, registered }));
     log(JSON.stringify({ checks: all, agents: agentList }, null, 2));
@@ -189,8 +212,13 @@ export function doctor(args: string[], deps: SetupDeps = {}): number {
         `${a.registered ? "✓" : "!"} ${a.name.padEnd(width)}${a.registered ? "has mockingbird" : "doesn't have mockingbird yet: `mockingbird setup`"}`,
       );
     }
-    if (!found.length)
+    if (!command) {
+      log(
+        `! ${"agents".padEnd(width)}the \`mockingbird\` command isn't on the PATH, so no agent can run it`,
+      );
+    } else if (!found.length) {
       log(`! ${"agents".padEnd(width)}none found; see docs/MCP.md to add mockingbird to yours`);
+    }
   }
   return all.every((c) => c.ok || !c.needed) ? 0 : 1;
 }
@@ -206,8 +234,16 @@ export async function setup(args: string[], deps: SetupDeps = {}): Promise<numbe
   const run = deps.run ?? runIt;
 
   const broken = checks(deps).filter((c) => !c.ok && c.needed);
+  const ffmpeg = broken.find((c) => c.name === "ffmpeg");
+  // Homebrew's copy is there but hidden: installing it again changes nothing.
+  if (ffmpeg?.fix?.startsWith("put ")) {
+    log(
+      `ffmpeg: ${ffmpeg.detail}. To fix it, ${ffmpeg.fix}, then run \`mockingbird setup\` again.`,
+    );
+    return 1;
+  }
   const formulas = [
-    ...(broken.some((c) => c.name === "ffmpeg") ? ["ffmpeg"] : []),
+    ...(ffmpeg ? ["ffmpeg"] : []),
     ...(broken.some((c) => c.name === "whisper-server") ? ["whisper-cpp"] : []),
   ];
   if (formulas.length) {
@@ -225,7 +261,7 @@ export async function setup(args: string[], deps: SetupDeps = {}): Promise<numbe
     }
   }
   const mb = deps.mbHome ?? mockingbirdHome();
-  const absent = MODEL_FILES.filter((m) => !existsSync(join(mb, "models", m.file)));
+  const absent = MODEL_FILES.filter((m) => !modelThere(mb, m.file));
   if (broken.some((c) => c.name.endsWith("model")) && absent.length) {
     const size = absent.reduce((sum, m) => sum + (m.bytes ?? 0), 0);
     const from = [...new Set(absent.map((m) => new URL(m.url).host))].join(" and ");
@@ -234,17 +270,27 @@ export async function setup(args: string[], deps: SetupDeps = {}): Promise<numbe
     if (code !== 0) return code;
   }
 
-  const missing: Agent[] = agents(commandPath(deps), deps).filter((a) => !a.registered);
+  const command = commandPath(deps);
+  if (!command) {
+    log(
+      "The `mockingbird` command isn't on the PATH, so no agent could run it. Reinstall, then run setup again.",
+    );
+    return 1;
+  }
+  const missing: Agent[] = agents(command, deps).filter((a) => !a.registered);
+  let failed = false;
   if (missing.length && ask(`Add mockingbird to ${missing.map((a) => a.name).join(", ")}? [Y/n]`)) {
     for (const a of missing) {
       try {
         a.register();
         log(`added mockingbird to ${a.name} (${a.where}); restart it to load the tools`);
       } catch (error) {
+        failed = true;
         log(`${a.name}: ${error instanceof Error ? error.message : error}`);
       }
     }
   }
   log("");
-  return doctor([], deps);
+  const checked = doctor([], deps);
+  return failed ? 1 : checked;
 }

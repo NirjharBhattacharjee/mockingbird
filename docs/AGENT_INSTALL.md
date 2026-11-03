@@ -11,7 +11,8 @@ https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/docs/AGE
 
 mockingbird is a video editing engine for AI agents: it gives you tools to
 transcribe, cut, caption, animate and render the person's footage, on their
-Mac. The installer and the model download are its only network use.
+Mac. The installer and the model download (by `models pull`, or by `setup`
+after asking) are its only network use.
 
 ## Rules for the agent
 

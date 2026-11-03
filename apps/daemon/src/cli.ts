@@ -16,7 +16,8 @@ export const COMMANDS: { name: string; summary: string }[] = [
   { name: "models", summary: "list the transcription models, or `models use <file>` one" },
   {
     name: "models pull",
-    summary: "download the speech models (the only command that uses\nthe network)",
+    summary:
+      "download the speech models (it and `setup` are the only\ncommands that use the network)",
   },
   {
     name: "setup",

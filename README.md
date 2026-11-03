@@ -111,7 +111,8 @@ it as a plugin, from [`plugin/`](plugin/README.md):
 | `status`, `dictionary_list`, `dictionary_add` | What's installed; names to spell right |
 
 Every option: [docs/MCP.md](docs/MCP.md). On the command line,
-`mockingbird transcribe`, `dictionary`, `models`, `status` and `doctor` do the same.
+`mockingbird transcribe`, `dictionary`, `models` and `status` do the same, and
+`mockingbird doctor` checks the whole install.
 
 Something not working? See [troubleshooting](docs/README.md#troubleshooting).
 

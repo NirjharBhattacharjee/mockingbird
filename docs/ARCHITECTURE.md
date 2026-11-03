@@ -79,8 +79,9 @@ Constraints, not preferences. Check any proposed change against them.
 2. **No Electron, no native GUI toolkit.** A future preview runs as a local
    page in the browser.
 3. **Local-first, no exceptions.** No network call happens in normal
-   operation. The only network activity is a download the user asks for
-   (`mockingbird models pull`). See [§9](#9-everything-is-local).
+   operation. The only network activity is a download the user asks for:
+   `mockingbird models pull`, or `mockingbird setup`, which runs the same
+   download and `brew install` after asking. See [§9](#9-everything-is-local).
 4. **Headless-testable.** Every tool runs and is tested with no GUI, no mic
    and no permission prompt: feed it a file, assert on the output.
 5. **Degrade, don't break.** A missing piece narrows what works instead of
@@ -222,7 +223,9 @@ MCP server is its own short-lived process.
 - **No account, no login, no license server.**
 - **The only network activity is a download the user runs**
   (`mockingbird models pull`), which names each URL and checks each file's
-  sha256. mockingbird never checks for updates.
+  sha256. `mockingbird setup` runs the same download, and `brew install` for
+  a missing ffmpeg or whisper-cpp, only after showing the size and hosts and
+  getting a yes. mockingbird never checks for updates.
 - **`mockingbird mcp` opens no port.** It speaks over stdin and stdout to the
   agent that started it.
 - **An agent's motion script can't reach the network.** It runs under
