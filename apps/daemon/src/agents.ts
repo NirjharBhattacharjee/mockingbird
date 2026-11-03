@@ -23,6 +23,31 @@ export type AgentDeps = {
   run?: (argv: string[]) => { code: number; out: string };
 };
 
+/**
+ * Whether a Codex config already defines mockingbird under `mcp_servers` in a
+ * form other than the `[mcp_servers.mockingbird]` table: a dotted key, an
+ * inline table, or a key inside `[mcp_servers]`. Adding the table then would
+ * define it twice, which Codex rejects. Elsewhere (a project path, a
+ * comment) the name is harmless.
+ */
+export function codexMentions(toml: string): boolean {
+  let table = "";
+  for (const raw of toml.split("\n")) {
+    const line = raw.replace(/\s+#.*$/, "").trim();
+    const header = line.match(/^\[\s*([^\]]+?)\s*\]$/);
+    if (header) {
+      table = header[1] ?? "";
+      continue;
+    }
+    const key = line.match(/^([^=]+?)\s*=/)?.[1] ?? "";
+    const named = (text: string) => /^["']?mockingbird["']?$/.test(text.trim());
+    if (/^mcp_servers\s*\.\s*["']?mockingbird["']?(\s*\.|$)/.test(key)) return true;
+    if (/^mcp_servers$/.test(key.trim()) && /\bmockingbird\b/.test(line)) return true;
+    if (table.replace(/\s/g, "") === "mcp_servers" && named(key.split(".")[0] ?? "")) return true;
+  }
+  return false;
+}
+
 /** Written beside it and renamed over it, so a write cut short never leaves half a config. */
 function replace(file: string, text: string) {
   mkdirSync(dirname(file), { recursive: true });
@@ -127,10 +152,8 @@ export function agents(command: string, deps: AgentDeps = {}): Agent[] {
       registered:
         /^\s*\[\s*mcp_servers\s*\.\s*(mockingbird|"mockingbird"|'mockingbird')\s*\]/m.test(text),
       register: () => {
-        // Any other mention (an inline table, a [mcp_servers] key) would
-        // become a duplicate, and Codex rejects a config with one.
         const before = existsSync(file) ? readFileSync(file, "utf8") : "";
-        if (/mockingbird/.test(before.replace(/^\s*#.*$/gm, ""))) {
+        if (codexMentions(before)) {
           throw new Error(
             `${file} already mentions mockingbird in a form this doesn't read, so it was left alone. ` +
               `Check that its [mcp_servers.mockingbird] runs ${JSON.stringify(command)} with args ["mcp"].`,

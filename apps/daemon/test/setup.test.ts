@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { agents } from "../src/agents.ts";
+import { agents, codexMentions } from "../src/agents.ts";
 import { PLUGIN } from "../src/guide.ts";
 import { checks, doctor, setup } from "../src/setup.ts";
 
@@ -85,6 +85,17 @@ describe("agents", () => {
     expect(readFileSync(file, "utf8")).toBe('[mcp_servers]\nmockingbird = { command = "mb" }\n');
   });
 
+  test("only a mention under mcp_servers would clash with Codex's table", () => {
+    expect(codexMentions('[projects."/Users/me/mockingbird"]\ntrust_level = "trusted"\n')).toBe(
+      false,
+    );
+    expect(codexMentions("# mockingbird was here\n")).toBe(false);
+    expect(codexMentions('[mcp_servers]\nmockingbird = { command = "mb" }\n')).toBe(true);
+    expect(codexMentions('mcp_servers.mockingbird.command = "mb"\n')).toBe(true);
+    expect(codexMentions('mcp_servers = { mockingbird = { command = "mb" } }\n')).toBe(true);
+    expect(codexMentions('[mcp_servers.other]\ncommand = "mockingbird"\n')).toBe(false);
+  });
+
   test("Claude Code counts as having it through `claude mcp add` or the plugin", () => {
     const empty = mkdtempSync(join(tmpdir(), "mb-setup-"));
     const claude = (out: string) =>
@@ -132,7 +143,7 @@ test("setup installs missing tools and models after asking, then adds the agents
   });
   expect(asked[0]).toBe("Install ffmpeg and whisper-cpp with Homebrew? [Y/n]");
   expect(asked[1]).toMatch(
-    /^Download the speech models \(1\.1 GB\) from huggingface\.co and github\.com\?/,
+    /^Download the speech models \(up to 1\.1 GB\) from huggingface\.co and github\.com\?/,
   );
   expect(asked[2]).toBe("Add mockingbird to Cursor, Gemini CLI, VS Code, Codex? [Y/n]");
   expect(ran).toContain("brew install ffmpeg whisper-cpp");

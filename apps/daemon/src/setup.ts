@@ -263,9 +263,11 @@ export async function setup(args: string[], deps: SetupDeps = {}): Promise<numbe
   const mb = deps.mbHome ?? mockingbirdHome();
   const absent = MODEL_FILES.filter((m) => !modelThere(mb, m.file));
   if (broken.some((c) => c.name.endsWith("model")) && absent.length) {
-    const size = absent.reduce((sum, m) => sum + (m.bytes ?? 0), 0);
-    const from = [...new Set(absent.map((m) => new URL(m.url).host))].join(" and ");
-    if (!ask(`Download the speech models (${gb(size)}) from ${from}? [Y/n]`)) return 1;
+    // `models pull` checks every pinned file and fetches any that's missing or
+    // fails its sha256, so the most it can download is all of them.
+    const size = MODEL_FILES.reduce((sum, m) => sum + (m.bytes ?? 0), 0);
+    const from = [...new Set(MODEL_FILES.map((m) => new URL(m.url).host))].join(" and ");
+    if (!ask(`Download the speech models (up to ${gb(size)}) from ${from}? [Y/n]`)) return 1;
     const code = await (deps.pull ?? (() => Promise.resolve(1)))();
     if (code !== 0) return code;
   }
