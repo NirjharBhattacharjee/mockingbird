@@ -1,5 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { agents, codexMentions } from "../src/agents.ts";
@@ -49,6 +58,19 @@ describe("agents", () => {
     );
     // Run again: each one now has it, and nothing is added twice.
     expect(agents(mbAt(h), { home: h, which: none }).every((a) => a.registered)).toBe(true);
+  });
+
+  test("a symlinked, private config is written where it points, still private", () => {
+    const h = home();
+    const real = join(h, "dotfiles-gemini.json");
+    writeFileSync(real, '{"mcpServers":{}}', { mode: 0o600 });
+    symlinkSync(real, join(h, ".gemini", "settings.json"));
+    agents("mb", { home: h, which: none })
+      .find((a) => a.name === "Gemini CLI")
+      ?.register();
+    expect(lstatSync(join(h, ".gemini", "settings.json")).isSymbolicLink()).toBe(true);
+    expect(JSON.parse(readFileSync(real, "utf8")).mcpServers.mockingbird.command).toBe("mb");
+    expect(statSync(real).mode & 0o777).toBe(0o600);
   });
 
   test("an empty config file counts as no servers yet", () => {

@@ -4,7 +4,16 @@
  * are listed. A config is edited, never replaced: one that can't be read
  * is left alone, with what to add by hand.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -48,11 +57,20 @@ export function codexMentions(toml: string): boolean {
   return false;
 }
 
-/** Written beside it and renamed over it, so a write cut short never leaves half a config. */
+/**
+ * Written beside it and renamed over it, so a write cut short never leaves
+ * half a config. A symlinked config (say, from a dotfiles folder) is written
+ * where it points, and the file keeps its permissions: a private 0600 one
+ * may hold the user's keys.
+ */
 function replace(file: string, text: string) {
-  mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(`${file}.mockingbird-tmp`, text);
-  renameSync(`${file}.mockingbird-tmp`, file);
+  const target = existsSync(file) ? realpathSync(file) : file;
+  const mode = existsSync(target) ? statSync(target).mode & 0o777 : 0o644;
+  mkdirSync(dirname(target), { recursive: true });
+  const temp = `${target}.mockingbird-tmp`;
+  writeFileSync(temp, text, { mode });
+  chmodSync(temp, mode);
+  renameSync(temp, target);
 }
 
 const runIt = (argv: string[]) => {

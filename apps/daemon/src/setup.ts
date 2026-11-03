@@ -77,7 +77,14 @@ function modelThere(mb: string, file: string): boolean {
   if (!existsSync(path)) return false;
   const pinned = MODEL_FILES.find((m) => m.file === file);
   if (!pinned || (pinned.bytes ?? 0) > 50e6) return true;
-  return new Bun.CryptoHasher("sha256").update(readFileSync(path)).digest("hex") === pinned.sha256;
+  try {
+    return (
+      new Bun.CryptoHasher("sha256").update(readFileSync(path)).digest("hex") === pinned.sha256
+    );
+  } catch {
+    // Unreadable is as good as damaged: doctor reports it, setup fetches it again.
+    return false;
+  }
 }
 
 const gb = (bytes: number) => `${(bytes / 1e9).toFixed(1)} GB`;
