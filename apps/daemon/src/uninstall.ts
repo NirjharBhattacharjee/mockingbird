@@ -139,9 +139,15 @@ export async function uninstall(args: string[], deps: UninstallDeps): Promise<nu
   };
 
   // Fn's backup is in the folder about to go, so this runs first.
-  attempt("dictation's background agent", () => {
+  try {
     for (const line of deps.retire()) log(line);
-  });
+  } catch (error) {
+    log(
+      `Dictation's background agent couldn't be removed, so nothing else was: ` +
+        `${error instanceof Error ? error.message : error}. Fix that, then run this again.`,
+    );
+    return 1;
+  }
   const fnBackup = join(mb, "fn-key.json");
   if (existsSync(fnBackup)) {
     log(

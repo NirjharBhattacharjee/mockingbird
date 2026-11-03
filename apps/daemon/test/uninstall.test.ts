@@ -165,6 +165,16 @@ describe("uninstall stops before losing anything", () => {
     expect(m.logged.join("\n")).toContain("Fn couldn't be given back");
   });
 
+  test("an old agent that can't be removed stops it", async () => {
+    const m = installed();
+    m.deps.retire = () => {
+      throw new Error("EACCES");
+    };
+    expect(await uninstall(["--yes"], m.deps)).toBe(1);
+    expect(existsSync(m.mb)).toBe(true);
+    expect(m.logged.join("\n")).toContain("couldn't be removed, so nothing else was");
+  });
+
   test("a dictionary.txt that can't be imported stops it too", async () => {
     const m = installed();
     // A folder by that name: it can't be read as text.
