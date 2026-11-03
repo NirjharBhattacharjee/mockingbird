@@ -24,9 +24,13 @@ fails, where, and which render option fixes it.
    over the first 30 s and every 15 s after. Read the stills and check:
    - The first frame shows speech or motion: a face mid-word, text, action.
      Not black, not a static slide, not a logo.
-   - Captions are on screen whenever someone speaks, spelled right (compare
-     names with `dictionary_list`), never over the face or the part of the
-     screen being discussed, and the same height throughout.
+   - Captions drawn on the picture (every short, and a long-form edit only
+     if they were asked for) are on screen whenever someone speaks, spelled
+     right (compare names with `dictionary_list`), never over the face or the
+     part of the screen being discussed, and the same height throughout. A
+     long-form edit usually has its captions as an `.srt` beside the video
+     instead: check that file is there, its last cue ends inside the video,
+     and its names are spelled right.
    - In a short, nothing that matters below about 80% of the height, above
      about 10%, or in the right-hand strip where the app's buttons go.
    - The speaker's face or the subject fills the frame and isn't cut off by

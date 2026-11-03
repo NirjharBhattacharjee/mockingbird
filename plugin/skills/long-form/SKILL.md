@@ -33,7 +33,8 @@ after.
 
    ```sh
    scripts="<retention-editing skill folder>/scripts"
-   "$scripts/pauses.sh" video.mp4 | "$scripts/clips.sh" 0 <length> 0.5 0.2
+   "$scripts/pauses.sh" video.mp4 > pauses.txt &&
+     "$scripts/clips.sh" 0 <length> 0.5 0.2 < pauses.txt
    ```
 
    That keeps everything but pauses over half a second, with 0.2 s either side

@@ -56,8 +56,9 @@ instead.
 6. **Render the cut.** One `render` call per short, `vertical: true` (or
    `split`), with b-roll only where the speech names something worth seeing,
    music low and ducked, and a sound effect only on a beat that matters. For
-   a plain captioned short, pass the captions here and stop. For anything
-   that moves, leave captions and titles out and go on.
+   a plain captioned short (or where `motion` isn't available), pass the
+   captions here and go to step 8. For anything that moves, leave captions
+   and titles out and go on.
 7. **Animate.** Per **motion-graphics**: a script from its short template
    (a hook that slams in, a new framing every couple of seconds, punch-ins
    and pops on the keywords, two or three callouts, pill captions, a sound

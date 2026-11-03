@@ -43,7 +43,8 @@ you what's being said where.
 
 ```sh
 scripts="<this skill's folder>/scripts"
-"$scripts/pauses.sh" talk.mp4 120 165 | "$scripts/clips.sh" 120 165 0.3 0.1
+"$scripts/pauses.sh" talk.mp4 120 165 > pauses.txt &&
+  "$scripts/clips.sh" 120 165 0.3 0.1 < pauses.txt
 ```
 
 ## What to cut
