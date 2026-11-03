@@ -166,7 +166,10 @@ HyperFrames. `script` is one of two things:
 - **Sound:** `mockingbird.audio = [{ path, at, volume, loop, duck }]`, paths
   from the page's folder, mixed like a script's `audio` below.
 - **Errors** say when they happened: `the page failed by 2.40 s (frame 72):
-  …`, or that it failed while loading, and nothing is saved.
+  …`, or that it failed while loading, and nothing is saved. An uncaught
+  error or rejected promise fails the render, and so does a script, image
+  or stylesheet that doesn't load (`couldn't load file:///…/logo.png`).
+  Pages can share code with `<script type="module">` and relative imports.
 - **Speed.** Several tabs capture frames at once, one per core up to 8. On
   an 8-core M3, 5 seconds of a title over a 1080x1920 video at 30 fps took
   2.2 to 2.6 seconds, with the sound mixed and levelled; the same title as a
