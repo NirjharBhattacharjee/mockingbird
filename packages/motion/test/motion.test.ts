@@ -341,3 +341,21 @@ describe.if(macOS && !!Bun.which("ffmpeg"))("renderMotion", () => {
     }
   });
 });
+
+test("jpegs splits an MJPEG stream at each end-of-image marker, across chunks", async () => {
+  const { jpegs } = await import("../src/html.ts");
+  const a = [0xff, 0xd8, 1, 0xff, 0x00, 2, 0xff, 0xd9];
+  const b = [0xff, 0xd8, 3, 0xff, 0xd9];
+  const bytes = Uint8Array.from([...a, ...b]);
+  // Cut between the 0xFF and 0xD9 of the first marker.
+  const stream = new ReadableStream<Uint8Array>({
+    start(c) {
+      c.enqueue(bytes.subarray(0, 7));
+      c.enqueue(bytes.subarray(7));
+      c.close();
+    },
+  });
+  const got: number[][] = [];
+  for await (const j of jpegs(stream)) got.push([...j]);
+  expect(got).toEqual([a, b]);
+});
