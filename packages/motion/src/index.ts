@@ -189,3 +189,5 @@ export async function renderMotion(
     canvas?.close();
   }
 }
+
+export { renderHtml } from "./html.ts";
