@@ -37,7 +37,7 @@ grants, dictation history) is in git: `git show v0.3.2:docs/SECURITY_PRIVACY.md`
 - A remote party (us, a cloud API, an analytics SDK) seeing your footage,
   transcripts or renders, or learning that you use mockingbird, because of
   anything mockingbird does.
-- A script an agent writes for `motion` reaching the network
+- A page an agent writes for `motion` reaching the network
   ([§6](#6-process--trust-boundaries)).
 
 **Not defended against:**
@@ -114,16 +114,16 @@ flowchart LR
     AG["the agent"] <-->|stdin/stdout| MCP["mockingbird mcp\n(your user's file access)"]
     MCP -->|spawn| FF["ffmpeg"]
     MCP <-->|HTTP, 127.0.0.1, free port| WS["whisper-server"]
-    MCP -->|spawn under sandbox-exec,\nnetwork denied| MS["motion script"]
+    MCP -->|spawn under sandbox-exec,\nnetwork denied| MS["motion runner"]
     MS -->|spawn, pipe| CH["headless Chrome\n(HTML pages)"]
 ```
 
-- **`motion` runs a script the agent wrote** ([MCP.md](./MCP.md#motion-graphics)).
+- **`motion` runs a page the agent wrote** ([MCP.md](./MCP.md#motion-graphics)).
   Each call starts a new Bun process under `sandbox-exec` with every network
-  operation denied, so the script and anything it starts can't reach the
+  operation denied, so the page, and the Chrome it runs in, can't reach the
   network. It can still read and write files as you, which is no more than
   an agent with a shell has, but an agent with only file-writing tools gains
-  a way to run code. The server never fetches a script; it runs a path the
+  a way to run code. The server never fetches a page; it runs a path the
   agent gives it. An agent that shouldn't run code on your computer
   shouldn't be given `mockingbird mcp`.
 - **An HTML page renders in Chrome inside that sandbox.** Chrome is
