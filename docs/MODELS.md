@@ -62,8 +62,8 @@ long silences keeps it from dropping or inventing passages.
 - **Language.** `MOCKINGBIRD_LANGUAGE` (default `en`) pins it, so Whisper
   doesn't drift; pinned to the wrong one, it translates instead. `auto`
   detects it per chunk, slower. The `.en` models only know English, so
-  `mockingbird models` hides them in another language. A model and language
-  per call, and a model per language, come in pivot step 3 (#134).
+  `mockingbird models` hides them in another language. §5 covers picking a
+  model per language.
 - **Padding matters.** Cutting silences out of the middle, or trimming tight
   to the speech, produced wrong words; keeping a second either side
   produced clean sentences. `captions` pads each clip by two seconds, and
@@ -108,11 +108,26 @@ fixed one name and bent two others the model had right ("Bhattacharjee" →
   `data.db`; `--default` clears it. The next call uses it.
 - `MOCKINGBIRD_ASR_MODEL` (a file name in `models/`, or a path) wins over the
   saved choice, and `models use` says so.
+- `mockingbird models use <file> --language bn` saves a model for one
+  language, as `asr_model.bn`. When `MOCKINGBIRD_LANGUAGE` is that language,
+  it's used; any other language keeps the choice for all. `models` lists the
+  map under "By language". `--default --language bn` clears one entry.
 - With nothing chosen, the default is used, or else the best earlier default
   that's downloaded, with a warning.
 - Any `ggml-*.bin` Whisper model works, including community fine-tunes for
-  one language, dropped into `models/`. `models pull <name or URL>` for them
-  comes in pivot step 3.
+  one language. `mockingbird models pull <name or URL>` downloads one:
+  - A name (`large-v3-turbo`, `small`) is whisper.cpp's own file on Hugging
+    Face.
+  - A Hugging Face URL works as it is, a page link (`/blob/`) too. Only
+    Hugging Face's own reply is trusted for a checksum: it names the file's
+    sha256 (`x-linked-etag`), size and commit (`x-repo-commit`), so the
+    download is pinned to that commit and checked against that sha256.
+  - Any other https URL needs the publisher's checksum with `--sha256`.
+    Plain http is refused.
+  - A file not named `ggml-*.bin` needs a name with `--as`.
+
+  The model and language per `transcribe` call, and picking the model from
+  the language detected, come next (#143).
 
 ## 6. Which Whisper, measured
 
@@ -204,9 +219,12 @@ The spike's script is on #109.
   `large-v3` Q5_0 from a pinned Hugging Face commit and Silero VAD v6.2.2
   from GitHub, prints each URL, and checks each against a pinned sha256
   (`MODEL_FILES` in `apps/daemon/src/models.ts`). An interrupted download is
-  continued, and one that doesn't match is deleted.
-- They're plain files in `~/.mockingbird/models/`; only the chosen file's
-  name is in `data.db`.
+  continued, and one that doesn't match is deleted. `models pull <name or
+  URL>` downloads one more model the same way, against the sha256 Hugging
+  Face gives or `--sha256` (§5).
+- They're plain files in `~/.mockingbird/models/`. `data.db` keeps only file
+  names: the one chosen for every language (`asr_model`), and one per
+  language picked with `--language` (`asr_model.<code>`).
 
 ## 9. Licensing
 
