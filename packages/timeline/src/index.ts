@@ -15,8 +15,51 @@ export type Point = { x: number; y: number };
 export type Area = { x: number; y: number; w: number; h: number };
 
 /**
+ * A change of framing during a clip: by `at` seconds into the clip in the
+ * finished video, the focus and zoom have moved to these, from where the
+ * move before left them. `smooth` (the default) eases in and out.
+ */
+export type Move = { at: number; focus?: Point; zoom?: number; ease?: "linear" | "smooth" };
+
+/** How a clip comes in over the end of the one before it: one of TRANSITIONS, for `duration` seconds. */
+export type Transition = { type: string; duration: number };
+
+/** ffmpeg's xfade transitions: the ones a clip can come in with. */
+export const TRANSITIONS = [
+  "fade",
+  "fadeblack",
+  "fadewhite",
+  "fadegrays",
+  "dissolve",
+  "wipeleft",
+  "wiperight",
+  "wipeup",
+  "wipedown",
+  "slideleft",
+  "slideright",
+  "slideup",
+  "slidedown",
+  "smoothleft",
+  "smoothright",
+  "smoothup",
+  "smoothdown",
+  "coverleft",
+  "coverright",
+  "revealleft",
+  "revealright",
+  "circleopen",
+  "circleclose",
+  "radial",
+  "zoomin",
+  "hblur",
+  "pixelize",
+];
+
+/**
  * One stretch of a source on the main track: `from`/`to` are seconds in
- * that source. Clips play in order with no gaps.
+ * that source. Clips play in order with no gaps, unless one comes in with a
+ * `transition` over the end of the one before. `speed` plays it faster or
+ * slower (0.25 to 4), and `moves` change its framing as it plays.
  */
 export type Clip = {
   id: string;
@@ -25,7 +68,38 @@ export type Clip = {
   to: number;
   focus?: Point;
   zoom?: number;
+  speed?: number;
+  moves?: Move[];
+  transition?: Transition;
 };
+
+/** How long a clip lasts in the finished video. */
+export const lengthOf = (c: { from: number; to: number; speed?: number }) =>
+  (c.to - c.from) / (c.speed ?? 1);
+
+/** Smoothstep: eases in and out. */
+const smooth = (u: number) => u * u * (3 - 2 * u);
+
+/** Clip `c`'s focus and zoom `t` seconds into it in the finished video. */
+export function framing(c: Clip, t: number): { focus: Point; zoom: number } {
+  let at = 0;
+  let now = { focus: c.focus ?? { x: 0.5, y: 0.5 }, zoom: c.zoom ?? 1 };
+  for (const m of c.moves ?? []) {
+    const next = { focus: m.focus ?? now.focus, zoom: m.zoom ?? now.zoom };
+    if (t < m.at) {
+      const raw = Math.min(1, Math.max(0, (t - at) / (m.at - at)));
+      const u = m.ease === "linear" ? raw : smooth(raw);
+      const mix = (a: number, b: number) => a + (b - a) * u;
+      return {
+        focus: { x: mix(now.focus.x, next.focus.x), y: mix(now.focus.y, next.focus.y) },
+        zoom: mix(now.zoom, next.zoom),
+      };
+    }
+    at = m.at;
+    now = next;
+  }
+  return now;
+}
 
 /**
  * Laid over the cut. With `clip`, its times are seconds from that clip's
@@ -124,24 +198,65 @@ function area(v: unknown, what: string): Area {
   return a;
 }
 
-const CLIP = ["id", "path", "from", "to", "focus", "zoom"];
+const CLIP = ["id", "path", "from", "to", "focus", "zoom", "speed", "moves", "transition"];
 const TEXT = ["id", "text", "clip", "from", "to", "y"];
 const INSERT = ["id", "path", "clip", "from", "to"];
 const SOUND = ["id", "path", "clip", "at", "volume", "loop", "duck"];
 const CAPTIONS = ["perCue", "lit", "upper", "y"];
 
+function point(v: unknown, what: string): Point {
+  const p = obj(v, what, ["x", "y"]);
+  return { x: num(p.x, `${what}.x`, 0, 1), y: num(p.y, `${what}.y`, 0, 1) };
+}
+
 function clip(v: unknown, what: string): Clip {
   const o = obj(v, what, CLIP);
-  return clean({
+  const c: Clip = clean({
     id: str(o.id, `${what}.id`),
     path: str(o.path, `${what}.path`),
     ...stretch(o, what),
-    focus: maybe(o.focus, (f) => {
-      const p = obj(f, `${what}.focus`, ["x", "y"]);
-      return { x: num(p.x, `${what}.focus.x`, 0, 1), y: num(p.y, `${what}.focus.y`, 0, 1) };
-    }),
+    focus: maybe(o.focus, (f) => point(f, `${what}.focus`)),
     zoom: maybe(o.zoom, (z) => num(z, `${what}.zoom`, 1, 4)),
+    speed: maybe(o.speed, (n) => num(n, `${what}.speed`, 0.25, 4)),
+    moves: maybe(o.moves, (l) => {
+      if (!Array.isArray(l)) fail(`${what}.moves must be a list`);
+      return (l as unknown[]).map((m, i) => {
+        const at = `${what}.moves[${i}]`;
+        const r = obj(m, at, ["at", "focus", "zoom", "ease"]);
+        if (r.focus === undefined && r.zoom === undefined) fail(`${at} needs a focus or a zoom`);
+        if (r.ease !== undefined && r.ease !== "linear" && r.ease !== "smooth") {
+          fail(`${at}.ease must be "linear" or "smooth"`);
+        }
+        return clean({
+          at: num(r.at, `${at}.at`, 0, Number.MAX_VALUE),
+          focus: maybe(r.focus, (f) => point(f, `${at}.focus`)),
+          zoom: maybe(r.zoom, (z) => num(z, `${at}.zoom`, 1, 4)),
+          ease: r.ease as Move["ease"],
+        });
+      });
+    }),
+    transition: maybe(o.transition, (t) => {
+      const r = obj(t, `${what}.transition`, ["type", "duration"]);
+      if (!TRANSITIONS.includes(String(r.type))) {
+        fail(`${what}.transition.type must be one of ${TRANSITIONS.join(", ")}`);
+      }
+      return {
+        type: String(r.type),
+        duration: num(r.duration, `${what}.transition.duration`, 0.04, 5),
+      };
+    }),
   });
+  const length = lengthOf(c);
+  let last = 0;
+  for (const [i, m] of (c.moves ?? []).entries()) {
+    if (!(m.at > last || (i === 0 && m.at >= 0)) || m.at > length + 1e-6) {
+      fail(
+        `${what}.moves need rising times within the clip's ${length.toFixed(2)} s; moves[${i}] is at ${m.at}`,
+      );
+    }
+    last = m.at;
+  }
+  return c;
 }
 
 function text(v: unknown, what: string): Text {
@@ -241,6 +356,15 @@ export function check(v: unknown): Project {
     inserts: list("inserts").map((t, i) => insert(t, `inserts[${i}]`)),
     audio: list("audio").map((t, i) => sound(t, `audio[${i}]`)),
   });
+  for (const [i, c] of p.clips.entries()) {
+    if (!c.transition) continue;
+    const before = p.clips[i - 1];
+    if (!before) fail(`clips[0] can't have a transition: nothing comes before it`);
+    const d = c.transition.duration;
+    if (d >= lengthOf(c) || d >= lengthOf(before as Clip)) {
+      fail(`clips[${i}].transition is ${d} s, longer than ${c.id} or the clip before it`);
+    }
+  }
   // A split is stacked into 1080x1920; a size it can't have would only mislead.
   if (p.split && p.size && p.size !== "1080x1920") {
     fail(`a split always comes out 1080x1920, so size must be that or left out; got ${p.size}`);
@@ -591,9 +715,22 @@ function step(p: Project, raw: unknown, what: string, notes: string[], words?: W
         fail(`${what}: split ${c.id} at a source time inside it, from ${c.from} to ${c.to}`);
       }
       const id = a.newId === undefined ? freeId(p, "c") : str(a.newId, `${what}.newId`);
-      p.clips.splice(p.clips.indexOf(c) + 1, 0, { ...c, id, from: at });
+      // Where the split falls in the finished video, which a speed changes.
+      const offset = (at - c.from) / (c.speed ?? 1);
+      const second: Clip = { ...c, id, from: at };
+      delete second.transition;
+      if (c.moves?.length) {
+        // The second half starts framed as the first half was there, and keeps the moves after.
+        Object.assign(second, framing(c, offset));
+        second.moves = c.moves
+          .filter((m) => m.at > offset)
+          .map((m) => ({ ...m, at: ms(m.at - offset) }));
+        c.moves = c.moves.filter((m) => m.at <= offset);
+        if (!second.moves.length) delete second.moves;
+        if (!c.moves.length) delete c.moves;
+      }
+      p.clips.splice(p.clips.indexOf(c) + 1, 0, second);
       // What starts in the second half goes with it.
-      const offset = at - c.from;
       c.to = at;
       for (const t of [...p.texts, ...p.inserts]) {
         if (t.clip === c.id && t.from >= offset) {
@@ -612,10 +749,18 @@ function step(p: Project, raw: unknown, what: string, notes: string[], words?: W
       const from = a.from === undefined ? c.from : num(a.from, `${what}.from`, 0, Number.MAX_VALUE);
       const to = a.to === undefined ? c.to : num(a.to, `${what}.to`, 0, Number.MAX_VALUE);
       if (!(from < to)) fail(`${what}: ${c.id} needs from < to; got ${from} and ${to}`);
-      const by = c.from - from;
+      // How far the clip's picture moves in the finished video: a speed changes it.
+      const by = (c.from - from) / (c.speed ?? 1);
+      if (c.moves?.length && by < 0) {
+        // Trimmed off the start: frame the new start as it was there, and keep the moves after.
+        Object.assign(c, framing(c, -by));
+        c.moves = c.moves.filter((m) => m.at > -by).map((m) => ({ ...m, at: ms(m.at + by) }));
+      } else if (c.moves?.length) c.moves = c.moves.map((m) => ({ ...m, at: ms(m.at + by) }));
       Object.assign(c, { from, to });
+      if (c.moves) c.moves = c.moves.filter((m) => m.at <= lengthOf(c));
+      if (c.moves && !c.moves.length) delete c.moves;
       if (by) shift(p, c.id, by, notes);
-      dropPast(p, c.id, to - from, notes);
+      dropPast(p, c.id, lengthOf(c), notes);
       return;
     }
     case "move": {
@@ -679,8 +824,10 @@ export function starts(p: Project): { at: Map<string, number>; length: number } 
   const at = new Map<string, number>();
   let length = 0;
   for (const c of p.clips) {
-    at.set(c.id, length);
-    length += c.to - c.from;
+    // A transition starts the clip over the end of the one before.
+    const start = Math.max(0, length - (c.transition?.duration ?? 0));
+    at.set(c.id, start);
+    length = start + lengthOf(c);
   }
   return { at, length };
 }
@@ -732,11 +879,16 @@ export function outline(p: Project, file: string): string {
   for (const c of p.clips) {
     const start = at.get(c.id) ?? 0;
     const look = [
+      c.transition ? `  ${c.transition.type} in ${short(c.transition.duration)} s` : "",
+      c.speed && c.speed !== 1 ? `  speed ${short(c.speed)}x` : "",
       c.focus ? `  focus ${short(c.focus.x)},${short(c.focus.y)}` : "",
       c.zoom && c.zoom !== 1 ? `  zoom ${short(c.zoom)}` : "",
+      c.moves?.length
+        ? `  moves ${c.moves.map((m) => `${short(m.at)}s${m.zoom === undefined ? "" : ` zoom ${short(m.zoom)}`}${m.focus ? ` focus ${short(m.focus.x)},${short(m.focus.y)}` : ""}`).join("; ")}`
+        : "",
     ].join("");
     lines.push(
-      `${c.id}  ${stamp(start)}-${stamp(start + c.to - c.from)}  ${basename(c.path)} ${short(c.from)}-${short(c.to)}${look}`,
+      `${c.id}  ${stamp(start)}-${stamp(start + lengthOf(c))}  ${basename(c.path)} ${short(c.from)}-${short(c.to)}${look}`,
     );
     for (const t of attached(p)) if (t.clip === c.id) lines.push(`    ${line(t, start)}`);
   }
@@ -748,7 +900,16 @@ export function outline(p: Project, file: string): string {
 
 /** What render takes: everything timed in the finished video, every path absolute. */
 export type Compiled = {
-  clips: { path: string; from: number; to: number; focus?: Point; zoom?: number }[];
+  clips: {
+    path: string;
+    from: number;
+    to: number;
+    focus?: Point;
+    zoom?: number;
+    speed?: number;
+    moves?: Move[];
+    transition?: Transition;
+  }[];
   texts: { text: string; from: number; to: number; y?: number }[];
   inserts: { path: string; from: number; to: number }[];
   sounds: { path: string; at: number; volume: number; loop: boolean; duck: boolean }[];
@@ -764,9 +925,7 @@ export function compile(p: Project, dir: string): Compiled {
   const base = (clip?: string) => (clip === undefined ? 0 : (at.get(clip) ?? 0));
   const path = (f: string) => resolve(dir, f);
   return clean({
-    clips: p.clips.map(({ path: f, from, to, focus, zoom }) =>
-      clean({ path: path(f), from, to, focus, zoom }),
-    ),
+    clips: p.clips.map(({ id, path: f, ...rest }) => clean({ path: path(f), ...rest })),
     texts: p.texts.map(({ text, clip, from, to, y }) =>
       clean({ text, from: base(clip) + from, to: base(clip) + to, y }),
     ),
@@ -805,7 +964,7 @@ export function transcript(p: Project, file: string, words: Words): string {
     let line: string[] = [];
     let when = 0;
     for (const w of said) {
-      if (!line.length) when = start + Math.max(w.start, c.from) - c.from;
+      if (!line.length) when = start + (Math.max(w.start, c.from) - c.from) / (c.speed ?? 1);
       line.push(w.word.trim());
       if (/[.?!]["')\]]?$/.test(w.word) || line.length >= 25) {
         lines.push(`    [${stamp(when)}] ${line.join(" ")}`);

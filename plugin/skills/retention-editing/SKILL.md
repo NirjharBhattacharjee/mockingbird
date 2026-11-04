@@ -75,6 +75,11 @@ Cutting a pause out of one continuous shot makes the head jump. Alternate
 cut reads as a deliberate punch-in. Save bigger zooms (1.4–1.6) for the one
 line that matters most.
 
+In a project, a clip's `moves` push in or across while it plays: a slow
+push from `zoom` 1 to 1.15 over a long point keeps a still shot alive
+without a cut. A `transition` is for a change of place or time, a
+`fadeblack` between chapters; a cut inside one talk stays a cut.
+
 ## Check
 
 Render, then measure it with style-match's `measure.sh` (for cuts per minute)

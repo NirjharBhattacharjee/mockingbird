@@ -7,6 +7,7 @@ import {
   check,
   compile,
   edit,
+  framing,
   outline,
   type Project,
   transcript,
@@ -352,4 +353,97 @@ test("transcript shows each clip's words at their time in the finished video", (
       ["c.mp4", [{ from: 1, to: 2 }]],
     ]),
   );
+});
+
+describe("speed, moves and transitions", () => {
+  const moving = (): Project =>
+    check({
+      version: 1,
+      clips: [
+        { id: "c1", path: "a.mp4", from: 0, to: 4 },
+        {
+          id: "c2",
+          path: "a.mp4",
+          from: 10,
+          to: 18,
+          speed: 2,
+          zoom: 1,
+          moves: [
+            { at: 2, zoom: 1.5 },
+            { at: 4, focus: { x: 0.3, y: 0.5 }, ease: "linear" },
+          ],
+          transition: { type: "fadeblack", duration: 0.5 },
+        },
+      ],
+      texts: [{ id: "t1", text: "x", clip: "c2", from: 3, to: 3.5 }],
+    });
+
+  test("framing eases between moves and holds after the last", () => {
+    const c = moving().clips[1] as Parameters<typeof framing>[0];
+    expect(framing(c, 0)).toEqual({ focus: { x: 0.5, y: 0.5 }, zoom: 1 });
+    // Halfway through a smooth move is halfway; a quarter is less than a quarter.
+    expect(framing(c, 1).zoom).toBeCloseTo(1.25);
+    expect(framing(c, 0.5).zoom).toBeCloseTo(1 + 0.5 * 0.15625);
+    // The linear move to the new focus, half done; the zoom holds.
+    expect(framing(c, 3)).toEqual({ focus: { x: 0.4, y: 0.5 }, zoom: 1.5 });
+    expect(framing(c, 9)).toEqual({ focus: { x: 0.3, y: 0.5 }, zoom: 1.5 });
+  });
+
+  test("a clip twice as fast lasts half as long, and a transition starts it over the clip before", () => {
+    const p = moving();
+    // c2 is 8 s of source at 2x: 4 s, starting 0.5 s before c1 ends.
+    expect(outline(p, "/e.json").split("\n").slice(0, 3)).toEqual([
+      "/e.json: size of the first clip's source, 0:07.50",
+      "c1  0:00.00-0:04.00  a.mp4 0-4",
+      "c2  0:03.50-0:07.50  a.mp4 10-18  fadeblack in 0.5 s  speed 2x  moves 2s zoom 1.5; 4s focus 0.3,0.5",
+    ]);
+    expect(compile(p, "/").texts[0]).toMatchObject({ from: 6.5, to: 7 });
+    expect(compile(p, "/").clips[1]).toMatchObject({ speed: 2, transition: { type: "fadeblack" } });
+  });
+
+  test("split and trim keep a fast clip's moves and attachments on the same picture", () => {
+    // 14 s of source is 2 s into c2 at 2x: right at the first move.
+    const { project } = apply(moving(), [{ op: "split", id: "c2", at: 14 }]);
+    const [, first, second] = project.clips;
+    expect(first).toMatchObject({ from: 10, to: 14, moves: [{ at: 2, zoom: 1.5 }] });
+    expect(first?.transition).toEqual({ type: "fadeblack", duration: 0.5 });
+    expect(second).toMatchObject({ from: 14, to: 18, zoom: 1.5 });
+    expect(second?.moves).toEqual([{ at: 2, focus: { x: 0.3, y: 0.5 }, ease: "linear" }]);
+    expect(second?.transition).toBeUndefined();
+    // t1 was 3 s into c2: 1 s into the second half.
+    expect(project.texts[0]).toMatchObject({ clip: second?.id, from: 1, to: 1.5 });
+
+    // 2 s of source off the start at 2x is 1 s of the clip: its framing there becomes its start.
+    const trimmed = apply(moving(), [{ op: "trim", id: "c2", from: 12 }]).project.clips[1];
+    expect(trimmed?.zoom).toBeCloseTo(1.25);
+    expect(trimmed?.moves?.map((m) => m.at)).toEqual([1, 3]);
+  });
+
+  test("refuses a transition on the first clip, one longer than a clip, an unknown one, and moves out of order", () => {
+    const one = (c: object) => () => check({ version: 1, clips: [c] });
+    expect(
+      one({ id: "c1", path: "a", from: 0, to: 2, transition: { type: "fade", duration: 1 } }),
+    ).toThrow("can't have a transition");
+    expect(
+      one({ id: "c1", path: "a", from: 0, to: 2, transition: { type: "spin", duration: 1 } }),
+    ).toThrow("must be one of fade");
+    expect(
+      one({
+        id: "c1",
+        path: "a",
+        from: 0,
+        to: 2,
+        moves: [
+          { at: 1, zoom: 2 },
+          { at: 0.5, zoom: 1 },
+        ],
+      }),
+    ).toThrow("rising times");
+    expect(one({ id: "c1", path: "a", from: 0, to: 2, moves: [{ at: 3, zoom: 2 }] })).toThrow(
+      "within the clip's 2.00 s",
+    );
+    expect(() =>
+      apply(moving(), [{ op: "set", id: "c2", transition: { type: "fade", duration: 4.5 } }]),
+    ).toThrow("longer than c2 or the clip before it");
+  });
 });

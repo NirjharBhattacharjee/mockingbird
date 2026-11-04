@@ -124,7 +124,7 @@ call and changing the cut doesn't break the timing of what's laid over it
 
 | Op | What it does |
 |---|---|
-| `{op: "add", type: "clip", path, from, to, focus?, zoom?, index?}` | A clip on the main track, at `index` (default the end). |
+| `{op: "add", type: "clip", path, from, to, focus?, zoom?, speed?, moves?, transition?, index?}` | A clip on the main track, at `index` (default the end). See [Speed, moves and transitions](#speed-moves-and-transitions). |
 | `{op: "add", type: "text" \| "insert" \| "audio", …}` | A text, picture or video, or sound, with the fields above. |
 | `{op: "remove", id}` | Removes an item. A clip takes what's on it with it, and the cut closes up. |
 | `{op: "split", id, at}` | Splits a clip in two at `at` seconds in its source. What starts on the second half moves to the new clip. |
@@ -151,6 +151,44 @@ a2  0:00.00  audio music.m4a volume 0.15 loop duck
 
 A project's captions come from the same word cache as text-based editing,
 so a render only hears what no call has heard before.
+
+### Speed, moves and transitions
+
+A clip can also have:
+
+- **`speed`**, 0.25 to 4: the picture and its sound faster or slower
+  (`setpts`, and `atempo` for the sound, which keeps the pitch). The clip
+  lasts its source stretch over its speed, and what's on it, the captions
+  and the transcript are timed to that.
+- **`moves`**, `[{at, focus?, zoom?, ease?}]`: the framing changes as the
+  clip plays. Each move says where the focus and zoom are `at` seconds into
+  the clip, eased from the move before it (`smooth`, the default, or
+  `linear`), starting from the clip's own `focus` and `zoom`. A slow
+  push-in, a move from one speaker to the other, a pull-out to reveal the
+  screen. `split` and `trim` keep each half framed where it was.
+- **`transition`**, `{type, duration}`: the clip comes in over the last
+  `duration` seconds of the one before, with ffmpeg's `xfade` for the
+  picture and `acrossfade` for the sound. The cut gets that much shorter,
+  and everything after it moves up. Types: `fade`, `fadeblack`,
+  `fadewhite`, `fadegrays`, `dissolve`, `wipeleft`/`right`/`up`/`down`,
+  `slideleft`/`right`/`up`/`down`, `smoothleft`/`right`/`up`/`down`,
+  `coverleft`/`right`, `revealleft`/`right`, `circleopen`, `circleclose`,
+  `radial`, `zoomin`, `hblur`, `pixelize`.
+
+A move is drawn with ffmpeg's `perspective` filter, which places the window
+to a fraction of a pixel each frame. Filters that round the window to whole
+pixels make a slow push stutter: on a 1x to 1.15x push over 4 s, the change
+from one frame to the next measured 7.6 ± 3.9 with `scale` and `overlay` and
+9.0 ± 2.7 with `zoompan`, against 3.4 ± 0.3 for a reference rendered at 4x
+and scaled down. `perspective` measured 3.1 ± 0.06, as fast as the others.
+
+A 15.5 s 1080x1920 project of the talk with a 3.5 s push from the whole
+slide to the webcam in its corner, a dissolve to the 4K phone video, and a
+fade through black to the talk at 1.25x, with captions, rendered in 15.6 s
+on an M3 at −14.1 LUFS, exactly as long as its outline said.
+
+Transitions work with up to 100 clips for now; longer edits render in
+batches, and a transition can't cross one yet.
 
 ### Text-based editing
 
