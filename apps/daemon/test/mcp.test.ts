@@ -10,12 +10,15 @@ import {
   handle,
   mcpTools,
   mixGraph,
+  moving,
   PROMPTS,
   renderGraph,
   seekClips,
   spans,
+  tempo,
   timedLines,
   timedWords,
+  timeline,
   uncovered,
   union,
   wordCaptions,
@@ -326,6 +329,54 @@ test("the word cache hears only the stretches no call has heard yet", () => {
     { from: 4, to: 6 },
   ]);
   expect(uncovered([{ from: 3, to: 5 }], [{ from: 0, to: 10 }])).toEqual([]);
+});
+
+test("speed and transitions set where each clip starts and how long the cut is", () => {
+  expect(
+    timeline([
+      { from: 0, to: 4 },
+      { from: 10, to: 18, speed: 2, transition: { type: "fade", duration: 0.5 } },
+      { from: 0, to: 1, speed: 0.5 },
+    ]),
+  ).toEqual({ starts: [0, 3.5, 7.5], length: 9.5 });
+  // atempo takes 0.5-2 a step.
+  expect(tempo(2)).toBe("atempo=2");
+  expect(tempo(4)).toBe("atempo=2,atempo=2");
+  expect(tempo(0.25)).toBe("atempo=0.5,atempo=0.5");
+  expect(tempo(1.5)).toBe("atempo=1.5");
+});
+
+test("a transition joins clips with xfade and acrossfade on one timebase, the rest with concat", () => {
+  const graph = renderGraph(
+    [
+      { from: 0, to: 2, path: "/a.mp4" },
+      { from: 0, to: 2, path: "/b.mp4", transition: { type: "fadeblack", duration: 0.5 } },
+      { from: 4, to: 6, path: "/a.mp4", speed: 2 },
+    ],
+    { audio: true, vertical: false, size: "1280x720", fps: 30 },
+  );
+  expect(graph).toContain(",fps=30,settb=1/30[v0];");
+  expect(graph).toContain("[v0][v1]xfade=transition=fadeblack:duration=0.5:offset=1.500000[jv1]");
+  expect(graph).toContain("[a0][a1]acrossfade=d=0.5[ja1]");
+  // The third clip at 2x: half the frames, the sound sped up to match.
+  expect(graph).toContain("[2:v]setpts=PTS-STARTPTS,setpts=PTS/2,");
+  expect(graph).toContain("[2:a]asetpts=PTS-STARTPTS,atempo=2[a2]");
+  expect(graph).toContain(
+    "[jv1][ja1][v2][a2]concat=n=2:v=1:a=1[cv2][ca2];[cv2]settb=1/30[joined];[ca2]anull[speech]",
+  );
+  // 2 + 2 - 0.5 + 1 = 4.5 s of sound.
+  expect(graph).toEndWith("[speech]atrim=duration=4.5[a]");
+});
+
+test("moves frame each frame with perspective, eased between them", () => {
+  const filter = moving(
+    { from: 0, to: 4, zoom: 1, moves: [{ at: 2, zoom: 1.5, focus: { x: 0.3, y: 0.5 } }] },
+    "1080x1920",
+    30,
+  );
+  expect(filter).toStartWith("perspective=x0='clip(if(lt((in/30),2),(0.5+-0.2*");
+  expect(filter).toContain("(min(W,H*9/16)/if(lt((in/30),2),(1+0.5*(clip(((in/30)-0)/2,0,1)*");
+  expect(filter).toEndWith(":interpolation=linear:eval=frame,scale=1080:1920,setsar=1");
 });
 
 test("a split stacks two areas of the picture into 1080x1920", () => {
@@ -731,4 +782,56 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
       rmSync(dir, { recursive: true, force: true });
     }
   }, 180_000);
+
+  test("a project with speed, a transition and a push renders to the length they add up to", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mb-moves-"));
+    try {
+      const make = (file: string, input: string[]) =>
+        Bun.spawnSync(["ffmpeg", "-loglevel", "error", ...input, "-pix_fmt", "yuv420p", file]);
+      make(join(dir, "a.mp4"), [
+        ...["-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30:duration=6"],
+        ...["-f", "lavfi", "-i", "sine=frequency=440:duration=6"],
+      ]);
+      make(join(dir, "b.mp4"), [
+        ...["-f", "lavfi", "-i", "smptebars=size=640x360:rate=25:duration=6"],
+        ...["-f", "lavfi", "-i", "sine=frequency=660:duration=6"],
+      ]);
+      const tool = (name: string) =>
+        mcpTools(
+          async () => ({}),
+          () => {},
+        ).find((t) => t.name === name) as { run: (a: Record<string, unknown>) => Promise<string> };
+      const project = join(dir, "edit.json");
+      await tool("edit").run({
+        project,
+        ops: [
+          { op: "set", size: "640x360", fps: 30 },
+          { op: "add", type: "clip", path: "a.mp4", from: 0, to: 3, moves: [{ at: 3, zoom: 1.5 }] },
+          {
+            op: "add",
+            type: "clip",
+            path: "b.mp4",
+            from: 0,
+            to: 4,
+            speed: 2,
+            transition: { type: "dissolve", duration: 0.5 },
+          },
+        ],
+      });
+      await tool("render").run({ project });
+      const out = join(dir, "edit-render-1.mp4");
+      const streams = Bun.spawnSync([
+        ...["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,width,height,duration"],
+        ...["-of", "csv=p=0", out],
+      ]).stdout.toString();
+      // 3 s + 4 s at 2x - 0.5 s of transition = 4.5 s, picture and sound alike.
+      expect(seconds(out)).toBeCloseTo(4.5, 1);
+      expect(streams).toContain("video,640,360");
+      for (const line of streams.trim().split("\n")) {
+        expect(Number(line.split(",").at(-1))).toBeCloseTo(4.5, 1);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 120_000);
 });

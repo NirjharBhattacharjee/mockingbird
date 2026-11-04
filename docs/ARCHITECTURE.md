@@ -18,6 +18,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
+| 2026-11-04 | A project's clips can have a `speed`, `moves` (focus and zoom over time, drawn with `perspective` to a fraction of a pixel) and a `transition` in (`xfade` and `acrossfade`) (#161). |
 | 2026-11-04 | Text-based editing (#160): a project's sources are heard once into a word cache (`~/.mockingbird/cache/words/`), with words placed by Whisper's DTW points and measured pauses; `transcribe(project)` gives the cut as text and `cut_words` cuts by quoting it; a project's captions come from the cache. |
 | 2026-11-04 | Timeline, first part (#148): `packages/timeline` keeps an edit in a project file; the `edit` tool changes it with ops; `render` renders one, with clips from several sources framed to one size and rate, and captions made for the cut. |
 | 2026-11-04 | mockingbird-studio moved into `plugin/` and is now the `mockingbird` plugin; a `guide` tool and server instructions give every MCP client its playbooks (#140). |
@@ -216,6 +217,13 @@ project file; probing and rendering stay in the engine.
 `sandbox-exec` with the network denied (`apps/daemon/src/motion-run.ts`),
 calls its `draw(ctx, t, m)` for every frame against `packages/motion`'s
 Canvas, and pipes raw frames to ffmpeg.
+
+A project's clips can also change speed (`setpts`, `atempo`), move
+(`perspective`, evaluated every frame from the frame number, after `fps`),
+and come in with a transition: then the clips are joined one at a time,
+`xfade` and `acrossfade` where there's a transition and `concat` where
+there isn't, each step set back to one timebase (`settb`), which `xfade`
+needs.
 
 Pivot step 7 replaces `packages/motion` (macOS only) with HTML and CSS
 rendered in a pinned headless Chrome; see #134.
