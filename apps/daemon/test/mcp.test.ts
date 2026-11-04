@@ -168,7 +168,24 @@ test("each clip is its own input, opened at its start and read for its length", 
       { from: 1, to: 2.5 },
       { from: 10, to: 12 },
     ]),
-  ).toEqual(["-ss", "1", "-t", "1.5", "-i", "/v.mp4", "-ss", "10", "-t", "2", "-i", "/v.mp4"]);
+  ).toEqual([
+    "-hwaccel",
+    "auto",
+    "-ss",
+    "1",
+    "-t",
+    "1.5",
+    "-i",
+    "/v.mp4",
+    "-hwaccel",
+    "auto",
+    "-ss",
+    "10",
+    "-t",
+    "2",
+    "-i",
+    "/v.mp4",
+  ]);
 });
 
 test("the render graph keeps each clip in order and joins them", () => {
@@ -241,7 +258,7 @@ test("a project's clips from different sources are framed to one size and rate, 
       "aevalsrc=0:c=stereo:s=48000:d=3[a1];",
   );
   expect(seekClips("/x.mp4", [{ from: 1, to: 2, path: "/phone.mov" }])).toEqual([
-    ...["-ss", "1", "-t", "1", "-i", "/phone.mov"],
+    ...["-hwaccel", "auto", "-ss", "1", "-t", "1", "-i", "/phone.mov"],
   ]);
 });
 
@@ -376,8 +393,8 @@ test("a J cut opens the clip early enough for its sound, and joins picture and s
   ];
   // The second clip's input opens at 19.5, for the half second of sound before its picture.
   expect(seekClips("/x", clips)).toEqual([
-    ...["-ss", "10", "-t", "3.5", "-i", "/a.mp4"],
-    ...["-ss", "19.5", "-t", "4.5", "-i", "/b.mp4"],
+    ...["-hwaccel", "auto", "-ss", "10", "-t", "3.5", "-i", "/a.mp4"],
+    ...["-hwaccel", "auto", "-ss", "19.5", "-t", "4.5", "-i", "/b.mp4"],
   ]);
   const graph = renderGraph(clips, { audio: true, vertical: false, size: "640x360", fps: 30 });
   expect(graph).toContain("[1:v]trim=start=0.5:duration=4,setpts=PTS-STARTPTS,");
