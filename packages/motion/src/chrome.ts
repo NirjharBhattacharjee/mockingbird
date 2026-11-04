@@ -23,13 +23,19 @@ const COMMAND_TIMEOUT_MS = 60_000;
  * (`--remote-debugging-pipe`: fd 3 in, fd 4 out, each message ending in a
  * NUL), so it opens no port. Chrome's own sandbox is off, since it can't
  * start inside another one: run this under an OS sandbox, as
- * `apps/daemon/src/motion-run.ts` does with `sandbox-exec`.
+ * `apps/daemon/src/motion-run.ts` does with `sandbox-exec`, or start Chrome
+ * in one with `wrap`, a command Chrome's own is appended to.
  */
-export async function launchChrome(path: string): Promise<Chrome> {
+export async function launchChrome(
+  path: string,
+  { wrap = [] }: { wrap?: string[] } = {},
+): Promise<Chrome> {
   const profile = mkdtempSync(join(tmpdir(), "mockingbird-chrome-"));
+  const [program = path, ...before] = [...wrap, path];
   const proc = spawn(
-    path,
+    program,
     [
+      ...before,
       "--remote-debugging-pipe",
       "--no-sandbox",
       `--user-data-dir=${profile}`,

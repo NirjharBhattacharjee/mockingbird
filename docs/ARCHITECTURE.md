@@ -18,6 +18,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
+| 2026-11-04 | Captions and `render`'s texts are drawn as HTML in the pinned Chrome instead of with Core Text (#155), started under the no-network sandbox where there is one; the Core Text code is gone. Without Chrome, `render` falls back to libass or an `.srt`. |
 | 2026-11-04 | `motion` renders an HTML page in a pinned headless Chrome (#145): `mockingbird models pull chrome`, a frame clock injected into the page, several tabs capturing at once, Chrome inside the motion sandbox. The Canvas engine stays until the kit is ported. |
 | 2026-11-04 | mockingbird-studio moved into `plugin/` and is now the `mockingbird` plugin; a `guide` tool and server instructions give every MCP client its playbooks (#140). |
 | 2026-11-04 | Long-form fixes (#127): `render` and `motion` reach −14 LUFS with a measured gain and a limiter instead of one pass of `loudnorm` (−15.9 → −14.3 LUFS on the v2 edit); `captions` hears overlapping padded clips as one stretch (171 s → 62 s for 96 clips); captions in a wide video are subtitle-sized. |
@@ -85,7 +86,8 @@ Constraints, not preferences. Check any proposed change against them.
    and no permission prompt: feed it a file, assert on the output.
 5. **Degrade, don't break.** A missing piece narrows what works instead of
    stopping everything: no dictionary means names come out as heard, no
-   Core Text captions means ffmpeg's `subtitles` filter or a sidecar `.srt`.
+   Chrome means captions through ffmpeg's `subtitles` filter or a sidecar
+   `.srt`.
 
 ## 3. Technology stack
 
@@ -96,7 +98,7 @@ Constraints, not preferences. Check any proposed change against them.
 | Decoding, cutting, mixing, encoding | `ffmpeg` | subprocess |
 | Speech detection | Silero VAD via `onnxruntime-node` | native module in-process |
 | Speech-to-text | `whisper.cpp`'s `whisper-server`, default model `large-v3` Q5_0 | subprocess, HTTP on a free `127.0.0.1` port per call |
-| Captions | Core Text through `bun:ffi`, drawn to PNGs that ffmpeg overlays | in-process |
+| Captions | HTML in the pinned chrome-headless-shell, screenshotted to PNGs that ffmpeg overlays | subprocess, under `sandbox-exec` |
 | Motion graphics | Canvas 2D API implemented over Core Graphics, Core Text and vImage through `bun:ffi` | in-process, the script under `sandbox-exec` |
 | Storage | `bun:sqlite` (`data.db`: the dictionary and settings) | in-process |
 | Agent protocol | MCP, JSON-RPC over stdin/stdout | `mockingbird mcp` |
@@ -172,7 +174,7 @@ its own input, the source opened at the clip's start (`-ss`) and read for
 its length (`-t`), so only what's kept is decoded. Then a crop and scale per
 clip for framing and zoom (or two crops stacked for a split), `concat`,
 overlays for b-roll, then the captions and text as PNG overlays drawn by
-`packages/captions` with Core Text, and an audio graph that mixes music and
+`packages/captions` in the pinned Chrome, and an audio graph that mixes music and
 effects under the speech with sidechain ducking. The sound is written
 uncompressed, then `level` brings it to −14 LUFS: it measures the file,
 measures again through a 4x-oversampled limiter at −2 dB (peaks stay under
@@ -266,7 +268,7 @@ mockingbird/
 │   ├── audio/               file decoding through ffmpeg, WAV, PCM helpers
 │   ├── vad/                 Silero ONNX wrapper
 │   ├── asr/                 whisper-server adapter, word diff (WER)
-│   ├── captions/            SRT parsing, captions drawn with Core Text
+│   ├── captions/            SRT parsing, captions drawn as HTML in Chrome
 │   ├── motion/              HTML pages in headless Chrome, and Canvas 2D over
 │   │                        Core Graphics, to MP4
 │   └── store/               data.db, the dictionary's parsing and name matching
@@ -373,7 +375,8 @@ each step shippable on its own:
 
 ## 16. Known gaps
 
-- **macOS only.** Captions and motion use Core Text and Core Graphics.
+- **macOS only.** `motion` uses Core Graphics, and Chrome is sandboxed with
+  `sandbox-exec`, which other OSes don't have (#157).
 - **No compiled engine** ([§11](#11-packaging)): Bun has to be installed.
 - **One render call per edit.** Any change re-renders everything (step 5).
 - **The agent sees a few stills, not the video.** Tool outputs stay small so
