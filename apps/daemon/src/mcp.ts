@@ -1144,7 +1144,9 @@ async function motion(
   const chrome = page ? findChrome() : undefined;
   if (page && !chrome) {
     throw new Error(
-      "An HTML page renders in a headless Chrome that isn't downloaded yet. Ask the user to run `mockingbird models pull chrome` (about 100 MB), or to set MOCKINGBIRD_CHROME to one.",
+      process.env.MOCKINGBIRD_CHROME
+        ? `MOCKINGBIRD_CHROME is ${process.env.MOCKINGBIRD_CHROME}, which isn't a program that can run. Ask the user to fix it, or to unset it and run \`mockingbird models pull chrome\`.`
+        : "An HTML page renders in a headless Chrome that isn't downloaded yet. Ask the user to run `mockingbird models pull chrome` (about 100 MB), or to set MOCKINGBIRD_CHROME to one.",
     );
   }
   let seconds = duration;

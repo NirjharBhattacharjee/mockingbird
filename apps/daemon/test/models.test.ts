@@ -411,7 +411,10 @@ describe("Chrome", () => {
 
   test("MOCKINGBIRD_CHROME wins; the pinned one counts once it's there", () => {
     const home = tempDir();
-    expect(findChrome({ MOCKINGBIRD_CHROME: "/opt/chrome" }, home)).toBe("/opt/chrome");
+    // A program that runs, standing in for Chrome; a path that isn't one doesn't count.
+    expect(findChrome({ MOCKINGBIRD_CHROME: process.execPath }, home)).toBe(process.execPath);
+    expect(findChrome({ MOCKINGBIRD_CHROME: "/no/chrome" }, home)).toBeUndefined();
+    expect(findChrome({ MOCKINGBIRD_CHROME: home }, home)).toBeUndefined();
     expect(findChrome({}, home)).toBeUndefined();
     const program = pinnedChrome(home)?.program;
     if (!program) return; // a platform with no pin yet

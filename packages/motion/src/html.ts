@@ -79,6 +79,8 @@ export function pageClock(scene: PageScene, epoch: number): string {
         for (const cb of due) cb(now);
         if (typeof m.draw === "function") await m.draw(now / 1000, m);
         seek();
+        // A font draw used for the first time loads now; the frame waits for it.
+        await document.fonts.ready;
         this.check();
       }
     },
@@ -138,6 +140,9 @@ export async function renderHtml(
     onLoad?: (page: { audio: unknown }) => void;
   },
 ): Promise<number> {
+  if (!(Number.isInteger(tabCount) && tabCount >= 1)) {
+    throw new Error(`tabs must be a whole number, 1 or more; got ${tabCount}`);
+  }
   const total = Math.round(duration * fps);
   if (!(Number.isFinite(total) && total >= 1)) {
     throw new Error(
@@ -218,6 +223,8 @@ export async function renderHtml(
         `ffmpeg couldn't encode ${out}: ${(await new Response(encoder.stderr).text()).trim()}`,
       );
     }
+    // And once more for anything that failed while ffmpeg finished.
+    for (const tab of tabs) await onClock(browser, tab, "done()", total - 1, fps);
     return drawn;
   } catch (error) {
     // ffmpeg acts on SIGTERM only between writes, so a blocked one needs SIGKILL.
