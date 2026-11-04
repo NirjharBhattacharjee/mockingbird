@@ -18,6 +18,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
+| 2026-11-04 | One framing path: `render`'s parameters frame clips the way a project does, so the separate `vertical` graph is gone (same frames, measured); `captions` takes a project (#162). |
 | 2026-11-04 | Every clip input and still is decoded with the hardware where it can be (`-hwaccel auto`: 4K HEVC rendered in 34.0 s against 91.1 s); `render(draft: true)` makes a half-size preview, reading 4K from proxies of just the stretches used (#167). |
 | 2026-11-04 | J and L cuts: a project clip's `lead` moves its sound's cut off its picture's; each clip's input opens both stretches, and picture and sound are joined apart (#161). |
 | 2026-11-04 | A project's clips can have a `speed`, `moves` (focus and zoom over time, drawn with `perspective` to a fraction of a pixel) and a `transition` in (`xfade` and `acrossfade`) (#161). |
