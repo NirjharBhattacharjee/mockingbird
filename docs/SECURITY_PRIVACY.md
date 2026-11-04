@@ -82,7 +82,8 @@ Enforced by [ARCHITECTURE.md §9](./ARCHITECTURE.md#9-everything-is-local):
   are off by default and asked for on their own.
 - **No account, login or license server.**
 - **The only download is one you run:** `mockingbird models pull`, and
-  `models pull chrome` for the headless Chrome `motion` renders HTML in.
+  `models pull chrome` for the headless Chrome `motion` renders HTML in and
+  `render` draws captions in.
   Each prints its URL and checks the file against a pinned sha256. No
   update checks.
 - **`mockingbird mcp` opens no port.** The agent starts it and talks over
@@ -134,6 +135,10 @@ flowchart LR
   pinned to one version and checked against its sha256 when pulled. A
   security fix in Chrome reaches users only when mockingbird bumps the pin,
   so the pin should move with Chrome's stable releases.
+- **`render` draws captions in Chrome too**, started directly under the
+  same no-network `sandbox-exec` profile. A caption is put on the page as
+  text (`textContent`), never as markup, so an SRT can't load anything or
+  run script.
 - **Every tool reads any path the agent passes.** The agent can usually
   read those files itself; mockingbird adds no new reach.
 - **Model files and media are untrusted input to native code.** whisper.cpp,

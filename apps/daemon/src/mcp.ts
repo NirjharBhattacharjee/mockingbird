@@ -1,6 +1,7 @@
 import {
   closeSync,
   copyFileSync,
+  existsSync,
   mkdtempSync,
   openSync,
   readdirSync,
@@ -915,7 +916,12 @@ async function render(
   try {
     const lines = [...cues.map((c) => c.text), ...texts.map((t) => t.text)];
     const [width, height] = vertical || split ? [1080, 1920] : source.size.split("x").map(Number);
-    const images = lines.length ? drawCaptions(lines, dir, width ?? 1080, height) : undefined;
+    // Drawn in the pinned Chrome, started under the no-network sandbox where there is one (#157).
+    const chrome = lines.length ? findChrome() : undefined;
+    const wrap = existsSync(SANDBOX) ? [SANDBOX, "-p", NO_NETWORK] : [];
+    const images = chrome
+      ? await drawCaptions(lines, dir, width ?? 1080, height, { chrome, wrap })
+      : undefined;
     const burn = !!text && !images && (await canBurn());
     sidecar = !!text && !images && !burn;
     target = outputFor(named, out, sidecar);

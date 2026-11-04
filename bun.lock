@@ -32,6 +32,9 @@
     },
     "packages/captions": {
       "name": "@mockingbird/captions",
+      "dependencies": {
+        "@mockingbird/motion": "workspace:*",
+      },
     },
     "packages/motion": {
       "name": "@mockingbird/motion",
