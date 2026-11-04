@@ -41,8 +41,8 @@ standard tool for cutting silence out of long recordings.
 
 | What | Their default | What we use |
 |---|---|---|
-| Silence threshold | 4% of full volume | `pauses.sh` uses ffmpeg's `silencedetect` at −35 dB (about 1.8%); raise it toward −30 dB for a noisy room |
-| Margin around speech | 0.2 s | `clips.sh` keeps 0.15 s by default; long-form uses 0.2 s |
+| Silence threshold | 4% of full volume | mockingbird's `pauses` uses ffmpeg's `silencedetect` at −35 dB (about 1.8%); raise it toward −30 dB for a noisy room |
+| Margin around speech | 0.2 s | `pauses` keeps 0.15 s by default; long-form uses 0.2 s |
 | Music ducking | down 85% once the speech passes 4%, in 100 ms, back in 500 ms | `render`'s `duck` uses the same numbers, through ffmpeg's `sidechaincompress` |
 
 ## What it told us not to build
