@@ -108,7 +108,9 @@ describe("WhisperServerEngine language", () => {
   });
 });
 
-describe("startWhisperServer flags", () => {
+// These fake whisper-server with a shell script, which Windows can't run.
+// ponytail: a .cmd fake when whisper-server ships for Windows (#153).
+describe.skipIf(process.platform === "win32")("startWhisperServer flags", () => {
   const dirs: string[] = [];
   afterAll(() => {
     for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
