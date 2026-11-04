@@ -199,6 +199,20 @@ on an M3 at −14.1 LUFS, exactly as long as its outline said.
 Transitions work with up to 100 clips for now; longer edits render in
 batches, and a transition can't cross one yet.
 
+### Drafts
+
+`render` with `draft: true` makes a quick preview to check the cut with:
+half the size, encoded with x264's `ultrafast`, saved as
+`<name>-draft-N.mp4`. In a project, clips from a source bigger than 1080
+lines on its short side (a 4K phone video) are read from a proxy: 720 lines
+of H.264 made from only the stretch each clip opens, kept in
+`~/.mockingbird/cache/proxies/` and used again by the next draft. A final
+render always reads the source.
+
+On an M3, a one-minute 1080x1920 project of two clips from a 4K HEVC phone
+video: the render took 37.4 s, the first draft 29.9 s (making its proxies,
+52 MB), and every draft after it 6.3 s.
+
 ### Text-based editing
 
 `transcribe` with a `project` gives the cut as text:
