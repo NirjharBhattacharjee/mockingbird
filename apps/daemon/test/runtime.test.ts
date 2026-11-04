@@ -2,7 +2,15 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_ASR_MODEL, englishOnly, findAsrModel, spokenLanguage } from "../src/runtime.ts";
+import {
+  DEFAULT_ASR_MODEL,
+  enginesFor,
+  englishOnly,
+  findAsrModel,
+  languageCode,
+  spokenLanguage,
+  WHISPER_LANGUAGES,
+} from "../src/runtime.ts";
 
 const modelsWith = (...names: string[]) => {
   const dir = mkdtempSync(join(tmpdir(), "mockingbird-models-"));
@@ -89,4 +97,26 @@ test("englishOnly knows the .en Whisper builds", () => {
   expect(englishOnly("/m/ggml-base.en.bin")).toBe(true);
   expect(englishOnly("ggml-small.en-q5_1.bin")).toBe(true);
   expect(englishOnly("ggml-large-v3-turbo-q5_0.bin")).toBe(false);
+});
+
+describe("languages by name", () => {
+  test("Whisper's reply names a language; its code comes back", () => {
+    expect(WHISPER_LANGUAGES.size).toBe(100);
+    expect(WHISPER_LANGUAGES.get("bn")).toBe("bengali");
+    expect(languageCode("german")).toBe("de");
+    expect(languageCode("Haitian Creole")).toBe("ht");
+    expect(languageCode("de")).toBe("de");
+    expect(languageCode("klingon")).toBeUndefined();
+    expect(languageCode(undefined)).toBeUndefined();
+  });
+
+  test("a call's model and language are checked before any engine starts", async () => {
+    const audio = { sampleRate: 16_000, samples: new Int16Array(16) };
+    await expect(enginesFor(audio, { model: "../data.db" }, () => {})).rejects.toThrow(
+      "model takes a file name in models/",
+    );
+    await expect(enginesFor(audio, { language: "xx" }, () => {})).rejects.toThrow(
+      "language takes a code Whisper knows",
+    );
+  });
 });
