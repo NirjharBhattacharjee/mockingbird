@@ -10,11 +10,15 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  CHROME_VERSION,
+  findChrome,
   listModels,
   MODEL_FILES,
   type ModelFile,
   modelsCommand,
+  pinnedChrome,
   progressLine,
+  pullChrome,
   pullFile,
   pullModels,
   sha256Of,
@@ -281,5 +285,68 @@ describe("modelsCommand", () => {
     expect(speechName("ggml-large-v3-turbo-q8_0.bin")).toBe("large-v3-turbo Q8_0");
     expect(speechName("ggml-small.en-q5_1.bin")).toBe("small.en Q5_1");
     expect(speechName("ggml-large-v3.bin")).toBe("large-v3");
+  });
+});
+
+describe("Chrome", () => {
+  test("is pinned per Mac, in ~/.mockingbird/bin, and not yet anywhere else", () => {
+    const pin = pinnedChrome("/home", "darwin-arm64");
+    expect(pin?.program).toBe(
+      `/home/bin/chrome-headless-shell-${CHROME_VERSION}/chrome-headless-shell-mac-arm64/chrome-headless-shell`,
+    );
+    expect(pin?.zip.url).toContain(`/${CHROME_VERSION}/mac-arm64/`);
+    expect(pin?.zip.sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(pinnedChrome("/home", "darwin-x64")?.zip.sha256).not.toBe(pin?.zip.sha256);
+    expect(pinnedChrome("/home", "linux-x64")).toBeUndefined();
+  });
+
+  test("MOCKINGBIRD_CHROME wins; the pinned one counts once it's there", () => {
+    const home = tempDir();
+    // A program that runs, standing in for Chrome; a path that isn't one doesn't count.
+    expect(findChrome({ MOCKINGBIRD_CHROME: process.execPath }, home)).toBe(process.execPath);
+    expect(findChrome({ MOCKINGBIRD_CHROME: "/no/chrome" }, home)).toBeUndefined();
+    expect(findChrome({ MOCKINGBIRD_CHROME: home }, home)).toBeUndefined();
+    expect(findChrome({}, home)).toBeUndefined();
+    const program = pinnedChrome(home)?.program;
+    if (!program) return; // a platform with no pin yet
+    mkdirSync(join(program, ".."), { recursive: true });
+    writeFileSync(program, "");
+    expect(findChrome({}, home)).toBe(program);
+  });
+
+  test("pull downloads nothing when it's there, and clears out other versions", async () => {
+    const home = tempDir();
+    const pin = pinnedChrome(home);
+    if (!pin) return;
+    mkdirSync(join(pin.program, ".."), { recursive: true });
+    writeFileSync(pin.program, "");
+    const old = join(home, "bin", "chrome-headless-shell-1.0.0.0");
+    mkdirSync(old);
+    const { get, calls } = serving("");
+    expect(await pullChrome({ home, fetch: get, log: () => {} })).toBe(0);
+    expect(calls).toEqual([]);
+    expect(existsSync(old)).toBe(false);
+    expect(existsSync(pin.program)).toBe(true);
+  });
+
+  test("one pull at a time; a lock left by a pull that died is taken over", async () => {
+    const home = tempDir();
+    const pin = pinnedChrome(home);
+    if (!pin) return;
+    mkdirSync(join(pin.program, ".."), { recursive: true });
+    writeFileSync(pin.program, "");
+    const lock = join(home, "bin", ".chrome-pull.lock");
+    const said: string[] = [];
+    const { get, calls } = serving("");
+    writeFileSync(lock, String(process.pid));
+    expect(await pullChrome({ home, fetch: get, log: (m) => said.push(m) })).toBe(1);
+    expect(said.join("\n")).toContain(`pid ${process.pid}`);
+    expect(existsSync(lock)).toBe(true);
+
+    const gone = Bun.spawnSync(["true"]).pid; // exited, so not running
+    writeFileSync(lock, String(gone));
+    expect(await pullChrome({ home, fetch: get, log: () => {} })).toBe(0);
+    expect(existsSync(lock)).toBe(false);
+    expect(calls).toEqual([]);
   });
 });

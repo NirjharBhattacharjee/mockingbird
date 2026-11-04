@@ -46,9 +46,9 @@ after the curl install, or `/opt/homebrew/bin/mockingbird` with Homebrew.
 | `frames(path, every, from, to)` | Stills from a video, one every `every` seconds (default 60), saved to a temp folder; returns their paths with `[mm:ss]` times, so a client that reads images can see slides and screen shares, or where the speaker is before framing a clip. `from` and `to` (seconds) take one stretch. Each still is read by seeking to it, so a long 4K phone video takes seconds, not minutes. |
 | `captions(path, clips, perCue, lit, upper)` | Word-by-word captions for the video `render` will make from `clips`, as SRT timed to the finished video: up to `perCue` words a cue (default 3), the word being said written `*like this*` (`lit`, default on), in capitals if `upper`. A new cue starts at each clip, after a sentence, after half a second's pause, or when its words span 1.2 seconds. Each clip is transcribed with two seconds either side, clips whose padded stretches overlap are transcribed together as one, and a word belongs to the clip its middle falls in. |
 | `render(path, clips, …)` | Cuts `clips` out of a video and joins them into one MP4 with ffmpeg; see [Render options](#render-options). Saves to `out`, or `<name>-short-N.mp4` beside the source, and never overwrites a file. |
-| `motion(script, path, captions, size, duration, fps, out)` | Motion graphics written as code, drawn on the Mac with Core Graphics: see [Motion graphics](#motion-graphics). Saves to `out`, or `<name>-motion-N.mp4` beside the video or script, and never overwrites a file. |
+| `motion(script, path, captions, size, duration, fps, out)` | Motion graphics written as code: an HTML page rendered in a pinned headless Chrome, or a canvas script drawn with Core Graphics; see [Motion graphics](#motion-graphics). Saves to `out`, or `<name>-motion-N.mp4` beside the video or script, and never overwrites a file. |
 | `guide(topic)` | A playbook for one job, from [`plugin/`](../plugin/README.md): `viral-short`, `long-form`, `hooks`, `retention-editing`, `captions`, `motion-graphics`, `style-match`, or `reviewer` (the checks a finished video has to pass). It starts with the folder holding the playbook's scripts, kit and templates. |
-| `status` | Whether mockingbird is ready: the transcription model in use, the speech detection model, ffmpeg, whisper-server, and how many words the dictionary has. |
+| `status` | Whether mockingbird is ready: the transcription model in use, the speech detection model, ffmpeg, whisper-server, the Chrome that `motion` renders HTML in, and how many words the dictionary has. |
 | `dictionary_list` | Your dictionary: the names, places and jargon mockingbird spells a particular way. |
 | `dictionary_add(entry)` | Adds a word, like `mockingbird dictionary add`: `"Catppuccin"`, `"Catppuccin (a colour theme)"`, or `"cat puck => Catppuccin"`. |
 
@@ -112,11 +112,74 @@ cut from a 4K HEVC phone video took 11.5. `captions` for five clips took about
 
 ## Motion graphics
 
-`motion` runs a script the client writes and draws what it says, frame by
-frame. It's mockingbird's answer to Remotion and HyperFrames, without a
-browser: the script gets the browser's Canvas 2D API, which mockingbird
-implements over macOS's own Core Graphics and Core Text, and ffmpeg encodes
-the frames.
+`motion` renders motion graphics the client writes as code, frame by frame,
+and ffmpeg encodes the frames. It's mockingbird's answer to Remotion and
+HyperFrames. `script` is one of two things:
+
+- **an HTML page** (`.html`), rendered in a pinned headless Chrome. This is
+  where motion graphics are going ([#134](https://github.com/NirjharBhattacharjee/mockingbird/issues/134), step 7).
+- **a canvas script** (`.ts` or `.js`), drawn with the browser's Canvas 2D
+  API, which mockingbird implements over macOS's Core Graphics and Core
+  Text. It goes away once the motion kit is ported to HTML.
+
+### HTML pages
+
+```html
+<!-- title.html -->
+<style>
+  body { margin: 0; font-family: system-ui; }
+  .title {
+    position: absolute; left: 140px; top: 235px; width: 800px; height: 190px;
+    display: grid; place-items: center; border-radius: 36px;
+    background: #FFD500; color: #111; font-weight: 900; font-size: 92px;
+    animation: pop 0.9s 0.1s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  @keyframes pop { from { transform: scale(0.6); opacity: 0; } }
+</style>
+<div class="title">3 MISTAKES</div>
+<script>mockingbird.audio = [{ path: "whoosh.wav", at: 0.1 }];</script>
+```
+
+- **Chrome** is chrome-headless-shell, one pinned version, so a page renders
+  the same on every Mac. `mockingbird models pull chrome` downloads it
+  (about 100 MB) into `~/.mockingbird/bin/` and checks its sha256;
+  `MOCKINGBIRD_CHROME=/path` uses another build instead. Without either,
+  `motion` says so and does nothing.
+- **The page** is the size of the video, with a transparent background.
+  Anything Chrome draws works: CSS, SVG, gradients, blend modes, filters,
+  fonts installed on the Mac or loaded with `@font-face`, images by relative
+  path. Without `path`, a transparent page comes out over black; with
+  `path`, it's laid over each frame of that video, whose sound is kept.
+- **Time.** For the frame at `t` seconds, mockingbird sets every CSS
+  animation, transition and Web Animation to `t`, runs the
+  `requestAnimationFrame` callbacks with `performance.now()` and
+  `Date.now()` frozen at `t`, and calls `mockingbird.draw(t, m)` if the page
+  set one, waiting for it if it returns a promise. Animations in the
+  stylesheet start at 0, so `animation-delay` times them; one that starts
+  later, say when `draw` adds a class, runs from the frame it started on.
+  `setTimeout` runs in real time, so nothing should be timed with it.
+  `Math.random` is seeded, so a page renders the same every time.
+- **`mockingbird`** is a global set before the page's own scripts run, and
+  `draw`'s `m`: `width`, `height`, `fps`, `duration`, `frame` and `cues` (from
+  `captions`, as `{ start, end, text }`). A page can build its captions from
+  `cues` as it loads.
+- **Sound:** `mockingbird.audio = [{ path, at, volume, loop, duck }]`, paths
+  from the page's folder, mixed like a script's `audio` below.
+- **Errors** say when they happened: `the page failed by 2.40 s (frame 72):
+  …`, or that it failed while loading, and nothing is saved. An uncaught
+  error or rejected promise fails the render, and so does a script, image
+  or stylesheet that doesn't load (`couldn't load file:///…/logo.png`).
+  Pages can share code with `<script type="module">` and relative imports.
+- **Speed.** Several tabs capture frames at once, one per core up to 8. On
+  an 8-core M3, 5 seconds of a title over a 1080x1920 video at 30 fps took
+  2.2 to 2.6 seconds, with the sound mixed and levelled; the same title as a
+  canvas script took 1.4 to 1.7. The first render after a pull is slower
+  (5.7 s) while macOS checks the new Chrome.
+- **No network.** Chrome runs inside the same sandbox as a canvas script
+  (below), so a page can't fetch anything from the internet. Chrome's own
+  sandbox can't run inside that one, so it's off.
+
+### Canvas scripts
 
 ```ts
 // title.ts
