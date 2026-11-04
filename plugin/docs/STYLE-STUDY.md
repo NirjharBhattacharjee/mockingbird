@@ -22,10 +22,10 @@ the notes and numbers below.
    moments that mattered (title reveals, a HUD lighting up, an end card)
    to time them frame by frame.
 
-To repeat these numbers, run the same `scdet` filter. The `style-match`
-skill's `scripts/measure.sh` uses ffmpeg's scene score instead
-(`select='gt(scene,0.3)'`), which counts fewer cuts, so compare a reference
-with itself through one method or the other, not across them.
+To repeat these numbers, run the same `scdet` filter; mockingbird's `scenes`
+tool does. Compare a reference with your render through the same tool, not
+across methods: ffmpeg's older scene score (`select='gt(scene,0.3)'`) counts
+fewer cuts.
 
 ## The numbers
 

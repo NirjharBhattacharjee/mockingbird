@@ -18,6 +18,7 @@ import { compile, edit, load } from "@mockingbird/timeline";
 import type { SpeechSegment } from "@mockingbird/vad";
 import { addEntries, formatEntry, readDictionary } from "./dictionary.ts";
 import { guide, INSTRUCTIONS, playbooks } from "./guide.ts";
+import { clipsFrom, findPauses, measure } from "./pauses.ts";
 import { type Engines, requireFile, spokenLanguage, startEngines } from "./runtime.ts";
 
 /**
@@ -1689,6 +1690,62 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
           from: seconds(a.from),
           to: seconds(a.to),
         }),
+    },
+    {
+      name: "pauses",
+      description:
+        "The pauses in a file's sound (ffmpeg's silencedetect), and render's clips that keep the speech between them: each pause at least `minPause` seconds long is cut, `margin` seconds kept into it either side, and a stretch of 0.3 s or less is joined to the next so no word is lost. Returns one line per pause (start end length, in seconds of the file), then the clips as JSON for render. Short: minPause 0.3, margin 0.1. Long-form: 0.5 and 0.2. Whisper's word times smear across silences, so cut pauses with this, not with word gaps.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path,
+          from: { type: "number", description: "Start, in seconds from the start of the file" },
+          to: { type: "number", description: "End, in seconds (default the end)" },
+          noise: {
+            type: "number",
+            description: "Quieter than this is a pause, in dB (default -35)",
+          },
+          shortest: {
+            type: "number",
+            description: "Shortest pause to report, in seconds (default 0.25)",
+          },
+          minPause: {
+            type: "number",
+            description: "Shortest pause to cut, in seconds (default 0.4)",
+          },
+          margin: {
+            type: "number",
+            description: "Kept into each cut pause, in seconds (default 0.15)",
+          },
+        },
+        required: ["path"],
+      },
+      run: async (a) => {
+        const file = requireFile(String(a.path), "File");
+        const from = seconds(a.from) ?? 0;
+        const found = await findPauses(file, {
+          from,
+          to: seconds(a.to),
+          noise: within(a.noise, -90, 0, "noise", -35),
+          shortest: within(a.shortest, 0.01, 10, "shortest", 0.25),
+        });
+        const to = seconds(a.to) ?? (await probe(file)).seconds;
+        const clips = clipsFrom(found, from, to, {
+          min: within(a.minPause, 0.05, 30, "minPause", 0.4),
+          margin: within(a.margin, 0, 5, "margin", 0.15),
+        });
+        const lines = found.map(
+          (p) => `${p.start.toFixed(2)} ${p.end.toFixed(2)} ${p.length.toFixed(2)}`,
+        );
+        return `${lines.length ? lines.join("\n") : "no pauses"}\n\nclips: ${JSON.stringify(clips)}`;
+      },
+    },
+    {
+      name: "measure",
+      description:
+        "A finished video's size, length and loudness (EBU R128 integrated LUFS and true peak), to match a reference's style or check a render. Its cuts come from `scenes`.",
+      inputSchema: { type: "object", properties: { path }, required: ["path"] },
+      run: (a) => measure(requireFile(String(a.path), "File")),
     },
     {
       name: "guide",
