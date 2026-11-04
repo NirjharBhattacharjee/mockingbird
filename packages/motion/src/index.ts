@@ -191,3 +191,4 @@ export async function renderMotion(
 }
 
 export { renderHtml } from "./html.ts";
+export { type MusicParams, renderMusic } from "./music.ts";

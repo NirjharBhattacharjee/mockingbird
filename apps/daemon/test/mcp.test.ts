@@ -516,3 +516,77 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
     }
   }, 120_000);
 });
+
+describe("music", () => {
+  const music = mcpTools(
+    async () => ({}),
+    () => {},
+  ).find((t) => t.name === "music");
+  if (!music) throw new Error("no music tool");
+  const generator = join(import.meta.dir, "../../../plugin/skills/music/generators/lofi.js");
+
+  test("checks the energy curve and the file names before starting Chrome", async () => {
+    const base = { script: generator, duration: 10, out: "/tmp/never.wav" };
+    await expect(music.run({ ...base, energy: 1.5 })).rejects.toThrow("energy must be from 0 to 1");
+    await expect(music.run({ ...base, energy: [] })).rejects.toThrow("at least one");
+    await expect(
+      music.run({
+        ...base,
+        energy: [
+          [5, 0.5],
+          [2, 0.1],
+        ],
+      }),
+    ).rejects.toThrow("time order");
+    await expect(music.run({ ...base, energy: [[1, 2, 3]] })).rejects.toThrow("[seconds, level]");
+    await expect(music.run({ ...base, out: "/tmp/never.mp3" })).rejects.toThrow(".wav");
+    await expect(music.run({ ...base, script: "/tmp/gen.ts" })).rejects.toThrow();
+  });
+
+  test.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)(
+    "lo-fi comes out at -14 LUFS, the same track twice, a different one for another seed",
+    async () => {
+      const dir = mkdtempSync(join(tmpdir(), "mb-music-"));
+      try {
+        const make = async (name: string, seed = 1) => {
+          const out = join(dir, name);
+          const said = await music.run({
+            script: generator,
+            duration: 20,
+            out,
+            seed,
+            energy: [
+              [0, 0.2],
+              [8, 0.9],
+            ],
+          });
+          expect(said).toContain("(00:20, 48 kHz stereo, -14 LUFS)");
+          return new Int16Array((await Bun.file(out).arrayBuffer()).slice(44));
+        };
+        const [a, b, c] = [await make("a.wav"), await make("b.wav"), await make("c.wav", 2)];
+        const most = (x: Int16Array, y: Int16Array) =>
+          x.reduce((m, v, i) => Math.max(m, Math.abs(v - (y[i] ?? 0))), 0);
+        // Chrome's mixer rounds the last float bits differently run to run: a few steps of 32768.
+        expect(most(a, b)).toBeLessThanOrEqual(8);
+        expect(most(a, c)).toBeGreaterThan(1000);
+        const meter = Bun.spawnSync([
+          ...["ffmpeg", "-nostats", "-i", join(dir, "a.wav")],
+          ...["-af", "ebur128=peak=true", "-f", "null", "-"],
+        ]).stderr.toString();
+        const loud = Number(
+          meter
+            .match(/I:\s+(-?[\d.]+) LUFS/g)
+            ?.at(-1)
+            ?.split(/\s+/)[1],
+        );
+        expect(Math.abs(loud + 14)).toBeLessThan(0.5);
+        await expect(
+          music.run({ script: generator, duration: 5, out: join(dir, "a.wav") }),
+        ).rejects.toThrow("already exists");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+    120_000,
+  );
+});

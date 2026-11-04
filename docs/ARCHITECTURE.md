@@ -18,6 +18,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
+| 2026-11-04 | `music` makes background music from a generator module played into `OfflineAudioContext` in the pinned Chrome, under the motion sandbox, saved as a WAV at −14 LUFS (#170). The plugin's first generator is lo-fi. |
 | 2026-11-04 | `motion` renders an HTML page in a pinned headless Chrome (#145): `mockingbird models pull chrome`, a frame clock injected into the page, several tabs capturing at once, Chrome inside the motion sandbox. The Canvas engine stays until the kit is ported. |
 | 2026-11-04 | mockingbird-studio moved into `plugin/` and is now the `mockingbird` plugin; a `guide` tool and server instructions give every MCP client its playbooks (#140). |
 | 2026-11-04 | Long-form fixes (#127): `render` and `motion` reach −14 LUFS with a measured gain and a limiter instead of one pass of `loudnorm` (−15.9 → −14.3 LUFS on the v2 edit); `captions` hears overlapping padded clips as one stretch (171 s → 62 s for 96 clips); captions in a wide video are subtitle-sized. |
@@ -195,6 +196,13 @@ network denied (`apps/daemon/src/motion-run.ts`). A canvas script is
 imported there; its `draw(ctx, t, m)` is called for every frame against
 `packages/motion`'s Canvas, and raw frames are piped to ffmpeg.
 
+`music` uses the same sandboxed process and Chrome:
+`packages/motion/src/music.ts` opens the generator module as a file page,
+seeds `Math.random`, has the module schedule its sound on an
+`OfflineAudioContext`, renders it, and reads the samples back over the
+DevTools pipe ten seconds at a time into a float WAV. The engine then
+levels it to −14 LUFS.
+
 An HTML page is rendered by `packages/motion/src/html.ts` in the pinned
 chrome-headless-shell, started from that sandboxed process, so the sandbox
 covers Chrome too. It's driven over the DevTools protocol on a pipe
@@ -267,8 +275,8 @@ mockingbird/
 │   ├── vad/                 Silero ONNX wrapper
 │   ├── asr/                 whisper-server adapter, word diff (WER)
 │   ├── captions/            SRT parsing, captions drawn with Core Text
-│   ├── motion/              HTML pages in headless Chrome, and Canvas 2D over
-│   │                        Core Graphics, to MP4
+│   ├── motion/              HTML pages and Web Audio music in headless Chrome,
+│   │                        and Canvas 2D over Core Graphics, to MP4
 │   └── store/               data.db, the dictionary's parsing and name matching
 ├── plugin/                  the Claude Code plugin: skills, the reviewer agent,
 │                            the motion kit, templates, sound effects, research
