@@ -47,6 +47,7 @@ after the curl install, or `/opt/homebrew/bin/mockingbird` with Homebrew.
 | `captions(path, clips, perCue, lit, upper)` | Word-by-word captions for the video `render` will make from `clips`, as SRT timed to the finished video: up to `perCue` words a cue (default 3), the word being said written `*like this*` (`lit`, default on), in capitals if `upper`. A new cue starts at each clip, after a sentence, after half a second's pause, or when its words span 1.2 seconds. Each clip is transcribed with two seconds either side, clips whose padded stretches overlap are transcribed together as one, and a word belongs to the clip its middle falls in. |
 | `render(path, clips, …)` | Cuts `clips` out of a video and joins them into one MP4 with ffmpeg; see [Render options](#render-options). Saves to `out`, or `<name>-short-N.mp4` beside the source, and never overwrites a file. |
 | `motion(script, path, captions, size, duration, fps, out)` | Motion graphics written as code: an HTML page rendered in a pinned headless Chrome, or a canvas script drawn with Core Graphics; see [Motion graphics](#motion-graphics). Saves to `out`, or `<name>-motion-N.mp4` beside the video or script, and never overwrites a file. |
+| `music(script, duration, out, tempo, key, energy, seed)` | Background music written as code: a generator module played into Web Audio's `OfflineAudioContext` in the pinned headless Chrome, saved as a WAV at −14 LUFS for `render`'s `audio`; see [Music](#music). Never overwrites a file. |
 | `guide(topic)` | A playbook for one job, from [`plugin/`](../plugin/README.md): `viral-short`, `long-form`, `hooks`, `retention-editing`, `captions`, `motion-graphics`, `style-match`, or `reviewer` (the checks a finished video has to pass). It starts with the folder holding the playbook's scripts, kit and templates. |
 | `status` | Whether mockingbird is ready: the transcription model in use, the speech detection model, ffmpeg, whisper-server, the Chrome that `motion` renders HTML in, and how many words the dictionary has. |
 | `dictionary_list` | Your dictionary: the names, places and jargon mockingbird spells a particular way. |
@@ -259,6 +260,52 @@ encoding. Each call runs the script in its own process under macOS's sandbox
 with the network denied, so it can read and write files but can't reach the
 internet; see
 [SECURITY_PRIVACY.md §6](./SECURITY_PRIVACY.md#6-process--trust-boundaries).
+
+## Music
+
+`music` makes background music from code, so there are no samples to
+license. `script` is a generator, a JavaScript module:
+
+```js
+// drone.js
+export default function (ctx, { duration, tempo = 80, key, energy, seed }) {
+  const o = ctx.createOscillator();
+  o.frequency.value = 110;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0, 0);
+  g.gain.linearRampToValueAtTime(0.3, 2);
+  o.connect(g).connect(ctx.destination);
+  o.start(0);
+}
+```
+
+- **`ctx`** is an `OfflineAudioContext`, stereo at 48 kHz, as long as
+  `duration`. The generator schedules its sound on it (oscillators, filters,
+  gains, buffers it fills, convolvers, compressors) and returns, or resolves
+  once it has; Chrome then renders the whole track at once. 60 s of the
+  plugin's lo-fi generator takes about 6 s, most of it starting Chrome and
+  levelling.
+- **The second argument** has `duration`, `sampleRate`, `seed`, and the
+  `tempo`, `key` and `energy` the call gave, for the generator to read.
+  `energy` is 0 to 1, or a curve of `[seconds, level]` points, so the music
+  can build and drop with the edit's sections.
+- **The same arguments make the same track.** `Math.random` is seeded from
+  `seed` (default 1), so a generator can use it freely, and another seed
+  makes a variation. Not the same bytes, though: Chrome adds up a node's
+  inputs in an order that changes between runs, so the float rounding
+  differs in the last bits (at most about 6e-8 before levelling, a few steps
+  of 32768 in the WAV), never audibly.
+- **The WAV** is 16-bit stereo at 48 kHz, brought to −14 LUFS with its peaks
+  held under −1.5 dBTP, like everything mockingbird makes. Under speech,
+  give it to `render` as `{ path, volume: 0.15, loop: true, duck: true }`.
+- It runs like a `motion` page: in Chrome, started from a process under
+  macOS's sandbox with the network denied.
+
+The plugin's generators are in `plugin/skills/music/generators/`, with the
+instruments they share in `lib.js`. Today that's `lofi.js`: swung drums,
+electric-piano seventh chords, a bass, tape flutter and vinyl crackle;
+energy adds the drums at 0.25, the snare and bass at 0.45, and a melody
+at 0.7.
 
 ## Without MCP
 

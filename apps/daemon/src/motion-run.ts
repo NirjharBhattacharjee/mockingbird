@@ -5,13 +5,14 @@
  * a client's script, or the Chrome a page renders in, can't break
  * mockingbird's one-download rule (ARCHITECTURE.md §9) or take the server
  * down with it. Arguments are one JSON object: renderMotion's options plus
- * `script`, and `chrome` for a page.
+ * `script`, and `chrome` for a page; or, with `music`, renderMusic's
+ * options, `script` being the generator.
  */
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { type Draw, renderHtml, renderMotion } from "@mockingbird/motion";
+import { type Draw, renderHtml, renderMotion, renderMusic } from "@mockingbird/motion";
 
-const { script, chrome, ...options } = JSON.parse(process.argv[2] ?? "{}");
+const { script, chrome, music, ...options } = JSON.parse(process.argv[2] ?? "{}");
 
 /** A list of sounds with paths from the script's folder, as an import's would be. */
 function soundsOf(listed: unknown, where: string) {
@@ -26,6 +27,11 @@ function soundsOf(listed: unknown, where: string) {
 }
 
 try {
+  if (music) {
+    await renderMusic(script, { chrome, ...options });
+    console.log(JSON.stringify({ made: true }));
+    process.exit(0);
+  }
   let frames: number;
   let sounds: unknown[] = [];
   if (/\.html?$/i.test(script)) {
