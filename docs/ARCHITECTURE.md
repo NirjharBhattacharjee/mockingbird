@@ -25,6 +25,7 @@ injection, the cleanup model, the launchd agent) is in git:
 | 2026-11-04 | `models pull <name or URL>` downloads any Whisper model against the sha256 Hugging Face gives (or `--sha256`), pinned to its commit; `models use <file> --language <code>` saves a model per language (#143). |
 | 2026-11-04 | The playbooks' shell scripts became engine tools, so they run on every OS: `pauses` (silencedetect, and the clips between pauses) and `measure` (size, length, loudness), with cuts from `scenes` (#158). |
 | 2026-11-04 | Timeline, first part (#148): `packages/timeline` keeps an edit in a project file; the `edit` tool changes it with ops; `render` renders one, with clips from several sources framed to one size and rate, and captions made for the cut. |
+| 2026-11-04 | The Canvas motion engine is gone (#169): `packages/motion`'s Canvas 2D over Core Graphics, Core Text and vImage, and `motion`'s `.ts`/`.js` scripts. `motion` renders HTML pages only, and the kit runs in them (#168). |
 | 2026-11-04 | `motion` renders an HTML page in a pinned headless Chrome (#145): `mockingbird models pull chrome`, a frame clock injected into the page, several tabs capturing at once, Chrome inside the motion sandbox. The Canvas engine stays until the kit is ported. |
 | 2026-11-04 | `mockingbird setup` and `doctor`, and the plugin's `launch.sh`, which answers MCP with an install tool when mockingbird isn't installed (#141). |
 | 2026-11-04 | `mockingbird record`: the microphone through ffmpeg (`avfoundation`, the input System Settings picked) into a file, for a voiceover (#142). |
@@ -109,7 +110,7 @@ Constraints, not preferences. Check any proposed change against them.
 | Speech detection | Silero VAD via `onnxruntime-node` | native module in-process |
 | Speech-to-text | `whisper.cpp`'s `whisper-server` (Homebrew's on macOS, a pinned CPU build from `models pull` on Linux and Windows), default model `large-v3` Q5_0 | subprocess, HTTP on a free `127.0.0.1` port per call |
 | Captions | Core Text through `bun:ffi`, drawn to PNGs that ffmpeg overlays | in-process |
-| Motion graphics | Canvas 2D API implemented over Core Graphics, Core Text and vImage through `bun:ffi` | in-process, the script under `sandbox-exec` |
+| Motion graphics | HTML pages in a pinned chrome-headless-shell, driven over the DevTools protocol | subprocess, under `sandbox-exec` |
 | Storage | `bun:sqlite` (`data.db`: the dictionary and settings) | in-process |
 | Agent protocol | MCP, JSON-RPC over stdin/stdout | `mockingbird mcp` |
 | Tests | `bun test`, `go test` | — |
@@ -240,11 +241,8 @@ project file; probing and rendering stay in the engine.
 `motion` runs in a separate Bun process with the network denied
 (`apps/daemon/src/motion-run.ts`): under `sandbox-exec` on macOS, in a
 network namespace (`unshare -rn`) on Linux where one can be made, and with
-Chrome's own blocking alone on Windows (`noNetwork` in `mcp.ts`). A canvas script is
-imported there; its `draw(ctx, t, m)` is called for every frame against
-`packages/motion`'s Canvas, and raw frames are piped to ffmpeg.
-
-An HTML page is rendered by `packages/motion/src/html.ts` in the pinned
+Chrome's own blocking alone on Windows (`noNetwork` in `mcp.ts`). The page
+is rendered by `packages/motion/src/html.ts` in the pinned
 chrome-headless-shell, started from that sandboxed process, so the sandbox
 covers Chrome too. It's driven over the DevTools protocol on a pipe
 (`--remote-debugging-pipe`), so no port is opened. Each tab gets a script
@@ -254,9 +252,6 @@ transparency, and ffmpeg gets the frames in order and lays them over the
 video or over black. Every tab steps through every frame and captures only
 its own, so all tabs have the same history: an animation a page starts at
 frame 40 starts at frame 40 in every tab.
-
-Pivot step 7 goes on to port the motion kit to HTML and then remove the
-Canvas engine; see #134.
 
 ## 8. State
 
@@ -330,8 +325,7 @@ mockingbird/
 │   ├── vad/                 Silero ONNX wrapper
 │   ├── asr/                 whisper-server adapter, word diff (WER)
 │   ├── captions/            SRT parsing, captions drawn with Core Text
-│   ├── motion/              HTML pages in headless Chrome, and Canvas 2D over
-│   │                        Core Graphics, to MP4
+│   ├── motion/              HTML pages in headless Chrome, to MP4
 │   ├── timeline/            project files: format, checks, edit ops, outline
 │   └── store/               data.db, the dictionary's parsing and name matching
 ├── plugin/                  the Claude Code plugin: skills, the reviewer agent,
@@ -479,10 +473,9 @@ each step shippable on its own:
 
 ## 16. Known gaps
 
-- **Captions and motion are macOS only.** They use Core Text and Core
-  Graphics until the HTML engine lands (#147, #155). Transcription, `render`
-  without captions or text overlays, and the commands but `record` (macOS
-  only for now) work on Linux and Windows.
+- **Captions are macOS only.** They use Core Text until #155 lands.
+  Transcription, `render` without captions or text overlays, `motion`, and
+  the commands but `record` (macOS only for now) work on Linux and Windows.
 - **No compiled engine** ([§11](#11-packaging)): Bun has to be installed.
 - **One render call per edit.** Any change re-renders everything (step 5).
 - **The agent sees a few stills, not the video.** Tool outputs stay small so

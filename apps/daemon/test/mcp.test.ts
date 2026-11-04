@@ -637,3 +637,14 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
     }
   }, 60_000);
 });
+
+test("motion takes only an HTML page, and says where canvas scripts went", async () => {
+  const motion = mcpTools(
+    async () => ({}),
+    () => {},
+  ).find((t) => t.name === "motion");
+  if (!motion) throw new Error("no motion tool");
+  await expect(motion.run({ script: import.meta.path, duration: 1 })).rejects.toThrow(
+    "motion renders an HTML page",
+  );
+});

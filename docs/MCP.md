@@ -52,7 +52,7 @@ after the curl install, or `/opt/homebrew/bin/mockingbird` with Homebrew.
 | `captions(path, clips, perCue, lit, upper, model, language)` | Word-by-word captions for the video `render` will make from `clips`, as SRT timed to the finished video: up to `perCue` words a cue (default 3), the word being said written `*like this*` (`lit`, default on), in capitals if `upper`. A new cue starts at each clip, after a sentence, after half a second's pause, or when its words span 1.2 seconds. Each clip is transcribed with two seconds either side, clips whose padded stretches overlap are transcribed together as one, and a word belongs to the clip its middle falls in. `model` and `language` work as in `transcribe`; detection listens to the first clip. |
 | `edit(project, ops)` | Changes a project file, an edit kept between calls; see [Projects](#projects). Applies `ops` in order, all of them or none, saves the file, and returns an outline of the cut. Makes the file if it isn't there; with no ops it only reads it. |
 | `render(project)` or `render(path, clips, …)` | Renders a project, or cuts `clips` out of one video and joins them, into one MP4 with ffmpeg; see [Render options](#render-options). Saves to `out`, or `<name>-render-N.mp4` beside the project (`<name>-short-N.mp4` beside the source), and never overwrites a file. |
-| `motion(script, path, captions, size, duration, fps, out)` | Motion graphics written as code: an HTML page rendered in a pinned headless Chrome, or a canvas script drawn with Core Graphics; see [Motion graphics](#motion-graphics). Saves to `out`, or `<name>-motion-N.mp4` beside the video or script, and never overwrites a file. |
+| `motion(script, path, captions, size, duration, fps, out)` | Motion graphics written as code: an HTML page rendered in a pinned headless Chrome; see [Motion graphics](#motion-graphics). Saves to `out`, or `<name>-motion-N.mp4` beside the video or script, and never overwrites a file. |
 | `guide(topic)` | A playbook for one job, from [`plugin/`](../plugin/README.md): `viral-short`, `long-form`, `hooks`, `retention-editing`, `captions`, `motion-graphics`, `style-match`, or `reviewer` (the checks a finished video has to pass). It starts with the folder holding the playbook's scripts, kit and templates. |
 | `status` | Whether mockingbird is ready: the transcription model in use, the speech detection model, ffmpeg, whisper-server, the Chrome that `motion` renders HTML in, and how many words the dictionary has. |
 | `dictionary_list` | Your dictionary: the names, places and jargon mockingbird spells a particular way. |
@@ -233,13 +233,10 @@ reported 19.1 dB under the voice; on the kick alone, 96.0 BPM and clipping.
 
 `motion` renders motion graphics the client writes as code, frame by frame,
 and ffmpeg encodes the frames. It's mockingbird's answer to Remotion and
-HyperFrames. `script` is one of two things:
-
-- **an HTML page** (`.html`), rendered in a pinned headless Chrome. This is
-  where motion graphics are going ([#134](https://github.com/NirjharBhattacharjee/mockingbird/issues/134), step 7).
-- **a canvas script** (`.ts` or `.js`), drawn with the browser's Canvas 2D
-  API, which mockingbird implements over macOS's Core Graphics and Core
-  Text. It goes away once the motion kit is ported to HTML.
+HyperFrames. `script` is an HTML page, rendered in a pinned headless Chrome.
+(Until #169, `motion` also drew `.ts`/`.js` canvas scripts with Core
+Graphics; a canvas script becomes a page with a `<canvas>`, and the
+motion-graphics kit's `page()` does that wrapping.)
 
 ### HTML pages
 
@@ -298,7 +295,9 @@ HyperFrames. `script` is one of two things:
   `captions`, as `{ start, end, text }`). A page can build its captions from
   `cues` as it loads.
 - **Sound:** `mockingbird.audio = [{ path, at, volume, loop, duck }]`, paths
-  from the page's folder, mixed like a script's `audio` below.
+  from the page's folder, mixed in as `render`'s `audio` is: from `at`
+  seconds, at `volume`, repeated with `loop`, dropped while the video's
+  speech plays with `duck`, and the whole sound brought to −14 LUFS.
 - **Errors** say when they happened: `the page failed by 2.40 s (frame 72):
   …`, or that it failed while loading, and nothing is saved. An uncaught
   error or rejected promise fails the render, and so does a script, image
@@ -306,93 +305,13 @@ HyperFrames. `script` is one of two things:
   Pages can share code with `<script type="module">` and relative imports.
 - **Speed.** Several tabs capture frames at once, one per core up to 8. On
   an 8-core M3, 5 seconds of a title over a 1080x1920 video at 30 fps took
-  2.2 to 2.6 seconds, with the sound mixed and levelled; the same title as a
-  canvas script took 1.4 to 1.7. The first render after a pull is slower
+  2.2 to 2.6 seconds, with the sound mixed and levelled. The whole motion
+  pass of a 6:28 1080p30 long-form edit took 542 s, against 777.5 s on the
+  Canvas engine this replaced. The first render after a pull is slower
   (5.7 s) while macOS checks the new Chrome.
-- **No network.** Chrome runs inside the same sandbox as a canvas script
-  (below), so a page can't fetch anything from the internet. Chrome's own
+- **No network.** Chrome runs in a process under macOS's sandbox with the
+  network denied, so a page can't fetch anything from the internet. Chrome's own
   sandbox can't run inside that one, so it's off.
-
-### Canvas scripts
-
-```ts
-// title.ts
-export default function draw(ctx, t, m) {
-  const pop = m.spring(t, { from: 0.6, to: 1, start: 0.1 });
-  ctx.translate(m.width / 2, 330);
-  ctx.scale(pop, pop);
-  ctx.fillStyle = "#FFD500";
-  ctx.roundRect(-430, -95, 860, 190, 36);
-  ctx.fill();
-  ctx.fillStyle = "#111";
-  ctx.font = "900 92px SF Pro";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("3 MISTAKES", 0, 0);
-}
-```
-
-- **The script** is one `.ts` or `.js` file, with no imports of its own. Its
-  default export is called with the canvas context, the time `t` in seconds,
-  and `m`. Each call runs it in a new process, so edit it and run `motion`
-  again.
-- **Over a video** (`path`, usually `render`'s output), each frame of the
-  video is drawn first, its sound is kept, and the frame is also `m.video`:
-  draw it again scaled and moved to zoom or pan. Without `path`, give `size`
-  (default `1080x1920`) and `duration`; each frame starts transparent, which
-  comes out black.
-- **`m`** has `width`, `height`, `fps`, `duration`, `frame`, `video`,
-  `cues` (from `captions`, as `{ start, end, text }` timed to the video),
-  `image(path)` for a PNG, JPEG or HEIC (read once), and the timing helpers:
-  `interpolate(t, [t0, t1, …], [v0, v1, …], easing)`, held at the ends;
-  `spring(t, { from, to, start, stiffness, damping, mass })`, which
-  overshoots a little and settles in about a second with the defaults; and
-  `ease`: `linear`, `in`, `out`, `inOut`, `back`, and `bezier(x1, y1, x2, y2)`
-  like CSS's `cubic-bezier`.
-- **The canvas** has paths (`moveTo`, `lineTo`, curves, `arc`, `arcTo`,
-  `ellipse`, `rect`, `roundRect`), `fill`, `stroke`, `clip`, `fillRect`,
-  `strokeRect`, `clearRect`, linear and radial gradients, shadows,
-  `globalAlpha`, `globalCompositeOperation`, `save`/`restore`, `translate`,
-  `rotate`, `scale`, `transform`, `setTransform`, `setLineDash` and
-  `lineDashOffset` (for lines that draw themselves on), `fillText`,
-  `strokeText`, `measureText`, and `drawImage`. Fonts are written as in CSS,
-  `"italic 900 96px Avenir Next"`; `SF Pro` and `system-ui` are the system
-  font, at any weight. A family that isn't installed is an error when
-  `ctx.font` is set, not a silent swap to Helvetica; list fallbacks as CSS
-  does (`"40px SF Mono, Menlo"`) and the first installed one is used.
-  `strokeText` with a gradient outlines the letters. There's no DOM or pixel
-  access.
-- **`Path2D`** is there as a global, as in a browser: build a path once and
-  draw it with `ctx.fill(path, rule)`, `ctx.stroke(path)` or `ctx.clip(path)`,
-  under whatever transform is current then. `new Path2D("M12 21.35 …")` takes
-  SVG path data, so an icon's `d` from an SVG file draws as it is; `addPath`
-  adds one path to another, with a transform.
-- **`ctx.filter`** takes CSS filter functions, chained: `blur()`,
-  `brightness()`, `contrast()`, `drop-shadow()`, `grayscale()`,
-  `hue-rotate()`, `invert()`, `opacity()`, `saturate()` and `sepia()`, e.g.
-  `"blur(12px) brightness(150%)"` for a glow behind a title. As in a browser,
-  each thing drawn is filtered on its own, then the clip, shadow,
-  `globalAlpha` and blend apply. `url()` isn't supported, since there's no SVG
-  document. The pixel work runs in macOS's Accelerate framework (vImage).
-- **Sound** comes from the script too:
-  `export const audio = [{ path: "whoosh.wav", at: 1.2 }]` beside `draw`, with
-  `volume`, `loop` and `duck` as `render`'s `audio` takes them, or
-  `export function audio(m)` returning that list from `m`'s `width`,
-  `height`, `fps`, `duration` and `cues`, to put a pop on every caption.
-  Paths are from the script's folder. The sounds are mixed under the video's
-  own sound, ducked under speech if asked, and the result comes out at
-  −14 LUFS.
-- **Errors** say when they happened: `draw failed at 2.40 s (frame 72): …`,
-  and nothing is saved. `draw` must return before the next frame, so an
-  `async` one is refused. `duration` is at most two hours.
-
-It needs a Mac with Apple silicon. On an M3, 6 seconds of 1080x1920 over a
-short, with a spring title, a zoom, captions that pop in and a progress bar,
-took 3.8 seconds: about 47 frames a second, counting decoding, drawing and
-encoding. Each call runs the script in its own process under macOS's sandbox
-with the network denied, so it can read and write files but can't reach the
-internet; see
-[SECURITY_PRIVACY.md §6](./SECURITY_PRIVACY.md#6-process--trust-boundaries).
 
 ## Without MCP
 
