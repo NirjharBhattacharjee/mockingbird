@@ -162,7 +162,10 @@ HyperFrames. `script` is one of two things:
 - **Drawing the video.** With `path`, a page that sets
   `mockingbird.drawVideo = true` as it loads isn't laid over the video:
   it gets each of the video's frames as `m.video`, an `ImageBitmap`, before
-  `draw` runs, and draws the whole picture itself. That's how a page zooms,
+  `draw` runs, and draws the whole picture itself. Several tabs draw at
+  once, and each also steps through the frames other tabs capture, so its
+  page sees every time; on those steps `m.video` is a blank picture, so no draw sees a
+  frame ahead of its own. That's how a page zooms,
   shakes or cuts between framings of the video, puts it in a
   picture-in-picture, or blurs it behind a glass card:
   `ctx.drawImage(m.video, …)` on a `<canvas>`. ffmpeg decodes the frames

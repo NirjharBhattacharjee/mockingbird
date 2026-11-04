@@ -43,8 +43,9 @@ settings, not from a blank file.
 6. **Draw it**: `motion` with `script` (the page), `path` (the cut), `captions`, and
    `fps` matching the cut (`ffprobe -v error -select_streams v:0
    -show_entries stream=r_frame_rate -of csv=p=0 <cut>`). The `audio`
-   function the template hands to `page()` adds the sound effects, mixed and
-   ducked under speech. The first `motion` call asks for Chrome if it isn't
+   function the template hands to `page()` adds the sound effects on their
+   beats, at their own volumes. Only sounds marked `duck: true`, like music,
+   drop while someone speaks. The first `motion` call asks for Chrome if it isn't
    there: `mockingbird models pull chrome`.
 7. **Review**: `frames` over the result, then the **reviewer** agent.
 
