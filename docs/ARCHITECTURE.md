@@ -18,6 +18,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
+| 2026-11-04 | `scenes`: shot changes from ffmpeg's `scdet`, decoded with the hardware where it can be (#164). |
 | 2026-11-04 | mockingbird-studio moved into `plugin/` and is now the `mockingbird` plugin; a `guide` tool and server instructions give every MCP client its playbooks (#140). |
 | 2026-11-04 | Long-form fixes (#127): `render` and `motion` reach −14 LUFS with a measured gain and a limiter instead of one pass of `loudnorm` (−15.9 → −14.3 LUFS on the v2 edit); `captions` hears overlapping padded clips as one stretch (171 s → 62 s for 96 clips); captions in a wide video are subtitle-sized. |
 | 2026-11-03 | `render` opens the source once per clip with a seek instead of trimming one input: 2.4x faster on a 96-clip edit, and frame-accurate. Over 100 clips it renders in batches and joins them, to bound memory (#137). |
@@ -137,6 +138,7 @@ tool, with its options, is documented in [MCP.md](./MCP.md):
 |---|---|
 | `transcribe` | timestamped lines, or word times, for a file or a stretch of it |
 | `frames` | stills at an interval, for the agent to look at |
+| `scenes` | shot changes, with how big each is, and the pace (cuts a minute, seconds a shot) |
 | `captions` | word-by-word SRT timed to the video `render` will make |
 | `render` | cuts, framing, 9:16 or split layout, captions, text, b-roll, music and sound effects, loudness to −14 LUFS |
 | `motion` | a script that draws with the Canvas 2D API, rendered to MP4 |

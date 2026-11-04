@@ -23,7 +23,8 @@ prints the size, length, cuts and cuts per minute, seconds per shot,
 integrated loudness and true peak, and when each cut happens. It finds cuts
 with ffmpeg's scene detection (threshold 0.3; pass a second argument, lower to
 catch more). A punch-in on the same shot often doesn't count as a cut, so
-look at the stills too.
+look at the stills too. Where the script can't run, `scenes` gives the same
+list of cuts and the pace; it misses jump cuts within one shot the same way.
 
 Then with mockingbird:
 
