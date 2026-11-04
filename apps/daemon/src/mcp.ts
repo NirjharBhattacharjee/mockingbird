@@ -440,7 +440,15 @@ export type Clip = {
   speed?: number;
   moves?: Move[];
   transition?: { type: string; duration: number };
+  /** Where its sound comes from in the source, when a J or L cut moves it off the picture's stretch. */
+  sound?: { from: number; to: number };
 };
+
+/** The stretch of the source a clip's input opens: its picture's and its sound's together. */
+const opened = (c: Clip) => ({
+  from: Math.min(c.from, c.sound?.from ?? c.from),
+  to: Math.max(c.to, c.sound?.to ?? c.to),
+});
 
 /**
  * Each clip's start in the finished video and the video's length: a clip
@@ -632,6 +640,8 @@ export function renderGraph(
   const out = vertical || split ? "1080x1920" : size;
   // Transitions overlap clips with xfade, which needs every input on one timebase.
   const chained = !!fps && clips.some((c, i) => i > 0 && c.transition);
+  // A J or L cut makes a clip's sound longer or shorter than its picture, so they're joined apart.
+  const apart = clips.some((c) => c.sound);
   // A split takes its areas from the whole picture, so its clips aren't framed
   // one by one, only brought to one size if they're from different sources.
   const parts = clips.map((clip, i) => {
@@ -644,17 +654,33 @@ export function renderGraph(
         ? ""
         : frame(clip, vertical ? out : undefined, out);
     const tb = chained ? `,settb=1/${fps}` : "";
-    const v = `[${i}:v]setpts=PTS-STARTPTS${speed},${SQUARE}${look}${tb}[v${i}]`;
+    // The input opens the picture's and the sound's stretches together; each takes its own.
+    const start = opened(clip).from;
+    const cut = clip.sound
+      ? `trim=start=${clip.from - start}:duration=${clip.to - clip.from},`
+      : "";
+    const v = `[${i}:v]${cut}setpts=PTS-STARTPTS${speed},${SQUARE}${look}${tb}[v${i}]`;
     if (!audio) return v;
+    const heard = clip.sound ?? clip;
+    const acut = clip.sound
+      ? `atrim=start=${heard.from - start}:duration=${heard.to - heard.from},`
+      : "";
     const a = clip.silent
-      ? `aevalsrc=0:c=stereo:s=48000:d=${lengthOf(clip)}[a${i}]`
-      : `[${i}:a]asetpts=PTS-STARTPTS${speed ? `,${tempo(clip.speed as number)}` : ""}[a${i}]`;
+      ? `aevalsrc=0:c=stereo:s=48000:d=${(heard.to - heard.from) / (clip.speed ?? 1)}[a${i}]`
+      : `[${i}:a]${acut}asetpts=PTS-STARTPTS${speed ? `,${tempo(clip.speed as number)}` : ""}[a${i}]`;
     return `${v};${a}`;
   });
   const inputs = clips.map((_, i) => (audio ? `[v${i}][a${i}]` : `[v${i}]`)).join("");
   const joined = chained
     ? chain(clips, audio, fps as number)
-    : `${inputs}concat=n=${clips.length}:v=1:a=${audio ? 1 : 0}[joined]${audio ? "[speech]" : ""}`;
+    : apart
+      ? [
+          `${clips.map((_, i) => `[v${i}]`).join("")}concat=n=${clips.length}:v=1:a=0[joined]`,
+          ...(audio
+            ? [`${clips.map((_, i) => `[a${i}]`).join("")}concat=n=${clips.length}:v=0:a=1[speech]`]
+            : []),
+        ].join(";")
+      : `${inputs}concat=n=${clips.length}:v=1:a=${audio ? 1 : 0}[joined]${audio ? "[speech]" : ""}`;
   const stacked = split && [
     "[joined]split[upper][lower]",
     `[upper]${fill(split.top, "1080x960")}[top]`,
@@ -708,9 +734,11 @@ export function renderGraph(
 }
 
 /**
- * The clips [v0][a0], [v1][a1], … joined one after another into [joined] and
- * [speech]: by concat, or by xfade and acrossfade where a clip comes in with
- * a transition, starting that long before the clip ahead of it ends.
+ * The clips [v0], [v1], … joined one after another into [joined], and their
+ * sounds [a0], [a1], … into [speech]: by concat, or by xfade and acrossfade
+ * where a clip comes in with a transition, starting that long before the
+ * clip ahead of it ends. Picture and sound are joined apart, since a J or L
+ * cut makes a clip's sound longer or shorter than its picture.
  */
 function chain(clips: Clip[], audio: boolean, fps: number): string {
   const steps: string[] = [];
@@ -728,11 +756,9 @@ function chain(clips: Clip[], audio: boolean, fps: number): string {
       if (audio) steps.push(`${a}[a${i}]acrossfade=d=${t.duration}${na}`);
       length += lengthOf(c) - t.duration;
     } else {
-      const pair = audio ? `${v}${a}[v${i}][a${i}]` : `${v}[v${i}]`;
-      const outs = audio ? `[cv${i}][ca${i}]` : `[cv${i}]`;
       // concat's timebase isn't xfade's: set it back.
-      steps.push(`${pair}concat=n=2:v=1:a=${audio ? 1 : 0}${outs}`, `[cv${i}]settb=1/${fps}${nv}`);
-      if (audio) steps.push(`[ca${i}]anull${na}`);
+      steps.push(`${v}[v${i}]concat=n=2:v=1:a=0,settb=1/${fps}${nv}`);
+      if (audio) steps.push(`${a}[a${i}]concat=n=2:v=0:a=1${na}`);
       length += lengthOf(c);
     }
     [v, a] = [nv, na];
@@ -933,11 +959,12 @@ export function wordCaptions(
   const pages: { words: Said[]; cut: number }[] = [];
   const { starts } = timeline(clips);
   clips.forEach((clip, i) => {
-    const { from, to } = clip;
-    const offset = starts[i] ?? 0;
+    // Captions follow the sound, which a J or L cut moves off the picture.
+    const { from, to } = clip.sound ?? clip;
+    const offset = (starts[i] ?? 0) + (from - clip.from) / (clip.speed ?? 1);
     // A word's time in the finished video: a clip's speed shortens or stretches it.
     const at = (t: number) => (t - from) / (clip.speed ?? 1) + offset;
-    const cut = offset + lengthOf(clip);
+    const cut = offset + (to - from) / (clip.speed ?? 1);
     let page: Said[] = [];
     pages.push({ words: page, cut });
     for (const w of words[i] ?? []) {
@@ -999,7 +1026,10 @@ export type Insert = { path: string; from: number; to: number };
  * one input decodes the whole source and drifts a frame here and there (#137).
  */
 export const seekClips = (path: string, clips: Clip[]) =>
-  clips.flatMap((c) => ["-ss", String(c.from), "-t", String(c.to - c.from), "-i", c.path ?? path]);
+  clips.flatMap((c) => {
+    const { from, to } = opened(c);
+    return ["-ss", String(from), "-t", String(to - from), "-i", c.path ?? path];
+  });
 
 /**
  * The most clips one ffmpeg opens at once. Each is an input with its own
@@ -1176,10 +1206,17 @@ async function render(
   for (const c of clips) {
     const from = of(c);
     if (!from.video) throw new Error(`${c.path ?? path} has no video, only audio.`);
-    // A clip past the end would come out short, and captions timed to it would drift.
-    if (from.seconds && c.to > from.seconds) {
+    // A J or L cut's sound has to be there too.
+    const range = opened(c);
+    if (range.from < 0) {
       throw new Error(
-        `A clip ends at ${c.to}s, after the end of ${c.path ?? path} (${from.seconds}s).`,
+        `A J cut needs sound from ${range.from.toFixed(2)}s, before the start of ${c.path ?? path}.`,
+      );
+    }
+    // A clip past the end would come out short, and captions timed to it would drift.
+    if (from.seconds && range.to > from.seconds) {
+      throw new Error(
+        `A clip ${c.to < range.to ? "with an L cut needs sound until" : "ends at"} ${range.to}s, after the end of ${c.path ?? path} (${from.seconds}s).`,
       );
     }
   }
@@ -2065,7 +2102,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
     {
       name: "edit",
       description: `Edit a project file (project.json): an edit kept between calls, whose clips can come from several sources and whose texts, b-roll and sounds stay on their clips as the cut changes. Applies \`ops\` in order, all or none, saves, and returns an outline: each clip's place in the finished video and what's on it. Makes the file if it isn't there; no ops only reads it. You can also edit the JSON by hand. Times: a clip's from/to are seconds in its source (as \`transcribe\` gives them); a text's, insert's or sound's are seconds from the start of its \`clip\` in the finished video, or of the video without one. Ops:
-- {op:"add", type:"clip", path, from, to, focus?:{x,y}, zoom?, speed?, moves?, transition?, index?}: on the main track, which plays in order with no gaps (default at the end). speed: 0.25-4. moves: [{at, focus?, zoom?, ease?}], the framing by \`at\` seconds into the clip, eased ("smooth", or "linear") from the one before: a slow push-in, a move to the other speaker. transition: {type, duration}, how the clip comes in over the end of the one before: ffmpeg xfade's fade, fadeblack, fadewhite, dissolve, wipe*, slide*, smooth*, circleopen, zoomin and others
+- {op:"add", type:"clip", path, from, to, focus?:{x,y}, zoom?, speed?, moves?, transition?, lead?, index?}: on the main track, which plays in order with no gaps (default at the end). speed: 0.25-4. moves: [{at, focus?, zoom?, ease?}], the framing by \`at\` seconds into the clip, eased ("smooth", or "linear") from the one before: a slow push-in, a move to the other speaker. transition: {type, duration}, how the clip comes in over the end of the one before: ffmpeg xfade's fade, fadeblack, fadewhite, dissolve, wipe*, slide*, smooth*, circleopen, zoomin and others. lead: a J cut (positive: the clip's sound starts that many seconds before its picture) or an L cut (negative: the clip before's sound carries on over its picture)
 - {op:"add", type:"text", text, from, to, clip?, y?}: drawn like the captions, *words* yellow
 - {op:"add", type:"insert", path, from, to, clip?}: a picture or video over the whole frame (b-roll)
 - {op:"add", type:"audio", path, at?, clip?, volume?, loop?, duck?}: music or a sound effect under the speech
