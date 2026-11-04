@@ -215,6 +215,30 @@ test("each clip is framed around its focus, punched in by its zoom", () => {
   );
 });
 
+test("a project's clips from different sources are framed to one size and rate, a silent one given silence", () => {
+  const graph = renderGraph(
+    [
+      { from: 0, to: 2, path: "/wide.mp4" },
+      { from: 1, to: 4, path: "/phone.mov", focus: { x: 0.3, y: 0.5 }, zoom: 1.5, silent: true },
+    ],
+    { audio: true, vertical: false, size: "1080x1920", fps: 30 },
+  );
+  expect(graph).toStartWith(
+    "[0:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1," +
+      "crop=w='floor(min(iw,ih*9/16)/1/2)*2':h='floor(min(ih,iw*16/9)/1/2)*2'" +
+      ":x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=1080:1920,setsar=1,fps=30[v0];" +
+      "[0:a]asetpts=PTS-STARTPTS[a0];",
+  );
+  expect(graph).toContain(
+    "crop=w='floor(min(iw,ih*9/16)/1.5/2)*2':h='floor(min(ih,iw*16/9)/1.5/2)*2'" +
+      ":x='clip(0.3*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=1080:1920,setsar=1,fps=30[v1];" +
+      "aevalsrc=0:c=stereo:s=48000:d=3[a1];",
+  );
+  expect(seekClips("/x.mp4", [{ from: 1, to: 2, path: "/phone.mov" }])).toEqual([
+    ...["-ss", "1", "-t", "1", "-i", "/phone.mov"],
+  ]);
+});
+
 test("a split stacks two areas of the picture into 1080x1920", () => {
   const graph = renderGraph([{ from: 0, to: 4, zoom: 2 }], {
     audio: false,
@@ -511,6 +535,53 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
       const out = join(dir, "out.mp4");
       expect(await run({ path: source, clips, out })).toStartWith(out);
       expect(seconds(out)).toBeCloseTo(10.1, 1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  test("a project joins a wide clip and a silent tall one into its size, with what's on them", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mb-project-"));
+    try {
+      const make = (file: string, input: string[]) =>
+        Bun.spawnSync(["ffmpeg", "-loglevel", "error", ...input, "-pix_fmt", "yuv420p", file]);
+      make(join(dir, "wide.mp4"), [
+        ...["-f", "lavfi", "-i", "testsrc2=size=320x240:rate=30:duration=4"],
+        ...["-f", "lavfi", "-i", "sine=frequency=440:duration=4"],
+      ]);
+      make(join(dir, "tall.mp4"), ["-f", "lavfi", "-i", "testsrc=size=240x320:rate=25:duration=4"]);
+      const tool = (name: string) =>
+        mcpTools(
+          async () => ({}),
+          () => {},
+        ).find((t) => t.name === name) as { run: (a: Record<string, unknown>) => Promise<string> };
+      const project = join(dir, "edit.json");
+      const outline = await tool("edit").run({
+        project,
+        ops: [
+          { op: "set", size: "360x640", fps: 30 },
+          { op: "add", type: "clip", path: "wide.mp4", from: 0.5, to: 2.5 },
+          { op: "add", type: "clip", path: "tall.mp4", from: 1, to: 3 },
+          { op: "add", type: "text", text: "on the *tall* one", clip: "c2", from: 0, to: 1 },
+        ],
+      });
+      expect(outline).toContain("c2  0:02.00-0:04.00  tall.mp4 1-3");
+      const made = await tool("render").run({ project });
+      const out = join(dir, "edit-render-1.mp4");
+      expect(made).toStartWith(out);
+      const streams = Bun.spawnSync([
+        ...[
+          "ffprobe",
+          "-v",
+          "error",
+          "-show_entries",
+          "stream=codec_type,width,height,r_frame_rate",
+        ],
+        ...["-of", "csv=p=0", out],
+      ]).stdout.toString();
+      expect(streams).toContain("video,360,640,30/1");
+      expect(streams).toContain("audio");
+      expect(seconds(out)).toBeCloseTo(4, 1);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

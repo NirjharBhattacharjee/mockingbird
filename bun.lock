@@ -18,6 +18,7 @@
         "@mockingbird/captions": "workspace:*",
         "@mockingbird/motion": "workspace:*",
         "@mockingbird/store": "workspace:*",
+        "@mockingbird/timeline": "workspace:*",
         "@mockingbird/vad": "workspace:*",
       },
     },
@@ -38,6 +39,9 @@
     },
     "packages/store": {
       "name": "@mockingbird/store",
+    },
+    "packages/timeline": {
+      "name": "@mockingbird/timeline",
     },
     "packages/vad": {
       "name": "@mockingbird/vad",
@@ -77,6 +81,8 @@
     "@mockingbird/motion": ["@mockingbird/motion@workspace:packages/motion"],
 
     "@mockingbird/store": ["@mockingbird/store@workspace:packages/store"],
+
+    "@mockingbird/timeline": ["@mockingbird/timeline@workspace:packages/timeline"],
 
     "@mockingbird/vad": ["@mockingbird/vad@workspace:packages/vad"],
 

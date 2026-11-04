@@ -40,6 +40,10 @@ after.
    That keeps everything but pauses over half a second, with 0.2 s either side
    (auto-editor's margin). It's gentler than a short's cut, because long-form
    needs room to breathe.
+   Put those clips in a project with `edit` (`add` ops, one per clip, in one
+   call). A long edit changes many times, and a project keeps it between
+   calls: `split`, `remove` and `trim` change the cut without re-sending it,
+   and what's laid over a clip stays on it.
 4. **Cut the rest by reading.** Go through the transcript and drop, by
    splitting or removing clips: false starts and retakes (keep the last good
    take), repeated points, tangents that don't pay off, "so, um, yeah" at the
@@ -65,8 +69,8 @@ after.
    starts at the cue where its first sentence starts. YouTube needs the first
    at 00:00, at least three, and each at least 10 seconds. Name each one for
    what the viewer gets, not "Part 2".
-9. **Render.** One `render` call, with b-roll where the speech names
-   something visual. No music under explanation; music only on an intro, an
+9. **Render.** `render` with the `project`, b-roll inserts on the clips
+   where the speech names something visual. No music under explanation; music only on an intro, an
    outro or a montage, ducked. A long video takes a while (about a quarter of
    its length on an M3); in Claude Code, raise `MCP_TOOL_TIMEOUT` if it's cut
    off.
