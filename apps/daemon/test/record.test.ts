@@ -11,6 +11,24 @@ const never = () => new Promise<void>(() => {});
 
 // These run ffmpeg, which CI's macOS runner doesn't have.
 describe.skipIf(!Bun.which("ffmpeg"))("recording (needs ffmpeg)", () => {
+  test("ffmpeg failing partway is a failure, not a recording", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mb-record-"));
+    // An MP3 damaged in the middle: with -xerror, ffmpeg writes the first
+    // half of the recording, then stops with an error.
+    const mp3 = join(dir, "damaged.mp3");
+    Bun.spawnSync(["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "sine=duration=3", mp3]);
+    const bytes = new Uint8Array(await Bun.file(mp3).arrayBuffer());
+    for (let i = bytes.length >> 1; i < (bytes.length >> 1) + 4000; i++)
+      bytes[i] = i % 2 ? 0xff : 0;
+    await Bun.write(mp3, bytes);
+    const out = join(dir, "take.wav");
+    const lines: string[] = [];
+    const input = () => ["-xerror", "-i", mp3];
+    expect(await main([out], { input, enter: never, log: (l) => lines.push(l) })).toBe(1);
+    expect(existsSync(out)).toBe(true);
+    expect(lines.at(-1)).toStartWith("ffmpeg stopped early (");
+  });
+
   test("records for --for seconds, mono 48 kHz WAV, and says where", async () => {
     const dir = mkdtempSync(join(tmpdir(), "mb-record-"));
     const out = join(dir, "voiceover.wav");
@@ -60,9 +78,11 @@ test("never overwrites a file, and wants a length that's a number", async () => 
   const there = join(dir, "there.wav");
   writeFileSync(there, "mine");
   await expect(main([there], { input: tone, enter: never })).rejects.toThrow("already exists");
-  await expect(main([join(dir, "a.wav"), "--for", "soon"], { input: tone })).rejects.toThrow(
-    "not a length in seconds",
-  );
+  for (const bad of ["soon", "Infinity"]) {
+    await expect(main([join(dir, "a.wav"), "--for", bad], { input: tone })).rejects.toThrow(
+      "not a length in seconds",
+    );
+  }
   expect(existsSync(join(dir, "a.wav"))).toBe(false);
 });
 

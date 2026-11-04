@@ -101,7 +101,14 @@ export async function main(argv: string[], deps: RecordDeps = {}): Promise<numbe
       "-i",
       "",
     ]);
-    for (const d of parseDevices(r.stderr.toString())) console.log(`${d.index}  ${d.name}`);
+    const found = parseDevices(r.stderr.toString());
+    if (!found.length) {
+      log(
+        `ffmpeg couldn't list the inputs: ${r.stderr.toString().trim().split("\n").slice(-2).join(" ")}`,
+      );
+      return 1;
+    }
+    for (const d of found) console.log(`${d.index}  ${d.name}`);
     return 0;
   }
   if (positionals.length !== 1 || !positionals[0])
@@ -110,7 +117,7 @@ export async function main(argv: string[], deps: RecordDeps = {}): Promise<numbe
   if (existsSync(out)) throw new UsageError(`${out} already exists; give another name`);
   if (!existsSync(dirname(out))) throw new UsageError(`${dirname(out)} doesn't exist`);
   const length = values.for === undefined ? undefined : Number(values.for);
-  if (length !== undefined && !(length > 0))
+  if (length !== undefined && !(Number.isFinite(length) && length > 0))
     throw new UsageError(`not a length in seconds: ${values.for}`);
 
   const device = values.device ?? "default";
@@ -129,8 +136,12 @@ export async function main(argv: string[], deps: RecordDeps = {}): Promise<numbe
   log(
     `Recording to ${out}${length ? ` for ${length} s` : ""}. Press Enter${length ? " to stop early" : " to stop"}.`,
   );
-  // Ctrl-C reaches ffmpeg too, which closes the file properly; this waits for it.
-  const ignore = () => {};
+  // Ctrl-C reaches ffmpeg too, which closes the file properly and exits 255;
+  // this waits for it, and remembers that the stop was asked for.
+  let interrupted = false;
+  const ignore = () => {
+    interrupted = true;
+  };
   process.on("SIGINT", ignore);
   try {
     const stopped = (deps.enter ?? firstLine)().then(() => {
@@ -145,6 +156,10 @@ export async function main(argv: string[], deps: RecordDeps = {}): Promise<numbe
       log(`ffmpeg couldn't record: ${why || `exit ${code}`}`);
       return 1;
     }
+    if (code !== 0 && !interrupted) {
+      log(`ffmpeg stopped early (${why || `exit ${code}`}); what it recorded is in ${out}.`);
+      return 1;
+    }
   } finally {
     process.off("SIGINT", ignore);
   }
@@ -152,7 +167,12 @@ export async function main(argv: string[], deps: RecordDeps = {}): Promise<numbe
     ...["ffprobe", "-v", "error", "-show_entries", "format=duration"],
     ...["-of", "csv=p=0", out],
   ]);
-  log(`Saved ${out} (${Number(probe.stdout.toString()).toFixed(1)} s).`);
+  const seconds = Number(probe.stdout.toString().trim());
+  if (probe.exitCode !== 0 || !Number.isFinite(seconds)) {
+    log(`Saved ${out}, but ffprobe can't read it: ${probe.stderr.toString().trim()}`);
+    return 1;
+  }
+  log(`Saved ${out} (${seconds.toFixed(1)} s).`);
   if ((await loudest(out)) < -80) {
     log(
       "It's silent. If macOS didn't let this terminal use the microphone, allow it in System " +
