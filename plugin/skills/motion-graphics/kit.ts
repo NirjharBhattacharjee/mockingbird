@@ -1,12 +1,15 @@
 // The motion-graphics kit: a design system for mockingbird's `motion` tool.
-// A script imports it by absolute path, makes one `kit(ctx, t, m, THEMES.x)`
-// per frame and draws with it. Every piece is a pure function of time.
+// An HTML page imports kit.js (built from this file: `bun run kit`) by
+// absolute path, hands its draw function to `page()`, makes one
+// `kit(ctx, t, m, THEMES.x)` per frame and draws with it on the page's
+// canvas. Every piece is a pure function of time.
 //
 // What it's built from is in docs/STYLE-STUDY.md: depth (parallax, blur,
 // vignette), light (gradients, glow), texture (grain), a camera that never
 // stops, soft staggered reveals, and a sound on every beat.
 
-const DIR = import.meta.dir;
+/** This file's folder, in Bun and in the page alike. */
+const DIR = decodeURIComponent(new URL(".", import.meta.url).pathname).replace(/\/$/, "");
 
 /** A sound effect that ships with the kit: whoosh, pop, tick, impact, riser, shimmer, click. */
 export const sfx = (name: string) => `${DIR}/assets/sfx/${name}.wav`;
@@ -31,8 +34,8 @@ export type Theme = {
   mono: string;
 };
 
-// Installed on every Mac. A family that isn't installed is an error, so list a fallback for any other.
-const FACES = { display: "SF Pro", serif: "Charter", mono: "Menlo" };
+// Installed on every Mac; system-ui is SF Pro there.
+const FACES = { display: "system-ui", serif: "Charter", mono: "Menlo" };
 
 export const THEMES: Record<string, Theme> = {
   // Linear / Vercel launch film: near black, violet and blue light, glassy.
@@ -171,6 +174,89 @@ type Run = {
 };
 type Line = string | Run[];
 
+/**
+ * A spring released at `start` seconds, moving from `from` to `to`: a mass
+ * on a spring with no starting speed. The defaults (stiffness 100, damping
+ * 10, mass 1) overshoot a little and settle in about a second.
+ */
+export function spring(
+  t: number,
+  { from = 0, to = 1, start = 0, stiffness = 100, damping = 10, mass = 1 } = {},
+): number {
+  const s = t - start;
+  if (s <= 0) return from;
+  const w = Math.sqrt(stiffness / mass);
+  const zeta = damping / (2 * Math.sqrt(stiffness * mass));
+  let done: number;
+  if (zeta < 1) {
+    const wd = w * Math.sqrt(1 - zeta ** 2);
+    done = 1 - Math.exp(-zeta * w * s) * (Math.cos(wd * s) + ((zeta * w) / wd) * Math.sin(wd * s));
+  } else if (zeta === 1) {
+    done = 1 - Math.exp(-w * s) * (1 + w * s);
+  } else {
+    const root = w * Math.sqrt(zeta ** 2 - 1);
+    const [r1, r2] = [-zeta * w + root, -zeta * w - root];
+    done = 1 - (r2 * Math.exp(r1 * s) - r1 * Math.exp(r2 * s)) / (r2 - r1);
+  }
+  return from + (to - from) * done;
+}
+
+// ---------------------------------------------------------------- the page
+
+const GRAIN = `${DIR}/assets/grain.png`;
+const pictures = new Map<string, any>();
+
+/**
+ * A picture file, as an <img> to draw. Call it as the page loads (at the
+ * top of its script), so the page waits for it before the first frame; a
+ * picture asked for first while drawing hasn't loaded, and is an error.
+ */
+export function picture(path: string) {
+  let img = pictures.get(path);
+  if (!img && document.readyState === "complete") {
+    throw new Error(`${path} wasn't loaded with the page: call picture() for it as the page loads`);
+  }
+  if (!img) {
+    img = new Image();
+    img.src = path;
+    img.hidden = true;
+    document.documentElement.append(img);
+    pictures.set(path, img);
+    return img;
+  }
+  if (!img.complete) {
+    throw new Error(`${path} hasn't loaded: call picture() for it as the page loads`);
+  }
+  return img;
+}
+
+/**
+ * Sets the page up for a kit draw function, as the canvas engine ran one: a
+ * canvas the size of the video, the video's frames (`mockingbird.drawVideo`)
+ * drawn first on each frame from a fresh canvas state, then `draw(ctx, t, m)`.
+ * `audio(m)` gives the sounds, as `mockingbird.audio` takes them.
+ */
+export function page(
+  draw: (ctx: any, t: number, m: any) => void,
+  { audio }: { audio?: (m: any) => unknown[] } = {},
+) {
+  const m = (globalThis as any).mockingbird;
+  const canvas = document.createElement("canvas");
+  canvas.width = m.width;
+  canvas.height = m.height;
+  canvas.style.cssText = "position:absolute;left:0;top:0";
+  document.body.append(canvas);
+  const ctx = canvas.getContext("2d");
+  m.drawVideo = true;
+  if (audio) m.audio = audio(m);
+  picture(GRAIN);
+  m.draw = (t: number) => {
+    ctx.reset();
+    if (m.video) ctx.drawImage(m.video, 0, 0, m.width, m.height);
+    draw(ctx, t, m);
+  };
+}
+
 // ---------------------------------------------------------------- the kit
 
 export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as Theme) {
@@ -277,7 +363,7 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
 
   /** Film grain: a noise tile jittered every frame, blended over everything. */
   function grain(amount = 0.07) {
-    const tile = m.image(`${DIR}/assets/grain.png`);
+    const tile = picture(GRAIN);
     // At the tile's own size: scaling it costs ten times as much and softens it.
     const s = tile.width;
     const ox = -hash(m.frame) * s;
@@ -425,7 +511,7 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
     for (const p of punches) {
       const hold = p.hold ?? 1.2;
       if (t < p.at || t > p.at + hold + 0.6) continue;
-      const into = m.spring(t, { from: 0, to: 1, start: p.at, stiffness: 220, damping: 18 });
+      const into = spring(t, { from: 0, to: 1, start: p.at, stiffness: 220, damping: 18 });
       const out = expo((t - (p.at + hold)) / 0.5);
       zoom *= 1 + ((p.zoom ?? 1.3) - 1) * into * (1 - (t > p.at + hold ? out : 0));
     }
@@ -633,11 +719,7 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
             ctx.translate(cx, cy + (1 - pin) * size * u * 0.45 - pout * size * u * 0.35);
             const s =
               style === "slam"
-                ? lerp(
-                    1.6,
-                    1,
-                    m.spring(t, { start: at + i * stagger, stiffness: 260, damping: 20 }),
-                  )
+                ? lerp(1.6, 1, spring(t, { start: at + i * stagger, stiffness: 260, damping: 20 }))
                 : 1;
             ctx.scale(fit * s, fit * s);
             fade(clamp(vis));
@@ -762,7 +844,7 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
       ctx.font = font(size, 800, T.display);
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      const pop = m.spring(t, { from: 0.85, to: 1, start: at, stiffness: 180, damping: 14 });
+      const pop = spring(t, { from: 0.85, to: 1, start: at, stiffness: 180, damping: 14 });
       ctx.translate(x, y);
       ctx.scale(pop, pop);
       ctx.shadowColor = alpha(T.accent, 0.55);
@@ -1473,7 +1555,7 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
       items.forEach((it, i) => {
         const w = ws[i] as number;
         const pin =
-          m.spring(t, { from: 0, to: 1, start: at + i * 0.12, stiffness: 240, damping: 16 }) *
+          spring(t, { from: 0, to: 1, start: at + i * 0.12, stiffness: 240, damping: 16 }) *
           (1 - leave);
         const done = it.done !== undefined && t >= it.done;
         const dp = done ? expo((t - (it.done as number)) / 0.35) : 0;
@@ -1567,7 +1649,7 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
   }) {
     const a = presence(t, at, out, 0.6, 0.35);
     if (!a) return;
-    const img = m.image(path);
+    const img = picture(path);
     layer(() => {
       const float = Math.sin(t * 1.1) * 8 * u;
       ctx.translate(x + w / 2, y + h / 2 + float + (1 - a) * 80 * u);
