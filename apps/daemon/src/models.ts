@@ -1,5 +1,7 @@
 import {
+  accessSync,
   closeSync,
+  constants,
   createReadStream,
   existsSync,
   linkSync,
@@ -230,9 +232,20 @@ export function pinnedChrome(
   return { zip, dir, program: join(dir, name, "chrome-headless-shell") };
 }
 
+/** Whether `path` is a file this process may run. */
+function runnable(path: string): boolean {
+  try {
+    accessSync(path, constants.X_OK);
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
 /** The Chrome to render in: MOCKINGBIRD_CHROME, or the pinned one once it's pulled. */
 export function findChrome(env = process.env, home = mockingbirdHome(env)): string | undefined {
-  if (env.MOCKINGBIRD_CHROME) return env.MOCKINGBIRD_CHROME;
+  if (env.MOCKINGBIRD_CHROME)
+    return runnable(env.MOCKINGBIRD_CHROME) ? env.MOCKINGBIRD_CHROME : undefined;
   const program = pinnedChrome(home)?.program;
   return program && existsSync(program) ? program : undefined;
 }
@@ -282,7 +295,10 @@ function takeLock(lock: string): number | undefined {
       try {
         linkSync(mine, lock);
         return undefined;
-      } catch {}
+      } catch (error) {
+        // Taken: see who by. Anything else (a read-only folder, say) won't change by trying again.
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      }
       let holder = 0;
       try {
         holder = Number(readFileSync(lock, "utf8"));
