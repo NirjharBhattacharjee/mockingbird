@@ -2,7 +2,17 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { apply, check, compile, edit, outline, type Project } from "../src/index.ts";
+import {
+  apply,
+  check,
+  compile,
+  edit,
+  outline,
+  type Project,
+  transcript,
+  type Word,
+  wanted,
+} from "../src/index.ts";
 
 const base = (): Project =>
   check({
@@ -182,4 +192,164 @@ describe("edit", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+});
+
+// "So today I want to um show you this. Then you go on." in a.mp4, with a pause after "um".
+const said: Word[] = (
+  [
+    ["So", 0.5, 0.7],
+    [" today", 0.8, 1.1],
+    [" I", 1.2, 1.3],
+    [" want", 1.35, 1.5],
+    [" to", 1.5, 1.6],
+    [" um", 2.0, 2.3],
+    [" show", 2.9, 3.1],
+    [" you", 3.15, 3.3],
+    [" this.", 3.35, 3.7],
+    [" Then", 5.0, 5.2],
+    [" you", 5.3, 5.4],
+    [" go", 5.45, 5.6],
+    [" on.", 5.65, 5.9],
+  ] as const
+).map(([word, start, end]) => ({ word, start, end }));
+const words = (path: string) => (path === "a.mp4" ? said : []);
+const talk = (): Project =>
+  check({
+    version: 1,
+    clips: [{ id: "c1", path: "a.mp4", from: 0, to: 10 }],
+    texts: [{ id: "t1", text: "show!", clip: "c1", from: 3, to: 3.5 }],
+  });
+const spans = (p: Project) => p.clips.map(({ id, from, to }) => [id, from, to]);
+
+describe("cut_words", () => {
+  test("cuts a word from the middle of a clip, a margin into the pauses either side", () => {
+    const { project, notes } = apply(talk(), [{ op: "cut_words", text: "um" }], words);
+    // After "to" (1.6) + 0.2, and 0.2 before "show" (2.9).
+    expect(spans(project)).toEqual([
+      ["c1", 0, 1.8],
+      ["c2", 2.7, 10],
+    ]);
+    expect(notes).toEqual(['cut "um" (1 word, 0.90 s)']);
+    // The text on "show" stays on it: 3 s in the source, 0.9 s earlier in the finished video.
+    expect(compile(project, "/").texts[0]).toMatchObject({ from: 2.1, to: 2.6 });
+  });
+
+  test("cuts at a clip's edge with a trim, and a run of words across clips", () => {
+    const first = apply(talk(), [{ op: "cut_words", text: "So, TODAY" }], words).project;
+    // Up to just before "I" starts: no margin fits in a 0.1 s gap.
+    expect(spans(first)).toEqual([["c1", 1.1, 10]]);
+    const across = apply(
+      talk(),
+      [
+        { op: "cut_words", text: "um" },
+        { op: "cut_words", from: "want to", to: "show you" },
+      ],
+      words,
+    ).project;
+    // From where "want" starts: "I" ends 0.05 s before it, too close for a margin.
+    expect(spans(across)).toEqual([
+      ["c1", 0, 1.35],
+      ["c2", 3.3, 10],
+    ]);
+  });
+
+  test("cut edges move into the measured silences, where Whisper's times are off", () => {
+    // The talk at 0:25 (#160): Whisper heard "pretty generic generic" about
+    // 0.4 s late; silencedetect found the pauses either side of the first "generic".
+    const late: Word[] = [
+      { word: " pretty", start: 24.62, end: 25.1 },
+      { word: " generic", start: 25.1, end: 25.27 },
+      { word: " generic", start: 25.76, end: 26.5 },
+      { word: " output", start: 26.5, end: 27.13 },
+    ];
+    const gaps = () => [
+      { from: 24.72, to: 24.86 },
+      { from: 24.92, to: 25.0 },
+      { from: 25.64, to: 25.85 },
+      { from: 25.97, to: 26.09 },
+      { from: 26.19, to: 27.04 },
+    ];
+    const p = check({ version: 1, clips: [{ id: "c1", path: "t.mp4", from: 20, to: 30 }] });
+    const ops = [{ op: "cut_words", from: "generic generic", to: "generic" }];
+    // Whisper alone would cut 25.1-25.56, through the middle of the word.
+    expect(spans(apply(p, ops, () => late).project)).toEqual([
+      ["c1", 20, 25.1],
+      ["c2", 25.56, 30],
+    ]);
+    // From the middle of the silence after "pretty" to 0.2 s before the next "generic" starts.
+    expect(spans(apply(p, ops, () => late, gaps).project)).toEqual([
+      ["c1", 20, 24.96],
+      ["c2", 25.745, 30],
+    ]);
+  });
+
+  test("a phrase said twice needs more words, its clip, or all", () => {
+    expect(() => apply(talk(), [{ op: "cut_words", text: "you" }], words)).toThrow(
+      '"you" is said 2 times (in c1, c1)',
+    );
+    const { project, notes } = apply(talk(), [{ op: "cut_words", text: "you", all: true }], words);
+    expect(project.clips).toHaveLength(3);
+    expect(notes).toHaveLength(2);
+    // Whisper's curly apostrophe matches a typed straight one.
+    const curly = () => [
+      { word: " I’m", start: 1, end: 1.2 },
+      { word: " here", start: 3, end: 3.2 },
+    ];
+    expect(spans(apply(talk(), [{ op: "cut_words", text: "i'm" }], curly).project)).toEqual([
+      ["c1", 2.8, 10],
+    ]);
+    expect(() => apply(talk(), [{ op: "cut_words", text: "nope" }], words)).toThrow(
+      "isn't said in the cut",
+    );
+    expect(() => apply(talk(), [{ op: "cut_words", text: "um" }])).toThrow("only the engine has");
+  });
+
+  test("cutting a whole clip's words removes it with what's on it", () => {
+    const p = check({
+      version: 1,
+      clips: [
+        { id: "c1", path: "a.mp4", from: 4.8, to: 6 },
+        { id: "c2", path: "a.mp4", from: 0, to: 4 },
+      ],
+      texts: [{ id: "t1", text: "x", clip: "c1", from: 0, to: 1 }],
+    });
+    const { project, notes } = apply(p, [{ op: "cut_words", text: "then you go on" }], words);
+    expect(spans(project)).toEqual([["c2", 0, 4]]);
+    expect(notes[0]).toBe("removed t1 with c1");
+  });
+});
+
+test("transcript shows each clip's words at their time in the finished video", () => {
+  const p = check({
+    version: 1,
+    clips: [
+      { id: "c1", path: "a.mp4", from: 4.8, to: 6 },
+      { id: "c2", path: "b.mov", from: 0, to: 2 },
+      { id: "c3", path: "a.mp4", from: 0, to: 4 },
+    ],
+  });
+  expect(transcript(p, "/e.json", words)).toBe(
+    [
+      "/e.json: the words in the cut (0:07.20)",
+      "c1  0:00.00  a.mp4 4.8-6",
+      "    [0:00.20] Then you go on.",
+      "c2  0:01.20  b.mov 0-2",
+      "    (no speech)",
+      "c3  0:03.20  a.mp4 0-4",
+      "    [0:03.70] So today I want to um show you this.",
+    ].join("\n"),
+  );
+  expect(wanted(p, [{ op: "add", type: "clip", path: "c.mp4", from: 1, to: 2 }])).toEqual(
+    new Map([
+      [
+        "a.mp4",
+        [
+          { from: 4.8, to: 6 },
+          { from: 0, to: 4 },
+        ],
+      ],
+      ["b.mov", [{ from: 0, to: 2 }]],
+      ["c.mp4", [{ from: 1, to: 2 }]],
+    ]),
+  );
 });

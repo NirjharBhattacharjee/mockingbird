@@ -1,6 +1,20 @@
 import type { PcmAudio } from "@mockingbird/audio";
 
-export type AsrWord = { word: string; startMs: number; endMs: number; probability: number };
+/**
+ * A token, or a word made of tokens. `atMs` is where Whisper's attention put
+ * it in the audio (whisper.cpp's DTW timestamps, when the server computes
+ * them): a point inside the word, more reliable than `startMs`/`endMs`,
+ * which drift by up to half a second over a 30-second window. `atEndMs` is
+ * the last token's, for a word of several.
+ */
+export type AsrWord = {
+  word: string;
+  startMs: number;
+  endMs: number;
+  probability: number;
+  atMs?: number;
+  atEndMs?: number;
+};
 
 export type AsrResult = {
   text: string;

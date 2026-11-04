@@ -1,11 +1,15 @@
+import { createHash } from "node:crypto";
 import {
   closeSync,
   copyFileSync,
+  mkdirSync,
   mkdtempSync,
   openSync,
   readdirSync,
+  readFileSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,11 +18,26 @@ import { type AsrWord, stripNonSpeech } from "@mockingbird/asr";
 import { loadAudio, type PcmAudio } from "@mockingbird/audio";
 import { type Cue, drawCaptions, parseSrt } from "@mockingbird/captions";
 import { applyCorrections, correctNames } from "@mockingbird/store";
-import { compile, edit, load } from "@mockingbird/timeline";
+import {
+  compile,
+  edit,
+  load,
+  type Project,
+  transcript,
+  type Word,
+  wanted,
+} from "@mockingbird/timeline";
 import type { SpeechSegment } from "@mockingbird/vad";
 import { addEntries, formatEntry, readDictionary } from "./dictionary.ts";
 import { guide, INSTRUCTIONS, playbooks } from "./guide.ts";
-import { type Engines, requireFile, spokenLanguage, startEngines } from "./runtime.ts";
+import {
+  asrChoice,
+  type Engines,
+  mockingbirdHome,
+  requireFile,
+  spokenLanguage,
+  startEngines,
+} from "./runtime.ts";
 
 /**
  * `mockingbird mcp` (#88): mockingbird's local functions as Model Context
@@ -156,17 +175,26 @@ export function timedLines(words: AsrWord[], offsetMs: number): { atMs: number; 
 /**
  * Whisper's tokens as whole words, each with its start and end in the file.
  * A token that doesn't start with a space carries on the word before it
- * ("dict" + "ation", or a full stop).
+ * ("dict" + "ation", or a full stop). A word's DTW point is its first
+ * token's, and `atEndMs` its last's.
  */
 export function timedWords(words: AsrWord[], offsetMs: number): AsrWord[] {
   const out: AsrWord[] = [];
   for (const w of words) {
     const last = out.at(-1);
+    const at = w.atMs === undefined ? undefined : offsetMs + w.atMs;
     if (last && !/^\s/.test(w.word)) {
       last.word += w.word;
       last.endMs = offsetMs + w.endMs;
+      // A full stop has a point of its own, after the word: the word's last is its own last letter's.
+      if (at !== undefined && /[\p{L}\p{N}]/u.test(w.word)) last.atEndMs = at;
     } else {
-      out.push({ ...w, startMs: offsetMs + w.startMs, endMs: offsetMs + w.endMs });
+      out.push({
+        ...w,
+        startMs: offsetMs + w.startMs,
+        endMs: offsetMs + w.endMs,
+        ...(at !== undefined && { atMs: at, atEndMs: at }),
+      });
     }
   }
   return out
@@ -1290,6 +1318,227 @@ async function clipWords(path: string, clips: Clip[], log: (m: string) => void) 
   }
 }
 
+/** A stretch of a source, in seconds. */
+type Span = { from: number; to: number };
+
+/** `spans` in order, joined where they overlap or are less than `gap` seconds apart. */
+export function union(spans: Span[], gap = 0): Span[] {
+  const out: Span[] = [];
+  for (const s of [...spans].sort((a, b) => a.from - b.from)) {
+    const last = out.at(-1);
+    if (last && s.from <= last.to + gap) last.to = Math.max(last.to, s.to);
+    else out.push({ ...s });
+  }
+  return out;
+}
+
+/** The parts of `needed` that `covered` leaves out. */
+export function uncovered(needed: Span[], covered: Span[]): Span[] {
+  const have = union(covered);
+  const out: Span[] = [];
+  for (const n of union(needed)) {
+    let at = n.from;
+    for (const c of have) {
+      if (c.to <= at || c.from >= n.to) continue;
+      if (c.from > at) out.push({ from: at, to: c.from });
+      at = Math.max(at, c.to);
+    }
+    if (at < n.to) out.push({ from: at, to: n.to });
+  }
+  return out.filter((s) => s.to - s.from > 0.01);
+}
+
+/**
+ * Each word's start and end from where DTW put it and the silences around
+ * it: it starts where the last silence before its first point ends, and
+ * ends where the first silence after its last point begins, never past the
+ * points of the words either side. With no silence there, halfway to the
+ * next word's point. A word with no point keeps Whisper's times, which drift
+ * up to half a second over a 30-second window; on a recorded talk they put
+ * "create" 0.5 s early, inside the pause before it.
+ */
+export function align(words: (Word & { at?: [number, number] })[], gaps: Span[]): Word[] {
+  const ms = (t: number) => Math.round(t * 1000) / 1000;
+  return words.map((w, i) => {
+    const { word, start, end, at } = w;
+    if (!at) return { word, start, end };
+    const [first, last] = at;
+    const prev = words[i - 1]?.at?.[1];
+    const next = words[i + 1]?.at?.[0];
+    const before = gaps.filter((g) => g.to <= first && (prev === undefined || g.to >= prev)).at(-1);
+    const after = gaps.find((g) => g.from >= last && (next === undefined || g.from <= next));
+    const from = before
+      ? before.to
+      : prev === undefined
+        ? Math.min(start, first)
+        : (prev + first) / 2;
+    const to = after ? after.from : next === undefined ? Math.max(end, last) : (last + next) / 2;
+    return { word, start: ms(from), end: ms(Math.max(from, to)) };
+  });
+}
+
+/** A source's words and silences as heard so far, and the stretches they cover. */
+type Heard = { covered: Span[]; words: Word[]; gaps: Span[] };
+
+/**
+ * The silences in `source` from `from` to `to` seconds: 80 ms or more under
+ * -35 dBFS, the gaps between words that a cut can land in.
+ * ponytail: a fixed level; from the recording's noise floor once audio_stats (#171) measures it.
+ */
+async function silences(source: string, { from, to }: Span): Promise<Span[]> {
+  const proc = Bun.spawn(
+    [
+      ...["ffmpeg", "-nostdin", "-nostats", "-ss", String(from), "-t", String(to - from)],
+      ...["-i", source, "-map", "0:a:0", "-af", "silencedetect=n=-35dB:d=0.08", "-f", "null", "-"],
+    ],
+    { stderr: "pipe" },
+  );
+  const said = await new Response(proc.stderr).text();
+  if ((await proc.exited) !== 0) {
+    throw new Error(`ffmpeg couldn't find the pauses in ${source}: ${said.trim()}`);
+  }
+  const ms = (t: number) => Math.round(t * 1000) / 1000;
+  const out: Span[] = [];
+  let start: number | undefined;
+  for (const [, edge, at] of said.matchAll(/silence_(start|end): (-?[\d.]+)/g)) {
+    const t = from + Number(at);
+    if (edge === "start") start = Math.max(from, t);
+    else if (start !== undefined) {
+      out.push({ from: ms(start), to: ms(t) });
+      start = undefined;
+    }
+  }
+  // A silence still going at the end of the stretch.
+  if (start !== undefined) out.push({ from: ms(start), to: ms(to) });
+  return out;
+}
+
+/**
+ * Where a source's words are kept: a file per source, model and language
+ * under ~/.mockingbird/cache/words/. A source that changes on disk gets a new
+ * one, so its old words are never used.
+ */
+function heardFile(source: string, model: string, language: string): string {
+  const { size, mtimeMs } = statSync(source);
+  const key = createHash("sha256")
+    // "3": words placed by DTW and the silences between them.
+    .update(JSON.stringify([3, source, size, mtimeMs, basename(model), language]))
+    .digest("hex")
+    .slice(0, 32);
+  return join(mockingbirdHome(), "cache", "words", `${key}.json`);
+}
+
+/**
+ * Each source's words and silences over the stretches asked for (absolute
+ * paths), heard once and kept, so a later call hears only what no call
+ * before it did. A new stretch is heard with 2 s either side, as captions
+ * are, and keeps the words whose middle is in it. Names are fixed from the
+ * dictionary as the words are read, so a word added to the dictionary later
+ * still applies.
+ */
+export async function sourceWords(
+  sources: Map<string, Span[]>,
+  log: (m: string) => void,
+): Promise<Map<string, { words: Word[]; gaps: Span[] }>> {
+  const { whisperModel, language } = asrChoice(log);
+  const spell = speller(log);
+  const out = new Map<string, { words: Word[]; gaps: Span[] }>();
+  let engines: Engines | undefined;
+  try {
+    for (const [source, spans] of sources) {
+      const file = heardFile(requireFile(source, "File"), whisperModel, language);
+      let heard: Heard = { covered: [], words: [], gaps: [] };
+      try {
+        heard = JSON.parse(readFileSync(file, "utf8"));
+      } catch {
+        // Not heard yet, or a file from a crash: hear it again.
+      }
+      // Stretches less than 4 s apart are heard as one: their padding would overlap anyway.
+      const todo = union(uncovered(spans, heard.covered), 4);
+      if (todo.length) {
+        if ((await probe(source)).audio) {
+          const audio = await loadAudio(source);
+          const rate = audio.sampleRate;
+          engines ??= await startEngines(log, undefined, undefined, { dtw: true });
+          const before = heard.covered;
+          const fresh = (middle: number, s: Span) =>
+            middle >= s.from &&
+            middle < s.to &&
+            !before.some((c) => middle >= c.from && middle < c.to);
+          for (const s of todo) {
+            // Silences either side too, for a cut at the stretch's edge to land in.
+            const around = { from: Math.max(0, s.from - 2), to: s.to + 2 };
+            heard.gaps = union([...heard.gaps, ...(await silences(source, around))]);
+            const first = Math.max(0, Math.round((s.from - 2) * rate));
+            const last = Math.min(audio.samples.length, Math.round((s.to + 2) * rate));
+            const piece = { sampleRate: rate, samples: audio.samples.subarray(first, last) };
+            const placed: (Word & { at?: [number, number] })[] = [];
+            for await (const c of hear(piece, (first / rate) * 1000, engines)) {
+              for (const w of timedWords(c.heard, c.offsetMs)) {
+                const at: [number, number] | undefined =
+                  w.atMs === undefined ? undefined : [w.atMs / 1000, (w.atEndMs ?? w.atMs) / 1000];
+                placed.push({ word: w.word, start: w.startMs / 1000, end: w.endMs / 1000, at });
+              }
+            }
+            // A word belongs to the stretch its middle is in: by its DTW points where it has them.
+            for (const w of align(placed, heard.gaps)) {
+              if (fresh((w.start + w.end) / 2, s)) heard.words.push(w);
+            }
+          }
+        }
+        heard.covered = union([...heard.covered, ...todo]);
+        heard.words.sort((a, b) => a.start - b.start);
+        mkdirSync(dirname(file), { recursive: true });
+        const temp = `${file}.${process.pid}.tmp`;
+        writeFileSync(temp, JSON.stringify(heard));
+        renameSync(temp, file);
+      }
+      out.set(source, {
+        words: heard.words.map((w) => ({ ...w, word: spell(w.word) })),
+        gaps: heard.gaps,
+      });
+    }
+  } finally {
+    await engines?.close();
+  }
+  return out;
+}
+
+/** What `wanted` asks of a project in `dir`, by absolute path. */
+function wantedFrom(p: Project, ops: unknown[], dir: string): Map<string, Span[]> {
+  const out = new Map<string, Span[]>();
+  for (const [path, spans] of wanted(p, ops)) {
+    const full = resolve(dir, path);
+    out.set(full, [...(out.get(full) ?? []), ...spans]);
+  }
+  return out;
+}
+
+/**
+ * `ops` applied to the project in `file`, hearing first whatever cut_words
+ * needs: the words of every clip there is or will be.
+ */
+async function editProject(file: string, ops: unknown[], log: (m: string) => void) {
+  if (!ops.some((o) => (o as { op?: unknown })?.op === "cut_words")) return edit(file, ops);
+  const dir = dirname(file);
+  const heard = await sourceWords(wantedFrom(load(file).project, ops, dir), log);
+  return edit(
+    file,
+    ops,
+    (path) => heard.get(resolve(dir, path))?.words ?? [],
+    (path) => heard.get(resolve(dir, path))?.gaps ?? [],
+  );
+}
+
+/** The words in the project in `file`'s cut, from the word cache. */
+async function projectTranscript(file: string, log: (m: string) => void) {
+  const { project, created } = load(file);
+  if (created) throw new Error(`No project at ${file}; make one with \`edit\`.`);
+  const dir = dirname(file);
+  const heard = await sourceWords(wantedFrom(project, [], dir), log);
+  return transcript(project, file, (path) => heard.get(resolve(dir, path))?.words ?? []);
+}
+
 async function captions(
   path: string,
   log: (m: string) => void,
@@ -1311,12 +1560,35 @@ async function renderProject(file: string, log: (m: string) => void, out?: strin
   const cut = compile(project, dirname(file));
   const first = cut.clips[0]?.path;
   if (!first) throw new Error(`${file} has no clips yet; add some with \`edit\`.`);
+  const heard = cut.captions
+    ? await sourceWords(
+        new Map(
+          [...new Set(cut.clips.map((c) => c.path))].map((path) => [
+            path,
+            cut.clips.filter((c) => c.path === path),
+          ]),
+        ),
+        log,
+      )
+    : undefined;
+  // Every word of the clip's source: wordCaptions keeps the ones inside each clip.
+  const asr = (path: string): AsrWord[] =>
+    (heard?.get(path)?.words ?? []).map((w) => ({
+      word: w.word,
+      startMs: w.start * 1000,
+      endMs: w.end * 1000,
+      probability: 1,
+    }));
   const said = cut.captions
-    ? wordCaptions(cut.clips, await clipWords(first, cut.clips, log), {
-        perCue: cut.captions.perCue ?? 3,
-        lit: cut.captions.lit ?? true,
-        upper: cut.captions.upper ?? false,
-      })
+    ? wordCaptions(
+        cut.clips,
+        cut.clips.map((c) => asr(c.path)),
+        {
+          perCue: cut.captions.perCue ?? 3,
+          lit: cut.captions.lit ?? true,
+          upper: cut.captions.upper ?? false,
+        },
+      )
     : undefined;
   return render(first, cut.clips, {
     fit: true,
@@ -1411,19 +1683,27 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
     {
       name: "transcribe",
       description:
-        "Transcribe an audio or video file on this Mac (anything ffmpeg reads: m4a, mp3, wav, mp4, mov, mkv) with mockingbird's local Whisper. Returns the text in lines timestamped [mm:ss], with names fixed from the user's dictionary. Takes a few minutes for an hour of audio. `from`/`to` (seconds) transcribe one stretch only; `words: true` gives every word's start and end ([mm:ss.cc-mm:ss.cc] word) to cut a clip on, so keep that to a few minutes at a time.",
+        "Transcribe an audio or video file on this Mac (anything ffmpeg reads: m4a, mp3, wav, mp4, mov, mkv) with mockingbird's local Whisper. Returns the text in lines timestamped [mm:ss], with names fixed from the user's dictionary. Takes a few minutes for an hour of audio. `from`/`to` (seconds) transcribe one stretch only; `words: true` gives every word's start and end ([mm:ss.cc-mm:ss.cc] word) to cut a clip on, so keep that to a few minutes at a time. With `project` (an `edit` project file) instead of `path`: the words in its cut, clip by clip, each line at its time in the finished video, to read the edit and choose words for `cut_words`. A project's sources are heard once and kept, so this is quick after the first time.",
       inputSchema: {
         type: "object",
         properties: {
+          project: { type: "string", description: "Absolute path to a project file from `edit`" },
           path,
           from: { type: "number", description: "Start, in seconds from the start of the file" },
           to: { type: "number", description: "End, in seconds from the start of the file" },
           words: { type: "boolean", description: "One line per word, with start and end" },
         },
-        required: ["path"],
       },
-      run: (a) =>
-        transcribe(String(a.path), log, { from: seconds(a.from), to: seconds(a.to) }, !!a.words),
+      run: (a) => {
+        if (a.project !== undefined) return projectTranscript(resolve(String(a.project)), log);
+        if (a.path === undefined) throw new Error("Give a `path`, or a `project`.");
+        return transcribe(
+          String(a.path),
+          log,
+          { from: seconds(a.from), to: seconds(a.to) },
+          !!a.words,
+        );
+      },
     },
     {
       name: "edit",
@@ -1436,6 +1716,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
 - {op:"split", id, at}: a clip in two at a source time; what's on the second half moves with it
 - {op:"trim", id, from?, to?}: a clip's source times; what's on it stays on the same picture
 - {op:"move", id, index}: a clip to another place in the cut
+- {op:"cut_words", text, clip?, all?} or {op:"cut_words", from, to, clip?}: cut words out of the cut by quoting them from \`transcribe\` with the project (no case or punctuation needed): \`text\` must be said once (or give \`clip\`, or \`all: true\` for every time), and from/to cuts from the first words through the last, across clips. Cuts land in the pauses, 0.2 s from the words kept; clips are split, trimmed or removed to do it
 - {op:"set", id, ...fields}: change an item (null clears a field); without id, the project's size ("1080x1920" makes it vertical, cropping each clip around its focus), fps, split {top, bottom} and captions {perCue?, lit?, upper?, y?} (null for none). Ids are given out as c1, t1, b1, a1.`,
       inputSchema: {
         type: "object",
@@ -1451,7 +1732,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
           throw new Error("project must be the path to a project file");
         }
         if (!Array.isArray(a.ops ?? [])) throw new Error("ops must be a list");
-        return edit(resolve(String(a.project)), (a.ops ?? []) as unknown[]);
+        return editProject(resolve(String(a.project)), (a.ops ?? []) as unknown[], log);
       },
     },
     {
