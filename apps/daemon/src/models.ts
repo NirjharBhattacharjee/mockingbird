@@ -78,7 +78,9 @@ export async function pullFile(
   // A temporary name first, so an interrupted download isn't mistaken for a
   // model. What an interrupted one left behind is kept and continued: on a slow
   // connection, starting a 1 GB file over is what makes an install take an hour.
-  const part = `${path}.part`;
+  // Named for the checksum it's heading for, so a partial of another
+  // version of the file is never continued into this one.
+  const part = `${path}.${model.sha256.slice(0, 12)}.part`;
   const have = existsSync(part) ? statSync(part).size : 0;
   if (have > 0 && (await sha256Of(part)) === model.sha256) {
     renameSync(part, path);
@@ -264,14 +266,19 @@ const USAGE =
 /** The models saved for one language each, as [code, file], from `models use <file> --language`. */
 export function languageModels(home = mockingbirdHome()): [string, string][] {
   if (!existsSync(join(home, "data.db"))) return [];
-  return withStore(
-    (store) =>
-      [...WHISPER_LANGUAGES].flatMap((code): [string, string][] => {
-        const file = store.setting(`${ASR_MODEL_SETTING}.${code}`);
-        return file ? [[code, file]] : [];
-      }),
-    home,
-  );
+  // A data.db that can't be read has no map to show, as savedSetting reads it.
+  try {
+    return withStore(
+      (store) =>
+        [...WHISPER_LANGUAGES].flatMap((code): [string, string][] => {
+          const file = store.setting(`${ASR_MODEL_SETTING}.${code}`);
+          return file ? [[code, file]] : [];
+        }),
+      home,
+    );
+  } catch {
+    return [];
+  }
 }
 
 /** Where `models pull <name>` finds an official model: whisper.cpp's own Hugging Face repo. */
@@ -289,7 +296,8 @@ export async function resolveModel(
   { sha256, as, fetch: get = fetch }: { sha256?: string; as?: string; fetch?: typeof fetch } = {},
 ): Promise<ModelFile & { bytes?: number }> {
   const url = /^https?:\/\//.test(spec)
-    ? spec
+    ? // A Hugging Face page link (/blob/) is the viewer; /resolve/ is the file.
+      spec.replace(/^(https:\/\/(?:huggingface\.co|hf\.co)\/[^/]+\/[^/]+)\/blob\//, "$1/resolve/")
     : `${OFFICIAL}ggml-${spec.replace(/^ggml-/, "").replace(/\.bin$/, "")}.bin`;
   if (!url.startsWith("https://"))
     throw new Error(`${spec}: only https downloads, so the file can't be swapped on the way`);
@@ -306,7 +314,10 @@ export async function resolveModel(
   const head = await get(url, { method: "HEAD", redirect: "manual" });
   if (head.status === 404 || head.status === 401)
     throw new Error(`no model at ${url} (HTTP ${head.status})`);
-  const linked = head.headers.get("x-linked-etag")?.replace(/"/g, "");
+  // Only Hugging Face's own reply is trusted for a checksum: any server can
+  // send these headers, and one that names its own sha256 proves nothing.
+  const fromHf = ["huggingface.co", "hf.co"].includes(new URL(url).host);
+  const linked = fromHf ? head.headers.get("x-linked-etag")?.replace(/"/g, "") : undefined;
   const known = linked && /^[0-9a-f]{64}$/i.test(linked) ? linked.toLowerCase() : undefined;
   if (sha256 && known && sha256.toLowerCase() !== known) {
     throw new Error(`${url}'s SHA-256 is ${known}, not the ${sha256} given`);
@@ -317,11 +328,15 @@ export async function resolveModel(
       `${url} doesn't say its SHA-256; give the one its publisher lists with --sha256`,
     );
   }
-  const commit = head.headers.get("x-repo-commit");
+  const commit = fromHf ? head.headers.get("x-repo-commit") : null;
   return {
     name: speechName(file),
     file,
-    url: commit ? url.replace("/resolve/main/", `/resolve/${commit}/`) : url,
+    // Pinned to the commit checked, whatever branch or tag the link named.
+    url:
+      commit && /^[0-9a-f]{7,40}$/.test(commit)
+        ? url.replace(/\/resolve\/[^/]+\//, `/resolve/${commit}/`)
+        : url,
     sha256: expected,
     bytes: Number(head.headers.get("x-linked-size")) || undefined,
   };
@@ -361,7 +376,10 @@ export function modelsCommand(args: string[], deps: ModelsDeps = {}): number {
     return 0;
   }
 
-  const language = args.includes("--language") ? args[args.indexOf("--language") + 1] : undefined;
+  // Read as MOCKINGBIRD_LANGUAGE is: lower case, region dropped (de-DE is de).
+  const language = args.includes("--language")
+    ? args[args.indexOf("--language") + 1]?.toLowerCase().split(/[-_]/)[0]
+    : undefined;
   const rest = language
     ? args.filter(
         (_, i) => i !== args.indexOf("--language") && i !== args.indexOf("--language") + 1,

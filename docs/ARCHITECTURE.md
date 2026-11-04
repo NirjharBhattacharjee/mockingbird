@@ -165,8 +165,8 @@ by it.
 The model is `MOCKINGBIRD_ASR_MODEL` if set, else the one
 `mockingbird models use` saved in `data.db`, else `large-v3` Q5_0, else the
 best earlier default that's downloaded. `MOCKINGBIRD_LANGUAGE` sets the
-language (default `en`, or `auto`). Per-call `model` and `language`, and a
-model per language, come in pivot step 3. [MODELS.md](./MODELS.md) has the
+language (default `en`, or `auto`), and `models use --language` a model per
+language. [MODELS.md](./MODELS.md) has the
 measurements behind the default.
 
 ## 7. Rendering

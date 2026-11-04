@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -22,6 +23,9 @@ import {
   speechName,
 } from "../src/models.ts";
 import { savedModelFor } from "../src/runtime.ts";
+
+/** Where pullFile keeps an unfinished download of `model`: named for its checksum. */
+const partOf = (model: ModelFile) => `model.bin.${model.sha256.slice(0, 12)}.part`;
 
 const tempDir = () => mkdtempSync(join(tmpdir(), "mockingbird-pull-"));
 
@@ -76,7 +80,7 @@ describe("pullFile", () => {
       "expected checksum",
     );
     expect(existsSync(join(dir, "model.bin"))).toBe(false);
-    expect(existsSync(join(dir, "model.bin.part"))).toBe(false);
+    expect(existsSync(join(dir, partOf(modelOf("weights"))))).toBe(false);
   });
 
   test("reports the bytes as they arrive, against the size the server gave", async () => {
@@ -92,7 +96,7 @@ describe("pullFile", () => {
 
   test("continues an interrupted download instead of starting over", async () => {
     const dir = tempDir();
-    writeFileSync(join(dir, "model.bin.part"), "wei");
+    writeFileSync(join(dir, partOf(modelOf("weights"))), "wei");
     const asked: (string | null)[] = [];
     const seen: [number, number][] = [];
     const get = (async (_url: string, init?: RequestInit) => {
@@ -113,7 +117,7 @@ describe("pullFile", () => {
 
   test("starts over when the server sends the whole file instead of the rest", async () => {
     const dir = tempDir();
-    writeFileSync(join(dir, "model.bin.part"), "wei");
+    writeFileSync(join(dir, partOf(modelOf("weights"))), "wei");
     const { get } = serving("weights");
     expect(await pullFile(modelOf("weights"), dir, { fetch: get })).toBe(true);
     expect(readFileSync(join(dir, "model.bin"), "utf8")).toBe("weights");
@@ -121,7 +125,7 @@ describe("pullFile", () => {
 
   test("a part too long to continue is thrown away and the file fetched again", async () => {
     const dir = tempDir();
-    writeFileSync(join(dir, "model.bin.part"), "garbage, longer than the model");
+    writeFileSync(join(dir, partOf(modelOf("weights"))), "garbage, longer than the model");
     const asked: (string | null)[] = [];
     const get = (async (_url: string, init?: RequestInit) => {
       const range = new Headers(init?.headers).get("range");
@@ -135,7 +139,7 @@ describe("pullFile", () => {
 
   test("a finished download that was never renamed is kept, not fetched again", async () => {
     const dir = tempDir();
-    writeFileSync(join(dir, "model.bin.part"), "weights");
+    writeFileSync(join(dir, partOf(modelOf("weights"))), "weights");
     const { get, calls } = serving("weights");
     expect(await pullFile(modelOf("weights"), dir, { fetch: get })).toBe(true);
     expect(calls).toEqual([]);
@@ -271,6 +275,15 @@ describe("modelsCommand", () => {
     expect(modelsCommand(["use", "ggml-base.en.bin", "--language"], f.deps)).toBe(2);
   });
 
+  test("--language is read like MOCKINGBIRD_LANGUAGE, and a deleted one gives way", () => {
+    const f = fake();
+    expect(modelsCommand(["use", "ggml-base.en.bin", "--language", "DE-de"], f.deps)).toBe(0);
+    expect(savedModelFor("de", f.deps.home)).toBe("ggml-base.en.bin");
+    expect(modelsCommand(["use", "ggml-large-v3-q5_0.bin"], f.deps)).toBe(0);
+    rmSync(join(f.deps.modelsDir, "ggml-base.en.bin"));
+    expect(savedModelFor("de", f.deps.home)).toBe("ggml-large-v3-q5_0.bin");
+  });
+
   test("says when MOCKINGBIRD_ASR_MODEL will win over the choice", () => {
     const f = fake({ MOCKINGBIRD_ASR_MODEL: "ggml-large-v3-q5_0.bin" });
     modelsCommand(["use", "ggml-base.en.bin"], f.deps);
@@ -350,6 +363,22 @@ describe("resolveModel", () => {
     ).rejects.toThrow(`not the ${"b".repeat(64)} given`);
   });
 
+  test("only Hugging Face's reply is trusted for a checksum", async () => {
+    const claims = hf({ "x-linked-etag": `"${sha}"`, "x-repo-commit": "abcdef1" }, 200).get;
+    await expect(resolveModel("https://example.com/ggml-x.bin", { fetch: claims })).rejects.toThrow(
+      "--sha256",
+    );
+  });
+
+  test("a page link is the file, and any branch is pinned to the commit checked", async () => {
+    const { get, seen } = hf({ "x-linked-etag": `"${sha}"`, "x-repo-commit": "abcdef1" });
+    const model = await resolveModel("https://huggingface.co/someone/bangla/blob/dev/ggml-bn.bin", {
+      fetch: get,
+    });
+    expect(seen[0]?.url).toBe("https://huggingface.co/someone/bangla/resolve/dev/ggml-bn.bin");
+    expect(model.url).toBe("https://huggingface.co/someone/bangla/resolve/abcdef1/ggml-bn.bin");
+  });
+
   test("refuses plain http, a file not named like a model, and a missing one", async () => {
     const ok = hf({ "x-linked-etag": `"${sha}"` }).get;
     await expect(resolveModel("http://example.com/ggml-x.bin", { fetch: ok })).rejects.toThrow(
@@ -358,9 +387,8 @@ describe("resolveModel", () => {
     await expect(resolveModel("https://example.com/model.bin", { fetch: ok })).rejects.toThrow(
       "--as ggml-<name>.bin",
     );
-    expect(
-      (await resolveModel("https://example.com/model.bin", { as: "ggml-bn.bin", fetch: ok })).file,
-    ).toBe("ggml-bn.bin");
+    const named = { as: "ggml-bn.bin", sha256: sha, fetch: ok };
+    expect((await resolveModel("https://example.com/model.bin", named)).file).toBe("ggml-bn.bin");
     await expect(resolveModel("nope", { fetch: hf({}, 404).get })).rejects.toThrow("HTTP 404");
   });
 });

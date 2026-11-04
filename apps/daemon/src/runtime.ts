@@ -150,7 +150,9 @@ export function spokenLanguage(env = process.env, log: (message: string) => void
 export function savedModelFor(language: string, home = mockingbirdHome()): string | undefined {
   const own =
     language === "auto" ? undefined : savedSetting(`${ASR_MODEL_SETTING}.${language}`, home);
-  return own ?? savedSetting(ASR_MODEL_SETTING, home);
+  // One that's since been deleted gives way to the choice for every language.
+  const there = own && isWhisperFile(own) && existsSync(join(home, "models", own));
+  return there ? own : savedSetting(ASR_MODEL_SETTING, home);
 }
 
 /** Checks the models, loads VAD and starts a whisper-server on `asrPort`. */
