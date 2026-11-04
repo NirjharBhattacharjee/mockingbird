@@ -101,7 +101,7 @@ export PATH="$HOME/.local/bin:$PATH"
 | Command | Does |
 |---|---|
 | `mockingbird mcp` | Serves the editing tools to an agent over MCP. The agent starts it; you don't run it yourself. |
-| `mockingbird transcribe <file>` | Prints a file's speech as `[mm:ss]` lines. `--words` gives each word's start and end, `--from`/`--to` (seconds) one stretch. |
+| `mockingbird transcribe <file>` | Prints a file's speech as `[mm:ss]` lines. `--words` gives each word's start and end, `--from`/`--to` (seconds) one stretch, `--model`/`--language` the model and language for this file. |
 | `mockingbird dictionary` | Lists the words it spells a particular way. `add "Nirjhar Bhattacharjee"`, `add "cat puck => Catppuccin"` (what it hears => what to write), `remove <term>`. |
 | `mockingbird models` | Lists the Whisper models you have. `models use <file>` picks one, `--language <code>` for one language only, `--default` goes back. |
 | `mockingbird models pull` | Downloads the speech models. `models pull <name or URL>` downloads any Whisper model, checked against its sha256 (a name like `large-v3-turbo`, a Hugging Face link, or any https link with `--sha256`). The only command that uses the network. |
