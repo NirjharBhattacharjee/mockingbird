@@ -71,6 +71,7 @@ Claude doesn't see every tool twice.
 | `retention-editing` | Cutting pauses and retakes, where to cut, punch-ins, pace |
 | `captions` | Word-by-word captions or an SRT, spelled right, placed clear of faces and buttons |
 | `motion-graphics` | Animation as code for mockingbird's `motion` tool: a design kit, templates for shorts and explainers, and sound effects, set from a frame-by-frame study of twenty professional edits |
+| `music` | Background music written as code: five generators, an energy curve drawn from the edit, mixed and ducked under the speech |
 | `style-match` | Measure a video that worked and match its pace |
 | `reviewer` agent | Checks every render: size, loudness, black frames, opening, captions, framing |
 
