@@ -171,7 +171,13 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("renderHtml (integration)"
        <script>
          mockingbird.drawVideo = true;
          const ctx = document.getElementById("c").getContext("2d");
-         mockingbird.draw = (t, m) => ctx.drawImage(m.video, 0, 0);
+         // A frame another tab captures gets a blank picture, never a later one.
+         mockingbird.draw = (t, m) => {
+           ctx.clearRect(0, 0, 64, 64);
+           ctx.drawImage(m.video, 0, 0);
+           const red = ctx.getImageData(16, 32, 1, 1).data[0];
+           if (red > m.frame * 25 + 16) throw new Error("frame " + m.frame + " saw a later picture");
+         };
        </script>`,
     );
     const out = join(dir, "draws-video.mp4");

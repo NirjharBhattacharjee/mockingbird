@@ -253,7 +253,7 @@ export function page(
   m.draw = (t: number) => {
     ctx.reset();
     if (m.video) ctx.drawImage(m.video, 0, 0, m.width, m.height);
-    draw(ctx, t, m);
+    return draw(ctx, t, m);
   };
 }
 

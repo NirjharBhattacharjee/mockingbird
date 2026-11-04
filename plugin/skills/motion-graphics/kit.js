@@ -160,7 +160,7 @@ export function page(draw, { audio } = {}) {
     ctx.reset();
     if (m.video)
       ctx.drawImage(m.video, 0, 0, m.width, m.height);
-    draw(ctx, t, m);
+    return draw(ctx, t, m);
   };
 }
 export function kit(ctx, t, m, theme = THEMES.night) {

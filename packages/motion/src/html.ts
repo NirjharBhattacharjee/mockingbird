@@ -31,6 +31,8 @@ export function pageClock(scene: PageScene, epoch: number): string {
   const born = new WeakMap();
   const callbacks = new Map();
   let ids = 0;
+  /** What m.video is on a step this tab doesn't capture, when the page draws the video. */
+  let blank = null;
   performance.now = () => now;
   Date.now = () => ${epoch} + now;
   window.requestAnimationFrame = (cb) => (callbacks.set(++ids, cb), ids);
@@ -69,16 +71,20 @@ export function pageClock(scene: PageScene, epoch: number): string {
       const audio = m.audio === undefined ? null : JSON.parse(JSON.stringify(m.audio));
       return { errors, audio, drawVideo: m.drawVideo === true };
     },
-    // \`picture\`, a JPEG as base64, is the video's frame \`to\`: m.video from then on.
+    // \`picture\`, a JPEG as base64, is the video's frame \`to\`. It's m.video for that
+    // frame only: the frames before it, stepped through so the page sees each time, get
+    // a blank picture, so no draw sees a frame ahead of its own.
     async step(from, to, picture) {
+      let bitmap = null;
       if (picture) {
-        const bitmap = await createImageBitmap(await (await fetch("data:image/jpeg;base64," + picture)).blob());
-        m.video?.close();
-        m.video = bitmap;
+        if (m.video !== blank) m.video?.close();
+        blank ??= await createImageBitmap(new ImageData(m.width, m.height));
+        bitmap = await createImageBitmap(await (await fetch("data:image/jpeg;base64," + picture)).blob());
       }
       for (let f = from; f <= to; f++) {
         now = (f * 1000) / m.fps;
         m.frame = f;
+        if (bitmap) m.video = f === to ? bitmap : blank;
         seek();
         const due = [...callbacks.values()];
         callbacks.clear();
@@ -216,7 +222,13 @@ export async function renderHtml(
       // In order, one per frame; when the video runs out, the last one stays.
       const frame = picture.then(async (last) => {
         const got = await pictures?.next();
-        return got && !got.done ? Buffer.from(got.value).toString("base64") : last;
+        if (got && !got.done) return Buffer.from(got.value).toString("base64");
+        // The pictures ended: the video ran out, or ffmpeg failed and the render must too.
+        if (decoder && (await decoder.exited) !== 0) {
+          const why = (await new Response(decoder.stderr).text()).trim();
+          throw new Error(`ffmpeg couldn't decode ${video}: ${why}`);
+        }
+        return last;
       });
       picture = frame;
       const shot = (queues[k] as Promise<void>).then(async () => {
