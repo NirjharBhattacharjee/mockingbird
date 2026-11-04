@@ -43,7 +43,7 @@ instead.
    impressive-sounding one. Tell the user which moments and why, in a line
    each, before rendering, unless they already said what they want.
 3. **Cut it tight.** Follow **retention-editing**: word times from
-   `transcribe` with `words: true`, pauses from its `pauses.sh`, clips that
+   `transcribe` with `words: true`, pauses and clips from `pauses`, clips that
    start just before a word and end just after a sentence. A clip from later in
    the moment can go first as a cold open; `render` keeps clips in the order
    you list them.
