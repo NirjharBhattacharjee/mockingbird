@@ -40,12 +40,15 @@ after.
    call). A long edit changes many times, and a project keeps it between
    calls: `split`, `remove` and `trim` change the cut without re-sending it,
    and what's laid over a clip stays on it.
-4. **Cut the rest by reading.** Go through the transcript and drop, by
-   splitting or removing clips: false starts and retakes (keep the last good
-   take), repeated points, tangents that don't pay off, "so, um, yeah" at the
-   ends, housekeeping that can go in the description. Get word times with
-   `transcribe` (`words: true`, a few minutes at a time) around each cut so it
-   lands just before a word.
+4. **Cut the rest by reading.** `transcribe` with the `project` gives the
+   cut as text. Go through it and cut, with `cut_words` quoting the words:
+   false starts and retakes (keep the last good take), repeated points,
+   tangents that don't pay off (`from` the first words `to` the last),
+   "so, yeah" at the ends, housekeeping that can go in the description. Put
+   all the cuts in one `edit` call. The cuts land in the pauses on their own;
+   check the outline's notes for what each one took. Whisper leaves most
+   "um"s and stammers out of the text, so those go with step 3's pauses, not
+   here.
 5. **Fix the opening.** Per **hooks**: the first 30 seconds confirm what the
    title and thumbnail promise; the first minute gives a reason to stay. Move
    any greeting, channel plug or sponsor after the hook. A cold open (a clip

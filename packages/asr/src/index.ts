@@ -2,6 +2,8 @@ export type { AsrEngine, AsrResult, AsrWord, TranscribeOptions } from "./engine.
 export { type DiffWord, type WordDiff, wordDiff } from "./wer.ts";
 export {
   AsrRequestError,
+  dtwFlags,
+  dtwPreset,
   parseVerboseJson,
   speedFlags,
   startWhisperServer,

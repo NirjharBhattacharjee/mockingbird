@@ -83,6 +83,15 @@ long silences keeps it from dropping or inventing passages.
   to the speech, produced wrong words; keeping a second either side
   produced clean sentences. `captions` pads each clip by two seconds, and
   hears clips whose padding overlaps as one stretch (#127).
+- **DTW for the word cache.** The words a project is cut on are heard with
+  `--dtw <preset>` (`large.v3`, `large.v3.turbo`, `base.en` and so on, from
+  the model's file name): a point inside each word from the alignment heads,
+  which doesn't drift the way the word times do (up to 0.5 s over a 30 s
+  window on a recorded talk). DTW doesn't run with flash attention, so that
+  server starts with `-nfa`: 38.9 s against 32.5 s for 4 minutes of a talk on
+  an M3, about 20% slower, paid once per source. A model with no preset (a
+  fine-tune) gets no points, and its words keep Whisper's times. Plain
+  `transcribe` keeps flash attention.
 - The integration tests use `base.en` (148 MB) to stay quick. It isn't what
   ships.
 
