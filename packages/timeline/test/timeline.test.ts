@@ -43,6 +43,14 @@ describe("check", () => {
     ).toThrow("t1 is on clip c9");
   });
 
+  test("a split's size can only be the 1080x1920 it comes out at", () => {
+    const split = { top: { x: 0, y: 0, w: 1, h: 0.5 }, bottom: { x: 0, y: 0.5, w: 1, h: 0.5 } };
+    expect(() => check({ version: 1, split, size: "1920x1080" })).toThrow(
+      "always comes out 1080x1920",
+    );
+    expect(check({ version: 1, split, size: "1080x1920" }).size).toBe("1080x1920");
+  });
+
   test("takes only an even WIDTHxHEIGHT", () => {
     expect(() => check({ version: 1, size: "1081x1920" })).toThrow("size must be");
     expect(check({ version: 1, size: "1920x1080" }).size).toBe("1920x1080");
@@ -82,6 +90,13 @@ describe("apply", () => {
     expect(project.clips[0]).toMatchObject({ from: 12.5, to: 16 });
     expect(project.texts.map(({ id, from, to }) => [id, from, to])).toEqual([["t2", 1.5, 2.5]]);
     expect(notes).toEqual(["removed t1: what they were on was cut"]);
+  });
+
+  test("a trim off a clip's end drops what was on the part cut away", () => {
+    const { project, notes } = apply(base(), [{ op: "trim", id: "c1", to: 13 }]);
+    // t2 was 4 s into c1, which is now 3 s long; t1 (0-2 s) stays.
+    expect(project.texts.map((t) => t.id)).toEqual(["t1"]);
+    expect(notes).toEqual(["removed t2: what they were on was cut"]);
   });
 
   test("move, add at an index, and set; a null clears a field", () => {

@@ -241,6 +241,10 @@ export function check(v: unknown): Project {
     inserts: list("inserts").map((t, i) => insert(t, `inserts[${i}]`)),
     audio: list("audio").map((t, i) => sound(t, `audio[${i}]`)),
   });
+  // A split is stacked into 1080x1920; a size it can't have would only mislead.
+  if (p.split && p.size && p.size !== "1080x1920") {
+    fail(`a split always comes out 1080x1920, so size must be that or left out; got ${p.size}`);
+  }
   const seen = new Set<string>();
   for (const [key] of KINDS) {
     for (const item of p[key]) {
@@ -335,6 +339,23 @@ function shift(p: Project, clip: string, by: number, notes: string[]) {
   notes.push(`removed ${[...gone].join(", ")}: what they were on was cut`);
 }
 
+/**
+ * Takes away what's on `clip` that starts at or after `length` seconds into
+ * it: a trim off its end cut away the picture it was on.
+ */
+function dropPast(p: Project, clip: string, length: number, notes: string[]) {
+  const gone = new Set(
+    attached(p)
+      .filter((t) => t.clip === clip && ("at" in t ? t.at : t.from) >= length)
+      .map((t) => t.id),
+  );
+  if (!gone.size) return;
+  p.texts = p.texts.filter((t) => !gone.has(t.id));
+  p.inserts = p.inserts.filter((t) => !gone.has(t.id));
+  p.audio = p.audio.filter((t) => !gone.has(t.id));
+  notes.push(`removed ${[...gone].join(", ")}: what they were on was cut`);
+}
+
 const OPS = ["add", "remove", "split", "trim", "move", "set"];
 const READ = { clip, text, insert, audio: sound } as const;
 const LIST = { clip: "clips", text: "texts", insert: "inserts", audio: "audio" } as const;
@@ -402,6 +423,7 @@ function step(p: Project, raw: unknown, what: string, notes: string[]) {
       const by = c.from - from;
       Object.assign(c, { from, to });
       if (by) shift(p, c.id, by, notes);
+      dropPast(p, c.id, to - from, notes);
       return;
     }
     case "move": {

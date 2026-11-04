@@ -108,12 +108,15 @@ call and changing the cut doesn't break the timing of what's laid over it
 - **`texts`, `inserts` and `audio`** take the options `render`'s do. With
   `clip`, their times are seconds from that clip's start in the finished
   video, so they move with it when clips before it change; without, from
-  the start of the video.
+  the start of the video. One can run past the end of its clip, over the
+  clips after it, like a title held across a jump cut; a `split` leaves an
+  item that crosses it on the first half, still running on.
 - **`captions`** makes word-by-word captions for the cut as it is when it's
   rendered, as the `captions` tool does: `perCue`, `lit`, `upper`, and `y`
   (where their middle sits). Leave it out, or `null`, for none.
 - **`split`** is `render`'s split; its clips are brought to the first
-  clip's size first.
+  clip's size first. A split always comes out 1080x1920, so `size` is that
+  or left out.
 - Paths are absolute, or relative to the project file's folder.
 
 `edit`'s ops:
@@ -139,6 +142,8 @@ c4  0:00.00-0:04.00  talk.mp4 22-26
 c2  0:04.00-0:10.00  IMG_5921.MOV 63-69  zoom 1.1
     t1  0:04.20-0:06.00  text "The *phone* clip" y 0.2
     a1  0:04.00  audio whoosh.wav volume 0.8
+c3  0:10.00-0:15.50  talk.mp4 40-45.5
+    t2  0:10.00-0:11.50  text "Back to the *talk*" y 0.2
 a2  0:00.00  audio music.m4a volume 0.15 loop duck
 ```
 

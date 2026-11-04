@@ -54,11 +54,14 @@ instead.
    recording with a webcam (screen on top, webcam below, `captionsY: 0.5`).
    Punch in with `zoom` per **retention-editing**.
 6. **Render the cut.** One `render` call per short, `vertical: true` (or
-   `split`), or a project per short from `edit` (`size: "1080x1920"`, which
-   also takes clips from more than one video and makes the captions itself), with b-roll only where the speech names something worth seeing,
-   music low and ducked, and a sound effect only on a beat that matters. For
-   a plain captioned short (or where `motion` isn't available), pass the
-   captions here and go to step 8. For anything that moves, leave captions
+   `split`), or a project per short from `edit`, with `set` giving it
+   `size: "1080x1920"` and `captions: {}`. A project takes clips from more
+   than one video and makes its own captions when it renders, so it doesn't
+   see the SRT you fixed in step 4: add each misheard name with
+   `dictionary_add` first. Either way, b-roll only where the speech names
+   something worth seeing, music low and ducked, and a sound effect only on
+   a beat that matters. For a plain captioned short (or where `motion` isn't
+   available), pass the captions here and go to step 8. For anything that moves, leave captions
    and titles out and go on.
 7. **Animate.** Per **motion-graphics**: a script from its short template
    (a hook that slams in, a new framing every couple of seconds, punch-ins

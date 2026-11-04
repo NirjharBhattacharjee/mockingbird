@@ -1446,6 +1446,10 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
         required: ["project"],
       },
       run: async (a) => {
+        // Unchecked, a missing project would make a file named "undefined" here.
+        if (typeof a.project !== "string" || !a.project) {
+          throw new Error("project must be the path to a project file");
+        }
         if (!Array.isArray(a.ops ?? [])) throw new Error("ops must be a list");
         return edit(resolve(String(a.project)), (a.ops ?? []) as unknown[]);
       },
