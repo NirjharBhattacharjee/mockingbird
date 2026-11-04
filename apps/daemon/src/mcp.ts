@@ -1221,6 +1221,7 @@ async function music(
   const target = outputFor(out, out, false);
   const started = performance.now();
   const work = mkdtempSync(join(dirname(target), ".mockingbird-music-"));
+  let reached = LUFS;
   try {
     const raw = join(work, "raw.wav");
     await sandboxed(
@@ -1228,12 +1229,16 @@ async function music(
       "the generator",
     );
     if (!((await loudness(raw)) > -70)) throw new Error(`${script} made silence.`);
-    const gain = await levelGain(raw);
+    // levelGain's one correction falls short on music with big hits (cinematic
+    // drums: -14.9 LUFS). A bed is short, so measure through the limiter once more.
+    let gain = await levelGain(raw);
+    gain = Math.min(MAX_GAIN, gain + LUFS - (await loudness(raw, `volume=${gain}dB,${LIMIT},`)));
     const levelled = join(work, "levelled.wav");
     await ffmpeg(
       ["-i", raw, "-af", `volume=${gain.toFixed(2)}dB,${LIMIT}`, "-c:a", "pcm_s16le", levelled],
       `bring ${target} to ${LUFS} LUFS`,
     );
+    reached = await loudness(levelled);
     renameSync(levelled, target);
   } catch (error) {
     rmSync(target, { force: true });
@@ -1242,7 +1247,7 @@ async function music(
     rmSync(work, { recursive: true, force: true });
   }
   const took = ((performance.now() - started) / 1000).toFixed(1);
-  return `${target} (${clock(params.duration * 1000)}, 48 kHz stereo, ${LUFS} LUFS), made in ${took} s`;
+  return `${target} (${clock(params.duration * 1000)}, 48 kHz stereo, ${reached.toFixed(1)} LUFS), made in ${took} s`;
 }
 
 /** An `energy` argument: a level 0-1, or [seconds, level] points in time order. */

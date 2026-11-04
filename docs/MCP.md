@@ -302,7 +302,7 @@ export default function (ctx, { duration, tempo = 80, key, energy, seed }) {
   macOS's sandbox with the network denied.
 
 The plugin's generators are in `plugin/skills/music/generators/`, with the
-instruments they share in `lib.js`. Today that's `lofi.js`: swung drums,
+instruments they share in `lib.js`: `lofi.js` (swung drums,
 electric-piano seventh chords, a bass, tape flutter and vinyl crackle;
 energy adds the drums at 0.25, the snare and bass at 0.45, and a melody
 at 0.7.

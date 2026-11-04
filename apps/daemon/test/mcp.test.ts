@@ -560,7 +560,7 @@ describe("music", () => {
               [8, 0.9],
             ],
           });
-          expect(said).toContain("(00:20, 48 kHz stereo, -14 LUFS)");
+          expect(said).toMatch(/\(00:20, 48 kHz stereo, -1[34]\.\d LUFS\)/);
           return new Int16Array((await Bun.file(out).arrayBuffer()).slice(44));
         };
         const [a, b, c] = [await make("a.wav"), await make("b.wav"), await make("c.wav", 2)];

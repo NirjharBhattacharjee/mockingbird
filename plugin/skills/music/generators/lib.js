@@ -304,3 +304,148 @@ export function vinyl(ctx, out, duration, level = 0.05) {
   src.connect(band).connect(g).connect(out);
   src.start(0);
 }
+
+/**
+ * A pad or string section: `voices` detuned saws (or `type`) through a
+ * low-pass at `cutoff` Hz, swelling in over `attack` and out over `release`.
+ */
+export function pad(
+  ctx,
+  out,
+  t,
+  midi,
+  length,
+  level = 0.08,
+  { type = "sawtooth", voices = 3, spread = 12, cutoff = 1800, attack = 1.2, release = 1.5 } = {},
+) {
+  t = Math.max(0, t);
+  const env = envelope(ctx, t, { level, attack, decay: 1, sustain: 0.85, length, release });
+  const lowpass = ctx.createBiquadFilter();
+  lowpass.type = "lowpass";
+  lowpass.frequency.value = cutoff;
+  lowpass.Q.value = 0.7;
+  for (let v = 0; v < voices; v++) {
+    const o = ctx.createOscillator();
+    o.type = type;
+    o.frequency.value = hz(midi);
+    o.detune.value = voices > 1 ? (v / (voices - 1) - 0.5) * 2 * spread + human(3) : 0;
+    const g = ctx.createGain();
+    g.gain.value = 1 / voices;
+    o.connect(g).connect(lowpass);
+    o.start(t);
+    o.stop(t + length + release + 0.5);
+  }
+  lowpass.connect(env).connect(out);
+}
+
+/** A pluck: a bright triangle whose filter closes fast, for arpeggios. */
+export function pluck(ctx, out, t, midi, length = 0.25, level = 0.12) {
+  t = Math.max(0, t);
+  const o = ctx.createOscillator();
+  o.type = "triangle";
+  o.frequency.value = hz(midi);
+  const lowpass = ctx.createBiquadFilter();
+  lowpass.type = "lowpass";
+  lowpass.frequency.setValueAtTime(5000, t);
+  lowpass.frequency.exponentialRampToValueAtTime(600, t + length);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(level, t + 0.004);
+  g.gain.exponentialRampToValueAtTime(0.001, t + length + 0.2);
+  o.connect(lowpass).connect(g).connect(out);
+  o.start(t);
+  o.stop(t + length + 0.3);
+}
+
+/** A bell: a sine with a quiet inharmonic partial, ringing out over `ring` seconds. */
+export function bell(ctx, out, t, midi, level = 0.06, ring = 3) {
+  t = Math.max(0, t);
+  for (const [ratio, gain, decay] of [
+    [1, 1, ring],
+    [2.76, 0.3, ring * 0.4],
+    [5.4, 0.12, ring * 0.2],
+  ]) {
+    const o = ctx.createOscillator();
+    o.frequency.value = hz(midi) * ratio;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(level * gain, t + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + decay);
+    o.connect(g).connect(out);
+    o.start(t);
+    o.stop(t + decay + 0.1);
+  }
+}
+
+/** A big drum (taiko, floor tom): a low sine falling in pitch, with a thud of noise. */
+export function tom(ctx, out, t, level = 1, { pitch = 80, noiseBuffer } = {}) {
+  t = Math.max(0, t);
+  const o = ctx.createOscillator();
+  o.frequency.setValueAtTime(pitch * 1.6, t);
+  o.frequency.exponentialRampToValueAtTime(pitch * 0.6, t + 0.35);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(level, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.9);
+  o.connect(g).connect(out);
+  o.start(t);
+  o.stop(t + 1);
+  if (noiseBuffer) {
+    const n = ctx.createBufferSource();
+    n.buffer = noiseBuffer;
+    const low = ctx.createBiquadFilter();
+    low.type = "lowpass";
+    low.frequency.value = 900;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(level * 0.5, t);
+    ng.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+    n.connect(low).connect(ng).connect(out);
+    n.start(t, Math.random() * 0.5);
+    n.stop(t + 0.2);
+  }
+}
+
+/** A clap: three quick bursts of band-passed noise and a short tail. */
+export function clap(ctx, out, t, level = 1, { noiseBuffer } = {}) {
+  t = Math.max(0, t);
+  const band = ctx.createBiquadFilter();
+  band.type = "bandpass";
+  band.frequency.value = 1500;
+  band.Q.value = 1.2;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0, t);
+  for (const [at, peak] of [
+    [0, 0.8],
+    [0.011, 0.7],
+    [0.022, 1],
+  ]) {
+    g.gain.setValueAtTime(level * peak * 0.6, t + at);
+    g.gain.exponentialRampToValueAtTime(level * 0.05, t + at + 0.009);
+  }
+  g.gain.setValueAtTime(level * 0.5, t + 0.03);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+  const n = ctx.createBufferSource();
+  n.buffer = noiseBuffer;
+  n.connect(band).connect(g).connect(out);
+  n.start(t, Math.random() * 0.5);
+  n.stop(t + 0.25);
+}
+
+/** A riser: noise sweeping up through a band-pass, loudest just before `end`. */
+export function riser(ctx, out, end, length = 4, level = 0.12, { noiseBuffer } = {}) {
+  const t = Math.max(0, end - length);
+  const n = ctx.createBufferSource();
+  n.buffer = noiseBuffer;
+  n.loop = true;
+  const band = ctx.createBiquadFilter();
+  band.type = "bandpass";
+  band.Q.value = 2;
+  band.frequency.setValueAtTime(300, t);
+  band.frequency.exponentialRampToValueAtTime(6000, end);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(level, end - 0.05);
+  g.gain.linearRampToValueAtTime(0, end);
+  n.connect(band).connect(g).connect(out);
+  n.start(t);
+  n.stop(end + 0.05);
+}
