@@ -36,3 +36,13 @@ test("the curve and the random are fixed functions", () => {
   expect(hash(7)).toBe(hash(7));
   expect(hash(7)).not.toBe(hash(8));
 });
+
+test("kit.js is kit.ts built (`bun run kit` after changing kit.ts)", () => {
+  const built = Bun.spawnSync(
+    ["bun", "build", `${import.meta.dir}/kit.ts`, "--no-bundle", "--target=browser"],
+    { stderr: "pipe" },
+  );
+  expect(built.exitCode).toBe(0);
+  const committed = require("node:fs").readFileSync(`${import.meta.dir}/kit.js`, "utf8");
+  expect(committed).toBe(built.stdout.toString());
+});

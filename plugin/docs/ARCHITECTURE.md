@@ -42,12 +42,11 @@ framing. Don't run this on footage you wouldn't show Claude.
 ## Motion graphics are code
 
 Remotion and HyperFrames make video from code by rendering React or HTML in a
-headless Chromium. mockingbird competes with them without a browser: its
-`motion` tool takes a script with the browser's Canvas 2D API and draws each
-frame with Core Graphics on the Mac
+headless Chromium. mockingbird's `motion` tool renders an HTML page in a
+pinned headless Chrome too, frame by frame, without either of them
 ([MCP.md](../../docs/MCP.md#motion-graphics)).
-Claude writes that script against the kit, `skills/motion-graphics/kit.ts`:
-a design system the script imports by absolute path (themes, camera moves,
+Claude writes that page with the kit, `skills/motion-graphics/kit.js` (built
+from `kit.ts`): a design system the page imports by absolute path (themes, camera moves,
 kinetic type, captions, cards, marks, sound effects), with templates for a
 short and an explainer. Its defaults come from
 [STYLE-STUDY.md](./STYLE-STUDY.md). The plugin depends on neither Remotion

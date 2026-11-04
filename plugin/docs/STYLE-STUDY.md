@@ -158,7 +158,7 @@ few and quiet; the camera work carries it.
 
 ## What it doesn't do yet
 
-- **B-roll video inside a graphic.** `m.image` takes stills. Cutting to
+- **B-roll video inside a graphic.** `picture()` takes stills. Cutting to
   b-roll video happens in `render`'s `inserts`; a video playing inside a
   card would need the motion engine to read a second video.
 - **True perspective.** The canvas is 2D, so Linear's tilted interface is

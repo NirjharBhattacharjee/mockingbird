@@ -49,8 +49,8 @@ standard tool for cutting silence out of long recordings.
 
 Remotion renders with Chromium because its captions animate. Nothing in its
 template needs a browser: the spring pop (scale 0.8 → 1, up 50 px) is a
-formula, and mockingbird's `motion` tool draws it with Core Graphics. The
+formula the kit draws on a canvas. The
 motion-graphics kit's captions use an expo curve instead (a 0.22 s rise and a
 0.9 → 1 scale); its other entrances, the slammed titles, punch-ins, counters
-and checklist chips, use `m.spring`, the same damped spring Remotion uses.
+and checklist chips, use the kit's `spring`, the same damped spring Remotion uses.
 Neither the plugin nor mockingbird depends on Remotion.
