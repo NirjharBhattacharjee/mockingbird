@@ -3,6 +3,8 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  dtwFlags,
+  dtwPreset,
   parseVerboseJson,
   speedFlags,
   startWhisperServer,
@@ -83,6 +85,39 @@ describe("speedFlags", () => {
   test("passes nothing to a version that doesn't know the flag", () => {
     expect(speedFlags("usage: whisper-server [options]\n  -t N, --threads N")).toEqual([]);
     expect(speedFlags("")).toEqual([]);
+  });
+});
+
+describe("DTW timestamps", () => {
+  test("names the preset for each stock model, quantized or not, and none for a fine-tune", () => {
+    expect(dtwPreset("/m/ggml-large-v3-q5_0.bin")).toBe("large.v3");
+    expect(dtwPreset("ggml-large-v3-turbo-q8_0.bin")).toBe("large.v3.turbo");
+    expect(dtwPreset("ggml-base.en.bin")).toBe("base.en");
+    expect(dtwPreset("ggml-small.en-q5_1.bin")).toBe("small.en");
+    expect(dtwPreset("ggml-bangla-ft.bin")).toBeUndefined();
+  });
+
+  test("turns flash attention off for it, and asks nothing of a server without it", () => {
+    const help = "  -nfa, --no-flash-attn\n  -dtw MODEL --dtw MODEL";
+    expect(dtwFlags(help, "large.v3")).toEqual(["-nfa", "--dtw", "large.v3"]);
+    expect(dtwFlags(help, undefined)).toEqual([]);
+    expect(dtwFlags("  -t N, --threads N", "large.v3")).toEqual([]);
+  });
+
+  test("reads t_dtw, in hundredths of a second, as atMs", () => {
+    const words = parseVerboseJson({
+      segments: [
+        {
+          text: " same create",
+          words: [
+            { word: " same", start: 15.01, end: 15.27, probability: 0.9, t_dtw: 1560 },
+            { word: " create", start: 15.4, end: 15.88, probability: 0.9, t_dtw: -1 },
+          ],
+        },
+      ],
+    }).words;
+    expect(words[0]?.atMs).toBe(15_600);
+    expect(words[1]).not.toHaveProperty("atMs");
   });
 });
 

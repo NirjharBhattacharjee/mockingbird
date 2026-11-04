@@ -18,6 +18,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
+| 2026-11-04 | Text-based editing (#160): a project's sources are heard once into a word cache (`~/.mockingbird/cache/words/`), with words placed by Whisper's DTW points and measured pauses; `transcribe(project)` gives the cut as text and `cut_words` cuts by quoting it; a project's captions come from the cache. |
 | 2026-11-04 | Timeline, first part (#148): `packages/timeline` keeps an edit in a project file; the `edit` tool changes it with ops; `render` renders one, with clips from several sources framed to one size and rate, and captions made for the cut. |
 | 2026-11-04 | mockingbird-studio moved into `plugin/` and is now the `mockingbird` plugin; a `guide` tool and server instructions give every MCP client its playbooks (#140). |
 | 2026-11-04 | Long-form fixes (#127): `render` and `motion` reach −14 LUFS with a measured gain and a limiter instead of one pass of `loudnorm` (−15.9 → −14.3 LUFS on the v2 edit); `captions` hears overlapping padded clips as one stretch (171 s → 62 s for 96 clips); captions in a wide video are subtitle-sized. |
@@ -168,6 +169,15 @@ language (default `en`, or `auto`). Per-call `model` and `language`, and a
 model per language, come in pivot step 3. [MODELS.md](./MODELS.md) has the
 measurements behind the default.
 
+A project's words go through a cache instead (`sourceWords` in
+`apps/daemon/src/mcp.ts`): each source is heard over the stretches its
+clips use, two seconds of padding either side, and kept in
+`~/.mockingbird/cache/words/` with the stretches it covers, so the next call
+hears only what's new. That whisper-server runs with DTW timestamps, and
+`align` places each word between the pauses `silencedetect` measured
+around its DTW point. Whisper's own word times drift up to half a second
+over a 30-second window, too far to cut on (#160).
+
 ## 7. Rendering
 
 `render` builds one ffmpeg filter graph from its parameters: each clip is
@@ -219,6 +229,7 @@ MCP server is its own short-lived process.
 |---|---|---|
 | Dictionary, settings | `~/.mockingbird/data.db` ([DATABASE.md](./DATABASE.md)) | any mockingbird process (WAL, 5 s busy timeout) |
 | Models | `~/.mockingbird/models/` | `mockingbird models pull` |
+| Word cache: each source's words and pauses | `~/.mockingbird/cache/words/` | `transcribe(project)`, `edit`'s `cut_words`, `render(project)` with captions |
 | Renders, stills | beside the source, or a temp folder for stills | `render`, `motion`, `frames` |
 
 `MOCKINGBIRD_HOME` moves `~/.mockingbird`.

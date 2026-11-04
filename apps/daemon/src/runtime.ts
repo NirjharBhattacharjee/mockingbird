@@ -143,18 +143,32 @@ export function spokenLanguage(env = process.env, log: (message: string) => void
   return "en";
 }
 
-/** Checks the models, loads VAD and starts a whisper-server on `asrPort`. */
-export async function startEngines(
-  log: (message: string) => void,
-  asrPort = freePort(),
+/** The Whisper model file and language a transcription would use now. */
+export function asrChoice(
+  log: (message: string) => void = () => {},
   env = process.env,
-): Promise<Engines> {
+): { whisperModel: string; language: string } {
   const models = join(mockingbirdHome(env), "models");
   // MOCKINGBIRD_ASR_MODEL takes a path, or a file name inside models/.
   const saved = savedSetting(ASR_MODEL_SETTING, mockingbirdHome(env));
   const whisperModel = findAsrModel(models, env.MOCKINGBIRD_ASR_MODEL, log, saved);
+  return { whisperModel, language: spokenLanguage(env, log) };
+}
+
+/**
+ * Checks the models, loads VAD and starts a whisper-server on `asrPort`;
+ * with `dtw`, one that places each word with DTW too (slower, for word times
+ * that cuts are made on).
+ */
+export async function startEngines(
+  log: (message: string) => void,
+  asrPort = freePort(),
+  env = process.env,
+  { dtw = false } = {},
+): Promise<Engines> {
+  const models = join(mockingbirdHome(env), "models");
+  const { whisperModel, language } = asrChoice(log, env);
   const vadModel = requireFile(join(models, "silero_vad.onnx"), "Silero VAD model", SETUP_HINT);
-  const language = spokenLanguage(env, log);
   if (language !== "en" && englishOnly(whisperModel)) {
     log(
       `warning: ${basename(whisperModel)} only knows English, and MOCKINGBIRD_LANGUAGE is ${language}. ` +
@@ -168,6 +182,7 @@ export async function startEngines(
       port: asrPort,
       language,
       readyTimeoutMs: 60_000,
+      dtw,
     });
     return {
       detectSpeech: (audio) => detectSpeech(vad, audio),
