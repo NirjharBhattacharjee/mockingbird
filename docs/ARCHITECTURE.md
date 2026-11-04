@@ -25,6 +25,7 @@ injection, the cleanup model, the launchd agent) is in git:
 | 2026-11-04 | `transcribe` and `captions` take `model` and `language` per call; with the language on `auto` and a per-language map, the language is detected from the first speech and its model used (`enginesFor` in `runtime.ts`, #143). |
 | 2026-11-04 | `models pull <name or URL>` downloads any Whisper model against the sha256 Hugging Face gives (or `--sha256`), pinned to its commit; `models use <file> --language <code>` saves a model per language (#143). |
 | 2026-11-04 | The playbooks' shell scripts became engine tools, so they run on every OS: `pauses` (silencedetect, and the clips between pauses) and `measure` (size, length, loudness), with cuts from `scenes` (#158). |
+| 2026-11-04 | A project's clips can have a `speed`, `moves` (focus and zoom over time, drawn with `perspective` to a fraction of a pixel) and a `transition` in (`xfade` and `acrossfade`) (#161). |
 | 2026-11-04 | Text-based editing (#160): a project's sources are heard once into a word cache (`~/.mockingbird/cache/words/`), with words placed by Whisper's DTW points and measured pauses; `transcribe(project)` gives the cut as text and `cut_words` cuts by quoting it; a project's captions come from the cache. |
 | 2026-11-04 | Timeline, first part (#148): `packages/timeline` keeps an edit in a project file; the `edit` tool changes it with ops; `render` renders one, with clips from several sources framed to one size and rate, and captions made for the cut. |
 | 2026-11-04 | The Canvas motion engine is gone (#169): `packages/motion`'s Canvas 2D over Core Graphics, Core Text and vImage, and `motion`'s `.ts`/`.js` scripts. `motion` renders HTML pages only, and the kit runs in them (#168). |
@@ -273,6 +274,13 @@ seeds `Math.random`, has the module schedule its sound on an
 `OfflineAudioContext`, renders it, and reads the samples back over the
 DevTools pipe ten seconds at a time into a float WAV. The engine then
 levels it to −14 LUFS.
+
+A project's clips can also change speed (`setpts`, `atempo`), move
+(`perspective`, evaluated every frame from the frame number, after `fps`),
+and come in with a transition: then the clips are joined one at a time,
+`xfade` and `acrossfade` where there's a transition and `concat` where
+there isn't, each step set back to one timebase (`settb`), which `xfade`
+needs.
 
 ## 8. State
 
