@@ -11,6 +11,11 @@ import {
 } from "../src/index.ts";
 
 describe("parseVerboseJson", () => {
+  test("keeps the language Whisper names when it was asked to detect one", () => {
+    expect(parseVerboseJson({ language: "german", segments: [] }).language).toBe("german");
+    expect(parseVerboseJson({ segments: [] })).not.toHaveProperty("language");
+  });
+
   test("joins segments that split a word without inserting a space", () => {
     const result = parseVerboseJson({
       segments: [

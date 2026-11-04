@@ -99,6 +99,8 @@ export type Engines = {
   detectSpeech(audio: PcmAudio): Promise<SpeechSegment[]>;
   asr: AsrEngine;
   close(): Promise<void>;
+  /** The Whisper model file loaded. */
+  model: string;
 };
 
 /** `~/.mockingbird`, or MOCKINGBIRD_HOME: models and data.db. */
@@ -118,13 +120,37 @@ export function freePort(): number {
   return port;
 }
 
-/** The languages Whisper knows, by the codes it takes (whisper.cpp's `g_lang`). */
-export const WHISPER_LANGUAGES = new Set(
-  `en zh de es ru ko fr ja pt tr pl ca nl ar sv it id hi fi vi he uk el ms cs ro da hu ta no
-  th ur hr bg lt la mi ml cy sk te fa lv bn sr az sl kn et mk br eu is hy ne mn bs kk sq sw
-  gl mr pa si km sn yo so af oc ka be tg sd gu am yi lo uz fo ht ps tk nn mt sa lb my bo tl
-  mg as tt haw ln ha ba jw su yue`.split(/\s+/),
+/**
+ * The languages Whisper knows: the code it takes, and the name its replies
+ * use ("german" for de), as whisper.cpp's `g_lang` lists them.
+ */
+export const WHISPER_LANGUAGES = new Map(
+  `en english zh chinese de german es spanish ru russian ko korean fr french ja japanese
+  pt portuguese tr turkish pl polish ca catalan nl dutch ar arabic sv swedish it italian
+  id indonesian hi hindi fi finnish vi vietnamese he hebrew uk ukrainian el greek ms malay
+  cs czech ro romanian da danish hu hungarian ta tamil no norwegian th thai ur urdu
+  hr croatian bg bulgarian lt lithuanian la latin mi maori ml malayalam cy welsh sk slovak
+  te telugu fa persian lv latvian bn bengali sr serbian az azerbaijani sl slovenian
+  kn kannada et estonian mk macedonian br breton eu basque is icelandic hy armenian
+  ne nepali mn mongolian bs bosnian kk kazakh sq albanian sw swahili gl galician mr marathi
+  pa punjabi si sinhala km khmer sn shona yo yoruba so somali af afrikaans oc occitan
+  ka georgian be belarusian tg tajik sd sindhi gu gujarati am amharic yi yiddish lo lao
+  uz uzbek fo faroese ht haitian_creole ps pashto tk turkmen nn nynorsk mt maltese
+  sa sanskrit lb luxembourgish my myanmar bo tibetan tl tagalog mg malagasy as assamese
+  tt tatar haw hawaiian ln lingala ha hausa ba bashkir jw javanese su sundanese yue cantonese`
+    .split(/\s+/)
+    .flatMap((word, i, all) =>
+      i % 2 ? [] : [[word, (all[i + 1] ?? "").replace("_", " ")] as const],
+    ),
 );
+
+/** The code for a name Whisper's reply gives ("german" → de), if it's one it knows. */
+export function languageCode(name: string | undefined): string | undefined {
+  const wanted = name?.trim().toLowerCase();
+  for (const [code, known] of WHISPER_LANGUAGES)
+    if (known === wanted || code === wanted) return code;
+  return undefined;
+}
 
 /**
  * The language spoken: MOCKINGBIRD_LANGUAGE, a Whisper code like "de", or
@@ -260,6 +286,92 @@ export function ffmpegMissing(
   ];
 }
 
+/** The models saved for one language each, as [code, file] (`models use <file> --language`). */
+export function languageModels(home = mockingbirdHome()): [string, string][] {
+  if (!existsSync(join(home, "data.db"))) return [];
+  try {
+    const store = openStore(join(home, "data.db"));
+    try {
+      return [...WHISPER_LANGUAGES.keys()].flatMap((code): [string, string][] => {
+        const file = store.setting(`${ASR_MODEL_SETTING}.${code}`);
+        return file ? [[code, file]] : [];
+      });
+    } finally {
+      store.close();
+    }
+  } catch {
+    return [];
+  }
+}
+
+/** What one call asked for: a model file in models/, and a language code or "auto". */
+export type ModelChoice = { model?: string; language?: string };
+
+/**
+ * The engines for one transcription (#143). A `model` or `language` given
+ * for the call wins over MOCKINGBIRD_ASR_MODEL and MOCKINGBIRD_LANGUAGE, and
+ * a language picks its model from the map `models use --language` keeps.
+ * Left to detect the language with a map in place, it detects it from the
+ * first stretch of speech (up to 30 s) with the default model, then, if the
+ * map has another model for that language, starts that one instead. Returns
+ * the language used (a code, or "auto") and the model's file name.
+ */
+export async function enginesFor(
+  audio: PcmAudio,
+  choice: ModelChoice,
+  log: (message: string) => void,
+  env: Record<string, string | undefined> = process.env,
+): Promise<{ engines: Engines; language: string; model: string; detected: boolean }> {
+  if (choice.model !== undefined && !isWhisperFile(choice.model)) {
+    throw new Error(
+      `model takes a file name in models/, like ggml-large-v3-turbo.bin; got ${choice.model}`,
+    );
+  }
+  if (
+    choice.language !== undefined &&
+    choice.language !== "auto" &&
+    !WHISPER_LANGUAGES.has(choice.language)
+  ) {
+    throw new Error(
+      `language takes a code Whisper knows, like en, bn or de, or auto; got ${choice.language}`,
+    );
+  }
+  const callEnv = {
+    ...env,
+    ...(choice.model ? { MOCKINGBIRD_ASR_MODEL: choice.model } : {}),
+    ...(choice.language ? { MOCKINGBIRD_LANGUAGE: choice.language } : {}),
+  };
+  const start = async (e: typeof callEnv) => {
+    const engines = await startEngines(log, freePort(), e);
+    return { engines, language: spokenLanguage(e), model: basename(engines.model) };
+  };
+  const first = await start(callEnv);
+  const mapped = languageModels(mockingbirdHome(env));
+  if (
+    choice.model ||
+    first.language !== "auto" ||
+    callEnv.MOCKINGBIRD_ASR_MODEL ||
+    !mapped.length
+  ) {
+    return { ...first, detected: false };
+  }
+  // Detect from the first speech: VAD finds it, Whisper names its language.
+  const speech = (await first.engines.detectSpeech(audio))[0];
+  if (!speech) return { ...first, detected: false };
+  const from = speech.startSample;
+  const sample = {
+    sampleRate: audio.sampleRate,
+    samples: audio.samples.subarray(from, from + 30 * audio.sampleRate),
+  };
+  const code = languageCode((await first.engines.asr.transcribe(sample)).language);
+  const wanted = code && mapped.find(([c]) => c === code)?.[1];
+  if (!code || !wanted || wanted === first.model)
+    return { ...first, language: code ?? "auto", detected: !!code };
+  await first.engines.close();
+  log(`heard ${WHISPER_LANGUAGES.get(code)}: transcribing with ${wanted}`);
+  return { ...(await start({ ...callEnv, MOCKINGBIRD_LANGUAGE: code })), detected: true };
+}
+
 /** Checks the models, loads VAD and starts a whisper-server on `asrPort`. */
 export async function startEngines(
   log: (message: string) => void,
@@ -288,6 +400,7 @@ export async function startEngines(
       readyTimeoutMs: 60_000,
     });
     return {
+      model: whisperModel,
       detectSpeech: (audio) => detectSpeech(vad, audio),
       asr: whisper.engine,
       close: async () => {
