@@ -124,7 +124,7 @@ call and changing the cut doesn't break the timing of what's laid over it
 
 | Op | What it does |
 |---|---|
-| `{op: "add", type: "clip", path, from, to, focus?, zoom?, speed?, moves?, transition?, index?}` | A clip on the main track, at `index` (default the end). See [Speed, moves and transitions](#speed-moves-and-transitions). |
+| `{op: "add", type: "clip", path, from, to, focus?, zoom?, speed?, moves?, transition?, lead?, index?}` | A clip on the main track, at `index` (default the end). See [Speed, moves and transitions](#speed-moves-and-transitions). |
 | `{op: "add", type: "text" \| "insert" \| "audio", …}` | A text, picture or video, or sound, with the fields above. |
 | `{op: "remove", id}` | Removes an item. A clip takes what's on it with it, and the cut closes up. |
 | `{op: "split", id, at}` | Splits a clip in two at `at` seconds in its source. What starts on the second half moves to the new clip. |
@@ -174,6 +174,15 @@ A clip can also have:
   `slideleft`/`right`/`up`/`down`, `smoothleft`/`right`/`up`/`down`,
   `coverleft`/`right`, `revealleft`/`right`, `circleopen`, `circleclose`,
   `radial`, `zoomin`, `hblur`, `pixelize`.
+
+- **`lead`**, in seconds: the sound's cut moves off the picture's. Positive
+  is a J cut: the clip's sound starts that long before its picture, over
+  the end of the clip before, so the next speaker is heard before they're
+  seen. Negative is an L cut: the clip before's sound carries on that long
+  over this clip's picture, as when the picture cuts to b-roll or a
+  reaction while someone finishes a sentence. The cut's length doesn't
+  change; captions follow the sound. A clip can't have both a lead and a
+  transition, which blends the sound already.
 
 A move is drawn with ffmpeg's `perspective` filter, which places the window
 to a fraction of a pixel each frame. Filters that round the window to whole
