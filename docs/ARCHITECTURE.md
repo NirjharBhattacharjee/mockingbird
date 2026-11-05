@@ -18,6 +18,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
+| 2026-11-06 | Effects catalog, phase 1 (#197): one `effects` catalog (`apps/daemon/src/effects.ts`) instead of a tool per effect, put on a clip's picture or sound after its framing; color, LUT, vignette, sharpen, blur, denoise, high-pass, compressor, de-esser; `scopes` measures a picture for grading. |
 | 2026-11-06 | A project's overlays (#163): an HTML page on a clip, rendered alone with its transparency (ProRes 4444) and laid over the cut, cached in `~/.mockingbird/cache/overlays/`. A project sound can be a music generator (#170), its bed made at render time and cached in `~/.mockingbird/cache/music/`; `render(project, sound: true)` saves the mix alone as an .m4a. |
 | 2026-11-04 | `transcribe` and `captions` take `model` and `language` per call; with the language on `auto` and a per-language map, the language is detected from the first speech and its model used (`enginesFor` in `runtime.ts`, #143). |
 | 2026-11-04 | `models pull <name or URL>` downloads any Whisper model against the sha256 Hugging Face gives (or `--sha256`), pinned to its commit; `models use <file> --language <code>` saves a model per language (#143). |

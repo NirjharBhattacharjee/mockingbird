@@ -75,6 +75,8 @@ export type Clip = {
   moves?: Move[];
   transition?: Transition;
   lead?: number;
+  /** Effects from the engine's catalog (#197), checked there: { name, ...settings }. */
+  effects?: ({ name: string } & Record<string, unknown>)[];
 };
 
 /** How long a clip lasts in the finished video. */
@@ -215,7 +217,19 @@ function area(v: unknown, what: string): Area {
   return a;
 }
 
-const CLIP = ["id", "path", "from", "to", "focus", "zoom", "speed", "moves", "transition", "lead"];
+const CLIP = [
+  "id",
+  "path",
+  "from",
+  "to",
+  "focus",
+  "zoom",
+  "speed",
+  "moves",
+  "transition",
+  "lead",
+  "effects",
+];
 const TEXT = ["id", "text", "clip", "from", "to", "y"];
 const INSERT = ["id", "path", "clip", "from", "to"];
 const SOUND = ["id", "path", "generator", "clip", "at", "volume", "loop", "duck"];
@@ -254,6 +268,15 @@ function clip(v: unknown, what: string): Clip {
       });
     }),
     lead: maybe(o.lead, (n) => num(n, `${what}.lead`, -5, 5)),
+    effects: maybe(o.effects, (l) => {
+      if (!Array.isArray(l)) fail(`${what}.effects must be a list of { name, ... }`);
+      return (l as unknown[]).map((e, i) => {
+        if (typeof e !== "object" || e === null || typeof (e as Obj).name !== "string") {
+          fail(`${what}.effects[${i}] needs a name`);
+        }
+        return e as { name: string } & Obj;
+      });
+    }),
     transition: maybe(o.transition, (t) => {
       const r = obj(t, `${what}.transition`, ["type", "duration"]);
       if (!TRANSITIONS.includes(String(r.type))) {
@@ -990,6 +1013,7 @@ export type Compiled = {
     transition?: Transition;
     /** The stretch of the source its sound comes from, where a J or L cut moves it off the picture's. */
     sound?: { from: number; to: number };
+    effects?: Clip["effects"];
   }[];
   texts: { text: string; from: number; to: number; y?: number }[];
   inserts: { path: string; from: number; to: number }[];
@@ -1024,7 +1048,11 @@ export function compile(p: Project, dir: string): Compiled {
         lead || next
           ? { from: ms(rest.from - (lead ?? 0) * speed), to: ms(rest.to - next * speed) }
           : undefined;
-      return clean({ path: path(f), ...rest, sound });
+      // An effect's file (a LUT) is relative to the project like everything else.
+      const effects = rest.effects?.map((e) =>
+        typeof e.file === "string" ? { ...e, file: path(e.file) } : e,
+      );
+      return clean({ path: path(f), ...rest, effects, sound });
     }),
     texts: p.texts.map(({ text, clip, from, to, y }) =>
       clean({ text, from: base(clip) + from, to: base(clip) + to, y }),

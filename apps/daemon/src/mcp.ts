@@ -34,6 +34,7 @@ import {
 import type { SpeechSegment } from "@mockingbird/vad";
 import { audioStats } from "./audio-stats.ts";
 import { addEntries, formatEntry, readDictionary } from "./dictionary.ts";
+import { catalog, checkEffects, type Effect, effectFilters } from "./effects.ts";
 import { guide, INSTRUCTIONS, playbooks } from "./guide.ts";
 import { findChrome } from "./models.ts";
 import { clipsFrom, findPauses, measure } from "./pauses.ts";
@@ -48,6 +49,7 @@ import {
   startEngines,
   WHISPER_LANGUAGES,
 } from "./runtime.ts";
+import { scopes } from "./scopes.ts";
 
 /**
  * `mockingbird mcp` (#88): mockingbird's local functions as Model Context
@@ -450,6 +452,8 @@ export type Clip = {
   transition?: { type: string; duration: number };
   /** Where its sound comes from in the source, when a J or L cut moves it off the picture's stretch. */
   sound?: { from: number; to: number };
+  /** From the effects catalog (#197), on its picture and its sound. */
+  effects?: Effect[];
 };
 
 /** The stretch of the source a clip's input opens: its picture's and its sound's together. */
@@ -654,7 +658,8 @@ export function renderGraph(
     const cut = clip.sound
       ? `trim=start=${clip.from - start}:duration=${clip.to - clip.from},`
       : "";
-    const v = `[${i}:v]${cut}setpts=PTS-STARTPTS${speed},${SQUARE}${look}${tb}[v${i}]`;
+    const fx = effectFilters(clip.effects);
+    const v = `[${i}:v]${cut}setpts=PTS-STARTPTS${speed},${SQUARE}${look}${fx.video ? `,${fx.video}` : ""}${tb}[v${i}]`;
     if (!audio) return v;
     const heard = clip.sound ?? clip;
     const acut = clip.sound
@@ -662,7 +667,7 @@ export function renderGraph(
       : "";
     const a = clip.silent
       ? `aevalsrc=0:c=stereo:s=48000:d=${(heard.to - heard.from) / (clip.speed ?? 1)}[a${i}]`
-      : `[${i}:a]${acut}asetpts=PTS-STARTPTS${speed ? `,${tempo(clip.speed as number)}` : ""}[a${i}]`;
+      : `[${i}:a]${acut}asetpts=PTS-STARTPTS${speed ? `,${tempo(clip.speed as number)}` : ""}${fx.audio ? `,${fx.audio}` : ""}[a${i}]`;
     return `${v};${a}`;
   });
   const inputs = clips.map((_, i) => (audio ? `[v${i}][a${i}]` : `[v${i}]`)).join("");
@@ -1435,9 +1440,12 @@ async function render(
 ): Promise<string> {
   requireFile(path, "File");
   if (!clips.length) throw new Error("No clips: give at least one { from, to } in seconds.");
-  for (const c of clips) {
+  for (const [i, c] of clips.entries()) {
     if (!(Number.isFinite(c.from) && Number.isFinite(c.to) && c.from >= 0 && c.to > c.from)) {
       throw new Error(`A clip needs 0 <= from < to, in seconds; got ${JSON.stringify(c)}.`);
+    }
+    for (const e of checkEffects(c.effects, `clips[${i}].effects`)) {
+      if (typeof e.file === "string") requireFile(e.file, "LUT");
     }
   }
   const files = [...new Set([path, ...clips.map((c) => c.path ?? path)])];
@@ -1558,7 +1566,7 @@ async function render(
       !split &&
       !draft &&
       !inserts.length &&
-      clips.every((c) => !c.transition && !c.sound && (c.speed ?? 1) === 1);
+      clips.every((c) => !c.transition && !c.sound && (c.speed ?? 1) === 1 && !c.effects?.length);
     const copied =
       plain &&
       (await copyRender(path, shaped, dir, unlevelled, {
@@ -2661,6 +2669,11 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
                   description:
                     "Punch in on the focus, 1-4 (default 1). 1.1-1.2 on alternate jump cuts hides them.",
                 },
+                effects: {
+                  type: "array",
+                  items: { type: "object" },
+                  description: "Effects from the catalog (`effects` lists them), in order",
+                },
               },
               required: ["from", "to"],
             },
@@ -2754,6 +2767,9 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
                 },
               }),
               zoom: within(c.zoom, 1, 4, `clips[${i}].zoom`, 1),
+              ...(c.effects === undefined
+                ? {}
+                : { effects: checkEffects(c.effects, `clips[${i}].effects`) }),
             };
           }),
           {
@@ -2887,6 +2903,39 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
           captions: a.captions === undefined ? undefined : String(a.captions),
           out: a.out === undefined ? undefined : resolve(String(a.out)),
         }),
+    },
+    {
+      name: "effects",
+      description:
+        "The effects catalog: each effect's name, whether it's on the picture or the sound, and its settings with their ranges and defaults. Put effects on a project's clip with edit's {op:\"set\", id, effects:[{name:\"color\", exposure:0.5}, {name:\"denoise\", amount:0.4}]}, or on render's clips (effects: [...]). They apply in order, after the clip's framing; check a grade with `scopes`.",
+      inputSchema: { type: "object", properties: {} },
+      run: async () => catalog(),
+    },
+    {
+      name: "scopes",
+      description:
+        "Measure a video's picture, as a colourist reads the scopes, since you can't judge a grade from a few stills: mean and 5th to 95th percentile luma, the histogram's shadows, mids and highlights, crushed blacks and clipped whites, mean saturation, and how far skin sits from the skin-tone line. Each number comes with what a graded picture usually shows. `from`/`to` (seconds) measure one stretch; it samples up to 60 frames. Grade with `effect`s, render, and measure again.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path,
+          from: { type: "number", description: "Start, in seconds from the start of the file" },
+          to: { type: "number", description: "End, in seconds (default the end)" },
+          every: { type: "number", description: "Seconds between frames (default 1)" },
+        },
+        required: ["path"],
+      },
+      run: async (a) => {
+        const file = requireFile(resolve(String(a.path)), "File");
+        const info = await probe(file);
+        if (!info.video) throw new Error(`${file} has no video, only audio.`);
+        const from = seconds(a.from) ?? 0;
+        return scopes(file, info.size, {
+          from,
+          to: Math.min(seconds(a.to) ?? info.seconds, info.seconds),
+          every: within(a.every, 0.04, 600, "every", 1),
+        });
+      },
     },
     {
       name: "audio_stats",

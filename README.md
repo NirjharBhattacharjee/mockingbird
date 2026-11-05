@@ -133,11 +133,15 @@ it as a plugin, from [`plugin/`](plugin/README.md):
 | Tool | Does |
 |---|---|
 | `transcribe` | Timestamped lines, or each word's start and end, with names spelled your way |
-| `frames` | Stills from a video, for the agent to look at |
+| `frames`, `scenes` | Stills from a video, and where its shots change |
+| `edit` | A project kept between calls: clips from several sources, texts, b-roll, overlays and sound that stay on their clips |
+| `render` | Cuts, framing, 9:16 or split layout, captions, titles, b-roll, effects, music and sound effects, −14 LUFS |
 | `captions` | Word-by-word captions timed to the finished cut |
-| `render` | Cuts, framing, 9:16 or split layout, captions, titles, b-roll, music and sound effects, −14 LUFS |
-| `motion` | Motion graphics as code (the Canvas 2D API), rendered to video |
-| `guide` | A playbook for one job: shorts, long-form, hooks, captions, motion graphics, review |
+| `effects`, `scopes` | A catalog of color and audio effects for clips, and the numbers to grade by |
+| `motion` | Motion graphics as HTML and CSS, rendered in a pinned headless Chrome |
+| `music` | Background music written as code, with no samples to license |
+| `audio_stats`, `pauses`, `measure` | What a file's sound measures, where its pauses are, and a finished video's size and loudness |
+| `guide` | A playbook for one job: shorts, long-form, hooks, captions, motion graphics, music, review |
 | `status`, `dictionary_list`, `dictionary_add` | What's installed; names to spell right |
 
 Every option: [docs/MCP.md](docs/MCP.md). On the command line,

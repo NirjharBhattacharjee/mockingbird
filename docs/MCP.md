@@ -45,7 +45,8 @@ after the curl install, or `/opt/homebrew/bin/mockingbird` with Homebrew.
 |---|---|
 | `transcribe(path, from, to, words, model, language)` | An audio or video file (anything ffmpeg reads: m4a, mp3, wav, mp4, mov, mkv) as text, in lines timestamped `[mm:ss]`, with names fixed from your dictionary (a `heard => term` entry first, then anything that sounds like a term). Each call starts its own whisper-server, so two can run at once. The client's model does any cleanup or summarising. `from` and `to` (seconds) take one stretch of the file. `words: true` gives one line per word with its start and end, `[01:23.48-01:23.71] Catppuccin`, to cut a clip on; names are fixed one word at a time there, so a name misheard as two words stays as heard. `model` (a file in `models/`) and `language` (a Whisper code, or `auto`) pick the model and language for this call only; given neither, with the language on `auto` and a model mapped to a language (`models use --language`), it detects the language from the first speech and uses that model. The first line then names the language and model. |
 | `transcribe(project)` | The words in a project's cut, clip by clip, each line at its time in the finished video: the edit as text, to choose what `cut_words` cuts. See [Text-based editing](#text-based-editing). |
-| `transcribe(path, from, to, words)` | An audio or video file (anything ffmpeg reads: m4a, mp3, wav, mp4, mov, mkv) as text, in lines timestamped `[mm:ss]`, with names fixed from your dictionary (a `heard => term` entry first, then anything that sounds like a term). Each call starts its own whisper-server, so two can run at once. The client's model does any cleanup or summarising. `from` and `to` (seconds) take one stretch of the file. `words: true` gives one line per word with its start and end, `[01:23.48-01:23.71] Catppuccin`, to cut a clip on; names are fixed one word at a time there, so a name misheard as two words stays as heard. |
+| `effects` | The effects catalog: each effect's name, whether it's on the picture or the sound, and its settings with ranges and defaults; see [Effects](#effects). |
+| `scopes(path, from, to, every)` | What a colourist reads off the scopes, as numbers: luma, the histogram's thirds, clipping, saturation and skin's distance from the skin-tone line; see [Effects](#effects). |
 | `audio_stats(path, from, to)` | What a file's sound measures, since the agent can't listen: see [Measuring sound](#measuring-sound). |
 | `scenes(path, from, to, threshold)` | The shot changes in a video, from ffmpeg's `scdet` over frames shrunk to 180 lines: each one's `[mm:ss.cc]` time and how big a change it is (0 to 100), and cuts a minute and seconds a shot. `threshold` (default 10) is how big a change counts. It finds changes of shot, such as a cut to b-roll, a new slide or another camera, not jump cuts within one shot: in the first minute of the v2 edit, the two cuts that changed the framing scored 5.9 and 7.5, and eight jump cuts scored under 1 or not at all, below ordinary movement. Decoded with the hardware where there's a decoder: a minute of 4K HEVC phone video took 21.6 s, against 165.6 s in software; a 4-minute 1080p60 screen recording took 29.5 s. |
 | `frames(path, every, from, to)` | Stills from a video, one every `every` seconds (default 60), saved to a temp folder; returns their paths with `[mm:ss]` times, so a client that reads images can see slides and screen shares, or where the speaker is before framing a clip. `from` and `to` (seconds) take one stretch. Each still is read by seeking to it, so a long 4K phone video takes seconds, not minutes. |
@@ -53,14 +54,9 @@ after the curl install, or `/opt/homebrew/bin/mockingbird` with Homebrew.
 | `captions(project)` | The same word-by-word SRT for an `edit` project's cut, timed to its finished video with speed, transitions and J and L cuts, from the word cache; `perCue`, `lit` and `upper` default to the project's captions. Pass it to `motion` as `captions` over the project's render. |
 | `pauses(path, from, to, noise, shortest, minPause, margin)` | The pauses in a file's sound (ffmpeg's `silencedetect`, quieter than `noise` dB, default −35, for at least `shortest` s, default 0.25), one `start end length` line each, then `render`'s `clips` as JSON: what's between pauses of at least `minPause` s (default 0.4), `margin` s (default 0.15) kept into each, a stretch of 0.3 s or less joined to the next. |
 | `measure(path)` | A finished video's size, length, integrated loudness and true peak; its cuts come from `scenes`. |
-| `captions(path, clips, perCue, lit, upper)` | Word-by-word captions for the video `render` will make from `clips`, as SRT timed to the finished video: up to `perCue` words a cue (default 3), the word being said written `*like this*` (`lit`, default on), in capitals if `upper`. A new cue starts at each clip, after a sentence, after half a second's pause, or when its words span 1.2 seconds. Each clip is transcribed with two seconds either side, clips whose padded stretches overlap are transcribed together as one, and a word belongs to the clip its middle falls in. |
 | `edit(project, ops)` | Changes a project file, an edit kept between calls; see [Projects](#projects). Applies `ops` in order, all of them or none, saves the file, and returns an outline of the cut. Makes the file if it isn't there; with no ops it only reads it. |
 | `render(project)` or `render(path, clips, …)` | Renders a project, or cuts `clips` out of one video and joins them, into one MP4 with ffmpeg; see [Render options](#render-options). Saves to `out`, or `<name>-render-N.mp4` beside the project (`<name>-short-N.mp4` beside the source), and never overwrites a file. |
-| `motion(script, path, captions, size, duration, fps, out)` | Motion graphics written as code, drawn on the Mac with Core Graphics: see [Motion graphics](#motion-graphics). Saves to `out`, or `<name>-motion-N.mp4` beside the video or script, and never overwrites a file. |
-| `captions(path, clips, perCue, lit, upper)` | Word-by-word captions for the video `render` will make from `clips`, as SRT timed to the finished video: up to `perCue` words a cue (default 3), the word being said written `*like this*` (`lit`, default on), in capitals if `upper`. A new cue starts at each clip, after a sentence, after half a second's pause, or when its words span 1.2 seconds. Each clip is transcribed with two seconds either side, clips whose padded stretches overlap are transcribed together as one, and a word belongs to the clip its middle falls in. |
-| `render(path, clips, …)` | Cuts `clips` out of a video and joins them into one MP4 with ffmpeg; see [Render options](#render-options). Saves to `out`, or `<name>-short-N.mp4` beside the source, and never overwrites a file. |
 | `motion(script, path, captions, size, duration, fps, out)` | Motion graphics written as code: an HTML page rendered in a pinned headless Chrome; see [Motion graphics](#motion-graphics). Saves to `out`, or `<name>-motion-N.mp4` beside the video or script, and never overwrites a file. |
-| `motion(script, path, captions, size, duration, fps, out)` | Motion graphics written as code: an HTML page rendered in a pinned headless Chrome, or a canvas script drawn with Core Graphics; see [Motion graphics](#motion-graphics). Saves to `out`, or `<name>-motion-N.mp4` beside the video or script, and never overwrites a file. |
 | `music(script, duration, out, tempo, key, energy, seed)` | Background music written as code: a generator module played into Web Audio's `OfflineAudioContext` in the pinned headless Chrome, saved as a WAV at −14 LUFS for `render`'s `audio`; see [Music](#music). Never overwrites a file. |
 | `guide(topic)` | A playbook for one job, from [`plugin/`](../plugin/README.md): `viral-short`, `long-form`, `hooks`, `retention-editing`, `captions`, `motion-graphics`, `music`, `style-match`, or `reviewer` (the checks a finished video has to pass). It starts with the folder holding the playbook's scripts, kit and templates. |
 | `status` | Whether mockingbird is ready: the transcription model in use, the speech detection model, ffmpeg, whisper-server, the Chrome that `motion` renders HTML in, and how many words the dictionary has. |
@@ -380,6 +376,43 @@ short from a 60 fps screen recording, with word-by-word captions, a title, a
 picture insert, ducked music and a sound effect, took 2.8 seconds; 9 seconds
 cut from a 4K HEVC phone video took 11.5. `captions` for five clips took about
 5 seconds, most of it starting whisper-server.
+
+## Effects
+
+Effects come from one catalog, not a tool each, so it can grow without
+filling the agent's context with tool descriptions. `effects` lists it.
+Put them on a project's clip with `edit`, `{op: "set", id: "c1", effects:
+[{name: "color", exposure: 0.5}, {name: "denoise", amount: 0.6, floor:
+-45}]}`, or on `render`'s `clips`. They apply in order, after the clip's
+framing, and a clip with effects is always encoded, never stream-copied.
+
+| Effect | On | Settings |
+|---|---|---|
+| `color` | picture | `exposure` (stops, −3 to 3), `contrast`, `saturation`, `gamma`, `temperature` (kelvin) |
+| `lut` | picture | `file`, a `.cube` 3D LUT, at full strength |
+| `vignette` | picture | `amount` |
+| `sharpen` | picture | `amount` |
+| `blur` | picture | `radius` |
+| `denoise` | sound | `amount`, and `floor`: where the noise sits in dBFS, from `audio_stats` on the source |
+| `highpass` | sound | `frequency` (80 Hz suits speech) |
+| `compress` | sound | `threshold` (dB), `ratio` |
+| `deess` | sound | `amount` |
+
+`scopes` measures a picture the way a colourist reads the scopes: mean luma
+and its 5th to 95th percentile, the share of pixels in the shadows, mids and
+highlights, crushed blacks and clipped whites, mean saturation, and how far
+skin-coloured pixels sit from the skin-tone line. Each number comes with
+what a graded talking head usually shows, so the agent grades by measuring:
+`scopes`, an effect, render, `scopes` again, then `frames` to look.
+
+Measured on 8 s of a portrait talking head darkened 1.5 stops: `scopes`
+read mean luma 0.16, every pixel in the shadows and saturation 0.04 (the
+original: 0.44 and 0.12). `color` with exposure +1.5 brought it to 0.30;
++2 overshot to 0.64 with 3.2% clipped; +1.7 and saturation 1.4 came out at
+mean 0.51, 95th percentile 0.80, nothing clipped, saturation 0.18 and skin
+1° off the line. On clean speech with pink noise and a 50 Hz hum added,
+`highpass` and `denoise` (floor −47) lowered the noise floor of the levelled
+render from −41.9 to −47.4 dBFS, and Whisper still heard every word.
 
 ## Measuring sound
 
