@@ -1,8 +1,9 @@
 import { existsSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { parseArgs } from "node:util";
 import { main as dictionaryMain, readDictionary } from "./dictionary.ts";
 import { mcpTools, serve } from "./mcp.ts";
-import { listModels, modelsCommand, pullModels } from "./models.ts";
+import { listModels, type ModelFile, modelsCommand, pullModels, resolveModel } from "./models.ts";
 import { main as recordMain } from "./record.ts";
 import { retireDictation } from "./retire.ts";
 import { mockingbirdHome } from "./runtime.ts";
@@ -19,7 +20,7 @@ export const COMMANDS: { name: string; summary: string }[] = [
   {
     name: "models pull",
     summary:
-      "download the speech models (it and `setup` are the only\ncommands that use the network)",
+      "download the speech models, or `models pull <name or URL>`\nany Whisper model (it and `setup` are the only commands\nthat use the network)",
   },
   {
     name: "setup",
@@ -52,7 +53,7 @@ const log = (message: string) => console.error(message);
  * on a terminal. When the installer sets MOCKINGBIRD_PROGRESS, the same line
  * also goes to that file, which the install shows in place of its clock.
  */
-async function pullWithProgress(): Promise<number> {
+async function pullWithProgress(files?: ModelFile[]): Promise<number> {
   let file = process.env.MOCKINGBIRD_PROGRESS;
   let drawn = false;
   const clear = () => {
@@ -61,6 +62,7 @@ async function pullWithProgress(): Promise<number> {
   };
   try {
     return await pullModels({
+      files,
       log: (message) => {
         clear();
         log(message);
@@ -86,6 +88,29 @@ async function pullWithProgress(): Promise<number> {
   } finally {
     clear();
   }
+}
+
+/** `models pull <name or URL> [--sha256 <hex>] [--as <file>]`: one Whisper model, any one (#143). */
+async function pullOne(args: string[]): Promise<number> {
+  const { values, positionals } = parseArgs({
+    args,
+    options: { sha256: { type: "string" }, as: { type: "string" } },
+    allowPositionals: true,
+  });
+  if (positionals.length !== 1 || !positionals[0]) {
+    throw new UsageError("`models pull` takes one model: a name like large-v3-turbo, or a URL");
+  }
+  const model = await resolveModel(positionals[0], values);
+  const size = model.bytes ? `${(model.bytes / 1e9).toFixed(1)} GB` : "size unknown";
+  log(
+    `${model.file}: ${size}, from ${new URL(model.url).host}, checked against SHA-256 ${model.sha256}`,
+  );
+  const code = await pullWithProgress([model]);
+  if (code === 0)
+    log(
+      `Use it with \`mockingbird models use ${model.file}\` (add --language <code> for one language).`,
+    );
+  return code;
 }
 
 /** What `status` and the MCP `status` tool report. */
@@ -170,6 +195,7 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
       });
     case "models":
       if (rest.length === 1 && rest[0] === "pull") return pullWithProgress();
+      if (rest[0] === "pull") return pullOne(rest.slice(1));
       return modelsCommand(rest);
     case "dictionary":
       return dictionaryMain(rest);

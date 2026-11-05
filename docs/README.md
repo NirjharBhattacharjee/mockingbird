@@ -107,10 +107,10 @@ export PATH="$HOME/.local/bin:$PATH"
 | `mockingbird record <file>` | Records the microphone until Enter or Ctrl-C (or `--for <seconds>`), for a voiceover your agent builds a video around. `.wav` is 48 kHz mono, `.m4a` AAC. `--devices` lists the inputs, `--device` picks one. |
 | `mockingbird transcribe <file>` | Prints a file's speech as `[mm:ss]` lines. `--words` gives each word's start and end, `--from`/`--to` (seconds) one stretch. |
 | `mockingbird dictionary` | Lists the words it spells a particular way. `add "Nirjhar Bhattacharjee"`, `add "cat puck => Catppuccin"` (what it hears => what to write), `remove <term>`. |
-| `mockingbird models` | Lists the Whisper models you have. `models use <file>` picks one, `--default` goes back. |
-| `mockingbird models pull` | Downloads the speech models. With `setup`, the only commands that use the network. |
 | `mockingbird setup` | Installs what's missing (ffmpeg, whisper-cpp, the models), then adds mockingbird to your coding agents. Asks before each step; `--yes` doesn't. |
 | `mockingbird doctor` | Checks every part, names what's broken and how to fix it, and lists which agents have mockingbird. `--json` for agents. |
+| `mockingbird models` | Lists the Whisper models you have. `models use <file>` picks one, `--language <code>` for one language only, `--default` goes back. |
+| `mockingbird models pull` | Downloads the speech models. `models pull <name or URL>` downloads any Whisper model, checked against its sha256 (a name like `large-v3-turbo`, a Hugging Face link, or any https link with `--sha256`). With `setup`, the only commands that use the network. |
 | `mockingbird status` | Whether the models, ffmpeg and whisper-server are installed. |
 | `mockingbird uninstall` | Removes mockingbird, after asking. |
 

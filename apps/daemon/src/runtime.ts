@@ -118,7 +118,7 @@ export function freePort(): number {
 }
 
 /** The languages Whisper knows, by the codes it takes (whisper.cpp's `g_lang`). */
-const WHISPER_LANGUAGES = new Set(
+export const WHISPER_LANGUAGES = new Set(
   `en zh de es ru ko fr ja pt tr pl ca nl ar sv it id hi fi vi he uk el ms cs ro da hu ta no
   th ur hr bg lt la mi ml cy sk te fa lv bn sr az sl kn et mk br eu is hy ne mn bs kk sq sw
   gl mr pa si km sn yo so af oc ka be tg sd gu am yi lo uz fo ht ps tk nn mt sa lb my bo tl
@@ -143,6 +143,18 @@ export function spokenLanguage(env = process.env, log: (message: string) => void
   return "en";
 }
 
+/**
+ * The model saved for `language` (`models use <file> --language bn`), or
+ * else the one saved for every language (#143).
+ */
+export function savedModelFor(language: string, home = mockingbirdHome()): string | undefined {
+  const own =
+    language === "auto" ? undefined : savedSetting(`${ASR_MODEL_SETTING}.${language}`, home);
+  // One that's since been deleted gives way to the choice for every language.
+  const there = own && isWhisperFile(own) && existsSync(join(home, "models", own));
+  return there ? own : savedSetting(ASR_MODEL_SETTING, home);
+}
+
 /** Checks the models, loads VAD and starts a whisper-server on `asrPort`. */
 export async function startEngines(
   log: (message: string) => void,
@@ -151,10 +163,10 @@ export async function startEngines(
 ): Promise<Engines> {
   const models = join(mockingbirdHome(env), "models");
   // MOCKINGBIRD_ASR_MODEL takes a path, or a file name inside models/.
-  const saved = savedSetting(ASR_MODEL_SETTING, mockingbirdHome(env));
+  const language = spokenLanguage(env, log);
+  const saved = savedModelFor(language, mockingbirdHome(env));
   const whisperModel = findAsrModel(models, env.MOCKINGBIRD_ASR_MODEL, log, saved);
   const vadModel = requireFile(join(models, "silero_vad.onnx"), "Silero VAD model", SETUP_HINT);
-  const language = spokenLanguage(env, log);
   if (language !== "en" && englishOnly(whisperModel)) {
     log(
       `warning: ${basename(whisperModel)} only knows English, and MOCKINGBIRD_LANGUAGE is ${language}. ` +
