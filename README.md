@@ -61,6 +61,25 @@ brew install nirjharbhattacharjee/mockingbird/mockingbird
 mockingbird models pull
 ```
 
+### Unsigned binaries
+
+The release binaries aren't signed by Apple or Microsoft yet: that needs a
+paid developer account and certificate, which is the maintainer's call, not
+something users pay for. The installers and Homebrew never hit a warning,
+because they download with `curl` or PowerShell, which don't mark files as
+coming from the internet; Homebrew builds from source.
+
+A binary you download yourself in a browser is marked, and then:
+
+- **macOS** stops it: `zsh: killed` in a terminal, or "can't be opened
+  because Apple cannot check it" from Finder. Clear the mark with
+  `xattr -d com.apple.quarantine mockingbird-darwin-arm64`.
+- **Windows** SmartScreen shows "Windows protected your PC". Choose
+  **More info → Run anyway**, or run `Unblock-File mockingbird-windows-x64.exe`
+  in PowerShell.
+
+Each binary's sha256 is in the release's `checksums.txt`.
+
 ### With a coding agent
 
 Paste this into your agent:

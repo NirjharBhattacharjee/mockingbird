@@ -54,3 +54,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & "$HOME\.mockingbird\bin\mockingbird.cmd" --version
         shell: powershell
+      # SmartScreen only steps in for a file with the Mark of the Web, which
+      # browsers add and Invoke-WebRequest doesn't (#159): what the installer
+      # downloaded, Bun here, must carry none.
+      - name: No Mark of the Web on what the installer downloaded
+        run: |
+          $bun = "$HOME\.mockingbird\bin\bun-1.4.2\bun.exe"
+          if (-not (Test-Path $bun)) { Write-Host "Bun was already installed; nothing downloaded to check."; exit 0 }
+          if (Get-Item $bun -Stream Zone.Identifier -ErrorAction SilentlyContinue) { Write-Error "$bun has a Zone.Identifier stream"; exit 1 }
+          Write-Host "$bun has no Zone.Identifier stream"
+        shell: powershell

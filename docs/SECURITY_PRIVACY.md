@@ -147,6 +147,11 @@ flowchart LR
 - **The Homebrew formula** pins each release's source tarball by sha256.
   CI opens the PR that bumps it and a person merges it. `bun install`
   inside it is checked against `bun.lock`.
+- **Release binaries aren't signed or notarized yet** (#159). The
+  installers download with `curl` and `Invoke-WebRequest`, which add no
+  quarantine flag or Mark of the Web, so Gatekeeper and SmartScreen don't
+  check them; their integrity comes from `checksums.txt`. A browser
+  download is flagged, and the README says what the user sees.
 - **Updates are never automatic.** A silent updater would be unannounced
   network activity and a way to compromise every install at once.
 
