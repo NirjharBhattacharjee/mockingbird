@@ -212,6 +212,13 @@ on an M3 at −14.1 LUFS, exactly as long as its outline said.
 Transitions work with up to 100 clips for now; longer edits render in
 batches, and a transition can't cross one yet.
 
+When nothing is drawn over the picture and every clip plays as recorded,
+`render` copies the stretches of the source that are already H.264 at the
+output's size and rate, and encodes only around each cut and the zoomed
+clips. A long-form edit of 35 s clips rendered 4.6x faster this way, and
+the copied frames are the source's, untouched
+([ARCHITECTURE.md](./ARCHITECTURE.md#7-rendering)).
+
 ### Drafts
 
 `render` with `draft: true` makes a quick preview to check the cut with:
