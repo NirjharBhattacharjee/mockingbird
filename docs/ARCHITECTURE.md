@@ -24,6 +24,7 @@ injection, the cleanup model, the launchd agent) is in git:
 | 2026-11-04 | `mockingbird setup` and `doctor`, and the plugin's `launch.sh`, which answers MCP with an install tool when mockingbird isn't installed (#141). |
 | 2026-11-04 | `mockingbird record`: the microphone through ffmpeg (`avfoundation`, the input System Settings picked) into a file, for a voiceover (#142). |
 | 2026-11-04 | `audio_stats` (#171): loudness, peaks, noise floor, voice against what's between phrases, the 1 to 4 kHz share, tempo and beats, sections. The reviewer playbook checks sound with it. |
+| 2026-11-04 | The Canvas motion engine is gone (#169): `packages/motion`'s Canvas 2D over Core Graphics, Core Text and vImage, and `motion`'s `.ts`/`.js` scripts. `motion` renders HTML pages only, and the kit runs in them (#168). |
 | 2026-11-04 | `motion` renders an HTML page in a pinned headless Chrome (#145): `mockingbird models pull chrome`, a frame clock injected into the page, several tabs capturing at once, Chrome inside the motion sandbox. The Canvas engine stays until the kit is ported. |
 | 2026-11-04 | mockingbird-studio moved into `plugin/` and is now the `mockingbird` plugin; a `guide` tool and server instructions give every MCP client its playbooks (#140). |
 | 2026-11-04 | Long-form fixes (#127): `render` and `motion` reach −14 LUFS with a measured gain and a limiter instead of one pass of `loudnorm` (−15.9 → −14.3 LUFS on the v2 edit); `captions` hears overlapping padded clips as one stretch (171 s → 62 s for 96 clips); captions in a wide video are subtitle-sized. |
@@ -104,7 +105,7 @@ Constraints, not preferences. Check any proposed change against them.
 | Speech detection | Silero VAD via `onnxruntime-node` | native module in-process |
 | Speech-to-text | `whisper.cpp`'s `whisper-server`, default model `large-v3` Q5_0 | subprocess, HTTP on a free `127.0.0.1` port per call |
 | Captions | Core Text through `bun:ffi`, drawn to PNGs that ffmpeg overlays | in-process |
-| Motion graphics | Canvas 2D API implemented over Core Graphics, Core Text and vImage through `bun:ffi` | in-process, the script under `sandbox-exec` |
+| Motion graphics | HTML pages in a pinned chrome-headless-shell, driven over the DevTools protocol | subprocess, under `sandbox-exec` |
 | Storage | `bun:sqlite` (`data.db`: the dictionary and settings) | in-process |
 | Agent protocol | MCP, JSON-RPC over stdin/stdout | `mockingbird mcp` |
 | Tests | `bun test`, `go test` | — |
@@ -215,13 +216,9 @@ project file; probing and rendering stay in the engine.
 calls its `draw(ctx, t, m)` for every frame against `packages/motion`'s
 Canvas, and pipes raw frames to ffmpeg.
 `motion` runs in a separate Bun process under `sandbox-exec` with the
-network denied (`apps/daemon/src/motion-run.ts`). A canvas script is
-imported there; its `draw(ctx, t, m)` is called for every frame against
-`packages/motion`'s Canvas, and raw frames are piped to ffmpeg.
-
-An HTML page is rendered by `packages/motion/src/html.ts` in the pinned
-chrome-headless-shell, started from that sandboxed process, so the sandbox
-covers Chrome too. It's driven over the DevTools protocol on a pipe
+network denied (`apps/daemon/src/motion-run.ts`). The page is rendered by
+`packages/motion/src/html.ts` in the pinned chrome-headless-shell, started
+from that sandboxed process, so the sandbox covers Chrome too. It's driven over the DevTools protocol on a pipe
 (`--remote-debugging-pipe`), so no port is opened. Each tab gets a script
 before the page's own that freezes the page's clocks and steps them frame
 by frame (`pageClock`). Frame `i` is captured by tab `i mod n` as a PNG with
@@ -229,9 +226,6 @@ transparency, and ffmpeg gets the frames in order and lays them over the
 video or over black. Every tab steps through every frame and captures only
 its own, so all tabs have the same history: an animation a page starts at
 frame 40 starts at frame 40 in every tab.
-
-Pivot step 7 goes on to port the motion kit to HTML and then remove the
-Canvas engine; see #134.
 
 ## 8. State
 
@@ -305,6 +299,7 @@ mockingbird/
 │   ├── timeline/            project files: format, checks, edit ops, outline
 │   ├── motion/              HTML pages in headless Chrome, and Canvas 2D over
 │   │                        Core Graphics, to MP4
+│   ├── motion/              HTML pages in headless Chrome, to MP4
 │   └── store/               data.db, the dictionary's parsing and name matching
 ├── plugin/                  the Claude Code plugin: skills, the reviewer agent,
 │                            the motion kit, templates, sound effects, research
@@ -409,7 +404,7 @@ each step shippable on its own:
 
 ## 16. Known gaps
 
-- **macOS only.** Captions and motion use Core Text and Core Graphics.
+- **macOS only.** Captions use Core Text, and `motion` relies on `sandbox-exec`.
 - **No compiled engine** ([§11](#11-packaging)): Bun has to be installed.
 - **One render call per edit.** Any change re-renders everything (step 5).
 - **The agent sees a few stills, not the video.** Tool outputs stay small so
