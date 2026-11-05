@@ -1,4 +1,4 @@
-const DIR = decodeURIComponent(new URL(".", import.meta.url).pathname).replace(/\/$/, "");
+const DIR = decodeURIComponent(new URL(".", import.meta.url).pathname).replace(/^\/([A-Za-z]:)/, "$1").replace(/\/$/, "");
 export const sfx = (name) => `${DIR}/assets/sfx/${name}.wav`;
 const FACES = { display: "system-ui", serif: "Charter", mono: "Menlo" };
 export const THEMES = {
