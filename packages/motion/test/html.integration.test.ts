@@ -89,42 +89,65 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("renderHtml (integration)"
   }, 60_000);
 
   test("a short animation is still there when a page is slow to load", async () => {
-    // 0.3 s with no fill, on a page whose image takes a second to arrive: in
-    // real time it would be over before the page had loaded.
-    const server = Bun.serve({
-      port: 0,
-      // A 1x1 transparent GIF, a second late.
-      fetch: () =>
-        Bun.sleep(1000).then(
-          () =>
-            new Response(
-              Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64"),
-              { headers: { "content-type": "image/gif" } },
-            ),
-        ),
-    });
+    // 0.3 s with no fill, on a page that takes a second to load: in real time
+    // it would be over before the page had. A script holds the load up rather
+    // than a slow server, since the page can't reach one (#157); new Date()
+    // is real time, where Date.now() is the page's clock.
     const path = page(
       "slow.html",
       `<div style="width:32px;height:32px;animation:r 0.3s linear"></div>
        <style>@keyframes r { from { background: rgb(250,0,0) } to { background: rgb(0,0,0) } }</style>
-       <img src="http://127.0.0.1:${server.port}/slow.png">`,
+       <script>const until = new Date().getTime() + 1000; while (new Date().getTime() < until);</script>`,
     );
     const out = join(dir, "slow.mp4");
-    try {
-      await renderHtml(path, {
-        chrome: chrome(),
-        out,
-        width: 32,
-        height: 32,
-        fps: 10,
-        duration: 0.5,
-      });
-    } finally {
-      server.stop(true);
-    }
+    await renderHtml(path, {
+      chrome: chrome(),
+      out,
+      width: 32,
+      height: 32,
+      fps: 10,
+      duration: 0.5,
+    });
     const reds = pixels(out, 32, 32).map((p) => p[(16 * 32 + 16) * 3] as number);
     expect(reds[0]).toBeGreaterThan(220);
     expect(Math.abs((reds[1] as number) - 167)).toBeLessThan(20);
+  }, 60_000);
+
+  test("a page can't reach the network, loopback included (#157)", async () => {
+    let hits = 0;
+    const server = Bun.serve({
+      port: 0,
+      fetch: () => {
+        hits++;
+        return new Response("reached");
+      },
+    });
+    const urls = [`http://127.0.0.1:${server.port}/`, `http://localhost:${server.port}/`];
+    const path = page(
+      "fetch.html",
+      `<script>
+         mockingbird.draw = async () => {
+           const tried = await Promise.allSettled(${JSON.stringify(urls)}.map((u) => fetch(u)));
+           const reached = tried.findIndex((r) => r.status === "fulfilled");
+           throw new Error(reached === -1 ? "every fetch failed" : "reached " + ${JSON.stringify(urls)}[reached]);
+         };
+       </script>`,
+    );
+    try {
+      await expect(
+        renderHtml(path, {
+          chrome: chrome(),
+          out: join(dir, "fetch.mp4"),
+          width: 32,
+          height: 32,
+          fps: 10,
+          duration: 0.1,
+        }),
+      ).rejects.toThrow(/every fetch failed/);
+    } finally {
+      server.stop(true);
+    }
+    expect(hits).toBe(0);
   }, 60_000);
 
   test("lays the page over a video and keeps its sound", async () => {

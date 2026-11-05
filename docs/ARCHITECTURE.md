@@ -18,6 +18,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
+| 2026-11-05 | A motion page can't reach the network on Linux or Windows either (#157): Chrome resolves no host name and sends the rest to a dead proxy, each tab blocks http and ws URLs, and on Linux the runner starts in a network namespace where one can be made. Chrome is pinned for Linux x64 and Windows x64. |
 | 2026-11-04 | `motion` renders an HTML page in a pinned headless Chrome (#145): `mockingbird models pull chrome`, a frame clock injected into the page, several tabs capturing at once, Chrome inside the motion sandbox. The Canvas engine stays until the kit is ported. |
 | 2026-11-04 | mockingbird-studio moved into `plugin/` and is now the `mockingbird` plugin; a `guide` tool and server instructions give every MCP client its playbooks (#140). |
 | 2026-11-04 | Long-form fixes (#127): `render` and `motion` reach −14 LUFS with a measured gain and a limiter instead of one pass of `loudnorm` (−15.9 → −14.3 LUFS on the v2 edit); `captions` hears overlapping padded clips as one stretch (171 s → 62 s for 96 clips); captions in a wide video are subtitle-sized. |
@@ -190,8 +191,10 @@ Measured on an M3 with a 96-clip edit of a 908 s 1080p60 recording
 batches. VideoToolbox's H.264 encoder was slower than x264 `veryfast` there
 (about 213 fps against 557), so encoding stays on x264.
 
-`motion` runs in a separate Bun process under `sandbox-exec` with the
-network denied (`apps/daemon/src/motion-run.ts`). A canvas script is
+`motion` runs in a separate Bun process with the network denied
+(`apps/daemon/src/motion-run.ts`): under `sandbox-exec` on macOS, in a
+network namespace (`unshare -rn`) on Linux where one can be made, and with
+Chrome's own blocking alone on Windows (`noNetwork` in `mcp.ts`). A canvas script is
 imported there; its `draw(ctx, t, m)` is called for every frame against
 `packages/motion`'s Canvas, and raw frames are piped to ffmpeg.
 
@@ -238,9 +241,11 @@ MCP server is its own short-lived process.
   never checks for updates.
 - **`mockingbird mcp` opens no port.** It speaks over stdin and stdout to the
   agent that started it.
-- **An agent's motion script or page can't reach the network.** It runs
-  under `sandbox-exec` with `deny network*`, and so does the Chrome a page
-  renders in.
+- **An agent's motion script or page can't reach the network.** Chrome
+  resolves no host name, sends everything else to a proxy on the discard
+  port, and blocks http and ws URLs in each tab, on every OS. Around that,
+  the runner starts under `sandbox-exec` with `deny network*` on macOS, and
+  in a network namespace on Linux where the kernel allows one.
 
 Pivot step 3's `mockingbird setup` will offer the same Chrome download.
 

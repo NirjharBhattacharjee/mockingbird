@@ -24,7 +24,21 @@ const COMMAND_TIMEOUT_MS = 60_000;
  * NUL), so it opens no port. Chrome's own sandbox is off, since it can't
  * start inside another one: run this under an OS sandbox, as
  * `apps/daemon/src/motion-run.ts` does with `sandbox-exec`.
+ *
+ * It can't reach the network on any OS (#157): no host name resolves, and
+ * everything else, an IP address or loopback included, goes to a proxy on
+ * the discard port, where nothing answers. Each tab also blocks http and ws
+ * URLs (`blockNetwork`).
  */
+/** URL patterns a tab may not load: everything but files and data. */
+export const BLOCKED_URLS = ["http://*", "https://*", "ws://*", "wss://*", "ftp://*"];
+
+/** Blocks the network in one tab, on top of the flags launchChrome starts with. */
+export async function blockNetwork(chrome: Chrome, session: string): Promise<void> {
+  await chrome.send("Network.enable", {}, session);
+  await chrome.send("Network.setBlockedURLs", { urls: BLOCKED_URLS }, session);
+}
+
 export async function launchChrome(path: string): Promise<Chrome> {
   const profile = mkdtempSync(join(tmpdir(), "mockingbird-chrome-"));
   const proc = spawn(
@@ -42,6 +56,10 @@ export async function launchChrome(path: string): Promise<Chrome> {
       "--disable-background-timer-throttling",
       "--disable-renderer-backgrounding",
       "--disable-backgrounding-occluded-windows",
+      "--host-resolver-rules=MAP * ~NOTFOUND",
+      "--proxy-server=127.0.0.1:9",
+      // Loopback goes through the proxy too, rather than straight out.
+      "--proxy-bypass-list=<-loopback>",
       "about:blank",
     ],
     { stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"] },

@@ -1031,6 +1031,28 @@ export function spans(clips: Clip[], pad = 2): { from: number; to: number }[] {
 /** macOS's sandbox, and a profile that allows everything but the network. */
 const SANDBOX = "/usr/bin/sandbox-exec";
 const NO_NETWORK = "(version 1)(allow default)(deny network*)";
+
+/**
+ * What the motion runner starts under so it has no network (#157): macOS's
+ * sandbox-exec; on Linux a user and network namespace (`unshare -rn`) where
+ * the kernel allows one, as Ubuntu's AppArmor may not; on Windows nothing.
+ * Chrome blocks the network itself on every OS (packages/motion/src/chrome.ts),
+ * so this is the second wall, and the only one for a canvas script.
+ */
+export function noNetwork(
+  platform = process.platform,
+  canUnshare = () => {
+    try {
+      return Bun.spawnSync(["unshare", "-rn", "true"], { stderr: "ignore" }).exitCode === 0;
+    } catch {
+      return false; // no unshare
+    }
+  },
+): string[] {
+  if (platform === "darwin") return [SANDBOX, "-p", NO_NETWORK];
+  if (platform === "linux" && canUnshare()) return ["unshare", "-rn"];
+  return [];
+}
 const MOTION_RUNNER = join(import.meta.dir, "motion-run.ts");
 /** Two hours: past any real video, short of a frame count that never ends. */
 const MOTION_MAX_SECONDS = 7200;
@@ -1113,7 +1135,7 @@ async function motion(
   // A fresh process per call, sandboxed with no network: the script is the
   // client's code, and mockingbird's only download is `models pull`.
   const proc = Bun.spawn(
-    [SANDBOX, "-p", NO_NETWORK, process.execPath, MOTION_RUNNER, JSON.stringify(options)],
+    [...noNetwork(), process.execPath, MOTION_RUNNER, JSON.stringify(options)],
     { stdout: "pipe", stderr: "pipe" },
   );
   const [said, why, code] = await Promise.all([

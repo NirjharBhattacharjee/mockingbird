@@ -128,7 +128,21 @@ flowchart LR
   shouldn't be given `mockingbird mcp`.
 - **An HTML page renders in Chrome inside that sandbox.** Chrome is
   started from the sandboxed process, so the network is denied to it and
-  to the page as well; a `fetch` from a page fails there. Chrome's own
+  to the page as well; a `fetch` from a page fails there.
+- **How each OS keeps a page off the network (#157).** On every OS, Chrome
+  starts with `--host-resolver-rules=MAP * ~NOTFOUND` (no name resolves)
+  and a proxy on `127.0.0.1:9` with loopback not bypassed (an IP address
+  goes nowhere), and each tab blocks `http`, `https`, `ws`, `wss` and `ftp`
+  URLs over DevTools. Each of the two would stop a `fetch` alone; the test
+  fetches a server on `127.0.0.1` and checks it was never reached. Around
+  Chrome and the runner:
+  - **macOS:** `sandbox-exec` with `deny network*`.
+  - **Linux:** a user and network namespace (`unshare -rn`), which has no
+    interface but loopback. Some kernels refuse one to a normal user
+    (Ubuntu's AppArmor setting `apparmor_restrict_unprivileged_userns`);
+    then Chrome's blocking stands alone.
+  - **Windows:** Chrome's blocking alone; Windows has no sandbox a process
+    can put itself in without a service or admin rights. Chrome's own
   sandbox can't start inside another, so it runs with `--no-sandbox`. The
   page can read files as you, through `file://`, as a script can. Chrome is
   pinned to one version and checked against its sha256 when pulled. A
