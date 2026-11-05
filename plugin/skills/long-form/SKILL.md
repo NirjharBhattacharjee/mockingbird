@@ -22,8 +22,8 @@ after.
 
 1. **Read the video.** `transcribe` the whole file. `frames` every 30
    seconds, and look: is it a talking head, slides, a screen share with a
-   webcam, more than one camera? Measure the source with style-match's
-   `measure.sh`.
+   webcam, more than one camera? Measure the source with `measure` and
+   `scenes`, as style-match does.
 2. **Plan, and tell the user.** In a few lines: what the video promises (the
    title it deserves), the sections it actually has, what you'll cut, and how
    it'll open. If the recording has no structure (no clear point, the payoff
@@ -31,11 +31,7 @@ after.
    unless the user said to just do it.
 3. **Cut the dead air.** Over the whole file:
 
-   ```sh
-   scripts="<retention-editing skill folder>/scripts"
-   "$scripts/pauses.sh" video.mp4 > pauses.txt &&
-     "$scripts/clips.sh" 0 <length> 0.5 0.2 < pauses.txt
-   ```
+   `pauses` with `path: video.mp4, minPause: 0.5, margin: 0.2`.
 
    That keeps everything but pauses over half a second, with 0.2 s either side
    (auto-editor's margin). It's gentler than a short's cut, because long-form

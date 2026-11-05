@@ -14,17 +14,13 @@ punchy reaction can be cut harder than an explanation. See
 
 ## Tools
 
-The scripts are in this skill's `scripts/` folder.
-
-- `pauses.sh <video> [from] [to] [noise dB] [shortest pause]` prints each
-  pause in the sound as `start end length`, in seconds of the source.
-  Defaults: quieter than −35 dB for at least 0.25 s. In a noisy room, use −30.
-- `clips.sh <from> <to> [min pause] [margin]` reads `pauses.sh`'s output and
-  prints `render`'s `clips` as JSON: everything between pauses of at least
-  `min` seconds, keeping `margin` seconds into each pause. A stretch too short
-  to stand alone is joined to the next, pause and all, so no word is lost.
-  `pauses.sh` exits non-zero if ffmpeg can't read the sound; don't run
-  `clips.sh` on its output then.
+- `pauses` (mockingbird's tool) gives each pause in the sound as `start end
+  length`, in seconds of the source: quieter than `noise` dB (default −35)
+  for at least `shortest` seconds (default 0.25). In a noisy room, use −30.
+  Then it gives `render`'s `clips` as JSON: everything between pauses of at
+  least `minPause` seconds, keeping `margin` seconds into each pause. A
+  stretch too short to stand alone is joined to the next, pause and all, so
+  no word is lost. `from` and `to` keep it to one stretch.
 - `transcribe` with `words: true` gives each word's start and end. Keep it to
   a few minutes per call.
 
@@ -32,6 +28,8 @@ Cut from both. Whisper's word times smear across silences (a word's end runs
 into the pause after it), so pauses come from `pauses.sh`, and the words tell
 you what's being said where. In a project, `cut_words` does this for you: it
 cuts words by quoting them, with each cut placed in the measured pause.
+into the pause after it), so pauses come from `pauses`, and the words tell
+you what's being said where.
 
 ## Settings
 
@@ -42,11 +40,8 @@ cuts words by quoting them, with each cut placed in the measured pause.
 | Punch-ins | `zoom` 1.1–1.2 on every other jump cut | the same, for a talking head |
 | A visual change | every few seconds (a cut, a zoom, a caption page, b-roll) | between face and screen, every 20–60 s or at each new point |
 
-```sh
-scripts="<this skill's folder>/scripts"
-"$scripts/pauses.sh" talk.mp4 120 165 > pauses.txt &&
-  "$scripts/clips.sh" 120 165 0.3 0.1 < pauses.txt
-```
+For a short: `pauses` with `path: talk.mp4, from: 120, to: 165, minPause: 0.3,
+margin: 0.1`. For long-form, `minPause: 0.5, margin: 0.2`.
 
 ## What to cut
 
@@ -54,7 +49,7 @@ scripts="<this skill's folder>/scripts"
 - **False starts and retakes**: the speaker starts a sentence, stops, starts
   again. Keep the last full take.
 - **Filler**: Whisper often leaves "um" and "uh" out of the text. A gap between
-  two words that `pauses.sh` doesn't call silence is usually one. Cut it if
+  two words that `pauses` doesn't call silence is usually one. Cut it if
   the clip either side is long enough to stand alone.
 - **Repeats**: the same point made twice; keep the better one.
 - **Wind-up**: "So, basically, what I wanted to say is". Start on the claim.
@@ -82,7 +77,7 @@ without a cut. A `transition` is for a change of place or time, a
 
 ## Check
 
-Render, then measure it with style-match's `measure.sh` (for cuts per minute)
+Render, then count its cuts with `scenes` (cuts per minute)
 and watch the result's first and last seconds and two cuts in the middle via
 `frames`. If it feels breathless, put the 0.1 s back or keep a pause before
 the key line.
