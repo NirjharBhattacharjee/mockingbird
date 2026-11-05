@@ -140,7 +140,8 @@ export function checks(deps: SetupDeps = {}): Check[] {
       ),
     );
     // A pinned model cut short (an empty file, a download stopped halfway) won't load.
-    const inModels = !env.MOCKINGBIRD_ASR_MODEL?.includes("/");
+    // A path (either separator) is outside models/; a bare name is in it.
+    const inModels = !/[\\/]/.test(env.MOCKINGBIRD_ASR_MODEL ?? "");
     if (inModels && !modelThere(mb, speech)) throw new Error(`${speech} is damaged or incomplete`);
   } catch (error) {
     speechOk = false;
