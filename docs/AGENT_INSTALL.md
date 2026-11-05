@@ -129,7 +129,8 @@ Tell the person it's ready, and that they can ask for an edit, for example:
 
 | What you see | What to do |
 |---|---|
-| `mockingbird needs a Mac with Apple Silicon.` | Not supported. Stop. |
+| `mockingbird runs on macOS, Linux and Windows` or `needs a 64-bit ... processor` | Not supported. Stop. |
+| `mockingbird needs git ffmpeg ...` (Linux) | **(person)** Ask them to install those with their package manager (it needs their password), then step 2 again. |
 | `Homebrew is needed first` | See step 1's `brew` check. |
 | `... has local changes, so it wasn't updated` | The person edited `~/mockingbird`. Ask before discarding anything. Never run `git checkout` or `git reset` there on your own. |
 | `error: <step> failed` | Read `~/.mockingbird/logs/install-<step>.log`. For a network error, run step 2 again. |

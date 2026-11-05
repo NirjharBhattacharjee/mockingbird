@@ -51,6 +51,21 @@ long silences keeps it from dropping or inventing passages.
   the encoder twice just to report a language probability (~1.2 s per
   request with `large-v3` on an M3). The first start on a machine takes
   ~15 s while Metal compiles its shaders.
+- **Which whisper-server.** On macOS, Homebrew's `whisper-cpp`, which uses
+  Metal; whisper.cpp ships no macOS server. On Linux (x64, arm64) and
+  Windows (x64), `models pull` downloads whisper.cpp's own CPU build of
+  release b5454 (v1.9.5), checked against a pinned sha256, into
+  `~/.mockingbird/bin`. The CUDA builds are 0.5 GB and need NVIDIA's
+  runtime, so they're not pulled. `MOCKINGBIRD_WHISPER_SERVER` points at
+  another. Time to transcribe `bench/fixtures/hello.wav` (4.5 s) with
+  `base.en`, the whole `mockingbird transcribe` command, best of three:
+
+  | System | whisper-server | Time |
+  |---|---|---|
+  | macOS, Apple M3 | Homebrew, Metal | 0.5 s |
+  | Linux x64 (GitHub `ubuntu-latest`, 4 vCPU) | pulled, CPU | 2.1 s |
+  | Linux arm64 (GitHub `ubuntu-24.04-arm`, 4 vCPU) | pulled, CPU | 3.5 s |
+  | Windows x64 (GitHub `windows-latest`, 4 vCPU) | pulled, CPU | 1.9 s |
 - **`large-v3` over `large-v3-turbo`, because of names.** Turbo's decoder is
   much smaller, and that's where the knowledge of unusual names lives. On
   synthetic speech naming four people, turbo wrote "Nurj Harbada Charjee"
@@ -204,7 +219,8 @@ The spike's script is on #109.
   `large-v3` Q5_0 from a pinned Hugging Face commit and Silero VAD v6.2.2
   from GitHub, prints each URL, and checks each against a pinned sha256
   (`MODEL_FILES` in `apps/daemon/src/models.ts`). An interrupted download is
-  continued, and one that doesn't match is deleted.
+  continued, and one that doesn't match is deleted. whisper-server's build
+  is pinned the same way (`pinnedWhisper` in `apps/daemon/src/runtime.ts`).
 - They're plain files in `~/.mockingbird/models/`; only the chosen file's
   name is in `data.db`.
 

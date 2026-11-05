@@ -22,6 +22,84 @@ jobs:
       # downloaded models; they run locally via `bun run test:integration` for now.
       - run: bun test
 
+  # Linux and Windows (#151), not yet required: macOS-only parts (Core Text,
+  # the Canvas engine, sandbox-exec, launchctl) skip there until they're ported.
+  check-other:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run lint
+      - run: bun test
+
+  # whisper-server pulled by `models pull whisper-server` (#153), then the
+  # whisper-server and transcribe integration tests with base.en, and the time
+  # for one fixed file (MODELS.md §2).
+  transcribe-other:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest]
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    defaults:
+      run:
+        shell: bash
+    env:
+      MOCKINGBIRD_HOME: ${{ github.workspace }}/.mb-home
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun apps/daemon/src/cli.ts models pull whisper-server
+      - name: Models (base.en and the VAD, as the integration tests use)
+        run: |
+          mkdir -p "$MOCKINGBIRD_HOME/models" && cd "$MOCKINGBIRD_HOME/models"
+          curl -fsSLo ggml-base.en.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base.en.bin
+          curl -fsSLo silero_vad.onnx https://github.com/snakers4/silero-vad/raw/v6.2.2/src/silero_vad/data/silero_vad.onnx
+      - name: Put the pulled whisper-server on the PATH
+        run: dirname "$(find "$MOCKINGBIRD_HOME/bin" -name 'whisper-server*' -type f | head -1)" >> "$GITHUB_PATH"
+      # Says what it found; ffmpeg isn't on the runners and isn't needed here.
+      - run: bun apps/daemon/src/cli.ts status || true
+      - run: MOCKINGBIRD_INTEGRATION=1 bun test packages/asr/test/whisper-server.integration.test.ts apps/daemon/test/transcribe.test.ts
+      - name: Time for bench/fixtures/hello.wav
+        run: |
+          for i in 1 2 3; do
+            time MOCKINGBIRD_ASR_MODEL=ggml-base.en.bin bun apps/daemon/src/cli.ts transcribe bench/fixtures/hello.wav > /dev/null
+          done
+
+  cli-other:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: apps/cli
+        shell: bash
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: apps/cli/go.mod
+          cache-dependency-path: apps/cli/go.mod
+      - run: test -z "$(gofmt -l .)"
+      - run: go vet ./...
+      - run: go test ./...
+
   cli:
     runs-on: macos-14
     defaults:
