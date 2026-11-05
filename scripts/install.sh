@@ -15,7 +15,9 @@
 #                   when run from inside a clone)
 # MOCKINGBIRD_HOME  where models/ goes (default ~/.mockingbird)
 # MOCKINGBIRD_CHANNEL  "beta" to also install prereleases (tags like
-#                      v1.2.0-rc.1); anything else installs releases only
+#                      v1.2.0-rc.1); "staging" for the head of the staging
+#                      branch, the build being tried before it reaches main;
+#                      anything else installs releases only
 
 # Everything is inside main, so a download cut short by curl runs nothing.
 main() {
@@ -153,6 +155,13 @@ main() {
       fail "$d has local changes, so it wasn't updated. Commit or discard them, then run this again."
     fi
     git -C "$d" fetch --quiet --tags origin
+    # Staging's command is built per push, as a prerelease tagged staging-<sha>
+    # (release.yml), so get_cli finds it by the tag on the commit.
+    if [ "${MOCKINGBIRD_CHANNEL:-}" = staging ]; then
+      git -C "$d" fetch --quiet origin staging
+      git -C "$d" -c advice.detachedHead=false checkout --quiet FETCH_HEAD
+      return
+    fi
     # Only tags on main: the release workflow refuses any other, so a tag
     # pushed on a branch was never released or checked. A tag with a "-" is a
     # prerelease, skipped unless asked for; versionsort.suffix sorts

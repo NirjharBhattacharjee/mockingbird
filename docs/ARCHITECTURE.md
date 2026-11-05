@@ -523,9 +523,10 @@ v1.0.0 release notes tell anyone still on v0.3.2 to install v0.4.2 first
 5. `dco` (pull requests): every commit carries a `Signed-off-by` line for
    its author ([CONTRIBUTING.md §11](../CONTRIBUTING.md#11-contributor-licensing--dco-not-a-cla)).
 
-**`release.yml`**, on a `v*.*.*` tag:
+**`release.yml`**, on a `v*.*.*` tag (the `production` environment) or a
+push to the `staging` branch (the `staging` environment, #205):
 
-1. Refuse a tag that isn't on `main`.
+1. Refuse a tag that isn't on `main` (tags only).
 2. Rerun the checks on the tagged commit.
 3. Build `apps/cli` for macOS (arm64, x64), Linux (x64, arm64) and
    Windows (x64), as `mockingbird-<os>-<arch>`, with the tag built in.
@@ -535,13 +536,24 @@ v1.0.0 release notes tell anyone still on v0.3.2 to install v0.4.2 first
    prerelease, which the installer only takes with `MOCKINGBIRD_CHANNEL=beta`
    and the tap never does.
 6. Open a PR on `NirjharBhattacharjee/homebrew-mockingbird` with the new
-   `url` and `sha256` (needs the `TAP_TOKEN` secret).
+   `url` and `sha256` (needs the `TAP_TOKEN` secret; not for prereleases or
+   staging).
+
+A push to `staging` publishes steps 2 to 5 as a prerelease tagged
+`staging-<sha>`, never marked latest, and deletes the staging prerelease
+before it. `MOCKINGBIRD_CHANNEL=staging` makes the installers check out the
+head of `staging` and download its command by that tag (or build it with Go
+while the build is still running). Each build has its own tag because moving
+one tag would make `git fetch --tags` fail in every clone that has it. Each
+environment deploys only from its own refs: `production` from `v*` tags,
+`staging` from the `staging` branch.
 
 **`install.yml`**, on a pull request that changes an installer or what it
 runs: `install.sh` on clean Linux x64 and arm64 runners and `install.ps1`
 on Windows (PowerShell 5.1), from the clone, then `mockingbird status`.
 
-**`main` is staging, releases are production.** Rulesets require a pull
+**Production is a release from `main`; staging is the `staging` branch,**
+where open PRs are merged together to be tried for a few days. Rulesets require a pull
 request, squash merges, green `check` and `cli`, and resolved threads on
 `main`, and let only an admin create a `v*` tag.
 
