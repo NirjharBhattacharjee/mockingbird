@@ -12,6 +12,7 @@ import {
   mixGraph,
   moving,
   PROMPTS,
+  pieces,
   renderGraph,
   seekClips,
   spans,
@@ -631,6 +632,34 @@ test("a motion script's sounds mix over the video's own, from input 1, cut to it
   expect(mixGraph([], { speech: false, length: 4, first: 1 })).toEqual([]);
 });
 
+describe("pieces", () => {
+  const keys = () => [0, 60, 120, 180];
+  const all = () => true;
+  const parts = (clips: { from: number; to: number }[], can = all) =>
+    pieces(clips, 30, keys, can).map(({ a, b, copy }) => [a, b, copy]);
+
+  test("copies the whole groups inside a clip and encodes the frames either side", () => {
+    expect(parts([{ from: 1, to: 5 }])).toEqual([
+      [30, 60, false],
+      [60, 120, true],
+      [120, 150, false],
+    ]);
+  });
+
+  test("a clip on keyframes is copied whole", () => {
+    expect(parts([{ from: 2, to: 6 }])).toEqual([[60, 180, true]]);
+  });
+
+  test("a clip with no whole group inside, or that can't be copied, is encoded", () => {
+    expect(parts([{ from: 2.1, to: 3.9 }])).toEqual([[63, 117, false]]);
+    expect(parts([{ from: 1, to: 5 }], () => false)).toEqual([[30, 150, false]]);
+  });
+
+  test("clips are cut to whole frames", () => {
+    expect(parts([{ from: 1.99, to: 4.01 }])).toEqual([[60, 120, true]]);
+  });
+});
+
 describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", () => {
   const run = (args: Record<string, unknown>) => {
     const tool = mcpTools(
@@ -691,6 +720,53 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
       const peak = Number(meter.match(/^\s*Peak:\s+(-?[\d.]+) dBFS/m)?.[1]);
       expect(Math.abs(integrated - -14)).toBeLessThanOrEqual(0.5);
       expect(peak).toBeLessThanOrEqual(-1.5);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  test("stretches already in the output's codec are copied frame for frame, and the edges encoded", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mb-render-"));
+    try {
+      const source = join(dir, "source.mp4");
+      // A keyframe every second, with B-frames, as a camera or OBS records.
+      Bun.spawnSync([
+        ...[
+          "ffmpeg",
+          "-loglevel",
+          "error",
+          "-f",
+          "lavfi",
+          "-i",
+          "testsrc2=size=320x240:rate=30:duration=14",
+        ],
+        ...["-f", "lavfi", "-i", "sine=frequency=440:duration=14"],
+        ...["-c:v", "libx264", "-g", "30", "-bf", "2", "-pix_fmt", "yuv420p", source],
+      ]);
+      const out = join(dir, "out.mp4");
+      await run({
+        path: source,
+        clips: [
+          { from: 1.2, to: 4.7 },
+          { from: 6.1, to: 9, zoom: 1.5 },
+          { from: 10.05, to: 13.3 },
+        ],
+        out,
+      });
+      const hashes = (args: string[]) =>
+        Bun.spawnSync(["ffmpeg", "-v", "error", ...args, "-an", "-f", "framemd5", "-"])
+          .stdout.toString()
+          .split("\n")
+          .filter((l) => l && !l.startsWith("#"))
+          .map((l) => l.split(",").at(-1)?.trim());
+      const made = hashes(["-i", out]);
+      // 105 + 87 + 97 frames, each clip cut to whole frames (10.05 s is frame 302).
+      expect(made.length).toBe(289);
+      // The first clip's keyframes at 2 s and 4 s: frames 24 to 84 of the output are the source's, untouched.
+      expect(made.slice(24, 84)).toEqual(hashes(["-ss", "2", "-i", source, "-frames:v", "60"]));
+      // The output decodes with no errors, where the encoded and copied pieces meet too.
+      const decode = Bun.spawnSync(["ffmpeg", "-v", "error", "-i", out, "-f", "null", "-"]);
+      expect(decode.stderr.toString()).toBe("");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
