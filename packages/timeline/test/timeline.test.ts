@@ -188,6 +188,67 @@ describe("compile and outline", () => {
   });
 });
 
+describe("generated music (#170)", () => {
+  test("a sound takes a generator in place of a path, timed and resolved like a file", () => {
+    const { project: p } = apply(base(), [
+      {
+        op: "add",
+        type: "audio",
+        generator: {
+          generator: "beds/lofi.js",
+          tempo: 80,
+          energy: [
+            [0, 0.2],
+            [6, 0.8],
+          ],
+        },
+        clip: "c2",
+        at: 1,
+        volume: 0.12,
+        duck: true,
+      },
+    ]);
+    const c = compile(p, "/proj");
+    expect(c.length).toBe(10);
+    expect(c.sounds.at(-1)).toEqual({
+      generator: {
+        generator: native("/proj/beds/lofi.js"),
+        tempo: 80,
+        energy: [
+          [0, 0.2],
+          [6, 0.8],
+        ],
+      },
+      at: 7,
+      volume: 0.12,
+      loop: false,
+      duck: true,
+    });
+    expect(outline(p, "/proj/edit.json")).toContain("a2  0:07.00  music lofi.js volume 0.12 duck");
+  });
+
+  test("a sound needs a path or a generator, and a generator's arguments are checked", () => {
+    const sound = (s: object) =>
+      check({ version: 1, clips: [], texts: [], inserts: [], audio: [{ id: "a1", at: 0, ...s }] });
+    expect(() => sound({})).toThrow("needs a path or a generator");
+    expect(() => sound({ path: "m.wav", generator: { generator: "g.js" } })).toThrow("not both");
+    expect(() => sound({ generator: { generator: "g.wav" } })).toThrow("must be a .js module");
+    expect(() => sound({ generator: { generator: "g.js", tempo: 500 } })).toThrow("tempo");
+    expect(() =>
+      sound({
+        generator: {
+          generator: "g.js",
+          energy: [
+            [2, 0.5],
+            [1, 0.5],
+          ],
+        },
+      }),
+    ).toThrow("time order");
+    expect(() => sound({ generator: { generator: "g.js", mood: "sad" } })).toThrow("mood");
+  });
+});
+
 describe("edit", () => {
   test("makes the file, saves ops, and leaves a bad file alone", () => {
     const dir = mkdtempSync(join(tmpdir(), "timeline-"));

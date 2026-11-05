@@ -24,6 +24,7 @@ import {
   union,
   wordCaptions,
 } from "../src/mcp.ts";
+import { findChrome } from "../src/models.ts";
 
 const echo = {
   name: "echo",
@@ -661,6 +662,61 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
         ...["-of", "csv=p=0", file],
       ]).stdout.toString(),
     );
+
+  // Needs the pinned Chrome (or MOCKINGBIRD_CHROME), which generates the bed.
+  test.skipIf(!findChrome())(
+    "a project's generated bed is made once and kept, and its sound renders alone (#170)",
+    async () => {
+      const dir = mkdtempSync(join(tmpdir(), "mb-bed-"));
+      const home = process.env.MOCKINGBIRD_HOME;
+      try {
+        process.env.MOCKINGBIRD_HOME = join(dir, "home");
+        const talk = join(dir, "talk.mp4");
+        Bun.spawnSync([
+          ...[
+            "ffmpeg",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=320x240:rate=30:d=4",
+          ],
+          ...["-f", "lavfi", "-i", "sine=frequency=220:duration=4", "-pix_fmt", "yuv420p", talk],
+        ]);
+        const project = join(dir, "edit.json");
+        const generator = join(import.meta.dir, "../../../plugin/skills/music/generators/lofi.js");
+        const edit = mcpTools(
+          async () => ({}),
+          () => {},
+        ).find((t) => t.name === "edit");
+        await edit?.run({
+          project,
+          ops: [
+            { op: "add", type: "clip", path: talk, from: 0, to: 4 },
+            { op: "add", type: "audio", generator: { generator, tempo: 90 }, volume: 0.2 },
+          ],
+        });
+        const sound = String(await run({ project, sound: true }));
+        expect(sound).toContain("edit-sound-1.m4a");
+        const streams = Bun.spawnSync([
+          ...["ffprobe", "-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0"],
+          join(dir, "edit-sound-1.m4a"),
+        ]).stdout.toString();
+        expect(streams.trim()).toBe("audio");
+        const beds = join(dir, "home", "cache", "music");
+        expect(readdirSync(beds)).toHaveLength(1);
+        await run({ project });
+        expect(readdirSync(beds)).toHaveLength(1);
+        expect(seconds(join(dir, "edit-render-1.mp4"))).toBeCloseTo(4, 1);
+      } finally {
+        if (home === undefined) delete process.env.MOCKINGBIRD_HOME;
+        else process.env.MOCKINGBIRD_HOME = home;
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+    120_000,
+  );
 
   test("a quiet recording comes out at -14 LUFS, its peaks under -1.5 dBTP", async () => {
     const dir = mkdtempSync(join(tmpdir(), "mb-render-"));

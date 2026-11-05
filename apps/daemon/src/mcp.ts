@@ -906,12 +906,13 @@ function claimAll(video: string, sidecar: boolean): boolean {
   return both;
 }
 
-/** `out`, or `<name>-<kind>-N.mp4` next to the source with the first N that's free; claimed. */
+/** `out`, or `<name>-<kind>-N.mp4` (or `ext`) next to the source with the first N that's free; claimed. */
 function outputFor(
   path: string,
   out: string | undefined,
   sidecar: boolean,
   kind = "short",
+  ext = ".mp4",
 ): string {
   if (out) {
     if (!claimAll(out, sidecar)) {
@@ -923,7 +924,7 @@ function outputFor(
   }
   const base = join(dirname(path), basename(path, extname(path)));
   for (let n = 1; ; n++) {
-    if (claimAll(`${base}-${kind}-${n}.mp4`, sidecar)) return `${base}-${kind}-${n}.mp4`;
+    if (claimAll(`${base}-${kind}-${n}${ext}`, sidecar)) return `${base}-${kind}-${n}${ext}`;
   }
 }
 
@@ -1165,6 +1166,7 @@ async function render(
     named = path,
     kind = "short",
     draft = false,
+    soundOnly = false,
   }: {
     size?: string;
     fps?: number;
@@ -1181,6 +1183,8 @@ async function render(
     kind?: string;
     /** Half the size, encoded as fast as x264 goes: a preview to check the edit with. */
     draft?: boolean;
+    /** The sound alone, as an .m4a: the picture is built but not encoded (#170). */
+    soundOnly?: boolean;
   },
 ): Promise<string> {
   requireFile(path, "File");
@@ -1244,6 +1248,7 @@ async function render(
         named,
         kind,
         draft,
+        soundOnly,
       });
     } finally {
       rmSync(batches, { recursive: true, force: true });
@@ -1267,7 +1272,7 @@ async function render(
       : undefined;
     const burn = !!text && !images && (await canBurn());
     sidecar = !!text && !images && !burn;
-    target = outputFor(named, out, sidecar, kind);
+    target = outputFor(named, out, sidecar, kind, soundOnly ? ".m4a" : ".mp4");
     const srt = text && !images ? join(dir, CAPTIONS) : undefined;
     if (srt) writeFileSync(srt, `${text}\n`);
     const graph = renderGraph(shaped, {
@@ -1290,7 +1295,12 @@ async function render(
       ...sounds.flatMap((s) => [...(s.loop ? ["-stream_loop", "-1"] : []), "-i", s.path]),
     ];
     const hasSound = audio || sounds.length > 0;
+    if (soundOnly && !hasSound) throw new Error("This edit has no sound to render on its own.");
     const unlevelled = join(dir, "unlevelled.mkv");
+    // The sound alone still runs the picture's graph, into ffmpeg's null output: unencoded, it costs little.
+    const picture = soundOnly
+      ? ["-map", "[a]", "-c:a", "pcm_f32le", unlevelled, "-map", "[v]", "-f", "null", "-"]
+      : undefined;
     const proc = Bun.spawn(
       [
         "ffmpeg",
@@ -1301,17 +1311,21 @@ async function render(
         ...(draft
           ? ["-filter_complex", `${graph};[v]scale=trunc(iw/4)*2:trunc(ih/4)*2,setsar=1[small]`]
           : ["-filter_complex", graph]),
-        ...["-map", draft ? "[small]" : "[v]"],
-        // Uncompressed until `level` sets the volume, and in floating point:
-        // music and effects mixed over speech can go past full scale, which
-        // 16-bit samples would clip before the limiter could hold it.
-        ...(hasSound ? ["-map", "[a]", "-c:a", "pcm_f32le"] : []),
-        // The subtitle file is the input after the clips and the extras.
-        ...(sidecar ? ["-map", `${clips.length + extras.filter((a) => a === "-i").length}:s`] : []),
-        ...(sidecar ? ["-c:s", "srt"] : []),
-        ...["-c:v", "libx264", "-crf", draft ? "23" : "18"],
-        ...["-preset", draft ? "ultrafast" : "veryfast", "-pix_fmt", "yuv420p"],
-        unlevelled,
+        ...(picture ?? [
+          ...["-map", draft ? "[small]" : "[v]"],
+          // Uncompressed until `level` sets the volume, and in floating point:
+          // music and effects mixed over speech can go past full scale, which
+          // 16-bit samples would clip before the limiter could hold it.
+          ...(hasSound ? ["-map", "[a]", "-c:a", "pcm_f32le"] : []),
+          // The subtitle file is the input after the clips and the extras.
+          ...(sidecar
+            ? ["-map", `${clips.length + extras.filter((a) => a === "-i").length}:s`]
+            : []),
+          ...(sidecar ? ["-c:s", "srt"] : []),
+          ...["-c:v", "libx264", "-crf", draft ? "23" : "18"],
+          ...["-preset", draft ? "ultrafast" : "veryfast", "-pix_fmt", "yuv420p"],
+          unlevelled,
+        ]),
       ],
       { cwd: dir, stderr: "pipe" },
     );
@@ -2025,13 +2039,69 @@ async function proxied(clips: Clip[]): Promise<Clip[]> {
  * its size, with captions made for the cut as it is now and everything on
  * it timed from its clips. Saved beside the project as `<name>-render-N.mp4`.
  */
-async function renderProject(file: string, log: (m: string) => void, out?: string, draft = false) {
+/**
+ * A project's generated sounds made into WAVs (#170), each as long as the
+ * video from where it starts, and kept under ~/.mockingbird/cache/music/ by
+ * the generator's folder of modules and its arguments, so a render after an
+ * edit doesn't generate the same bed again.
+ */
+async function beds(
+  cut: ReturnType<typeof compile>,
+  log: (m: string) => void,
+): Promise<(Sound & { path: string })[]> {
+  const out: (Sound & { path: string })[] = [];
+  for (const { generator: g, path: file, ...rest } of cut.sounds) {
+    if (!g) {
+      out.push({ ...rest, path: file ?? "" });
+      continue;
+    }
+    const script = requireFile(g.generator, "Generator");
+    const params = {
+      duration: Math.min(
+        MOTION_MAX_SECONDS,
+        Math.max(1, Math.round((cut.length - rest.at) * 1000) / 1000),
+      ),
+      seed: g.seed ?? 1,
+      tempo: g.tempo,
+      key: g.key,
+      energy: g.energy,
+    };
+    // The generator imports its neighbours (lib.js), so all of them are in the key.
+    const hash = createHash("sha256").update(JSON.stringify([1, params]));
+    const folder = dirname(script);
+    for (const f of readdirSync(folder)
+      .filter((f) => /\.m?js$/i.test(f))
+      .sort()) {
+      hash.update(f).update(readFileSync(join(folder, f)));
+    }
+    hash.update(basename(script));
+    const wav = join(mockingbirdHome(), "cache", "music", `${hash.digest("hex").slice(0, 32)}.wav`);
+    if (existsSync(wav)) {
+      log(`${basename(script)}: reusing the bed made before`);
+    } else {
+      mkdirSync(dirname(wav), { recursive: true });
+      log(`${basename(script)}: generating ${params.duration.toFixed(1)} s of music`);
+      await music(script, wav, params);
+    }
+    out.push({ ...rest, path: wav });
+  }
+  return out;
+}
+
+async function renderProject(
+  file: string,
+  log: (m: string) => void,
+  out?: string,
+  draft = false,
+  soundOnly = false,
+) {
   const { project, created } = load(file);
   if (created) throw new Error(`No project at ${file}; make one with \`edit\`.`);
   const cut = compile(project, dirname(file));
   const first = cut.clips[0]?.path;
   if (!first) throw new Error(`${file} has no clips yet; add some with \`edit\`.`);
-  const said = cut.captions ? await cutCaptions(cut, log, cut.captions) : undefined;
+  // The sound alone needs nothing drawn, so nothing is transcribed for captions.
+  const said = cut.captions && !soundOnly ? await cutCaptions(cut, log, cut.captions) : undefined;
   // A draft reads 4K from proxies; its size is still the source's, not the proxy's.
   const clips = draft ? await proxied(cut.clips) : cut.clips;
   return render(clips[0]?.path ?? first, clips, {
@@ -2040,13 +2110,14 @@ async function renderProject(file: string, log: (m: string) => void, out?: strin
     split: cut.split,
     captions: said,
     captionsY: cut.captions?.y ?? CAPTIONS_Y,
-    texts: cut.texts,
-    inserts: cut.inserts,
-    sounds: cut.sounds,
+    texts: soundOnly ? [] : cut.texts,
+    inserts: soundOnly ? [] : cut.inserts,
+    sounds: await beds(cut, log),
     out,
     named: file,
-    kind: draft ? "draft" : "render",
+    kind: soundOnly ? "sound" : draft ? "draft" : "render",
     draft,
+    soundOnly,
   });
 }
 
@@ -2172,7 +2243,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
 - {op:"add", type:"clip", path, from, to, focus?:{x,y}, zoom?, speed?, moves?, transition?, lead?, index?}: on the main track, which plays in order with no gaps (default at the end). speed: 0.25-4. moves: [{at, focus?, zoom?, ease?}], the framing by \`at\` seconds into the clip, eased ("smooth", or "linear") from the one before: a slow push-in, a move to the other speaker. transition: {type, duration}, how the clip comes in over the end of the one before: ffmpeg xfade's fade, fadeblack, fadewhite, dissolve, wipe*, slide*, smooth*, circleopen, zoomin and others. lead: a J cut (positive: the clip's sound starts that many seconds before its picture) or an L cut (negative: the clip before's sound carries on over its picture)
 - {op:"add", type:"text", text, from, to, clip?, y?}: drawn like the captions, *words* yellow
 - {op:"add", type:"insert", path, from, to, clip?}: a picture or video over the whole frame (b-roll)
-- {op:"add", type:"audio", path, at?, clip?, volume?, loop?, duck?}: music or a sound effect under the speech
+- {op:"add", type:"audio", path, at?, clip?, volume?, loop?, duck?}: music or a sound effect under the speech. Or generated music in place of path: generator:{generator:"/abs/lofi.js", tempo?, key?, energy?, seed?} (a music generator; the bed is made at render time, as long as the video from at, and kept, so it isn't made again)
 - {op:"remove", id}: a clip goes with everything on it, and the cut closes up
 - {op:"split", id, at}: a clip in two at a source time; what's on the second half moves with it
 - {op:"trim", id, from?, to?}: a clip's source times; what's on it stays on the same picture
@@ -2203,6 +2274,11 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
       inputSchema: {
         type: "object",
         properties: {
+          sound: {
+            type: "boolean",
+            description:
+              "A project's sound alone, as <name>-sound-N.m4a at -14 LUFS, to check the mix (speech, music, effects) without rendering the picture",
+          },
           draft: {
             type: "boolean",
             description:
@@ -2309,7 +2385,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
       run: (a) => {
         const out = a.out === undefined ? undefined : resolve(String(a.out));
         if (a.project !== undefined) {
-          return renderProject(resolve(String(a.project)), log, out, !!a.draft);
+          return renderProject(resolve(String(a.project)), log, out, !!a.draft, !!a.sound);
         }
         if (a.path === undefined) throw new Error("Give a `project`, or a `path` and `clips`.");
         return render(
