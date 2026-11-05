@@ -56,7 +56,7 @@ after the curl install, or `/opt/homebrew/bin/mockingbird` with Homebrew.
 | `motion(script, path, captions, size, duration, fps, out)` | Motion graphics written as code: an HTML page rendered in a pinned headless Chrome; see [Motion graphics](#motion-graphics). Saves to `out`, or `<name>-motion-N.mp4` beside the video or script, and never overwrites a file. |
 | `motion(script, path, captions, size, duration, fps, out)` | Motion graphics written as code: an HTML page rendered in a pinned headless Chrome, or a canvas script drawn with Core Graphics; see [Motion graphics](#motion-graphics). Saves to `out`, or `<name>-motion-N.mp4` beside the video or script, and never overwrites a file. |
 | `music(script, duration, out, tempo, key, energy, seed)` | Background music written as code: a generator module played into Web Audio's `OfflineAudioContext` in the pinned headless Chrome, saved as a WAV at −14 LUFS for `render`'s `audio`; see [Music](#music). Never overwrites a file. |
-| `guide(topic)` | A playbook for one job, from [`plugin/`](../plugin/README.md): `viral-short`, `long-form`, `hooks`, `retention-editing`, `captions`, `motion-graphics`, `style-match`, or `reviewer` (the checks a finished video has to pass). It starts with the folder holding the playbook's scripts, kit and templates. |
+| `guide(topic)` | A playbook for one job, from [`plugin/`](../plugin/README.md): `viral-short`, `long-form`, `hooks`, `retention-editing`, `captions`, `motion-graphics`, `music`, `style-match`, or `reviewer` (the checks a finished video has to pass). It starts with the folder holding the playbook's scripts, kit and templates. |
 | `status` | Whether mockingbird is ready: the transcription model in use, the speech detection model, ffmpeg, whisper-server, the Chrome that `motion` renders HTML in, and how many words the dictionary has. |
 | `dictionary_list` | Your dictionary: the names, places and jargon mockingbird spells a particular way. |
 | `dictionary_add(entry)` | Adds a word, like `mockingbird dictionary add`: `"Catppuccin"`, `"Catppuccin (a colour theme)"`, or `"cat puck => Catppuccin"`. |
@@ -438,10 +438,10 @@ export default function (ctx, { duration, tempo = 80, key, energy, seed }) {
   macOS's sandbox with the network denied.
 
 The plugin's generators are in `plugin/skills/music/generators/`, with the
-instruments they share in `lib.js`. Today that's `lofi.js`: swung drums,
-electric-piano seventh chords, a bass, tape flutter and vinyl crackle;
-energy adds the drums at 0.25, the snare and bass at 0.45, and a melody
-at 0.7.
+instruments they share in `lib.js`: `lofi.js`, `ambient.js`,
+`corporate.js`, `cinematic.js` and `electronic.js`. Each reads `tempo`,
+`key` and `energy`, and energy brings its layers in as it rises. Which one
+suits which video, and how to draw the curve, is in `guide("music")`.
 
 ## Without MCP
 
