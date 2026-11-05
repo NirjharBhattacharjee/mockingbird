@@ -37,7 +37,7 @@ import { audioStats } from "./audio-stats.ts";
 import { addEntries, formatEntry, readDictionary } from "./dictionary.ts";
 import { catalog, checkEffects, type Effect, effectFilters } from "./effects.ts";
 import { guide, INSTRUCTIONS, playbooks } from "./guide.ts";
-import { findChrome } from "./models.ts";
+import { findChrome, fontFaces } from "./models.ts";
 import { clipsFrom, findPauses, measure } from "./pauses.ts";
 import {
   asrChoice,
@@ -1523,7 +1523,7 @@ async function render(
     const chrome = lines.length ? findChrome() : undefined;
     const wrap = noNetwork();
     const images = chrome
-      ? await drawCaptions(lines, dir, width ?? 1080, height, { chrome, wrap })
+      ? await drawCaptions(lines, dir, width ?? 1080, height, { chrome, wrap, fonts: fontFaces() })
       : undefined;
     const burn = !!text && !images && (await canBurn());
     sidecar = !!text && !images && !burn;
@@ -1785,6 +1785,7 @@ async function motion(
     video: path,
     audio,
     cues: captions?.trim() ? parseSrt(captions) : [],
+    fonts: fontFaces(),
   };
   let said: string;
   try {

@@ -18,6 +18,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
+| 2026-11-05 | Fonts ship with Chrome (#156): `models pull chrome` also downloads Inter, Charis SIL, JetBrains Mono and Noto for Bengali, Devanagari, Arabic, Hebrew, Thai, Tamil and CJK (OFL, pinned, [NOTICE.md](../NOTICE.md)); captions and pages use them by name, so a Bengali caption or a CJK title is drawn the same with or without the system's fonts. |
 | 2026-11-05 | A motion page can't reach the network on Linux or Windows either (#157): Chrome resolves no host name and sends the rest to a dead proxy, each tab blocks http and ws URLs, and on Linux the runner starts in a network namespace where one can be made. Chrome is pinned for Linux x64 and Windows x64. |
 | 2026-11-06 | Effects catalog, phase 1 (#197): one `effects` catalog (`apps/daemon/src/effects.ts`) instead of a tool per effect, put on a clip's picture or sound after its framing; color, LUT, vignette, sharpen, blur, denoise, high-pass, compressor, de-esser; `scopes` measures a picture for grading. |
 | 2026-11-06 | A project's overlays (#163): an HTML page on a clip, rendered alone with its transparency (ProRes 4444) and laid over the cut, cached in `~/.mockingbird/cache/overlays/`. A project sound can be a music generator (#170), its bed made at render time and cached in `~/.mockingbird/cache/music/`; `render(project, sound: true)` saves the mix alone as an .m4a. |
@@ -335,7 +336,7 @@ MCP server is its own short-lived process.
 - **No account, no login, no license server.**
 - **The only network activity is a download the user runs**
   (`mockingbird models pull`, and `models pull chrome` for the headless
-  Chrome), which names each URL and checks each file's sha256. On Linux and
+  Chrome and its fonts), which names each URL and checks each file's sha256. On Linux and
   Windows `models pull` also downloads whisper.cpp's own whisper-server
   build (release b5454, pinned sha256) into `~/.mockingbird/bin`.
   `mockingbird setup` runs the same downloads only after showing their size

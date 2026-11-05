@@ -90,7 +90,9 @@ Enforced by [ARCHITECTURE.md §9](./ARCHITECTURE.md#9-everything-is-local):
   prints each URL and checks each file against a pinned sha256: the speech
   models, and on Linux and Windows whisper.cpp's whisper-server build.
   `models pull chrome` fetches the headless Chrome that `motion`, `music`
-  and captions render in, checked the same way. `mockingbird setup` runs
+  and captions render in, with the open-licensed fonts pages and captions
+  use, from google/fonts on GitHub ([NOTICE.md](../NOTICE.md)), checked
+  the same way. `mockingbird setup` runs
   the same downloads after showing their size and hosts, and `brew install`
   for a missing ffmpeg or whisper-cpp after naming them; each only on a yes
   (or `--yes`). Homebrew fetches and checks its own downloads. No update

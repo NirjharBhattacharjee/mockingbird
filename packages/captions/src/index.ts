@@ -1,6 +1,6 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type Chrome, launchChrome } from "@mockingbird/motion";
+import { type Chrome, launchChrome, type PageFont, pageFonts } from "@mockingbird/motion";
 
 /** One caption: its text, and when it shows, in seconds. */
 export type Cue = { start: number; end: number; text: string };
@@ -52,6 +52,21 @@ const WIDE_LINE = 0.6;
 /** The colour of a word written `*like this*`: the spoken word in word-by-word captions. */
 const HIGHLIGHT = "rgb(255, 214, 0)";
 
+/**
+ * Inter, then Noto for scripts Inter lacks, then whatever the system has.
+ * ponytail: Chinese, Japanese and Korean share Han characters; SC comes
+ * first, so a Japanese caption's kanji take Chinese shapes. Pick by the
+ * caption's language if that matters.
+ */
+const FAMILIES = [
+  "Inter",
+  ...["Bengali", "Devanagari", "Arabic", "Hebrew", "Thai", "Tamil", "SC", "JP", "KR"].map(
+    (script) => `"Noto Sans ${script}"`,
+  ),
+  "system-ui",
+  "sans-serif",
+].join(",");
+
 /** A word, and whether it's highlighted. */
 type Piece = { text: string; lit: boolean };
 
@@ -76,15 +91,20 @@ export function pieces(text: string): Piece[][] {
  * like a Japanese sentence with no spaces, breaks between characters.
  *
  * It's drawn as HTML in the headless Chrome at `chrome`, so captions look
- * the same on every OS; `wrap` starts Chrome inside a sandbox. Returns the
- * files in order, or undefined if they can't be drawn.
+ * the same on every OS; `wrap` starts Chrome inside a sandbox, and `fonts`
+ * are the ones mockingbird ships (#156). Returns the files in order, or
+ * undefined if they can't be drawn.
  */
 export async function drawCaptions(
   texts: string[],
   dir: string,
   side: number,
   height = (side * 16) / 9,
-  { chrome: chromePath, wrap }: { chrome?: string; wrap?: string[] } = {},
+  {
+    chrome: chromePath,
+    wrap,
+    fonts = [],
+  }: { chrome?: string; wrap?: string[]; fonts?: PageFont[] } = {},
 ): Promise<string[] | undefined> {
   if (!chromePath) return undefined;
   const tall = height >= side;
@@ -94,8 +114,10 @@ export async function drawCaptions(
   let chrome: Chrome | undefined;
   try {
     chrome = await launchChrome(chromePath, { wrap });
+    // A file page when there are fonts, since only one may load them from disk.
+    const folder = fonts[0] ? new URL(".", fonts[0].url).href : "about:blank";
     const { targetId } = await chrome.send<{ targetId: string }>("Target.createTarget", {
-      url: "about:blank",
+      url: folder,
     });
     const { sessionId } = await chrome.send<{ sessionId: string }>("Target.attachToTarget", {
       targetId,
@@ -119,7 +141,7 @@ export async function drawCaptions(
       "box-sizing:border-box",
       `padding:${outline}px ${margin}px`,
       "text-align:center",
-      `font:700 ${size}px/normal system-ui,sans-serif`,
+      `font:700 ${size}px/normal ${FAMILIES}`,
       "color:#fff",
       `-webkit-text-stroke:${outline}px #000`,
       "paint-order:stroke fill",
@@ -132,6 +154,8 @@ export async function drawCaptions(
         awaitPromise: true,
         returnByValue: true,
         expression: `(async () => {
+          if (!document.fonts.size) { ${pageFonts(fonts)} }
+          while (document.readyState !== "complete") await new Promise((r) => setTimeout(r, 10));
           document.body.style.margin = "0";
           const box = document.createElement("div");
           box.style.cssText = ${JSON.stringify(style)};
