@@ -66,10 +66,11 @@ describe("agents", () => {
       join(h, ".cursor", "mcp.json"),
       JSON.stringify({ mcpServers: { mockingbird: { command: "C:\\gone\\mockingbird.exe" } } }),
     );
-    // Found on the PATH by name, but the path it names doesn't exist: not registered.
-    const cursor = agents("mb", { home: h, which: () => "/usr/bin/x" }).find(
-      (a) => a.name === "Cursor",
-    );
+    // `which` finds it, as the old check looked it up by name; but the path it
+    // names doesn't exist, so it isn't registered. Nothing else is found, so no
+    // agent's own command (claude) is run.
+    const which = (name: string) => (name.includes("\\") ? "/usr/bin/x" : null);
+    const cursor = agents("mb", { home: h, which }).find((a) => a.name === "Cursor");
     expect(cursor?.registered).toBe(false);
   });
 
