@@ -59,7 +59,10 @@ export const TRANSITIONS = [
  * One stretch of a source on the main track: `from`/`to` are seconds in
  * that source. Clips play in order with no gaps, unless one comes in with a
  * `transition` over the end of the one before. `speed` plays it faster or
- * slower (0.25 to 4), and `moves` change its framing as it plays.
+ * slower (0.25 to 4), and `moves` change its framing as it plays. `lead`
+ * moves the sound's cut away from the picture's: positive, its sound starts
+ * that many seconds before its picture (a J cut); negative, the clip
+ * before's sound carries on that long over its picture (an L cut).
  */
 export type Clip = {
   id: string;
@@ -71,6 +74,7 @@ export type Clip = {
   speed?: number;
   moves?: Move[];
   transition?: Transition;
+  lead?: number;
 };
 
 /** How long a clip lasts in the finished video. */
@@ -198,7 +202,7 @@ function area(v: unknown, what: string): Area {
   return a;
 }
 
-const CLIP = ["id", "path", "from", "to", "focus", "zoom", "speed", "moves", "transition"];
+const CLIP = ["id", "path", "from", "to", "focus", "zoom", "speed", "moves", "transition", "lead"];
 const TEXT = ["id", "text", "clip", "from", "to", "y"];
 const INSERT = ["id", "path", "clip", "from", "to"];
 const SOUND = ["id", "path", "clip", "at", "volume", "loop", "duck"];
@@ -235,6 +239,7 @@ function clip(v: unknown, what: string): Clip {
         });
       });
     }),
+    lead: maybe(o.lead, (n) => num(n, `${what}.lead`, -5, 5)),
     transition: maybe(o.transition, (t) => {
       const r = obj(t, `${what}.transition`, ["type", "duration"]);
       if (!TRANSITIONS.includes(String(r.type))) {
@@ -356,6 +361,21 @@ export function check(v: unknown): Project {
     inserts: list("inserts").map((t, i) => insert(t, `inserts[${i}]`)),
     audio: list("audio").map((t, i) => sound(t, `audio[${i}]`)),
   });
+  for (const [i, c] of p.clips.entries()) {
+    if (!c.lead) continue;
+    const before = p.clips[i - 1];
+    if (!before) fail(`clips[0] can't have a lead: no cut comes before it`);
+    if (c.transition)
+      fail(`clips[${i}] has a transition and a lead; a transition already blends the sound`);
+    // Each clip's sound runs from its own lead to the next clip's; it can't run out.
+    const after = p.clips[i + 1]?.lead ?? 0;
+    if (
+      lengthOf(c) + c.lead - after <= 0 ||
+      lengthOf(before as Clip) - c.lead + (before?.lead ?? 0) <= 0
+    ) {
+      fail(`clips[${i}].lead is ${c.lead} s, more than ${c.id} or the clip before it lasts`);
+    }
+  }
   for (const [i, c] of p.clips.entries()) {
     if (!c.transition) continue;
     const before = p.clips[i - 1];
@@ -719,6 +739,7 @@ function step(p: Project, raw: unknown, what: string, notes: string[], words?: W
       const offset = (at - c.from) / (c.speed ?? 1);
       const second: Clip = { ...c, id, from: at };
       delete second.transition;
+      delete second.lead;
       if (c.moves?.length) {
         // The second half starts framed as the first half was there, and keeps the moves after.
         Object.assign(second, framing(c, offset));
@@ -880,6 +901,7 @@ export function outline(p: Project, file: string): string {
     const start = at.get(c.id) ?? 0;
     const look = [
       c.transition ? `  ${c.transition.type} in ${short(c.transition.duration)} s` : "",
+      c.lead ? `  ${c.lead > 0 ? "J" : "L"} cut ${short(Math.abs(c.lead))} s` : "",
       c.speed && c.speed !== 1 ? `  speed ${short(c.speed)}x` : "",
       c.focus ? `  focus ${short(c.focus.x)},${short(c.focus.y)}` : "",
       c.zoom && c.zoom !== 1 ? `  zoom ${short(c.zoom)}` : "",
@@ -909,6 +931,8 @@ export type Compiled = {
     speed?: number;
     moves?: Move[];
     transition?: Transition;
+    /** The stretch of the source its sound comes from, where a J or L cut moves it off the picture's. */
+    sound?: { from: number; to: number };
   }[];
   texts: { text: string; from: number; to: number; y?: number }[];
   inserts: { path: string; from: number; to: number }[];
@@ -925,7 +949,16 @@ export function compile(p: Project, dir: string): Compiled {
   const base = (clip?: string) => (clip === undefined ? 0 : (at.get(clip) ?? 0));
   const path = (f: string) => resolve(dir, f);
   return clean({
-    clips: p.clips.map(({ id, path: f, ...rest }) => clean({ path: path(f), ...rest })),
+    clips: p.clips.map(({ id, path: f, lead, ...rest }, i) => {
+      // A lead in finished seconds is that much source at the clip's speed.
+      const speed = rest.speed ?? 1;
+      const next = p.clips[i + 1]?.lead ?? 0;
+      const sound =
+        lead || next
+          ? { from: ms(rest.from - (lead ?? 0) * speed), to: ms(rest.to - next * speed) }
+          : undefined;
+      return clean({ path: path(f), ...rest, sound });
+    }),
     texts: p.texts.map(({ text, clip, from, to, y }) =>
       clean({ text, from: base(clip) + from, to: base(clip) + to, y }),
     ),

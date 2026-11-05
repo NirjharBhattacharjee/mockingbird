@@ -447,3 +447,53 @@ describe("speed, moves and transitions", () => {
     ).toThrow("longer than c2 or the clip before it");
   });
 });
+
+describe("J and L cuts", () => {
+  const cuts = () =>
+    check({
+      version: 1,
+      clips: [
+        { id: "c1", path: "a.mp4", from: 10, to: 14 },
+        { id: "c2", path: "b.mp4", from: 20, to: 24, lead: 0.5 },
+        { id: "c3", path: "a.mp4", from: 30, to: 34, speed: 2, lead: -0.5 },
+      ],
+    });
+
+  test("a lead moves each clip's sound off its picture, in its own source's time", () => {
+    const [c1, c2, c3] = compile(cuts(), "/").clips;
+    // c2's sound starts 0.5 s early, so c1's stops 0.5 s early.
+    expect(c1?.sound).toEqual({ from: 10, to: 13.5 });
+    // c3's L cut: c2's sound runs 0.5 s past its picture.
+    expect(c2?.sound).toEqual({ from: 19.5, to: 24.5 });
+    // c3's starts 0.5 s late, which at 2x is 1 s of its source.
+    expect(c3?.sound).toEqual({ from: 31, to: 34 });
+    expect(outline(cuts(), "/e.json")).toContain("c2  0:04.00-0:08.00  b.mp4 20-24  J cut 0.5 s");
+    expect(outline(cuts(), "/e.json")).toContain("L cut 0.5 s");
+  });
+
+  test("a split keeps the lead on the first half, where the cut is", () => {
+    const { project } = apply(cuts(), [{ op: "split", id: "c2", at: 22 }]);
+    expect(project.clips[1]?.lead).toBe(0.5);
+    expect(project.clips[2]?.lead).toBeUndefined();
+  });
+
+  test("refuses a lead on the first clip, with a transition, or longer than the clips", () => {
+    const two =
+      (lead: number, extra = {}) =>
+      () =>
+        check({
+          version: 1,
+          clips: [
+            { id: "c1", path: "a", from: 0, to: 2 },
+            { id: "c2", path: "a", from: 5, to: 7, lead, ...extra },
+          ],
+        });
+    expect(() =>
+      check({ version: 1, clips: [{ id: "c1", path: "a", from: 0, to: 2, lead: 1 }] }),
+    ).toThrow("can't have a lead");
+    expect(two(0.5, { transition: { type: "fade", duration: 0.5 } })).toThrow(
+      "a transition and a lead",
+    );
+    expect(two(2.5)).toThrow("more than c2 or the clip before it lasts");
+  });
+});
