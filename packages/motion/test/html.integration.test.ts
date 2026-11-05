@@ -2,6 +2,8 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { launchChrome } from "../src/chrome.ts";
 import { renderHtml } from "../src/index.ts";
 
 /** MOCKINGBIRD_CHROME, or the one `mockingbird models pull chrome` put in ~/.mockingbird/bin. */
@@ -19,6 +21,7 @@ function chrome(): string {
   throw new Error("No Chrome: run `mockingbird models pull chrome`, or set MOCKINGBIRD_CHROME.");
 }
 
+const chromePath = () => chrome();
 const dir = mkdtempSync(join(tmpdir(), "html-motion-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -214,6 +217,55 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("renderHtml (integration)"
         duration: 1,
       }),
     ).rejects.toThrow(`couldn't load ${remote}`);
+  }, 60_000);
+
+  test("any tab launchChrome opens is covered, with no setup of its own (#157)", async () => {
+    // As music.ts and drawCaptions open theirs: a tab, and code run in it.
+    let hits = 0;
+    const server = Bun.serve({
+      port: 0,
+      fetch: () => {
+        hits++;
+        return new Response("reached");
+      },
+    });
+    const js = join(dir, "mod.js");
+    writeFileSync(js, "export default 1;");
+    const remote =
+      process.platform === "win32"
+        ? `file://127.0.0.1/${js[0]}$/${js.slice(3).replaceAll("\\", "/")}`
+        : "file://127.0.0.1/etc/hosts";
+    // A page at the module's own address, as music.ts opens one, so it may import itself.
+    const local = pathToFileURL(js).href;
+    const chrome = await launchChrome(chromePath());
+    try {
+      const { targetId } = await chrome.send<{ targetId: string }>("Target.createTarget", {
+        url: local,
+      });
+      const { sessionId } = await chrome.send<{ sessionId: string }>("Target.attachToTarget", {
+        targetId,
+        flatten: true,
+      });
+      const run = async (call: string) =>
+        (
+          await chrome.send<{ result: { value: string } }>(
+            "Runtime.evaluate",
+            {
+              expression: `(async () => { try { await ${call}; return "reached"; } catch { return "failed"; } })()`,
+              awaitPromise: true,
+              returnByValue: true,
+            },
+            sessionId,
+          )
+        ).result.value;
+      expect(await run(`fetch("http://127.0.0.1:${server.port}/")`)).toBe("failed");
+      expect(await run(`import(${JSON.stringify(remote)})`)).toBe("failed");
+      expect(await run(`import(${JSON.stringify(local)})`)).toBe("reached");
+    } finally {
+      await chrome.close();
+      server.stop(true);
+    }
+    expect(hits).toBe(0);
   }, 60_000);
 
   test("lays the page over a video and keeps its sound", async () => {
