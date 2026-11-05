@@ -132,7 +132,8 @@ export async function launchChrome(path: string): Promise<Chrome> {
       proc.kill("SIGKILL");
       await exited;
     }
-    rmSync(profile, { recursive: true, force: true });
+    // On Windows, Chrome's child processes hold the profile for a moment after it's killed.
+    rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   };
 
   try {
