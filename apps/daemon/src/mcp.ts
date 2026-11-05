@@ -18,7 +18,7 @@ import { applyCorrections, correctNames } from "@mockingbird/store";
 import type { SpeechSegment } from "@mockingbird/vad";
 import { addEntries, formatEntry, readDictionary } from "./dictionary.ts";
 import { guide, INSTRUCTIONS, playbooks } from "./guide.ts";
-import { findChrome } from "./models.ts";
+import { findChrome, fontFaces } from "./models.ts";
 import { type Engines, requireFile, spokenLanguage, startEngines } from "./runtime.ts";
 
 /**
@@ -920,7 +920,7 @@ async function render(
     const chrome = lines.length ? findChrome() : undefined;
     const wrap = existsSync(SANDBOX) ? [SANDBOX, "-p", NO_NETWORK] : [];
     const images = chrome
-      ? await drawCaptions(lines, dir, width ?? 1080, height, { chrome, wrap })
+      ? await drawCaptions(lines, dir, width ?? 1080, height, { chrome, wrap, fonts: fontFaces() })
       : undefined;
     const burn = !!text && !images && (await canBurn());
     sidecar = !!text && !images && !burn;
@@ -1115,6 +1115,7 @@ async function motion(
     video: path,
     audio,
     cues: captions?.trim() ? parseSrt(captions) : [],
+    fonts: fontFaces(),
   };
   // A fresh process per call, sandboxed with no network: the script is the
   // client's code, and mockingbird's only download is `models pull`.

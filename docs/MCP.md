@@ -148,6 +148,12 @@ HyperFrames. `script` is one of two things:
   (about 100 MB) into `~/.mockingbird/bin/` and checks its sha256;
   `MOCKINGBIRD_CHROME=/path` uses another build instead. Without either,
   `motion` says so and does nothing.
+- **Fonts** come with Chrome (about 43 MB, [NOTICE.md](../NOTICE.md)), so
+  text looks the same on every machine: a page can name `Inter`,
+  `Charis SIL`, `JetBrains Mono`, and `Noto Sans Bengali`, `Devanagari`,
+  `Arabic`, `Hebrew`, `Thai`, `Tamil`, `SC`, `JP` and `KR` in CSS, and
+  each loads the first time text needs it. Captions use Inter, then the Noto
+  family for the script.
 - **The page** is the size of the video, with a transparent background.
   Anything Chrome draws works: CSS, SVG, gradients, blend modes, filters,
   fonts installed on the Mac or loaded with `@font-face`, images by relative

@@ -191,4 +191,4 @@ export async function renderMotion(
 }
 
 export { type Chrome, launchChrome } from "./chrome.ts";
-export { renderHtml } from "./html.ts";
+export { type PageFont, pageFonts, renderHtml } from "./html.ts";

@@ -16,6 +16,7 @@ import {
   writeSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { withStore } from "./dictionary.ts";
 import {
   ASR_MODEL_SETTING,
@@ -129,6 +130,8 @@ export type PullDeps = PullFileDeps & {
   home?: string;
   /** Injected in tests; the pinned list otherwise. */
   files?: ModelFile[];
+  /** The fonts `models pull chrome` downloads; injected in tests. */
+  fonts?: ModelFile[];
   modelsDir?: string;
   /** Gets the line from progressLine, at most every quarter second. */
   progress?: (line: string) => void;
@@ -162,7 +165,7 @@ export function progressLine(downloads: Download[]): string {
 
 /**
  * The only network calls mockingbird makes (ARCHITECTURE.md §9) are this,
- * the Whisper and VAD models, and pullChrome. Each runs when the user asks
+ * the Whisper and VAD models, and pullChrome (Chrome and its fonts). Each runs when the user asks
  * for it and says where each download comes from.
  */
 export async function pullModels(deps: PullDeps = {}): Promise<number> {
@@ -242,6 +245,166 @@ function runnable(path: string): boolean {
   }
 }
 
+/**
+ * The fonts every page the engine renders can use, so a render looks the
+ * same on every machine (#156): Inter, Charis SIL and JetBrains Mono for the
+ * motion kit, and Noto for scripts the system may not have. All SIL Open
+ * Font License 1.1 (NOTICE.md), from google/fonts at one commit, checked
+ * against their sha256. `models pull chrome` downloads them with Chrome.
+ */
+export const FONTS_COMMIT = "023eedd8780dd254e5905901473ed55e5475ee73";
+const FONTS = [
+  {
+    dir: "inter",
+    file: "Inter[opsz,wght].ttf",
+    family: "Inter",
+    weight: "100 900",
+    style: "normal",
+    sha256: "29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031",
+  },
+  {
+    dir: "inter",
+    file: "Inter-Italic[opsz,wght].ttf",
+    family: "Inter",
+    weight: "100 900",
+    style: "italic",
+    sha256: "acd98e64795781b2058f07b18475e0ecee2a0fe2b42a49e2f9e37d0d6bf66ce6",
+  },
+  {
+    dir: "charissil",
+    file: "CharisSIL-Regular.ttf",
+    family: "Charis SIL",
+    weight: "400",
+    style: "normal",
+    sha256: "346337374aa347d64ee015b26d441f1970d8631914e2f3941b00e1c4761e28c5",
+  },
+  {
+    dir: "charissil",
+    file: "CharisSIL-Italic.ttf",
+    family: "Charis SIL",
+    weight: "400",
+    style: "italic",
+    sha256: "e776e2961117b39cf924c0139de01748a77b2fcb99c437b2c77bdd9401606c13",
+  },
+  {
+    dir: "charissil",
+    file: "CharisSIL-Bold.ttf",
+    family: "Charis SIL",
+    weight: "700",
+    style: "normal",
+    sha256: "68460d2b76c8f781b49f9168f2c7dc3c9f7b788a3a1b8f267c5fa6bb47d5c64d",
+  },
+  {
+    dir: "charissil",
+    file: "CharisSIL-BoldItalic.ttf",
+    family: "Charis SIL",
+    weight: "700",
+    style: "italic",
+    sha256: "acdf6dc54c0ee5e03cae3398f64133c335084cd1ecab655f2a8636c5d56acedb",
+  },
+  {
+    dir: "jetbrainsmono",
+    file: "JetBrainsMono[wght].ttf",
+    family: "JetBrains Mono",
+    weight: "100 900",
+    style: "normal",
+    sha256: "48715a42ec242c21e9f02692891e147d022299a52e48d5e413e1a942193ffeda",
+  },
+  {
+    dir: "notosansbengali",
+    file: "NotoSansBengali[wdth,wght].ttf",
+    family: "Noto Sans Bengali",
+    weight: "100 900",
+    style: "normal",
+    sha256: "dcd42978094e584a849c84a51450eeac40c8826057d566ea6d4b9627a403a05a",
+  },
+  {
+    dir: "notosansdevanagari",
+    file: "NotoSansDevanagari[wdth,wght].ttf",
+    family: "Noto Sans Devanagari",
+    weight: "100 900",
+    style: "normal",
+    sha256: "14ec4af41f27482216d1c2229f417ff9b1425e1babb014e57d1d40d03229853e",
+  },
+  {
+    dir: "notosansarabic",
+    file: "NotoSansArabic[wdth,wght].ttf",
+    family: "Noto Sans Arabic",
+    weight: "100 900",
+    style: "normal",
+    sha256: "63111b5b2e074dd48cc67692e0a2726d86ee94c1c37fe8598257b7b4e87e869e",
+  },
+  {
+    dir: "notosanshebrew",
+    file: "NotoSansHebrew[wdth,wght].ttf",
+    family: "Noto Sans Hebrew",
+    weight: "100 900",
+    style: "normal",
+    sha256: "7ef36a2c3593758cdb622e1bdef4f84523e92fbc3ccc667438dd80ff54c2de88",
+  },
+  {
+    dir: "notosansthai",
+    file: "NotoSansThai[wdth,wght].ttf",
+    family: "Noto Sans Thai",
+    weight: "100 900",
+    style: "normal",
+    sha256: "5a1c559bb539583c8a1fd99d1c5b9491e5e14478c9cd2bd0970d5c3096cc9ef8",
+  },
+  {
+    dir: "notosanstamil",
+    file: "NotoSansTamil[wdth,wght].ttf",
+    family: "Noto Sans Tamil",
+    weight: "100 900",
+    style: "normal",
+    sha256: "aa3a9b321f4b0bb2c40203ffbde9af89713227866e0e13f76e5b9eeea727cf88",
+  },
+  {
+    dir: "notosansjp",
+    file: "NotoSansJP[wght].ttf",
+    family: "Noto Sans JP",
+    weight: "100 900",
+    style: "normal",
+    sha256: "c2f3b4d463500a2ddcd3849cded1fceeb9fd6d1c32e6cbecd568453ba50fc68f",
+  },
+  {
+    dir: "notosanssc",
+    file: "NotoSansSC[wght].ttf",
+    family: "Noto Sans SC",
+    weight: "100 900",
+    style: "normal",
+    sha256: "a3041811a78c361b1de50f953c805e0244951c21c5bd412f7232ef0d899af0da",
+  },
+  {
+    dir: "notosanskr",
+    file: "NotoSansKR[wght].ttf",
+    family: "Noto Sans KR",
+    weight: "100 900",
+    style: "normal",
+    sha256: "194018e6b2b293a7964f037b25c0249ce1418bc9ab3c971060a03aa57861e252",
+  },
+] as const;
+
+/** The pinned fonts as downloads: about 45 MB, most of it Chinese, Japanese and Korean. */
+export const FONT_FILES: ModelFile[] = FONTS.map((f) => ({
+  name: f.family,
+  file: f.file,
+  url: `https://raw.githubusercontent.com/google/fonts/${FONTS_COMMIT}/ofl/${f.dir}/${encodeURIComponent(f.file)}`,
+  sha256: f.sha256,
+}));
+
+export type FontFaceFile = { family: string; url: string; weight: string; style: string };
+
+/** The pinned fonts that are downloaded, as file URLs for pages to load. */
+export function fontFaces(home = mockingbirdHome()): FontFaceFile[] {
+  const dir = join(home, "fonts");
+  return FONTS.filter((f) => existsSync(join(dir, f.file))).map((f) => ({
+    family: f.family,
+    url: pathToFileURL(join(dir, f.file)).href,
+    weight: f.weight,
+    style: f.style,
+  }));
+}
+
 /** The Chrome to render in: MOCKINGBIRD_CHROME, or the pinned one once it's pulled. */
 export function findChrome(env = process.env, home = mockingbirdHome(env)): string | undefined {
   if (env.MOCKINGBIRD_CHROME)
@@ -273,10 +436,11 @@ export async function pullChrome(deps: PullDeps = {}): Promise<number> {
   }
   try {
     await installChrome(pin, bin, deps);
+    await pullFiles(deps.fonts ?? FONT_FILES, join(home, "fonts"), deps);
   } finally {
     rmSync(lock, { force: true });
   }
-  log(`Chrome ${CHROME_VERSION} is downloaded.`);
+  log(`Chrome ${CHROME_VERSION} and its fonts are downloaded.`);
   return 0;
 }
 

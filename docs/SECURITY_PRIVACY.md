@@ -83,7 +83,8 @@ Enforced by [ARCHITECTURE.md §9](./ARCHITECTURE.md#9-everything-is-local):
 - **No account, login or license server.**
 - **The only download is one you run:** `mockingbird models pull`, and
   `models pull chrome` for the headless Chrome `motion` renders HTML in and
-  `render` draws captions in.
+  `render` draws captions in, with the open-licensed fonts pages and
+  captions use, from google/fonts on GitHub ([NOTICE.md](../NOTICE.md)).
   Each prints its URL and checks the file against a pinned sha256. No
   update checks.
 - **`mockingbird mcp` opens no port.** The agent starts it and talks over
