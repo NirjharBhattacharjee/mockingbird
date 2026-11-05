@@ -56,7 +56,8 @@ export function findAsrModel(
 ): string {
   if (configured) {
     return requireFile(
-      configured.includes("/") ? configured : join(models, configured),
+      // A path, with either separator (Windows writes C:\...), or a name in models/.
+      /[\\/]/.test(configured) ? configured : join(models, configured),
       "Whisper model",
       SETUP_HINT,
     );
