@@ -278,12 +278,15 @@ main() {
     quietly to_latest "$dir"
   }
 
-  # A first install downloads about 1.1 GB of models, and the tools and code
-  # take about 1 GB more. Checked before anything is downloaded, so a full disk
-  # fails now with the number, not partway through a model. An update already
-  # has the models, so it isn't held to this.
+  # A first install downloads the default Whisper model (large-v3, 1.1 GB, on
+  # an Apple Silicon Mac; small, 0.2 GB, where it runs on the CPU, #202), and
+  # the tools and code take about 1 GB more. Checked before anything is
+  # downloaded, so a full disk fails now with the number, not partway through
+  # a model. An update already has the models, so it isn't held to this.
   local models_dir="${MOCKINGBIRD_HOME:-$HOME/.mockingbird}/models" first=""
-  if [ ! -f "$models_dir/ggml-large-v3-q5_0.bin" ]; then
+  local model=ggml-small-q5_1.bin size="0.2 GB"
+  if [ "$(uname -s)-$(uname -m)" = Darwin-arm64 ]; then model=ggml-large-v3-q5_0.bin size="1.1 GB"; fi
+  if [ ! -f "$models_dir/$model" ]; then
     first=1
     local free_gb
     # The disk the models go on, which MOCKINGBIRD_HOME can move off $HOME's.
@@ -296,7 +299,7 @@ main() {
 
   printf '\n\033[1;35m==>\033[0m \033[1mInstalling mockingbird\033[0m (details in %s)\n' "$log_dir/install-*.log"
   if [ -n "$first" ]; then
-    printf '    This takes a few minutes, most of it downloading 1.1 GB of models.\n'
+    printf '    This takes a few minutes, most of it downloading %s of models.\n' "$size"
   fi
 
   # The tools and the code don't need each other, so they come down together.

@@ -3,7 +3,7 @@
 # help instead of seeing a server that failed to start (#141, #202).
 # Windows PowerShell 5.1 reads this file as ANSI, so it stays ASCII.
 $guide = "https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/docs/AGENT_INSTALL.md"
-$text = "mockingbird isn't installed on this computer, so its editing tools aren't available yet. To install it, follow $guide (it says what it downloads, about 1.1 GB, and how to check each step; ask the person before running it). Or they can run, in PowerShell: irm https://github.com/NirjharBhattacharjee/mockingbird/releases/latest/download/install.ps1 | iex. Then restart this agent."
+$text = "mockingbird isn't installed on this computer, so its editing tools aren't available yet. To install it, follow $guide (it says what it downloads, about 0.2 GB of models, and how to check each step; ask the person before running it). Or they can run, in PowerShell: irm https://github.com/NirjharBhattacharjee/mockingbird/releases/latest/download/install.ps1 | iex. Then restart this agent."
 $tool = @{
   name = "install_mockingbird"
   description = "mockingbird is not installed yet. Call this to learn how to install it."

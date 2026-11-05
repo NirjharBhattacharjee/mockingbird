@@ -18,6 +18,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
+| 2026-11-06 | Windows (#202): the plugin starts there (`launch.cmd`, `launch.ps1`); filter graphs go to ffmpeg in a file, since one for 100 clips is longer than a Windows command line; off Apple Silicon the default Whisper model is `small` Q5_1, as `large-v3` took 2.6x real time on a 2-core CPU (MODELS.md §6). |
 | 2026-11-06 | Segment cache (#165): a project renders from segments of about 10 s kept in `~/.mockingbird/cache/segments/`, each keyed by its clips, what's drawn over it, the look and the engine, so an edit renders again only the segments it touches. On the v2 edit with four texts, changing one text took 16.4 s instead of 72.8 to 78.2 s. |
 | 2026-11-05 | Fonts ship with Chrome (#156): `models pull chrome` also downloads Inter, Charis SIL, JetBrains Mono and Noto for Bengali, Devanagari, Arabic, Hebrew, Thai, Tamil and CJK (OFL, pinned, [NOTICE.md](../NOTICE.md)); captions and pages use them by name, so a Bengali caption or a CJK title is drawn the same with or without the system's fonts. |
 | 2026-11-05 | A motion page can't reach the network on Linux or Windows either (#157): Chrome resolves no host name and sends the rest to a dead proxy, every request any tab makes is failed at the browser unless it's a file on this computer, and on Linux the runner starts in a network namespace where one can be made. Chrome is pinned for Linux x64 and Windows x64. |

@@ -21,7 +21,8 @@ curl -fsSL https://github.com/NirjharBhattacharjee/mockingbird/releases/latest/d
 
 This installs Bun, whisper-cpp and ffmpeg with Homebrew, clones mockingbird
 into `~/mockingbird` at the latest release, and runs `mockingbird models pull`
-for the speech models (about 1.1 GB, each checked against its sha256). It
+for the speech models (about 1.1 GB on an Apple Silicon Mac, 0.2 GB
+elsewhere, each checked against its sha256). It
 skips anything you already have, so it's safe to run again.
 [Read the script](../scripts/install.sh) first if you like.
 

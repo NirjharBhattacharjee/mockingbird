@@ -53,7 +53,8 @@ and ffmpeg with Homebrew, downloads the speech models into `~/.mockingbird`, and
 that folder isn't on the PATH, it adds it to the shell's profile: `~/.zshrc`
 for zsh, or for bash whichever of `~/.bash_profile`, `~/.bash_login` and
 `~/.profile` bash reads. New terminal windows pick it up. The first run
-downloads about 1.1 GB, so it usually takes a few minutes.
+downloads about 1.1 GB (0.2 GB on Windows and Linux), so it usually takes a
+few minutes.
 
 First download the installer, and check this command succeeds. If it prints
 `curl: (...)`, nothing was installed: check the network and try again.
