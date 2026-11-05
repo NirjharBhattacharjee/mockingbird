@@ -529,47 +529,38 @@ function gcd(a: number, b: number): number {
 }
 
 /**
- * The filters that frame one clip: a window of `shape`'s width to height
- * around its focus if given, punched in by its zoom, and scaled to `size`.
+ * The filters that frame one clip: the widest window of `size`'s width to
+ * height around its focus, made smaller by its zoom, scaled to `size`.
  */
-function frame(
-  { focus = { x: 0.5, y: 0.5 }, zoom = 1 }: Clip,
-  shape: string | undefined,
-  size: string,
-) {
-  if (!shape && zoom === 1) return "";
-  const [sw = 1, sh = 1] = (shape ?? "1x1").split("x").map(Number);
+function frame({ focus = { x: 0.5, y: 0.5 }, zoom = 1 }: Clip, size: string) {
+  const [sw = 1, sh = 1] = size.split("x").map(Number);
   const [a, b] = [sw / gcd(sw, sh), sh / gcd(sw, sh)];
-  // The widest window of that shape, or the whole picture, made smaller by the zoom.
-  const [w, h] = shape ? [`min(iw,ih*${a}/${b})`, `min(ih,iw*${b}/${a})`] : ["iw", "ih"];
   const crop =
-    `crop=w='floor(${w}/${zoom}/2)*2':h='floor(${h}/${zoom}/2)*2'` +
+    `crop=w='floor(min(iw,ih*${a}/${b})/${zoom}/2)*2':h='floor(min(ih,iw*${b}/${a})/${zoom}/2)*2'` +
     `:x='clip(${focus.x}*iw-ow/2,0,iw-ow)':y='clip(${focus.y}*ih-oh/2,0,ih-oh)'`;
   return `,${crop},scale=${size.replace("x", ":")},setsar=1`;
 }
 
 /**
  * The ffmpeg filter graph that joins `clips` in order, each its own input
- * (0, 1, …, from seekClips), framed by its focus and zoom, cropped to 9:16
- * if `vertical`, or with `split`'s two areas stacked into 1080x1920. Then,
+ * (0, 1, …, from seekClips), cropped to `size`'s shape around its focus,
+ * punched in by its zoom or moved by its moves, scaled to `size` and set to
+ * `fps`, so clips from any sources join; or with `split`'s two areas stacked
+ * into 1080x1920. Then,
  * over the picture: `inserts` (images or videos, the inputs after the
  * overlays), and `overlays` (text drawn as images, the inputs after the
  * clips), each for its stretch of the finished video in seconds, its middle
  * at `y` of the height. `burn` draws the captions in CAPTIONS over all of it,
  * at `captionsY`. `sounds` (the inputs after the inserts) are mixed under the
  * speech, the sound cut to the picture's length unless `whole`, and left
- * for `level` to bring to LUFS. `size` is the source picture's, `WxH`. Ends in
- * [v], and [a] if there's sound.
- *
- * With `fps`, the clips come from sources that may differ (a project's): each
- * is cropped to `size`'s shape around its focus, scaled to `size`, and set
- * to `fps`, so they join; a `silent` clip's sound is silence.
+ * for `level` to bring to LUFS. `size` is the finished picture's, `WxH` (a
+ * split's clips are brought to it before their areas are taken). A `silent`
+ * clip's sound is silence. Ends in [v], and [a] if there's sound.
  */
 export function renderGraph(
   clips: (Clip & { silent?: boolean })[],
   {
     audio,
-    vertical,
     size = "1920x1080",
     fps,
     split,
@@ -581,9 +572,8 @@ export function renderGraph(
     whole = false,
   }: {
     audio: boolean;
-    vertical: boolean;
     size?: string;
-    fps?: number;
+    fps: number;
     split?: { top: Area; bottom: Area };
     burn?: boolean;
     captionsY?: number;
@@ -593,22 +583,19 @@ export function renderGraph(
     whole?: boolean;
   },
 ): string {
-  const out = vertical || split ? "1080x1920" : size;
+  const out = split ? "1080x1920" : size;
   // Transitions overlap clips with xfade, which needs every input on one timebase.
-  const chained = !!fps && clips.some((c, i) => i > 0 && c.transition);
+  const chained = clips.some((c, i) => i > 0 && c.transition);
   // A J or L cut makes a clip's sound longer or shorter than its picture, so they're joined apart.
   const apart = clips.some((c) => c.sound);
   // A split takes its areas from the whole picture, so its clips aren't framed
   // one by one, only brought to one size if they're from different sources.
   const parts = clips.map((clip, i) => {
     const speed = clip.speed && clip.speed !== 1 ? `,setpts=PTS/${clip.speed}` : "";
-    const look = fps
-      ? split || !clip.moves?.length
-        ? `${frame(split ? { from: 0, to: 0 } : clip, size, size)},fps=${fps}`
-        : `,fps=${fps},${moving(clip, size, fps)}`
-      : split
-        ? ""
-        : frame(clip, vertical ? out : undefined, out);
+    const look =
+      split || !clip.moves?.length
+        ? `${frame(split ? { from: 0, to: 0 } : clip, size)},fps=${fps}`
+        : `,fps=${fps},${moving(clip, size, fps)}`;
     const tb = chained ? `,settb=1/${fps}` : "";
     // The input opens the picture's and the sound's stretches together; each takes its own.
     const start = opened(clip).from;
@@ -628,7 +615,7 @@ export function renderGraph(
   });
   const inputs = clips.map((_, i) => (audio ? `[v${i}][a${i}]` : `[v${i}]`)).join("");
   const joined = chained
-    ? chain(clips, audio, fps as number)
+    ? chain(clips, audio, fps)
     : apart
       ? [
           `${clips.map((_, i) => `[v${i}]`).join("")}concat=n=${clips.length}:v=1:a=0[joined]`,
@@ -1064,9 +1051,8 @@ async function joinBatches(
   dir: string,
   look: {
     audio: boolean;
-    vertical: boolean;
     size: string;
-    fps?: number;
+    fps: number;
     split?: { top: Area; bottom: Area };
   },
 ): Promise<string> {
@@ -1115,8 +1101,6 @@ async function render(
   path: string,
   clips: Clip[],
   {
-    vertical = false,
-    fit = false,
     size,
     fps,
     split,
@@ -1130,8 +1114,6 @@ async function render(
     kind = "short",
     draft = false,
   }: {
-    vertical?: boolean;
-    fit?: boolean;
     size?: string;
     fps?: number;
     split?: { top: Area; bottom: Area };
@@ -1183,9 +1165,9 @@ async function render(
   // The whole cut has sound if any clip does; a clip without fills its stretch with silence.
   const audio = clips.some((c) => of(c).audio);
   const shaped = clips.map((c) => ({ ...c, silent: audio && !of(c).audio }));
-  // A split takes its areas from one picture, so a project's clips are brought to the first's size.
-  const frameSize = fit && !split ? (size ?? source.size) : source.size;
-  const rate = fit ? (fps ?? source.fps) : undefined;
+  // A split takes its areas from one picture, so its clips are brought to the first's size.
+  const frameSize = split ? source.size : (size ?? source.size);
+  const rate = fps ?? source.fps;
   if (clips.length > CLIPS_PER_PASS) {
     // ponytail: a transition can't cross two batches; join batches with xfade if long edits need them.
     if (clips.some((c, i) => i > 0 && c.transition)) {
@@ -1195,7 +1177,7 @@ async function render(
     }
     const batches = mkdtempSync(join(tmpdir(), "mockingbird-batches-"));
     try {
-      const look = { audio, vertical, size: frameSize, fps: rate, split };
+      const look = { audio, size: frameSize, fps: rate, split };
       const joined = await joinBatches(path, shaped, batches, look);
       // Its own length, which rounding to whole frames can leave a hair short of the clips'.
       const { seconds } = await probe(joined);
@@ -1224,7 +1206,7 @@ async function render(
   let made = false;
   try {
     const lines = [...cues.map((c) => c.text), ...texts.map((t) => t.text)];
-    const [width, height] = vertical || split ? [1080, 1920] : frameSize.split("x").map(Number);
+    const [width, height] = (split ? "1080x1920" : frameSize).split("x").map(Number);
     // Drawn in the pinned Chrome, started under the no-network sandbox where there is one (#157).
     const chrome = lines.length ? findChrome() : undefined;
     const wrap = existsSync(SANDBOX) ? [SANDBOX, "-p", NO_NETWORK] : [];
@@ -1238,7 +1220,6 @@ async function render(
     if (srt) writeFileSync(srt, `${text}\n`);
     const graph = renderGraph(shaped, {
       audio,
-      vertical,
       size: frameSize,
       fps: rate,
       split,
@@ -1892,6 +1873,41 @@ async function captions(
   return wordCaptions(clips, words, options) || "No speech in those clips.";
 }
 
+/**
+ * Word-by-word captions for a compiled project's cut, as SRT timed to the
+ * finished video: speed, transitions and J and L cuts included. Each
+ * source's words come from the word cache.
+ */
+async function cutCaptions(
+  cut: ReturnType<typeof compile>,
+  log: (m: string) => void,
+  { perCue = 3, lit = true, upper = false }: { perCue?: number; lit?: boolean; upper?: boolean },
+): Promise<string> {
+  const heard = await sourceWords(
+    new Map(
+      [...new Set(cut.clips.map((c) => c.path))].map((path) => [
+        path,
+        // The sound's stretch, which a J or L cut moves off the picture's.
+        cut.clips.filter((c) => c.path === path).map((c) => c.sound ?? c),
+      ]),
+    ),
+    log,
+  );
+  // Every word of the clip's source: wordCaptions keeps the ones inside each clip.
+  const asr = (path: string): AsrWord[] =>
+    (heard.get(path)?.words ?? []).map((w) => ({
+      word: w.word,
+      startMs: w.start * 1000,
+      endMs: w.end * 1000,
+      probability: 1,
+    }));
+  return wordCaptions(
+    cut.clips,
+    cut.clips.map((c) => asr(c.path)),
+    { perCue, lit, upper },
+  );
+}
+
 /** A source bigger than this on its short side is drafted from a proxy. */
 const PROXY_OVER = 1080;
 
@@ -1963,40 +1979,10 @@ async function renderProject(file: string, log: (m: string) => void, out?: strin
   const cut = compile(project, dirname(file));
   const first = cut.clips[0]?.path;
   if (!first) throw new Error(`${file} has no clips yet; add some with \`edit\`.`);
-  const heard = cut.captions
-    ? await sourceWords(
-        new Map(
-          [...new Set(cut.clips.map((c) => c.path))].map((path) => [
-            path,
-            cut.clips.filter((c) => c.path === path),
-          ]),
-        ),
-        log,
-      )
-    : undefined;
-  // Every word of the clip's source: wordCaptions keeps the ones inside each clip.
-  const asr = (path: string): AsrWord[] =>
-    (heard?.get(path)?.words ?? []).map((w) => ({
-      word: w.word,
-      startMs: w.start * 1000,
-      endMs: w.end * 1000,
-      probability: 1,
-    }));
-  const said = cut.captions
-    ? wordCaptions(
-        cut.clips,
-        cut.clips.map((c) => asr(c.path)),
-        {
-          perCue: cut.captions.perCue ?? 3,
-          lit: cut.captions.lit ?? true,
-          upper: cut.captions.upper ?? false,
-        },
-      )
-    : undefined;
+  const said = cut.captions ? await cutCaptions(cut, log, cut.captions) : undefined;
   // A draft reads 4K from proxies; its size is still the source's, not the proxy's.
   const clips = draft ? await proxied(cut.clips) : cut.clips;
   return render(clips[0]?.path ?? first, clips, {
-    fit: true,
     size: cut.size ?? (draft ? (await probe(first)).size : undefined),
     fps: cut.fps,
     split: cut.split,
@@ -2291,7 +2277,8 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
             };
           }),
           {
-            vertical: !!a.vertical,
+            // Vertical is the 9:16 frame a project would ask for by size.
+            size: a.vertical ? "1080x1920" : undefined,
             split: a.split
               ? {
                   top: area((a.split as Record<string, unknown>).top, "split.top"),
@@ -2325,7 +2312,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
     {
       name: "captions",
       description:
-        "Word-by-word captions for the video `render` will make from these clips, as SRT timed to the finished video: up to `perCue` words a cue, the word being said marked *like this* so render draws it yellow. Edit the text if you like (fix a misheard word, mark a different word), then pass it to render's `captions`.",
+        "Word-by-word captions for the video `render` will make from these clips, or from an `edit` `project` (speed, transitions and J and L cuts included), as SRT timed to the finished video: up to `perCue` words a cue, the word being said marked *like this* so render draws it yellow. Edit the text if you like (fix a misheard word, mark a different word), then pass it to render's `captions`.",
       inputSchema: {
         type: "object",
         properties: {
@@ -2352,10 +2339,30 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
             description:
               "What's spoken, as a Whisper code (en, bn, de, hi, …) or auto. Default: the user's setting. Give it for mixed speech, like Bangla and English in one sentence, where detection guesses wrong.",
           },
+          project: {
+            type: "string",
+            description:
+              "Absolute path to a project file from `edit`, in place of `path` and `clips`; perCue, lit and upper default to the project's captions",
+          },
         },
-        required: ["path", "clips"],
       },
-      run: (a) => {
+      run: async (a) => {
+        if (a.project !== undefined) {
+          const file = resolve(String(a.project));
+          const { project, created } = load(file);
+          if (created) throw new Error(`No project at ${file}; make one with \`edit\`.`);
+          const cut = compile(project, dirname(file));
+          if (!cut.clips.length)
+            throw new Error(`${file} has no clips yet; add some with \`edit\`.`);
+          const set = project.captions ?? {};
+          const srt = await cutCaptions(cut, log, {
+            perCue: Math.round(within(a.perCue, 1, 8, "perCue", set.perCue ?? 3)),
+            lit: a.lit === undefined ? (set.lit ?? true) : !!a.lit,
+            upper: a.upper === undefined ? (set.upper ?? false) : !!a.upper,
+          });
+          return srt || "No speech in the cut.";
+        }
+        if (a.path === undefined) throw new Error("Give a `path` and `clips`, or a `project`.");
         const clips = items(a.clips).map((c, i) => stretch(c, `clips[${i}]`));
         if (!clips.length) throw new Error("No clips: give at least one { from, to } in seconds.");
         return captions(

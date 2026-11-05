@@ -188,6 +188,10 @@ test("each clip is its own input, opened at its start and read for its length", 
   ]);
 });
 
+/** A crop to the whole of a 16:9 picture: what framing a clip to 16:9 does without a zoom. */
+const FULL =
+  "crop=w='floor(min(iw,ih*16/9)/1/2)*2':h='floor(min(ih,iw*9/16)/1/2)*2':x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)'";
+
 test("the render graph keeps each clip in order and joins them", () => {
   expect(
     renderGraph(
@@ -195,12 +199,13 @@ test("the render graph keeps each clip in order and joins them", () => {
         { from: 1, to: 2.5 },
         { from: 10, to: 12 },
       ],
-      { audio: true, vertical: false },
+      { audio: true, fps: 30 },
     ),
   ).toBe(
-    "[0:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1[v0];" +
+    // Each clip framed to the picture's shape (all of a 16:9 source), its size and rate.
+    `[0:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1,${FULL},scale=1920:1080,setsar=1,fps=30[v0];` +
       "[0:a]asetpts=PTS-STARTPTS[a0];" +
-      "[1:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1[v1];" +
+      `[1:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1,${FULL},scale=1920:1080,setsar=1,fps=30[v1];` +
       "[1:a]asetpts=PTS-STARTPTS[a1];" +
       "[v0][a0][v1][a1]concat=n=2:v=1:a=1[joined][speech];[joined]null[v];" +
       "[speech]atrim=duration=3.5[a]",
@@ -210,14 +215,15 @@ test("the render graph keeps each clip in order and joins them", () => {
 test("the render graph crops to 9:16, draws captions, and works without sound", () => {
   const graph = renderGraph([{ from: 0, to: 5 }], {
     audio: false,
-    vertical: true,
+    fps: 30,
+    size: "1080x1920",
     burn: true,
   });
   expect(graph).not.toContain("[0:a]");
   expect(graph).toBe(
     "[0:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1," +
       "crop=w='floor(min(iw,ih*9/16)/1/2)*2':h='floor(min(ih,iw*16/9)/1/2)*2'" +
-      ":x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=1080:1920,setsar=1[v0];" +
+      ":x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=1080:1920,setsar=1,fps=30[v0];" +
       "[v0]concat=n=1:v=1:a=0[joined];[joined]null[laid];" +
       "[laid]subtitles=filename=captions.srt:force_style='Alignment=2,MarginV=76'[v]",
   );
@@ -229,12 +235,14 @@ test("each clip is framed around its focus, punched in by its zoom", () => {
       { from: 0, to: 2 },
       { from: 2, to: 4, focus: { x: 0.3, y: 0.4 }, zoom: 1.2 },
     ],
-    { audio: false, vertical: false, size: "1280x720" },
+    { audio: false, fps: 30, size: "1280x720" },
   );
-  // Both get square pixels, for concat; only the zoomed clip is cropped.
-  expect(graph).toStartWith("[0:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1[v0];");
+  // Both get square pixels and the picture's shape; the zoomed clip a smaller window of it.
+  expect(graph).toStartWith(
+    `[0:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1,${FULL},scale=1280:720,setsar=1,fps=30[v0];`,
+  );
   expect(graph).toContain(
-    "crop=w='floor(iw/1.2/2)*2':h='floor(ih/1.2/2)*2':x='clip(0.3*iw-ow/2,0,iw-ow)':y='clip(0.4*ih-oh/2,0,ih-oh)',scale=1280:720,setsar=1[v1]",
+    "crop=w='floor(min(iw,ih*16/9)/1.2/2)*2':h='floor(min(ih,iw*9/16)/1.2/2)*2':x='clip(0.3*iw-ow/2,0,iw-ow)':y='clip(0.4*ih-oh/2,0,ih-oh)',scale=1280:720,setsar=1,fps=30[v1]",
   );
 });
 
@@ -244,7 +252,7 @@ test("a project's clips from different sources are framed to one size and rate, 
       { from: 0, to: 2, path: "/wide.mp4" },
       { from: 1, to: 4, path: "/phone.mov", focus: { x: 0.3, y: 0.5 }, zoom: 1.5, silent: true },
     ],
-    { audio: true, vertical: false, size: "1080x1920", fps: 30 },
+    { audio: true, size: "1080x1920", fps: 30 },
   );
   expect(graph).toStartWith(
     "[0:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1," +
@@ -370,7 +378,7 @@ test("a transition joins clips with xfade and acrossfade on one timebase, the re
       { from: 0, to: 2, path: "/b.mp4", transition: { type: "fadeblack", duration: 0.5 } },
       { from: 4, to: 6, path: "/a.mp4", speed: 2 },
     ],
-    { audio: true, vertical: false, size: "1280x720", fps: 30 },
+    { audio: true, size: "1280x720", fps: 30 },
   );
   expect(graph).toContain(",fps=30,settb=1/30[v0];");
   expect(graph).toContain("[v0][v1]xfade=transition=fadeblack:duration=0.5:offset=1.500000[jv1]");
@@ -396,7 +404,7 @@ test("a J cut opens the clip early enough for its sound, and joins picture and s
     ...["-hwaccel", "auto", "-ss", "10", "-t", "3.5", "-i", "/a.mp4"],
     ...["-hwaccel", "auto", "-ss", "19.5", "-t", "4.5", "-i", "/b.mp4"],
   ]);
-  const graph = renderGraph(clips, { audio: true, vertical: false, size: "640x360", fps: 30 });
+  const graph = renderGraph(clips, { audio: true, size: "640x360", fps: 30 });
   expect(graph).toContain("[1:v]trim=start=0.5:duration=4,setpts=PTS-STARTPTS,");
   expect(graph).toContain("[1:a]atrim=start=0:duration=4.5,asetpts=PTS-STARTPTS[a1]");
   expect(graph).toContain("[0:a]atrim=start=0:duration=3,asetpts=PTS-STARTPTS[a0]");
@@ -417,7 +425,7 @@ test("moves frame each frame with perspective, eased between them", () => {
 test("a split stacks two areas of the picture into 1080x1920", () => {
   const graph = renderGraph([{ from: 0, to: 4, zoom: 2 }], {
     audio: false,
-    vertical: false,
+    fps: 30,
     split: { top: { x: 0, y: 0, w: 0.8, h: 1 }, bottom: { x: 0.8, y: 0.7, w: 0.2, h: 0.3 } },
   });
   // The areas come from the whole picture, so a clip's zoom doesn't apply.
@@ -437,7 +445,8 @@ test("inserts go under the text, and music ducks under the speech", () => {
     ],
     {
       audio: true,
-      vertical: true,
+      fps: 30,
+      size: "1080x1920",
       overlays: [{ start: 0, end: 1, y: 0.5 }],
       inserts: [{ start: 1, end: 2 }],
       sounds: [
@@ -469,7 +478,7 @@ test("inserts go under the text, and music ducks under the speech", () => {
 test("a batch's sound is left whole, for the last pass to cut and bring to -14 LUFS", () => {
   const graph = renderGraph([{ from: 0, to: 4 }], {
     audio: true,
-    vertical: false,
+    fps: 30,
     whole: true,
   });
   expect(graph).toEndWith("[speech]anull[a]");
@@ -478,7 +487,8 @@ test("a batch's sound is left whole, for the last pass to cut and bring to -14 L
 test("libass's captions go over the inserts, where captionsY puts them", () => {
   const graph = renderGraph([{ from: 0, to: 4 }], {
     audio: false,
-    vertical: true,
+    fps: 30,
+    size: "1080x1920",
     burn: true,
     captionsY: 0.5,
     inserts: [{ start: 1, end: 2 }],
@@ -492,7 +502,7 @@ test("libass's captions go over the inserts, where captionsY puts them", () => {
 test("music under a silent video sets the length itself", () => {
   const graph = renderGraph([{ from: 0, to: 4 }], {
     audio: false,
-    vertical: false,
+    fps: 30,
     sounds: [
       { at: 0, volume: 0.5, loop: true, duck: true },
       { at: 1, volume: 1, loop: false, duck: false },
@@ -588,7 +598,7 @@ describe("wordCaptions", () => {
 test("the render graph lays each caption image over the picture for its cue", () => {
   const graph = renderGraph([{ from: 0, to: 5 }], {
     audio: false,
-    vertical: false,
+    fps: 30,
     overlays: [
       { start: 0, end: 1.5 },
       { start: 1.5, end: 3 },
@@ -997,6 +1007,56 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
       rmSync(dir, { recursive: true, force: true });
     }
   }, 120_000);
+
+  test("captions for a project are timed to its cut, at its clips' speed", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mb-pcap-"));
+    const saved = { home: process.env.MOCKINGBIRD_HOME, model: process.env.MOCKINGBIRD_ASR_MODEL };
+    try {
+      const home = join(dir, "home");
+      mkdirSync(home);
+      symlinkSync(
+        join(saved.home ?? join(homedir(), ".mockingbird"), "models"),
+        join(home, "models"),
+      );
+      process.env.MOCKINGBIRD_HOME = home;
+      process.env.MOCKINGBIRD_ASR_MODEL = "ggml-base.en.bin";
+      const hello = join(import.meta.dir, "../../../bench/fixtures/hello.wav");
+      Bun.spawnSync([
+        ...["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=30"],
+        ...["-i", hello, "-shortest", "-pix_fmt", "yuv420p", join(dir, "hello.mp4")],
+      ]);
+      const tool = (name: string) =>
+        mcpTools(
+          async () => ({}),
+          () => {},
+        ).find((t) => t.name === name) as { run: (a: Record<string, unknown>) => Promise<string> };
+      const project = join(dir, "edit.json");
+      const end = (srt: string) =>
+        Math.max(
+          ...[...srt.matchAll(/(\d\d):(\d\d):(\d\d),(\d\d\d) -->/g)].map(
+            ([, h, m, sec, ms]) =>
+              Number(h) * 3600 + Number(m) * 60 + Number(sec) + Number(ms) / 1000,
+          ),
+        );
+      await tool("edit").run({
+        project,
+        ops: [{ op: "add", type: "clip", path: "hello.mp4", from: 0, to: 5 }],
+      });
+      const normal = await tool("captions").run({ project, lit: false });
+      expect(normal.toLowerCase()).toContain("hello");
+      await tool("edit").run({ project, ops: [{ op: "set", id: "c1", speed: 2 }] });
+      const fast = await tool("captions").run({ project, lit: false });
+      // The last cue starts at half the time: its words are said twice as fast.
+      // (Its end isn't halved: a cue holds 0.2 s of finished video after its last word.)
+      expect(end(fast)).toBeCloseTo(end(normal) / 2, 1);
+    } finally {
+      process.env.MOCKINGBIRD_HOME = saved.home;
+      process.env.MOCKINGBIRD_ASR_MODEL = saved.model;
+      if (saved.home === undefined) delete process.env.MOCKINGBIRD_HOME;
+      if (saved.model === undefined) delete process.env.MOCKINGBIRD_ASR_MODEL;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 180_000);
 });
 
 test("motion takes only an HTML page, and says where canvas scripts went", async () => {
