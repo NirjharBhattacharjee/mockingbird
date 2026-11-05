@@ -31,7 +31,8 @@ its eval and its benchmarks, is in git: `git show v0.3.2:docs/MODELS.md`.
 | Model | Job | Runs via | Size |
 |---|---|---|---|
 | **Silero VAD** v6.2.2 | finds the speech in a file, so Whisper hears speech and not silence | `onnxruntime-node`, in-process | 2 MB |
-| **Whisper `large-v3`, Q5_0** | speech to text with word times | `whisper.cpp`'s `whisper-server`, a subprocess per call on a free `127.0.0.1` port | 1.08 GB |
+| **Whisper `large-v3`, Q5_0** (Apple Silicon Macs) | speech to text with word times | `whisper.cpp`'s `whisper-server`, a subprocess per call on a free `127.0.0.1` port | 1.08 GB |
+| **Whisper `small`, Q5_1** (Windows, Linux, Intel Macs) | the same, on the CPU | the same | 190 MB |
 
 ## 2. Speech detection — Silero VAD
 
@@ -185,7 +186,28 @@ Word error is summed over the corpus (total edits over total words).
 | base.en | 148 MB | 0.3 s | 322 MB | 103 ms | 109 ms | 8.5% | 7.5% | 5/32 |
 | large-v3 | 3095 MB | 2.1 s | 3351 MB | 1620 ms | 1721 ms | 3.2% | 3.9% | 17/32 |
 
-`large-v3` Q5_0 stays: the most accurate overall, on the Indian-accent
+**On a CPU (#202).** On Windows and Linux, whisper-server is whisper.cpp's
+CPU build, and an Intel Mac has no Metal to speak of. On `windows-latest`
+(AMD EPYC 7763, 2 cores and 4 threads, 16 GB), here's the time for
+`mockingbird transcribe` on 60 s of speech, model load included, two runs
+each:
+
+| Model | Time for 60 s | An hour of video | Disk |
+|---|---|---|---|
+| base | 7.6 s, 7.4 s | ~7.5 min | 148 MB |
+| small-q5_1 | 30.3 s, 30.3 s | ~30 min | 190 MB |
+| large-v3-turbo-q5_0 | 114.1 s, 124.7 s | ~2 h | 574 MB |
+| large-v3-q5_0 | 156.3 s, 158.7 s | ~2.6 h | 1081 MB |
+
+Turbo barely helps on a CPU: it shares large-v3's encoder, which is most of
+the work there. So off Apple Silicon the default is multilingual `small`
+Q5_1, which runs at half real time even on 2 cores. On the bench above (run
+2026-11-06, when it read 27.4% for large-v3-q5_0, not the 3.2% in the table:
+the corpus needs looking at) small-q5_1 read 30.0% against large-v3's 27.4%,
+and 4/32 names against 14/32. So on a PC, names lean on the dictionary.
+`mockingbird models pull large-v3-turbo` and `models use` it on a fast PC.
+
+`large-v3` Q5_0 stays on Apple Silicon: the most accurate overall, on the Indian-accent
 voices and on names, and full precision buys nothing for three times the
 size. `large-v3-turbo` Q5_0 is half the disk and ~0.4 s faster per clip for
 ~1 point more word error and 4 fewer names right. Re-run `bun run
