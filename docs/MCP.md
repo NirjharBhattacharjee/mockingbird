@@ -138,7 +138,8 @@ call and changing the cut doesn't break the timing of what's laid over it
 | Op | What it does |
 |---|---|
 | `{op: "add", type: "clip", path, from, to, focus?, zoom?, speed?, moves?, transition?, lead?, index?}` | A clip on the main track, at `index` (default the end). See [Speed, moves and transitions](#speed-moves-and-transitions). |
-| `{op: "add", type: "text" \| "insert" \| "audio", …}` | A text, picture or video, or sound, with the fields above. |
+| `{op: "add", type: "text" \| "insert" \| "audio", …}` | A text, picture or video, or sound, with the fields above. A sound can take `generator: {generator, tempo?, key?, energy?, seed?}` in place of `path`: see [Music in a project](#music-in-a-project). |
+| `{op: "add", type: "overlay", page, from, to, clip?}` | An HTML page laid over its stretch with its transparency: see [Overlays](#overlays). |
 | `{op: "remove", id}` | Removes an item. A clip takes what's on it with it, and the cut closes up. |
 | `{op: "split", id, at}` | Splits a clip in two at `at` seconds in its source. What starts on the second half moves to the new clip. |
 | `{op: "trim", id, from?, to?}` | Changes a clip's source times. What's on it moves with the picture: trimming 2 s off the start moves its texts 2 s earlier, and drops any that were only on what's gone. |
@@ -232,6 +233,45 @@ render always reads the source.
 On an M3, a one-minute 1080x1920 project of two clips from a 4K HEVC phone
 video: the render took 37.4 s, the first draft 29.9 s (making its proxies,
 52 MB), and every draft after it 6.3 s.
+
+### Overlays
+
+An overlay is a motion graphics page on a project's timeline: a title card,
+a lower third, a callout. `{op: "add", type: "overlay", page:
+"/abs/lower.html", clip: "c2", from: 1, to: 4}` keeps it as an insert whose
+picture is the page, so it stays on its clip through `split`, `trim`,
+`move` and `remove`, and the outline lists it as `overlay lower.html`.
+
+`render` draws the page on its own for its stretch, at the project's size
+and rate, in the pinned Chrome under the same no-network sandbox as
+`motion`, keeping its transparency (ProRes 4444), and lays it over the cut
+like b-roll, under the captions. The page is written as for `motion`
+([HTML pages](#html-pages)), without `path`: it gets `mockingbird.width`,
+`height`, `fps`, `duration` and `frame`, and anything it doesn't paint
+shows the video. Its `mockingbird.audio` joins the project's sound, timed
+from the overlay's start. Each rendered overlay is kept in
+`~/.mockingbird/cache/overlays/`, by the page's folder (each file's name,
+size and time) and the size, rate and length, so a render after an edit
+draws only the overlays that changed. On an M3, a 9 s project with a kit
+title card and lower third rendered in 4.3 s, and again after a `split`
+and a `remove` in 1.7 s.
+
+### Music in a project
+
+A project's sound can be generated instead of a file: `{op: "add", type:
+"audio", generator: {generator: "/abs/lofi.js", tempo: 80, key: "A minor",
+energy: [[0, 0.2], [30, 0.8]], seed: 1}, volume: 0.15, duck: true}`. The
+generator is one of [`music`](#music)'s. `render` makes the bed as long as
+the video from where the sound starts and keeps it in
+`~/.mockingbird/cache/music/`, by the generator's folder of modules and its
+arguments, so a render after an edit reuses it.
+
+`render` with `project` and `sound: true` saves the sound alone as
+`<name>-sound-N.m4a` at −14 LUFS, to check the mix without the picture:
+nothing is drawn or encoded, and captions aren't transcribed. Overlays'
+sounds aren't in it. On an M3, a 12 s project with speech and a lo-fi bed:
+the sound alone in 2.5 s (making the bed), then full renders in 1.2 s and
+1.1 s, the bed reused; all three at −14.3 LUFS.
 
 ### Text-based editing
 

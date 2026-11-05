@@ -18,6 +18,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
+| 2026-11-06 | A project's overlays (#163): an HTML page on a clip, rendered alone with its transparency (ProRes 4444) and laid over the cut, cached in `~/.mockingbird/cache/overlays/`. A project sound can be a music generator (#170), its bed made at render time and cached in `~/.mockingbird/cache/music/`; `render(project, sound: true)` saves the mix alone as an .m4a. |
 | 2026-11-04 | `transcribe` and `captions` take `model` and `language` per call; with the language on `auto` and a per-language map, the language is detected from the first speech and its model used (`enginesFor` in `runtime.ts`, #143). |
 | 2026-11-04 | `models pull <name or URL>` downloads any Whisper model against the sha256 Hugging Face gives (or `--sha256`), pinned to its commit; `models use <file> --language <code>` saves a model per language (#143). |
 | 2026-11-06 | `render` copies the groups of pictures that need no change and encodes only the clip edges and reframed clips: 4.6x faster on a talk cut into 35 s clips, about 1.6x on the 96-clip v2 edit, with copied frames bit-identical to the source (#166). |
@@ -321,6 +322,8 @@ MCP server is its own short-lived process.
 | Headless Chrome | `~/.mockingbird/bin/chrome-headless-shell-<version>/` | `mockingbird models pull chrome` |
 | Word cache: each source's words and pauses | `~/.mockingbird/cache/words/` | `transcribe(project)`, `edit`'s `cut_words`, `render(project)` with captions |
 | Draft proxies: 720-line copies of the stretches of 4K sources a project uses | `~/.mockingbird/cache/proxies/` | `render(project, draft: true)` |
+| Overlays: a project's HTML pages rendered with their transparency | `~/.mockingbird/cache/overlays/` | `render(project)` with an overlay |
+| Music beds: a project's generated sounds | `~/.mockingbird/cache/music/` | `render(project)` with a generator |
 | Renders, stills | beside the source, or a temp folder for stills | `render`, `motion`, `frames` |
 
 `MOCKINGBIRD_HOME` moves `~/.mockingbird`.

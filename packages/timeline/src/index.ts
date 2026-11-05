@@ -119,9 +119,22 @@ export type Text = {
   y?: number;
 };
 export type Insert = { id: string; path: string; clip?: string; from: number; to: number };
+/** Music made by a generator module (`music`'s), in place of a file (#170). */
+export type Generated = {
+  /** The generator: a .js module, as `music` takes. */
+  generator: string;
+  tempo?: number;
+  key?: string;
+  /** 0-1, or [seconds, level] points in time order. */
+  energy?: number | [number, number][];
+  seed?: number;
+};
+
 export type Sound = {
   id: string;
-  path: string;
+  /** A sound file; or, with `generator`, none. */
+  path?: string;
+  generator?: Generated;
   clip?: string;
   at: number;
   volume?: number;
@@ -205,7 +218,8 @@ function area(v: unknown, what: string): Area {
 const CLIP = ["id", "path", "from", "to", "focus", "zoom", "speed", "moves", "transition", "lead"];
 const TEXT = ["id", "text", "clip", "from", "to", "y"];
 const INSERT = ["id", "path", "clip", "from", "to"];
-const SOUND = ["id", "path", "clip", "at", "volume", "loop", "duck"];
+const SOUND = ["id", "path", "generator", "clip", "at", "volume", "loop", "duck"];
+const GENERATED = ["generator", "tempo", "key", "energy", "seed"];
 const CAPTIONS = ["perCue", "lit", "upper", "y"];
 
 function point(v: unknown, what: string): Point {
@@ -285,11 +299,41 @@ function insert(v: unknown, what: string): Insert {
   });
 }
 
+function energy(v: unknown, what: string): number | [number, number][] {
+  if (!Array.isArray(v)) return num(v, what, 0, 1);
+  if (!v.length) fail(`${what} needs at least one [seconds, level] point`);
+  let last = -1;
+  return v.map((pt, i): [number, number] => {
+    if (!Array.isArray(pt) || pt.length !== 2) fail(`${what}[${i}] must be [seconds, level]`);
+    const at = num(pt[0], `${what}[${i}][0]`, 0, 7200);
+    if (at <= last) fail(`${what}'s points must be in time order; ${what}[${i}] isn't`);
+    last = at;
+    return [at, num(pt[1], `${what}[${i}][1]`, 0, 1)];
+  });
+}
+
+function generated(v: unknown, what: string): Generated {
+  const o = obj(v, what, GENERATED);
+  const script = str(o.generator, `${what}.generator`);
+  if (!/\.m?js$/i.test(script)) fail(`${what}.generator must be a .js module; got ${script}`);
+  return clean({
+    generator: script,
+    tempo: maybe(o.tempo, (n) => num(n, `${what}.tempo`, 30, 240)),
+    key: maybe(o.key, (k) => str(k, `${what}.key`).slice(0, 40)),
+    energy: maybe(o.energy, (e) => energy(e, `${what}.energy`)),
+    seed: maybe(o.seed, (n) => Math.round(num(n, `${what}.seed`, 0, 2 ** 32 - 1))),
+  });
+}
+
 function sound(v: unknown, what: string): Sound {
   const o = obj(v, what, SOUND);
+  if ((o.path === undefined) === (o.generator === undefined)) {
+    fail(`${what} needs a path or a generator, not both`);
+  }
   return clean({
     id: str(o.id, `${what}.id`),
-    path: str(o.path, `${what}.path`),
+    path: maybe(o.path, (f) => str(f, `${what}.path`)),
+    generator: maybe(o.generator, (g) => generated(g, `${what}.generator`)),
     clip: maybe(o.clip, (c) => str(c, `${what}.clip`)),
     at: num(o.at ?? 0, `${what}.at`, 0, Number.MAX_VALUE),
     volume: maybe(o.volume, (n) => num(n, `${what}.volume`, 0, 4)),
@@ -701,9 +745,19 @@ function step(p: Project, raw: unknown, what: string, notes: string[], words?: W
   const { op, ...a } = raw as Obj;
   switch (op) {
     case "add": {
-      const { type, index, ...fields } = a;
+      const { type: asked, index, ...given } = a;
+      // An overlay (#163) is an insert whose picture is an HTML page, rendered
+      // with its transparency at render time; it's kept as one, so it stays on
+      // its clip through split, trim and remove like any insert.
+      const overlay = asked === "overlay";
+      if (overlay && !(typeof given.page === "string" && /\.html?$/i.test(given.page))) {
+        fail(`${what}: an overlay needs page, the path of an .html page`);
+      }
+      const { page, ...rest } = given;
+      const fields = overlay ? { ...rest, path: page } : given;
+      const type = overlay ? "insert" : asked;
       if (!(typeof type === "string" && type in READ)) {
-        fail(`${what}: add needs type: clip, text, insert or audio`);
+        fail(`${what}: add needs type: clip, text, insert, overlay or audio`);
       }
       const kind = type as keyof typeof READ;
       const key = LIST[kind];
@@ -887,14 +941,17 @@ export function outline(p: Project, file: string): string {
         t.loop ? " loop" : "",
         t.duck ? " duck" : "",
       ].join("");
-      return `${t.id}  ${stamp(base + t.at)}  audio ${basename(t.path)}${how}`;
+      const what = t.generator
+        ? `music ${basename(t.generator.generator)}`
+        : `audio ${basename(t.path ?? "")}`;
+      return `${t.id}  ${stamp(base + t.at)}  ${what}${how}`;
     }
     const when = `${stamp(base + t.from)}-${stamp(base + t.to)}`;
     if ("text" in t) {
       const y = t.y === undefined ? "" : ` y ${short(t.y)}`;
       return `${t.id}  ${when}  text ${JSON.stringify(t.text)}${y}`;
     }
-    return `${t.id}  ${when}  insert ${basename(t.path)}`;
+    return `${t.id}  ${when}  ${/\.html?$/i.test(t.path) ? "overlay" : "insert"} ${basename(t.path)}`;
   };
   const lines = [`${file}: ${head.join(", ")}`];
   for (const c of p.clips) {
@@ -936,7 +993,17 @@ export type Compiled = {
   }[];
   texts: { text: string; from: number; to: number; y?: number }[];
   inserts: { path: string; from: number; to: number }[];
-  sounds: { path: string; at: number; volume: number; loop: boolean; duck: boolean }[];
+  /** A generated sound has `generator` (its module's path resolved) instead of `path`. */
+  sounds: {
+    path?: string;
+    generator?: Generated;
+    at: number;
+    volume: number;
+    loop: boolean;
+    duck: boolean;
+  }[];
+  /** The finished video's length, in seconds. */
+  length: number;
   size?: string;
   fps?: number;
   split?: { top: Area; bottom: Area };
@@ -945,7 +1012,7 @@ export type Compiled = {
 
 /** `p` as render's inputs, its relative paths taken from `dir`, the project file's folder. */
 export function compile(p: Project, dir: string): Compiled {
-  const { at } = starts(p);
+  const { at, length } = starts(p);
   const base = (clip?: string) => (clip === undefined ? 0 : (at.get(clip) ?? 0));
   const path = (f: string) => resolve(dir, f);
   return clean({
@@ -967,13 +1034,18 @@ export function compile(p: Project, dir: string): Compiled {
       from: base(clip) + from,
       to: base(clip) + to,
     })),
-    sounds: p.audio.map(({ path: f, clip, at: when, volume = 1, loop = false, duck = false }) => ({
-      path: path(f),
-      at: base(clip) + when,
-      volume,
-      loop,
-      duck,
-    })),
+    sounds: p.audio.map(
+      ({ path: f, generator: g, clip, at: when, volume = 1, loop = false, duck = false }) =>
+        clean({
+          path: f === undefined ? undefined : path(f),
+          generator: g && { ...g, generator: path(g.generator) },
+          at: base(clip) + when,
+          volume,
+          loop,
+          duck,
+        }),
+    ),
+    length,
     size: p.size,
     fps: p.fps,
     split: p.split,

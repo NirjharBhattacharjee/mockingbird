@@ -139,6 +139,7 @@ export async function renderHtml(
     cues = [],
     tabs: tabCount = TABS,
     onLoad = () => {},
+    alpha = false,
   }: {
     chrome: string;
     out: string;
@@ -152,8 +153,11 @@ export async function renderHtml(
     cues?: Cue[];
     tabs?: number;
     onLoad?: (page: { audio: unknown }) => void;
+    /** Keep the page's transparency: ProRes 4444 in a .mov, to lay over a video later (#163). */
+    alpha?: boolean;
   },
 ): Promise<number> {
+  if (alpha && video) throw new Error("alpha is for a page on its own, not over a video");
   if (!(Number.isInteger(tabCount) && tabCount >= 1)) {
     throw new Error(`tabs must be a whole number, 1 or more; got ${tabCount}`);
   }
@@ -197,13 +201,18 @@ export async function renderHtml(
       video && !drawsVideo
         ? `[0:v]fps=${fps},scale=${width}:${height},setsar=1[under]`
         : `color=c=black:s=${width}x${height}:r=${fps}[under]`;
-    const graph = `${under};[under][${video ? 1 : 0}:v]overlay=format=auto:shortest=1[v]`;
+    const graph = alpha
+      ? "[0:v]format=yuva444p10le[v]"
+      : `${under};[under][${video ? 1 : 0}:v]overlay=format=auto:shortest=1[v]`;
+    const codec = alpha
+      ? ["-c:v", "prores_ks", "-profile:v", "4444", "-pix_fmt", "yuva444p10le"]
+      : ["-c:v", "libx264", "-crf", "18", "-preset", "veryfast", "-pix_fmt", "yuv420p"];
     const sound = video && audio ? ["-map", "0:a", "-c:a", "aac", "-b:a", "160k", "-shortest"] : [];
     encoder = Bun.spawn(
       [
         ...["ffmpeg", "-nostdin", "-loglevel", "error", "-y", ...inputs],
         ...["-filter_complex", graph, "-map", "[v]", ...sound],
-        ...["-c:v", "libx264", "-crf", "18", "-preset", "veryfast", "-pix_fmt", "yuv420p"],
+        ...codec,
         ...["-movflags", "+faststart", out],
       ],
       { stdin: "pipe", stderr: "pipe" },
