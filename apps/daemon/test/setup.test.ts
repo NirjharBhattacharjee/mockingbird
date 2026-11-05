@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { agents, codexMentions } from "../src/agents.ts";
 import { PLUGIN } from "../src/guide.ts";
+import { DEFAULT_ASR_MODEL } from "../src/runtime.ts";
 import { checks, doctor, setup } from "../src/setup.ts";
 
 /** A home with Cursor, Gemini CLI, VS Code and Codex folders, `mockingbird` in .local/bin, and no `claude` command. */
@@ -185,14 +186,15 @@ test("setup installs missing tools and models after asking, then adds the agents
       pulled = true;
       mkdirSync(join(mb, "models"), { recursive: true });
       writeFileSync(join(mb, "models", "silero_vad.onnx"), "");
-      writeFileSync(join(mb, "models", "ggml-large-v3-q5_0.bin"), "");
+      writeFileSync(join(mb, "models", DEFAULT_ASR_MODEL), "");
       return 0;
     },
     log: () => {},
   });
   expect(asked[0]).toBe("Install ffmpeg and whisper-cpp with Homebrew? [Y/n]");
   expect(asked[1]).toMatch(
-    /^Download the speech models \(up to 1\.1 GB\) from huggingface\.co and github\.com\?/,
+    // 1.1 GB on an Apple Silicon Mac, 0.2 GB where the default is small (#202).
+    /^Download the speech models \(up to [\d.]+ GB\) from huggingface\.co and github\.com\?/,
   );
   expect(asked[2]).toBe("Add mockingbird to Cursor, Gemini CLI, VS Code, Codex? [Y/n]");
   expect(ran).toContain("brew install ffmpeg whisper-cpp");
@@ -223,13 +225,13 @@ test("an empty or cut-short pinned speech model counts as damaged", () => {
   const h = home();
   const mb = join(h, "mb");
   mkdirSync(join(mb, "models"), { recursive: true });
-  writeFileSync(join(mb, "models", "ggml-large-v3-q5_0.bin"), "");
+  writeFileSync(join(mb, "models", DEFAULT_ASR_MODEL), "");
   const speech = checks({ home: h, mbHome: mb, which: none, env: {} }).find(
     (c) => c.name === "speech model",
   );
   expect(speech).toMatchObject({
     ok: false,
-    detail: "ggml-large-v3-q5_0.bin is damaged or incomplete",
+    detail: `${DEFAULT_ASR_MODEL} is damaged or incomplete`,
   });
 });
 
