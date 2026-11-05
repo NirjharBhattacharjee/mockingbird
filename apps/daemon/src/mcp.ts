@@ -1391,6 +1391,226 @@ async function packets(file: string): Promise<number> {
 /** Files ffmpeg reads as one still picture, which then has to be repeated to last. */
 const STILL = /\.(png|jpe?g|webp|heic|bmp|tiff?)$/i;
 
+/** How long a segment runs before the cache may start another (#165). */
+const SEGMENT_SECONDS = 10;
+
+/**
+ * Where a project's render is cut into cached segments (#165): runs of
+ * clips, as [first, end) indexes. A segment ends at a clip edge once it's
+ * SEGMENT_SECONDS long or CLIPS_PER_PASS clips, but never where a transition
+ * joins two clips or an insert plays across the edge: the insert, a video,
+ * would start over. Captions and texts are still pictures, so each segment
+ * draws its part of one that crosses.
+ */
+export function segments(
+  clips: Clip[],
+  inserts: { from: number; to: number }[],
+): [number, number][] {
+  const { starts } = timeline(clips);
+  const runs: [number, number][] = [];
+  let first = 0;
+  for (let i = 1; i < clips.length; i++) {
+    const t = starts[i] as number;
+    const long = t - (starts[first] as number) >= SEGMENT_SECONDS || i - first >= CLIPS_PER_PASS;
+    const crossed = clips[i]?.transition || inserts.some((s) => s.from < t && s.to > t);
+    if (long && !crossed) {
+      runs.push([first, i]);
+      first = i;
+    }
+  }
+  runs.push([first, clips.length]);
+  return runs;
+}
+
+/** What a file is, for a cache key: a file changed on disk gets a new key. */
+const stamp = (file: string) => {
+  const s = statSync(file);
+  return `${resolve(file)}:${s.size}:${s.mtimeMs}`;
+};
+
+/** The engine's own code, so a segment drawn by an older engine isn't used again. */
+// ponytail: the files that build the picture, not everything they import; add any whose change goes unnoticed.
+const ENGINE = createHash("sha256")
+  .update(readFileSync(import.meta.path))
+  .update(readFileSync(join(import.meta.dir, "effects.ts")))
+  .update(readFileSync(Bun.resolveSync("@mockingbird/captions", import.meta.dir)))
+  .digest("hex");
+
+/**
+ * A project's render from segments kept under ~/.mockingbird/cache/segments/
+ * (#165): each run of clips from `segments` is rendered with the captions,
+ * texts and inserts over it, keyed by all of those, the look and the engine,
+ * so an edit renders again only the segments it touches. The segments are
+ * joined without encoding again, then the sounds are mixed and levelled over
+ * the whole video. Undefined, having made nothing, if the captions or texts
+ * can't be drawn as pictures here: render's own way handles those.
+ */
+async function segmented(
+  path: string,
+  clips: (Clip & { silent?: boolean })[],
+  {
+    audio,
+    size,
+    fps,
+    split,
+    cues,
+    captionsY,
+    texts,
+    inserts,
+    sounds,
+    out,
+    named,
+    kind,
+  }: {
+    audio: boolean;
+    size: string;
+    fps: number;
+    split?: { top: Area; bottom: Area };
+    cues: Cue[];
+    captionsY: number;
+    texts: Text[];
+    inserts: Insert[];
+    sounds: (Sound & { path: string })[];
+    out?: string;
+    named: string;
+    kind: string;
+  },
+): Promise<string | undefined> {
+  const dir = mkdtempSync(join(tmpdir(), "mockingbird-segments-"));
+  let target: string | undefined;
+  let made = false;
+  try {
+    const lines = [...cues.map((c) => c.text), ...texts.map((t) => t.text)];
+    const [width, height] = (split ? "1080x1920" : size).split("x").map(Number);
+    const chrome = lines.length ? findChrome() : undefined;
+    const wrap = noNetwork();
+    const fonts = fontFaces();
+    const images = lines.length
+      ? await drawCaptions(lines, dir, width ?? 1080, height, { chrome, wrap, fonts })
+      : [];
+    if (!images) return undefined;
+    const layers = [
+      ...cues.map(({ start, end }) => ({ start, end, y: captionsY })),
+      ...texts.map(({ from, to, y }) => ({ start: from, end: to, y })),
+    ].map((l, i) => ({ ...l, image: images[i] as string, text: lines[i] }));
+    const put = inserts.map((i) => ({ path: i.path, start: i.from, end: i.to }));
+    const { starts, length } = timeline(clips);
+    const cache = join(mockingbirdHome(), "cache", "segments");
+    mkdirSync(cache, { recursive: true });
+    const runs = segments(clips, inserts);
+    // ponytail: one segment at a time, since each is timed from the ones before; a first render is ~10% slower than one pass. Render the segments with nothing over them in parallel if that matters.
+    const files: string[] = [];
+    let reused = 0;
+    // Where this segment starts in the joined video: concat puts each file after
+    // the ones before by their length, sound included, which rounding to whole
+    // frames leaves a little off the timeline's time.
+    let t0 = 0;
+    for (const [a, b] of runs) {
+      const part = clips.slice(a, b);
+      const t1 = t0 + (b < clips.length ? (starts[b] as number) : length) - (starts[a] as number);
+      // What lies over this segment, timed from its first frame; a frame to spare at its end.
+      const over = <T extends { start: number; end: number }>(xs: T[]) =>
+        xs
+          .filter((x) => x.start < t1 + 1 / fps && x.end > t0)
+          .map((x) => ({ ...x, start: Math.max(0, x.start - t0), end: x.end - t0 }));
+      const laid = over(layers);
+      const shown = over(put);
+      const key = createHash("sha256")
+        .update(
+          JSON.stringify([
+            ENGINE,
+            audio,
+            size,
+            fps,
+            split ?? null,
+            part.map((c) => ({ ...c, path: stamp(c.path ?? path) })),
+            // By its words, not its pixels: Chrome's antialiasing varies a little with the line drawn before.
+            chrome ?? null,
+            // The fonts are pinned, so which are there says what they draw.
+            fonts.map((f) => f.url),
+            laid.map((l) => [l.start, l.end, l.y, l.text]),
+            shown.map((s) => [s.start, s.end, stamp(s.path)]),
+          ]),
+        )
+        .digest("hex")
+        .slice(0, 32);
+      const file = join(cache, `${key}.mkv`);
+      files.push(file);
+      if (existsSync(file)) {
+        reused++;
+        t0 += (await probe(file)).seconds;
+        continue;
+      }
+      const tmp = join(cache, `${key}.part.mkv`);
+      try {
+        await ffmpeg(
+          [
+            ...seekClips(path, part),
+            ...laid.flatMap((l) => ["-i", l.image]),
+            ...shown.flatMap((s) => [...(STILL.test(s.path) ? ["-loop", "1"] : []), "-i", s.path]),
+            ...[
+              "-filter_complex",
+              renderGraph(part, {
+                audio,
+                size,
+                fps,
+                split,
+                overlays: laid,
+                inserts: shown,
+                whole: true,
+              }),
+            ],
+            ...["-map", "[v]", ...(audio ? ["-map", "[a]", "-c:a", "pcm_f32le"] : [])],
+            ...["-c:v", "libx264", "-crf", "18", "-preset", "veryfast", "-pix_fmt", "yuv420p", tmp],
+          ],
+          `render clips ${a + 1}-${b} of ${named}`,
+        );
+        renameSync(tmp, file);
+      } finally {
+        rmSync(tmp, { force: true });
+      }
+      t0 += (await probe(file)).seconds;
+    }
+    const list = join(dir, "segments.txt");
+    writeFileSync(list, files.map((f) => `file '${f.replaceAll("'", "'\\''")}'`).join("\n"));
+    const joined = join(dir, "joined.mkv");
+    await ffmpeg(
+      ["-f", "concat", "-safe", "0", "-i", list, "-c", "copy", joined],
+      `join ${named}'s segments`,
+    );
+    target = outputFor(named, out, false, kind);
+    if (audio || sounds.length) {
+      const unlevelled = join(dir, "unlevelled.mkv");
+      const graph = [
+        ...(audio ? ["[0:a]anull[speech]"] : []),
+        ...mixGraph(sounds, { speech: audio, length, first: 1 }),
+      ].join(";");
+      await ffmpeg(
+        [
+          "-i",
+          joined,
+          ...sounds.flatMap((s) => [...(s.loop ? ["-stream_loop", "-1"] : []), "-i", s.path]),
+          ...["-filter_complex", graph, "-map", "0:v", "-map", "[a]"],
+          ...["-c:v", "copy", "-c:a", "pcm_f32le", unlevelled],
+        ],
+        `mix ${target}'s sound`,
+      );
+      await level(unlevelled, target);
+    } else {
+      await ffmpeg(
+        ["-i", joined, "-map", "0", "-c", "copy", "-movflags", "+faststart", target],
+        `save ${target}`,
+      );
+    }
+    made = true;
+    const kept = `${reused} of ${runs.length} segments reused`;
+    return `${target} (${fineClock((await probe(target)).seconds * 1000)}), ${kept}${cues.length ? ", captions drawn on the picture" : ""}`;
+  } finally {
+    if (!made && target) rmSync(target, { force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 /**
  * Cuts `clips` out of a video and joins them into one MP4, optionally 9:16
  * or split, with captions, text, inserts and sounds. The client chooses all
@@ -1419,6 +1639,7 @@ async function render(
     kind = "short",
     draft = false,
     soundOnly = false,
+    cache = false,
   }: {
     size?: string;
     fps?: number;
@@ -1437,6 +1658,8 @@ async function render(
     draft?: boolean;
     /** The sound alone, as an .m4a: the picture is built but not encoded (#170). */
     soundOnly?: boolean;
+    /** A project's: rendered from cached segments, so an edit renders only what it changed (#165). */
+    cache?: boolean;
   },
 ): Promise<string> {
   requireFile(path, "File");
@@ -1479,6 +1702,32 @@ async function render(
   // A split takes its areas from one picture, so its clips are brought to the first's size.
   const frameSize = split ? source.size : (size ?? source.size);
   const rate = fps ?? source.fps;
+  const bare =
+    !soundOnly &&
+    !captions?.trim() &&
+    !texts.length &&
+    !split &&
+    !draft &&
+    !inserts.length &&
+    clips.every((c) => !c.transition && !c.sound && (c.speed ?? 1) === 1 && !c.effects?.length);
+  // Nothing drawn and every clip as recorded: copying (#166) beats encoding segments to cache.
+  if (cache && !draft && !soundOnly && !bare) {
+    const made = await segmented(path, shaped, {
+      audio,
+      size: frameSize,
+      fps: rate,
+      split,
+      cues: captions?.trim() ? parseSrt(captions.trim()) : [],
+      captionsY,
+      texts,
+      inserts,
+      sounds,
+      out,
+      named,
+      kind,
+    });
+    if (made) return made;
+  }
   if (clips.length > CLIPS_PER_PASS) {
     // ponytail: a transition can't cross two batches; join batches with xfade if long edits need them.
     if (clips.some((c, i) => i > 0 && c.transition)) {
@@ -1559,17 +1808,8 @@ async function render(
     const picture = soundOnly
       ? ["-map", "[a]", "-c:a", "pcm_f32le", unlevelled, "-map", "[v]", "-f", "null", "-"]
       : undefined;
-    const plain =
-      !soundOnly &&
-      !lines.length &&
-      !burn &&
-      !sidecar &&
-      !split &&
-      !draft &&
-      !inserts.length &&
-      clips.every((c) => !c.transition && !c.sound && (c.speed ?? 1) === 1 && !c.effects?.length);
     const copied =
-      plain &&
+      bare &&
       (await copyRender(path, shaped, dir, unlevelled, {
         audio,
         size: frameSize,
@@ -2477,6 +2717,7 @@ async function renderProject(
     kind: soundOnly ? "sound" : draft ? "draft" : "render",
     draft,
     soundOnly,
+    cache: true,
   });
 }
 

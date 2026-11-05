@@ -18,6 +18,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
+| 2026-11-06 | Segment cache (#165): a project renders from segments of about 10 s kept in `~/.mockingbird/cache/segments/`, each keyed by its clips, what's drawn over it, the look and the engine, so an edit renders again only the segments it touches. On the v2 edit with four texts, changing one text took 16.4 s instead of 72.8 to 78.2 s. |
 | 2026-11-05 | Fonts ship with Chrome (#156): `models pull chrome` also downloads Inter, Charis SIL, JetBrains Mono and Noto for Bengali, Devanagari, Arabic, Hebrew, Thai, Tamil and CJK (OFL, pinned, [NOTICE.md](../NOTICE.md)); captions and pages use them by name, so a Bengali caption or a CJK title is drawn the same with or without the system's fonts. |
 | 2026-11-05 | A motion page can't reach the network on Linux or Windows either (#157): Chrome resolves no host name and sends the rest to a dead proxy, each tab blocks http and ws URLs, and on Linux the runner starts in a network namespace where one can be made. Chrome is pinned for Linux x64 and Windows x64. |
 | 2026-11-06 | Effects catalog, phase 1 (#197): one `effects` catalog (`apps/daemon/src/effects.ts`) instead of a tool per effect, put on a clip's picture or sound after its framing; color, LUT, vignette, sharpen, blur, denoise, high-pass, compressor, de-esser; `scopes` measures a picture for grading. |
@@ -268,6 +269,41 @@ of frames are copied: 72.5 to 90.9 s became 49.7 to 51.5 s on a loaded M3.
 Ten 35 s clips from the same recording went from 57.4 s to 12.4 s.
 Copied frames are bit-identical to the source.
 
+**Segment cache (#165).** A project's render (`segmented` in `mcp.ts`) is
+cut into segments of whole clips: one ends at the first clip edge once it's
+10 s long or holds `CLIPS_PER_PASS` clips, but never where a transition
+joins two clips or an insert plays across the edge (`segments`). Each
+segment is rendered on its own with its part of the captions and texts over
+it, in x264 CRF 18 with float sound, and kept in
+`~/.mockingbird/cache/segments/` under a key made of its clips (each
+source by path, size and modified time), the captions and texts by their
+words and times, the inserts, the size, rate and split, the Chrome that
+draws the text, and the code of `mcp.ts`, `effects.ts` and the captions
+package. Text is keyed by its words, not its pixels: Chrome's antialiasing
+varies a little with the line it drew before. The segments are joined by the
+concat demuxer without encoding again. A segment's overlays are timed from
+where concat puts it, the lengths of the segments before it, not the
+timeline's time. The sounds are then mixed under the joined speech, and the
+loudness is levelled over the whole video, as before. A project with nothing
+drawn over it and every clip as recorded keeps #166's stream copy instead,
+since copying beats encoding. Drafts and `sound: true` don't use the cache.
+
+Measured on a loaded M3 (load 5 to 10) with the v2 edit (96 clips, 389 s
+of 1080p60) and four texts:
+
+| Render | Time |
+|---|---|
+| Today's render, no cache | 72.8 s, 78.2 s |
+| First render, filling the cache (28 segments) | 81.9 s |
+| Again, nothing changed (28 of 28 reused) | 11.3 s |
+| One text changed (26 of 28 reused) | 16.4 s |
+
+Against today's render of the changed project, compared frame by frame,
+every frame matches at 44 dB PSNR or better except one at 31 dB; both have
+23,311 frames, the text appears and goes on the same frames, and loudness is
+−14.4 against −14.3 LUFS. The cache took 214 MB for this edit, most of it
+the float sound. Nothing is evicted yet; deleting the folder is safe.
+
 A project (`packages/timeline`) compiles into the same inputs: each clip
 with its own source, everything laid over the cut timed in the finished
 video from the clip it's on, and captions made with `wordCaptions` from each
@@ -321,6 +357,7 @@ MCP server is its own short-lived process.
 | Draft proxies: 720-line copies of the stretches of 4K sources a project uses | `~/.mockingbird/cache/proxies/` | `render(project, draft: true)` |
 | Overlays: a project's HTML pages rendered with their transparency | `~/.mockingbird/cache/overlays/` | `render(project)` with an overlay |
 | Music beds: a project's generated sounds | `~/.mockingbird/cache/music/` | `render(project)` with a generator |
+| Segments: a project's render in pieces of about 10 s | `~/.mockingbird/cache/segments/` | `render(project)` |
 | Renders, stills | beside the source, or a temp folder for stills | `render`, `motion`, `frames` |
 
 `MOCKINGBIRD_HOME` moves `~/.mockingbird`.

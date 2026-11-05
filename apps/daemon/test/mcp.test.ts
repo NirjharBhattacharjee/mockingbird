@@ -16,6 +16,7 @@ import {
   pieces,
   renderGraph,
   seekClips,
+  segments,
   spans,
   tempo,
   timedLines,
@@ -672,6 +673,38 @@ describe("pieces", () => {
 
   test("clips are cut to whole frames", () => {
     expect(parts([{ from: 1.99, to: 4.01 }])).toEqual([[60, 120, true]]);
+  });
+});
+
+describe("segments", () => {
+  // Twelve 4 s clips: a segment may end once it's 10 s long, so every third clip.
+  const clips = Array.from({ length: 12 }, (_, i) => ({ from: i * 4, to: i * 4 + 4 }));
+
+  test("ends a segment at the first clip edge 10 s in", () => {
+    expect(segments(clips, [])).toEqual([
+      [0, 3],
+      [3, 6],
+      [6, 9],
+      [9, 12],
+    ]);
+  });
+
+  test("never where a transition joins two clips or an insert plays across", () => {
+    const faded = clips.map((c, i) =>
+      i === 3 ? { ...c, transition: { type: "fade", duration: 0.5 } } : c,
+    );
+    expect(segments(faded, [])[0]).toEqual([0, 4]);
+    expect(segments(clips, [{ from: 11, to: 13 }])[0]).toEqual([0, 4]);
+    // An insert that ends on the edge doesn't cross it.
+    expect(segments(clips, [{ from: 10, to: 12 }])[0]).toEqual([0, 3]);
+  });
+
+  test("a segment holds at most CLIPS_PER_PASS clips", () => {
+    const short = Array.from({ length: CLIPS_PER_PASS + 5 }, (_, i) => ({
+      from: i * 0.05,
+      to: i * 0.05 + 0.05,
+    }));
+    expect(segments(short, [])[0]).toEqual([0, CLIPS_PER_PASS]);
   });
 });
 

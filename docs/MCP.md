@@ -216,6 +216,18 @@ clips. A long-form edit of 35 s clips rendered 4.6x faster this way, and
 the copied frames are the source's, untouched
 ([ARCHITECTURE.md](./ARCHITECTURE.md#7-rendering)).
 
+### The segment cache
+
+`render(project)` renders a project in segments of about 10 s and keeps them
+in `~/.mockingbird/cache/segments/`. The next render after an edit renders
+only the segments the edit touched and joins the rest from the cache; the
+result says how many were reused (`26 of 28 segments reused`). A segment is
+keyed by its clips and their sources, the captions, texts and inserts over
+it, the look and the engine's code, so a changed source file, word or engine
+renders it again. On the 6.5-minute v2 edit, changing one text took 16.4 s
+instead of about 75 s ([ARCHITECTURE.md](./ARCHITECTURE.md#7-rendering)).
+Deleting the folder is safe.
+
 ### Drafts
 
 `render` with `draft: true` makes a quick preview to check the cut with:
