@@ -70,7 +70,8 @@ jobs:
           curl -fsSLo silero_vad.onnx https://github.com/snakers4/silero-vad/raw/v6.2.2/src/silero_vad/data/silero_vad.onnx
       - name: Put the pulled whisper-server on the PATH
         run: dirname "$(find "$MOCKINGBIRD_HOME/bin" -name 'whisper-server*' -type f | head -1)" >> "$GITHUB_PATH"
-      - run: bun apps/daemon/src/cli.ts status
+      # Says what it found; ffmpeg isn't on the runners and isn't needed here.
+      - run: bun apps/daemon/src/cli.ts status || true
       - run: MOCKINGBIRD_INTEGRATION=1 bun test packages/asr/test/whisper-server.integration.test.ts apps/daemon/test/transcribe.test.ts
       - name: Time for bench/fixtures/hello.wav
         run: |

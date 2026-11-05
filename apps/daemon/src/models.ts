@@ -207,7 +207,13 @@ export async function pullWhisper(deps: PullDeps = {}): Promise<number> {
   const unpacking = `${pin.dir}.part`;
   rmSync(unpacking, { recursive: true, force: true });
   mkdirSync(unpacking, { recursive: true });
-  const tar = Bun.spawnSync(["tar", "-xf", archive, "-C", unpacking], { stderr: "pipe" });
+  // Windows' own tar.exe: Git Bash's GNU tar, often first on the PATH, takes
+  // "D:" for a remote host.
+  const tarExe =
+    process.platform === "win32"
+      ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
+      : "tar";
+  const tar = Bun.spawnSync([tarExe, "-xf", archive, "-C", unpacking], { stderr: "pipe" });
   if (tar.exitCode !== 0) {
     rmSync(unpacking, { recursive: true, force: true });
     throw new Error(`couldn't unpack ${archive}: ${tar.stderr.toString().trim()}`);

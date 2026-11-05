@@ -109,7 +109,13 @@ function status(): number {
     `transcription model: ${s.transcriptionModel ?? "missing: `mockingbird models pull`"}`,
   );
   console.log(`speech detection:    ${yes(s.vadModel, "`mockingbird models pull`")}`);
-  console.log(`ffmpeg:              ${yes(s.ffmpeg, "`brew install ffmpeg`")}`);
+  const getFfmpeg =
+    process.platform === "win32"
+      ? "`winget install Gyan.FFmpeg`"
+      : process.platform === "linux"
+        ? "your package manager's ffmpeg, e.g. `sudo apt install ffmpeg`"
+        : "`brew install ffmpeg`";
+  console.log(`ffmpeg:              ${yes(s.ffmpeg, getFfmpeg)}`);
   const getWhisper = pinnedWhisper() ? "`mockingbird models pull`" : "`brew install whisper-cpp`";
   console.log(`whisper-server:      ${yes(s.whisperServer, getWhisper)}`);
   console.log(`dictionary:          ${s.dictionaryWords} words`);
