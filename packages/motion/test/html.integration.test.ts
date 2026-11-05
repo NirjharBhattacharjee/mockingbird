@@ -229,18 +229,23 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("renderHtml (integration)"
         return new Response("reached");
       },
     });
-    const js = join(dir, "mod.js");
-    writeFileSync(js, "export default 1;");
+    // The same picture by a local path and through a host: only the host may
+    // differ, so only the gate fails it. (A picture, not a module: Windows
+    // may give .js a MIME type a module won't take.)
+    const png = join(dir, "raw.png");
+    Bun.spawnSync([
+      ..."ffmpeg -v error -y -f lavfi -i color=red:s=8x8 -frames:v 1".split(" "),
+      png,
+    ]);
+    const local = pathToFileURL(png).href;
     const remote =
       process.platform === "win32"
-        ? `file://127.0.0.1/${js[0]}$/${js.slice(3).replaceAll("\\", "/")}`
+        ? `file://127.0.0.1/${png[0]}$/${png.slice(3).replaceAll("\\", "/")}`
         : "file://127.0.0.1/etc/hosts";
-    // A page at the module's own address, as music.ts opens one, so it may import itself.
-    const local = pathToFileURL(js).href;
     const chrome = await launchChrome(chromePath());
     try {
       const { targetId } = await chrome.send<{ targetId: string }>("Target.createTarget", {
-        url: local,
+        url: pathToFileURL(page("raw.html", "")).href,
       });
       const { sessionId } = await chrome.send<{ sessionId: string }>("Target.attachToTarget", {
         targetId,
@@ -258,9 +263,26 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("renderHtml (integration)"
             sessionId,
           )
         ).result.value;
+      const picture = (url: string) =>
+        `new Promise((ok, no) => { const i = new Image(); i.onload = ok; i.onerror = no; i.src = ${JSON.stringify(url)}; })`;
+      // createTarget returns before the page has loaded, and a navigation
+      // under way throws away what's evaluated in it.
+      for (let tries = 0; ; tries++) {
+        const at = await chrome
+          .send<{ result: { value: string } }>(
+            "Runtime.evaluate",
+            { expression: "location.protocol + document.readyState", returnByValue: true },
+            sessionId,
+          )
+          .then((r) => r.result.value)
+          .catch(() => "");
+        if (at === "file:complete") break;
+        if (tries > 200) throw new Error(`the page didn't load: ${at}`);
+        await Bun.sleep(20);
+      }
       expect(await run(`fetch("http://127.0.0.1:${server.port}/")`)).toBe("failed");
-      expect(await run(`import(${JSON.stringify(remote)})`)).toBe("failed");
-      expect(await run(`import(${JSON.stringify(local)})`)).toBe("reached");
+      expect(await run(picture(local))).toBe("reached");
+      expect(await run(picture(remote))).toBe("failed");
     } finally {
       await chrome.close();
       server.stop(true);
