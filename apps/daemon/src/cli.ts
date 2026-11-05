@@ -4,7 +4,7 @@ import { main as dictionaryMain, readDictionary } from "./dictionary.ts";
 import { mcpTools, serve } from "./mcp.ts";
 import { listModels, modelsCommand, pullModels, pullWhisper } from "./models.ts";
 import { retireDictation } from "./retire.ts";
-import { findWhisperServer, mockingbirdHome, pinnedWhisper } from "./runtime.ts";
+import { ffmpegMissing, findWhisperServer, mockingbirdHome, pinnedWhisper } from "./runtime.ts";
 import { main as transcribeMain, UsageError } from "./transcribe.ts";
 import { uninstall } from "./uninstall.ts";
 
@@ -86,7 +86,11 @@ async function pullWithProgress(only?: "whisper-server"): Promise<number> {
 }
 
 /** What `status` and the MCP `status` tool report. */
-export function engineStatus(home = mockingbirdHome(), which = (name: string) => Bun.which(name)) {
+export function engineStatus(
+  home = mockingbirdHome(),
+  which = (name: string) => Bun.which(name),
+  missing = ffmpegMissing,
+) {
   let words = 0;
   try {
     words = readDictionary(home).length;
@@ -97,6 +101,8 @@ export function engineStatus(home = mockingbirdHome(), which = (name: string) =>
     transcriptionModel: listModels({ home }).find((m) => m.inUse)?.file ?? null,
     vadModel: existsSync(join(home, "models", "silero_vad.onnx")),
     ffmpeg: which("ffmpeg") !== null,
+    /** What the system's ffmpeg was built without, of what the engine uses. */
+    ffmpegMissing: which("ffmpeg") !== null ? missing() : [],
     whisperServer: findWhisperServer(process.env, home, which) !== undefined,
     dictionaryWords: words,
   };
@@ -115,11 +121,20 @@ function status(): number {
       : process.platform === "linux"
         ? "your package manager's ffmpeg, e.g. `sudo apt install ffmpeg`"
         : "`brew install ffmpeg`";
-  console.log(`ffmpeg:              ${yes(s.ffmpeg, getFfmpeg)}`);
+  const ffmpegLine = s.ffmpegMissing.length
+    ? `installed, but built without ${s.ffmpegMissing.join(", ")}: install a full build (${getFfmpeg})`
+    : yes(s.ffmpeg, getFfmpeg);
+  console.log(`ffmpeg:              ${ffmpegLine}`);
   const getWhisper = pinnedWhisper() ? "`mockingbird models pull`" : "`brew install whisper-cpp`";
   console.log(`whisper-server:      ${yes(s.whisperServer, getWhisper)}`);
   console.log(`dictionary:          ${s.dictionaryWords} words`);
-  return s.transcriptionModel && s.vadModel && s.ffmpeg && s.whisperServer ? 0 : 1;
+  return s.transcriptionModel &&
+    s.vadModel &&
+    s.ffmpeg &&
+    !s.ffmpegMissing.length &&
+    s.whisperServer
+    ? 0
+    : 1;
 }
 
 /** `uninstall` with the real git and du behind it. */

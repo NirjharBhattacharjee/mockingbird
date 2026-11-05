@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import {
   DEFAULT_ASR_MODEL,
   englishOnly,
+  ffmpegMissing,
   findAsrModel,
   findWhisperServer,
   pinnedWhisper,
@@ -125,4 +126,31 @@ test("findWhisperServer: the environment, then the pulled one, then the PATH", (
     writeFileSync(pin.program, "");
     expect(findWhisperServer({}, home, onPath)).toBe(pin.program);
   }
+});
+
+test("ffmpegMissing names what a system ffmpeg was built without", () => {
+  const encoders =
+    " V....D libx264              libx264 H.264 (codec h264)\n A....D aac                  AAC";
+  const filters = [
+    " ... sidechaincompress AA->A      Sidechain compressor.",
+    " ... ebur128           A->N       EBU R128 scanner.",
+    " ... alimiter          A->A       Audio lookahead limiter.",
+    " ... aevalsrc          |->A       Generate an audio signal.",
+    " ... amix              N->A       Audio mixing.",
+    " ... adelay            A->A       Delay channels.",
+    " ... overlay           VV->V      Overlay a video source.",
+  ].join("\n");
+  expect(ffmpegMissing((what) => (what === "-encoders" ? encoders : filters))).toEqual([]);
+  // ffmpeg-free: no libx264, and "libx264rgb" alone doesn't count.
+  const free = " V....D libx264rgb           libx264 RGB\n A....D aac                  AAC";
+  expect(ffmpegMissing((what) => (what === "-encoders" ? free : ""))).toEqual([
+    "libx264",
+    "sidechaincompress",
+    "ebur128",
+    "alimiter",
+    "aevalsrc",
+    "amix",
+    "adelay",
+    "overlay",
+  ]);
 });

@@ -197,7 +197,9 @@ PR, on macOS, Linux and Windows (see [below](#on-linux-and-windows)).
 
 - `whisper-server` (`brew install whisper-cpp` on macOS; `mockingbird models
   pull whisper-server` on Linux and Windows)
-- `ffmpeg` (`brew install ffmpeg`, or the system's package manager)
+- `ffmpeg` (`brew install ffmpeg`, or the system's package manager), with
+  libx264: `mockingbird status` says if it was built without something the
+  engine uses
 - `~/.mockingbird/models/silero_vad.onnx` (`mockingbird models pull`) and
   `~/.mockingbird/models/ggml-base.en.bin`, which the tests use to stay
   quick: fetch it from the same Hugging Face revision as the default model

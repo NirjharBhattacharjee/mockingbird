@@ -18,7 +18,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
-| 2026-11-05 | Linux and Windows, first part (pivot step 4): CI runs the checks on all three (#151); `models pull` downloads a pinned whisper-server on Linux and Windows (#153); releases build the command for five targets, `install.sh` runs on Linux, and `install.ps1` installs on Windows (#152). |
+| 2026-11-05 | Linux and Windows, first part (pivot step 4): CI runs the checks on all three (#151); `models pull` downloads a pinned whisper-server on Linux and Windows (#153); releases build the command for five targets, `install.sh` runs on Linux, and `install.ps1` installs on Windows (#152). ffmpeg stays the system's, and `status` names any encoder or filter the engine needs that it was built without (#154). |
 | 2026-11-04 | Timeline, first part (#148): `packages/timeline` keeps an edit in a project file; the `edit` tool changes it with ops; `render` renders one, with clips from several sources framed to one size and rate, and captions made for the cut. |
 | 2026-11-04 | mockingbird-studio moved into `plugin/` and is now the `mockingbird` plugin; a `guide` tool and server instructions give every MCP client its playbooks (#140). |
 | 2026-11-04 | Long-form fixes (#127): `render` and `motion` reach −14 LUFS with a measured gain and a limiter instead of one pass of `loudnorm` (−15.9 → −14.3 LUFS on the v2 edit); `captions` hears overlapping padded clips as one stretch (171 s → 62 s for 96 clips); captions in a wide video are subtitle-sized. |
@@ -94,7 +94,7 @@ Constraints, not preferences. Check any proposed change against them.
 |---|---|---|
 | Engine | TypeScript on **Bun** ≥ 1.2, Bun workspaces | our process |
 | Command | **Go** ≥ 1.26, `apps/cli` | one compiled binary |
-| Decoding, cutting, mixing, encoding | `ffmpeg` | subprocess |
+| Decoding, cutting, mixing, encoding | the system's `ffmpeg` (Homebrew, apt, winget), never a copy we ship: a build with x264 is GPL ([#154](https://github.com/NirjharBhattacharjee/mockingbird/issues/154)) | subprocess |
 | Speech detection | Silero VAD via `onnxruntime-node` | native module in-process |
 | Speech-to-text | `whisper.cpp`'s `whisper-server` (Homebrew's on macOS, a pinned CPU build from `models pull` on Linux and Windows), default model `large-v3` Q5_0 | subprocess, HTTP on a free `127.0.0.1` port per call |
 | Captions | Core Text through `bun:ffi`, drawn to PNGs that ffmpeg overlays | in-process |

@@ -206,6 +206,31 @@ export function findWhisperServer(
   return which("whisper-server") ?? undefined;
 }
 
+/**
+ * The encoders and filters the engine uses that a system ffmpeg can be
+ * built without (#154: mockingbird uses the system's ffmpeg). libx264 is
+ * the usual one: Fedora's ffmpeg-free leaves it out.
+ */
+export const FFMPEG_NEEDS = {
+  encoders: ["libx264", "aac"],
+  filters: ["sidechaincompress", "ebur128", "alimiter", "aevalsrc", "amix", "adelay", "overlay"],
+};
+
+/** What this ffmpeg lacks of FFMPEG_NEEDS, from its `-encoders` and `-filters` lists. */
+export function ffmpegMissing(
+  list = (what: "-encoders" | "-filters") =>
+    Bun.spawnSync(["ffmpeg", "-hide_banner", what], { stderr: "ignore" }).stdout.toString(),
+): string[] {
+  // Each line is flags, a name, then a description: match the name as a word.
+  const has = (text: string, name: string) => new RegExp(`^\\s*\\S+\\s+${name}\\s`, "m").test(text);
+  const encoders = list("-encoders");
+  const filters = list("-filters");
+  return [
+    ...FFMPEG_NEEDS.encoders.filter((n) => !has(encoders, n)),
+    ...FFMPEG_NEEDS.filters.filter((n) => !has(filters, n)),
+  ];
+}
+
 /** Checks the models, loads VAD and starts a whisper-server on `asrPort`. */
 export async function startEngines(
   log: (message: string) => void,
