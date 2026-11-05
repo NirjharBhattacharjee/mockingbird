@@ -15,7 +15,8 @@
     "test:integration": "MOCKINGBIRD_INTEGRATION=1 bun test",
     "transcribe": "bun apps/daemon/src/transcribe.ts",
     "fixtures": "sh scripts/make-fixtures.sh",
-    "bench:models": "bun bench/models.ts"
+    "bench:models": "bun bench/models.ts",
+    "kit": "bun build plugin/skills/motion-graphics/kit.ts --no-bundle --target=browser --outfile plugin/skills/motion-graphics/kit.js"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",
