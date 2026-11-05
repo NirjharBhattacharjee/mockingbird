@@ -820,12 +820,15 @@ async function probe(path: string): Promise<{
   side: number;
   size: string;
   fps: number;
+  /** The picture's codec and pixel format, e.g. "h264" and "yuv420p". */
+  codec: string;
+  pix: string;
 }> {
   const proc = Bun.spawn(
     [
       "ffprobe",
       ...["-v", "error", "-show_entries"],
-      "stream=codec_type,width,height,sample_aspect_ratio,avg_frame_rate:stream_side_data=rotation:format=duration",
+      "stream=codec_type,codec_name,pix_fmt,width,height,sample_aspect_ratio,avg_frame_rate:stream_side_data=rotation:format=duration",
       ...["-of", "json", path],
     ],
     { stderr: "pipe" },
@@ -839,6 +842,8 @@ async function probe(path: string): Promise<{
   const { streams = [], format } = JSON.parse(out);
   type Stream = {
     codec_type: string;
+    codec_name?: string;
+    pix_fmt?: string;
     width?: number;
     height?: number;
     sample_aspect_ratio?: string;
@@ -859,6 +864,8 @@ async function probe(path: string): Promise<{
   const fps = fn && fd ? Number((fn / fd).toFixed(3)) : 30;
   return {
     fps,
+    codec: picture?.codec_name ?? "",
+    pix: picture?.pix_fmt ?? "",
     video: has("video"),
     audio: has("audio"),
     seconds: Number(format?.duration ?? 0),
@@ -1136,6 +1143,245 @@ async function joinBatches(
   return joined;
 }
 
+/** A stretch of a clip's picture, frames `a` to `b` of its source: copied as it is, or encoded. */
+export type Piece = { clip: Clip; a: number; b: number; copy: boolean };
+
+/**
+ * How each clip's picture is made when render can copy: a clip that `can`
+ * be copied keeps the whole groups of pictures inside it, from the first
+ * keyframe in `keys` (frame numbers of its source) at or after its start to
+ * the last at or before its end, and only the frames either side are
+ * encoded. A clip with no whole group inside, or that can't be copied, is
+ * encoded. Clips are cut to whole frames at `fps`.
+ */
+export function pieces(
+  clips: Clip[],
+  fps: number,
+  keys: (c: Clip) => number[],
+  can: (c: Clip) => boolean,
+): Piece[] {
+  return clips.flatMap((clip) => {
+    const [a, b] = [Math.round(clip.from * fps), Math.round(clip.to * fps)];
+    const ks = can(clip) ? keys(clip) : [];
+    const first = ks.find((k) => k >= a);
+    const last = ks.findLast((k) => k <= b);
+    if (first === undefined || last === undefined || first >= last) {
+      return [{ clip, a, b, copy: false }];
+    }
+    return [
+      { clip, a, b: first, copy: false },
+      { clip, a: first, b: last, copy: true },
+      { clip, a: last, b, copy: false },
+    ].filter((p) => p.b > p.a);
+  });
+}
+
+/**
+ * The keyframes of `path`'s picture that a copy can start at, as frame
+ * numbers at `fps` from the file's start: each one starts a closed group
+ * (no picture after it in decode order shows before it), and every packet
+ * sits on a whole frame, so a copied stretch keeps the output's rate.
+ * Empty if the frames aren't evenly `fps` apart.
+ */
+export async function copyKeys(path: string, fps: number): Promise<number[]> {
+  const proc = Bun.spawn(
+    [
+      ...["ffprobe", "-v", "error", "-select_streams", "v:0"],
+      ...["-show_entries", "packet=pts_time,flags:format=start_time", "-of", "csv=p=0", path],
+    ],
+    { stderr: "ignore" },
+  );
+  const lines = (await new Response(proc.stdout).text()).trim().split("\n");
+  if ((await proc.exited) !== 0) return [];
+  // Packets in decode order, then the format's start time last.
+  const start = Number(lines.pop()) || 0;
+  const packets = lines.map((l) => {
+    const [pts = "", flags = ""] = l.split(",");
+    return { at: (Number(pts) - start) * fps, key: flags.startsWith("K") };
+  });
+  if (packets.some((p) => !Number.isFinite(p.at) || Math.abs(p.at - Math.round(p.at)) > 0.01))
+    return [];
+  const keys: number[] = [];
+  packets.forEach((p, i) => {
+    if (!p.key) return;
+    const frame = Math.round(p.at);
+    // A leading picture (an open group) shows before its keyframe but is decoded after it.
+    let open = false;
+    for (let j = i + 1; j < packets.length && !packets[j]?.key; j++) {
+      if ((packets[j]?.at ?? 0) < p.at) open = true;
+    }
+    if (!open) keys.push(frame);
+  });
+  return keys;
+}
+
+/**
+ * Writes `unlevelled` (picture and unlevelled sound, as render's one pass
+ * would) by copying the groups of pictures that need nothing done to them
+ * and encoding only the rest: clip edges and reframed clips. The encoded
+ * frames are one x264 stream, a keyframe forced at each piece, then split
+ * at those frames. x264 numbers its parameter sets 1, so they never replace
+ * the source's 0 where the two meet (#166). Returns false, having written
+ * nothing usable, if there's nothing to copy.
+ */
+async function copyRender(
+  path: string,
+  clips: (Clip & { silent?: boolean })[],
+  dir: string,
+  unlevelled: string,
+  {
+    audio,
+    size,
+    fps,
+    sounds,
+    probes,
+  }: {
+    audio: boolean;
+    size: string;
+    fps: number;
+    sounds: (Sound & { path: string })[];
+    probes: Map<string, Awaited<ReturnType<typeof probe>>>;
+  },
+): Promise<boolean> {
+  // ponytail: copies from the first source only, so its parameter sets are the only 0s; one per source if mixed edits need it.
+  const from = clips[0]?.path ?? path;
+  const p = probes.get(from);
+  if (p?.codec !== "h264" || p.pix !== "yuv420p" || p.size !== size || p.fps !== fps) {
+    return false;
+  }
+  const keys = await copyKeys(from, fps);
+  const plan = pieces(
+    clips,
+    fps,
+    () => keys,
+    (c) => (c.path ?? path) === from && (c.zoom ?? 1) === 1 && !c.moves?.length,
+  );
+  if (!plan.some((q) => q.copy)) return false;
+  const at = (q: Piece) => ({ ...q.clip, from: q.a / fps, to: q.b / fps });
+  const files: string[] = plan.map((_, i) => `piece-${i}.ts`);
+  // The encoded pieces, CLIPS_PER_PASS to an ffmpeg, each starting on a keyframe.
+  const encoded = plan.flatMap((q, i) => (q.copy ? [] : [{ q, i }]));
+  for (let n = 0; n < encoded.length; n += CLIPS_PER_PASS) {
+    const batch = encoded.slice(n, n + CLIPS_PER_PASS);
+    let frame = 0;
+    const starts = batch.map(({ q }) => {
+      const s = frame;
+      frame += q.b - q.a;
+      return s;
+    });
+    const parts = batch.map(({ q }) => at(q));
+    await ffmpeg(
+      [
+        // Decoded in software: a source in the output's codec and size decodes
+        // fast anyway, and setting up 100 hardware decoders took longer (#166).
+        ...seekClips(path, parts).filter((arg) => arg !== "-hwaccel" && arg !== "auto"),
+        ...["-filter_complex", renderGraph(parts, { audio: false, size, fps }), "-map", "[v]"],
+        ...["-c:v", "libx264", "-crf", "18", "-preset", "veryfast", "-pix_fmt", "yuv420p"],
+        ...["-x264-params", "sps-id=1", "-forced-idr", "1"],
+        // A quarter frame early: a time a hair past frame s would force the keyframe onto s + 1.
+        ...[
+          "-force_key_frames",
+          starts.map((s) => (Math.max(0, s - 0.25) / fps).toFixed(6)).join(","),
+        ],
+        ...["-f", "segment", "-segment_format", "mpegts"],
+        ...(starts.length > 1 ? ["-segment_frames", starts.slice(1).join(",")] : []),
+        join(dir, `encoded-${n}-%d.ts`),
+      ],
+      `encode the edges of ${path}'s clips`,
+    );
+    batch.forEach(({ i }, k) => {
+      renameSync(join(dir, `encoded-${n}-${k}.ts`), join(dir, files[i] as string));
+    });
+  }
+  // The copied groups, a few at a time: each is a seek and a copy.
+  const copied = plan.flatMap((q, i) => (q.copy ? [{ q, i }] : []));
+  for (let n = 0; n < copied.length; n += 8) {
+    await Promise.all(
+      copied.slice(n, n + 8).map(({ q, i }) =>
+        ffmpeg(
+          [
+            // Half a frame in, so the seek lands on this keyframe, not the one before.
+            ...["-ss", ((q.a + 0.5) / fps).toFixed(6), "-i", from, "-map", "0:v:0"],
+            ...["-frames:v", String(q.b - q.a), "-c", "copy", "-f", "mpegts"],
+            join(dir, files[i] as string),
+          ],
+          `copy ${from} from ${(q.a / fps).toFixed(2)}s`,
+        ),
+      ),
+    );
+  }
+  // Each piece has exactly its frames, or the picture would drift from the sound.
+  await Promise.all(
+    plan.map(async (q, i) => {
+      const got = await packets(join(dir, files[i] as string));
+      if (got !== q.b - q.a) {
+        throw new Error(
+          `piece ${i} of ${path} has ${got} frames, not ${q.b - q.a} (${q.copy ? "copied" : "encoded"}, ${q.a}-${q.b})`,
+        );
+      }
+    }),
+  );
+  const list = join(dir, "pieces.txt");
+  writeFileSync(list, files.map((f) => `file '${f}'`).join("\n"));
+  // The sound, cut to the same whole frames, with the sounds mixed under it.
+  const cut = clips.map((c) => ({
+    ...c,
+    from: Math.round(c.from * fps) / fps,
+    to: Math.round(c.to * fps) / fps,
+  }));
+  const hasSound = audio || sounds.length > 0;
+  const sound = join(dir, "sound.mkv");
+  if (hasSound) {
+    const speech = audio
+      ? [
+          ...cut.map((c, i) =>
+            c.silent
+              ? `aevalsrc=0:c=stereo:s=48000:d=${c.to - c.from}[a${i}]`
+              : `[${i}:a]asetpts=PTS-STARTPTS[a${i}]`,
+          ),
+          `${cut.map((_, i) => `[a${i}]`).join("")}concat=n=${cut.length}:v=0:a=1[speech]`,
+        ]
+      : [];
+    const length = cut.reduce((t, c) => t + c.to - c.from, 0);
+    const graph = [
+      ...speech,
+      ...mixGraph(sounds, { speech: audio, length, first: cut.length }),
+    ].join(";");
+    await ffmpeg(
+      [
+        ...seekClips(path, cut),
+        ...sounds.flatMap((s) => [...(s.loop ? ["-stream_loop", "-1"] : []), "-i", s.path]),
+        ...["-filter_complex", graph, "-map", "[a]", "-c:a", "pcm_f32le", sound],
+      ],
+      `cut ${path}'s sound`,
+    );
+  }
+  await ffmpeg(
+    [
+      ...["-f", "concat", "-safe", "0", "-i", list],
+      ...(hasSound ? ["-i", sound, "-map", "0:v", "-map", "1:a"] : []),
+      ...["-c", "copy", unlevelled],
+    ],
+    `join ${path}'s pieces`,
+  );
+  return true;
+}
+
+/** How many video packets `file` has: its frames, without decoding them. */
+async function packets(file: string): Promise<number> {
+  const proc = Bun.spawn(
+    [
+      ...["ffprobe", "-v", "error", "-select_streams", "v:0", "-count_packets"],
+      ...["-show_entries", "stream=nb_read_packets", "-of", "csv=p=0", file],
+    ],
+    { stderr: "ignore" },
+  );
+  const out = await new Response(proc.stdout).text();
+  await proc.exited;
+  // An MPEG-TS lists its stream again under its program: the first line is enough.
+  return Number.parseInt(out, 10);
+}
+
 /** Files ffmpeg reads as one still picture, which then has to be repeated to last. */
 const STILL = /\.(png|jpe?g|webp|heic|bmp|tiff?)$/i;
 
@@ -1297,42 +1543,65 @@ async function render(
     const hasSound = audio || sounds.length > 0;
     if (soundOnly && !hasSound) throw new Error("This edit has no sound to render on its own.");
     const unlevelled = join(dir, "unlevelled.mkv");
+    // Nothing drawn over the picture, no split, and every clip played as it
+    // was recorded: the stretches already in the output's codec, size and rate
+    // can be copied (#166). If copying fails, the whole picture is encoded.
     // The sound alone still runs the picture's graph, into ffmpeg's null output: unencoded, it costs little.
     const picture = soundOnly
       ? ["-map", "[a]", "-c:a", "pcm_f32le", unlevelled, "-map", "[v]", "-f", "null", "-"]
       : undefined;
-    const proc = Bun.spawn(
-      [
-        "ffmpeg",
-        ...["-nostdin", "-y", "-loglevel", "error", ...seekClips(path, clips)],
-        ...extras,
-        ...(sidecar ? ["-i", CAPTIONS] : []),
-        // A draft is the finished picture at half the size, captions and all.
-        ...(draft
-          ? ["-filter_complex", `${graph};[v]scale=trunc(iw/4)*2:trunc(ih/4)*2,setsar=1[small]`]
-          : ["-filter_complex", graph]),
-        ...(picture ?? [
-          ...["-map", draft ? "[small]" : "[v]"],
-          // Uncompressed until `level` sets the volume, and in floating point:
-          // music and effects mixed over speech can go past full scale, which
-          // 16-bit samples would clip before the limiter could hold it.
-          ...(hasSound ? ["-map", "[a]", "-c:a", "pcm_f32le"] : []),
-          // The subtitle file is the input after the clips and the extras.
-          ...(sidecar
-            ? ["-map", `${clips.length + extras.filter((a) => a === "-i").length}:s`]
-            : []),
-          ...(sidecar ? ["-c:s", "srt"] : []),
-          ...["-c:v", "libx264", "-crf", draft ? "23" : "18"],
-          ...["-preset", draft ? "ultrafast" : "veryfast", "-pix_fmt", "yuv420p"],
-          unlevelled,
-        ]),
-      ],
-      { cwd: dir, stderr: "pipe" },
-    );
-    if ((await proc.exited) !== 0) {
-      throw new Error(
-        `ffmpeg couldn't render ${target}: ${(await new Response(proc.stderr).text()).trim()}`,
+    const plain =
+      !soundOnly &&
+      !lines.length &&
+      !burn &&
+      !sidecar &&
+      !split &&
+      !draft &&
+      !inserts.length &&
+      clips.every((c) => !c.transition && !c.sound && (c.speed ?? 1) === 1);
+    const copied =
+      plain &&
+      (await copyRender(path, shaped, dir, unlevelled, {
+        audio,
+        size: frameSize,
+        fps: rate,
+        sounds,
+        probes,
+      }).catch(() => false));
+    if (!copied) {
+      const proc = Bun.spawn(
+        [
+          "ffmpeg",
+          ...["-nostdin", "-y", "-loglevel", "error", ...seekClips(path, clips)],
+          ...extras,
+          ...(sidecar ? ["-i", CAPTIONS] : []),
+          // A draft is the finished picture at half the size, captions and all.
+          ...(draft
+            ? ["-filter_complex", `${graph};[v]scale=trunc(iw/4)*2:trunc(ih/4)*2,setsar=1[small]`]
+            : ["-filter_complex", graph]),
+          ...(picture ?? [
+            ...["-map", draft ? "[small]" : "[v]"],
+            // Uncompressed until `level` sets the volume, and in floating point:
+            // music and effects mixed over speech can go past full scale, which
+            // 16-bit samples would clip before the limiter could hold it.
+            ...(hasSound ? ["-map", "[a]", "-c:a", "pcm_f32le"] : []),
+            // The subtitle file is the input after the clips and the extras.
+            ...(sidecar
+              ? ["-map", `${clips.length + extras.filter((a) => a === "-i").length}:s`]
+              : []),
+            ...(sidecar ? ["-c:s", "srt"] : []),
+            ...["-c:v", "libx264", "-crf", draft ? "23" : "18"],
+            ...["-preset", draft ? "ultrafast" : "veryfast", "-pix_fmt", "yuv420p"],
+            unlevelled,
+          ]),
+        ],
+        { cwd: dir, stderr: "pipe" },
       );
+      if ((await proc.exited) !== 0) {
+        throw new Error(
+          `ffmpeg couldn't render ${target}: ${(await new Response(proc.stderr).text()).trim()}`,
+        );
+      }
     }
     if (hasSound) await level(unlevelled, target);
     else {
