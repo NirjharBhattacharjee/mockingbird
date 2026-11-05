@@ -1048,6 +1048,16 @@ export const seekClips = (path: string, clips: Clip[]) =>
  */
 export const CLIPS_PER_PASS = 100;
 
+/**
+ * ffmpeg's `-filter_complex graph`, read from a file in `dir`: 100 clips make
+ * a graph longer than a Windows command line can be (32,767 characters, #202).
+ */
+function graphFile(graph: string, dir: string, name = "graph"): string[] {
+  const file = join(dir, `${name}.txt`);
+  writeFileSync(file, graph);
+  return ["-/filter_complex", file];
+}
+
 /** Runs ffmpeg with `args`, throwing its error output if it fails. */
 async function ffmpeg(args: string[], what: string): Promise<void> {
   const proc = Bun.spawn(["ffmpeg", "-nostdin", "-y", "-loglevel", "error", ...args], {
@@ -1129,7 +1139,9 @@ async function joinBatches(
     await ffmpeg(
       [
         ...seekClips(path, batch),
-        ...["-filter_complex", renderGraph(batch, { ...look, whole: true }), "-map", "[v]"],
+        ...graphFile(renderGraph(batch, { ...look, whole: true }), dir),
+        "-map",
+        "[v]",
         ...(look.audio ? ["-map", "[a]", "-c:a", "pcm_f32le"] : []),
         // Encoded once more in the last pass, so near-lossless here.
         ...["-c:v", "libx264", "-crf", "10", "-preset", "veryfast", "-pix_fmt", "yuv420p"],
@@ -1281,7 +1293,9 @@ async function copyRender(
         // Decoded in software: a source in the output's codec and size decodes
         // fast anyway, and setting up 100 hardware decoders took longer (#166).
         ...seekClips(path, parts).filter((arg) => arg !== "-hwaccel" && arg !== "auto"),
-        ...["-filter_complex", renderGraph(parts, { audio: false, size, fps }), "-map", "[v]"],
+        ...graphFile(renderGraph(parts, { audio: false, size, fps }), dir),
+        "-map",
+        "[v]",
         ...["-c:v", "libx264", "-crf", "18", "-preset", "veryfast", "-pix_fmt", "yuv420p"],
         ...["-x264-params", "sps-id=1", "-forced-idr", "1"],
         // A quarter frame early: a time a hair past frame s would force the keyframe onto s + 1.
@@ -1357,7 +1371,8 @@ async function copyRender(
       [
         ...seekClips(path, cut),
         ...sounds.flatMap((s) => [...(s.loop ? ["-stream_loop", "-1"] : []), "-i", s.path]),
-        ...["-filter_complex", graph, "-map", "[a]", "-c:a", "pcm_f32le", sound],
+        ...graphFile(graph, dir, "sound"),
+        ...["-map", "[a]", "-c:a", "pcm_f32le", sound],
       ],
       `cut ${path}'s sound`,
     );
@@ -1548,8 +1563,7 @@ async function segmented(
             ...seekClips(path, part),
             ...laid.flatMap((l) => ["-i", l.image]),
             ...shown.flatMap((s) => [...(STILL.test(s.path) ? ["-loop", "1"] : []), "-i", s.path]),
-            ...[
-              "-filter_complex",
+            ...graphFile(
               renderGraph(part, {
                 audio,
                 size,
@@ -1559,7 +1573,9 @@ async function segmented(
                 inserts: shown,
                 whole: true,
               }),
-            ],
+              dir,
+              "segment",
+            ),
             ...["-map", "[v]", ...(audio ? ["-map", "[a]", "-c:a", "pcm_f32le"] : [])],
             ...["-c:v", "libx264", "-crf", "18", "-preset", "veryfast", "-pix_fmt", "yuv420p", tmp],
           ],
@@ -1826,8 +1842,8 @@ async function render(
           ...(sidecar ? ["-i", CAPTIONS] : []),
           // A draft is the finished picture at half the size, captions and all.
           ...(draft
-            ? ["-filter_complex", `${graph};[v]scale=trunc(iw/4)*2:trunc(ih/4)*2,setsar=1[small]`]
-            : ["-filter_complex", graph]),
+            ? graphFile(`${graph};[v]scale=trunc(iw/4)*2:trunc(ih/4)*2,setsar=1[small]`, dir)
+            : graphFile(graph, dir)),
           ...(picture ?? [
             ...["-map", draft ? "[small]" : "[v]"],
             // Uncompressed until `level` sets the volume, and in floating point:

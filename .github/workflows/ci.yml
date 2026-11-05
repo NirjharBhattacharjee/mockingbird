@@ -98,6 +98,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: choco install ffmpeg -y --no-progress
       - run: bun apps/daemon/src/cli.ts models pull whisper-server
+      - run: bun apps/daemon/src/cli.ts models pull chrome
       - name: Models (base.en and the VAD, as the integration tests use)
         run: |
           mkdir -p "$MOCKINGBIRD_HOME/models" && cd "$MOCKINGBIRD_HOME/models"

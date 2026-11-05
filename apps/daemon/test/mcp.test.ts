@@ -731,7 +731,10 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
     async () => {
       const dir = mkdtempSync(join(tmpdir(), "mb-bed-"));
       const home = process.env.MOCKINGBIRD_HOME;
+      const chrome = process.env.MOCKINGBIRD_CHROME;
       try {
+        // The Chrome found in the real home, which the empty one below doesn't have.
+        process.env.MOCKINGBIRD_CHROME = findChrome();
         process.env.MOCKINGBIRD_HOME = join(dir, "home");
         const talk = join(dir, "talk.mp4");
         Bun.spawnSync([
@@ -774,6 +777,8 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
       } finally {
         if (home === undefined) delete process.env.MOCKINGBIRD_HOME;
         else process.env.MOCKINGBIRD_HOME = home;
+        if (chrome === undefined) delete process.env.MOCKINGBIRD_CHROME;
+        else process.env.MOCKINGBIRD_CHROME = chrome;
         rmSync(dir, { recursive: true, force: true });
       }
     },
@@ -785,7 +790,10 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
     async () => {
       const dir = mkdtempSync(join(tmpdir(), "mb-overlay-"));
       const home = process.env.MOCKINGBIRD_HOME;
+      const chrome = process.env.MOCKINGBIRD_CHROME;
       try {
+        // The Chrome found in the real home, which the empty one below doesn't have.
+        process.env.MOCKINGBIRD_CHROME = findChrome();
         process.env.MOCKINGBIRD_HOME = join(dir, "home");
         const talk = join(dir, "talk.mp4");
         // Solid blue under a page that paints only its top half red.
@@ -853,6 +861,8 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
       } finally {
         if (home === undefined) delete process.env.MOCKINGBIRD_HOME;
         else process.env.MOCKINGBIRD_HOME = home;
+        if (chrome === undefined) delete process.env.MOCKINGBIRD_CHROME;
+        else process.env.MOCKINGBIRD_CHROME = chrome;
         rmSync(dir, { recursive: true, force: true });
       }
     },
