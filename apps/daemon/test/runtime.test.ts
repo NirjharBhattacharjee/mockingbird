@@ -156,12 +156,13 @@ test("ffmpegMissing names what a system ffmpeg was built without", () => {
 });
 
 test("findAsrModel takes a path with either separator, as Windows writes one", () => {
-  const dir = modelsWith("ggml-mine.bin");
-  // Its own folder written with backslashes: a path, not a name inside models/.
-  const backslashed = join(dir, "ggml-mine.bin").replaceAll("/", "\\");
-  expect(() => findAsrModel(modelsWith(), backslashed, () => {})).toThrow(
-    `Whisper model not found at ${backslashed}`,
+  // Backslashes only, to a file that's nowhere: named as a path in the
+  // error, not looked for inside models/.
+  const gone = "C:\\gone\\ggml-mine.bin";
+  expect(() => findAsrModel(modelsWith(), gone, () => {})).toThrow(
+    `Whisper model not found at ${gone}`,
   );
+  const dir = modelsWith("ggml-mine.bin");
   expect(findAsrModel(modelsWith(), join(dir, "ggml-mine.bin"), () => {})).toBe(
     join(dir, "ggml-mine.bin"),
   );
