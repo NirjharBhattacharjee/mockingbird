@@ -1,8 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { DEFAULT_ASR_MODEL, englishOnly, findAsrModel, spokenLanguage } from "../src/runtime.ts";
+import { dirname, join } from "node:path";
+import {
+  DEFAULT_ASR_MODEL,
+  englishOnly,
+  findAsrModel,
+  findWhisperServer,
+  pinnedWhisper,
+  spokenLanguage,
+  WHISPER_BUILD,
+} from "../src/runtime.ts";
 
 const modelsWith = (...names: string[]) => {
   const dir = mkdtempSync(join(tmpdir(), "mockingbird-models-"));
@@ -89,4 +97,32 @@ test("englishOnly knows the .en Whisper builds", () => {
   expect(englishOnly("/m/ggml-base.en.bin")).toBe(true);
   expect(englishOnly("ggml-small.en-q5_1.bin")).toBe(true);
   expect(englishOnly("ggml-large-v3-turbo-q5_0.bin")).toBe(false);
+});
+
+test("pinnedWhisper: whisper.cpp's build on Linux and Windows, Homebrew's on macOS", () => {
+  expect(pinnedWhisper("/h", "darwin-arm64")).toBeUndefined();
+  const linux = pinnedWhisper("/h", "linux-x64");
+  expect(linux?.archive.url).toBe(
+    `https://github.com/ggml-org/whisper.cpp/releases/download/${WHISPER_BUILD}/whisper-bin-ubuntu-x64.tar.gz`,
+  );
+  expect(linux?.program).toBe(
+    join("/h", "bin", `whisper-cpp-${WHISPER_BUILD}`, "whisper-bin-ubuntu-x64", "whisper-server"),
+  );
+  expect(pinnedWhisper("/h", "win32-x64")?.program).toEndWith(
+    join("Release", "whisper-server.exe"),
+  );
+});
+
+test("findWhisperServer: the environment, then the pulled one, then the PATH", () => {
+  const home = mkdtempSync(join(tmpdir(), "mb-whisper-"));
+  const onPath = () => "/usr/bin/whisper-server";
+  expect(findWhisperServer({ MOCKINGBIRD_WHISPER_SERVER: "/x/ws" }, home, onPath)).toBe("/x/ws");
+  expect(findWhisperServer({}, home, onPath)).toBe("/usr/bin/whisper-server");
+  expect(findWhisperServer({}, home, () => null)).toBeUndefined();
+  const pin = pinnedWhisper(home);
+  if (pin) {
+    mkdirSync(dirname(pin.program), { recursive: true });
+    writeFileSync(pin.program, "");
+    expect(findWhisperServer({}, home, onPath)).toBe(pin.program);
+  }
 });

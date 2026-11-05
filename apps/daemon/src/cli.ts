@@ -2,9 +2,9 @@ import { existsSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { main as dictionaryMain, readDictionary } from "./dictionary.ts";
 import { mcpTools, serve } from "./mcp.ts";
-import { listModels, modelsCommand, pullModels } from "./models.ts";
+import { listModels, modelsCommand, pullModels, pullWhisper } from "./models.ts";
 import { retireDictation } from "./retire.ts";
-import { mockingbirdHome } from "./runtime.ts";
+import { findWhisperServer, mockingbirdHome, pinnedWhisper } from "./runtime.ts";
 import { main as transcribeMain, UsageError } from "./transcribe.ts";
 import { uninstall } from "./uninstall.ts";
 
@@ -15,7 +15,8 @@ export const COMMANDS: { name: string; summary: string }[] = [
   { name: "models", summary: "list the transcription models, or `models use <file>` one" },
   {
     name: "models pull",
-    summary: "download the speech models (the only command that uses\nthe network)",
+    summary:
+      "download the speech models, and whisper-server on Linux and\nWindows (the only command that uses the network)",
   },
   { name: "status", summary: "whether the models and tools it needs are installed" },
   { name: "mcp", summary: "serve the editing tools to an AI agent over MCP" },
@@ -43,7 +44,7 @@ const log = (message: string) => console.error(message);
  * on a terminal. When the installer sets MOCKINGBIRD_PROGRESS, the same line
  * also goes to that file, which the install shows in place of its clock.
  */
-async function pullWithProgress(): Promise<number> {
+async function pullWithProgress(only?: "whisper-server"): Promise<number> {
   let file = process.env.MOCKINGBIRD_PROGRESS;
   let drawn = false;
   const clear = () => {
@@ -51,12 +52,12 @@ async function pullWithProgress(): Promise<number> {
     drawn = false;
   };
   try {
-    return await pullModels({
-      log: (message) => {
+    const deps = {
+      log: (message: string) => {
         clear();
         log(message);
       },
-      progress: (line) => {
+      progress: (line: string) => {
         if (file) {
           // Renamed into place, so the installer never reads half a line. The
           // file is only for show: if it can't be written, the downloads go on.
@@ -73,7 +74,12 @@ async function pullWithProgress(): Promise<number> {
           drawn = line !== "";
         }
       },
-    });
+    };
+    if (only !== "whisper-server") {
+      const code = await pullModels(deps);
+      if (code !== 0) return code;
+    }
+    return await pullWhisper(deps);
   } finally {
     clear();
   }
@@ -91,7 +97,7 @@ export function engineStatus(home = mockingbirdHome(), which = (name: string) =>
     transcriptionModel: listModels({ home }).find((m) => m.inUse)?.file ?? null,
     vadModel: existsSync(join(home, "models", "silero_vad.onnx")),
     ffmpeg: which("ffmpeg") !== null,
-    whisperServer: which("whisper-server") !== null,
+    whisperServer: findWhisperServer(process.env, home, which) !== undefined,
     dictionaryWords: words,
   };
 }
@@ -104,7 +110,8 @@ function status(): number {
   );
   console.log(`speech detection:    ${yes(s.vadModel, "`mockingbird models pull`")}`);
   console.log(`ffmpeg:              ${yes(s.ffmpeg, "`brew install ffmpeg`")}`);
-  console.log(`whisper-server:      ${yes(s.whisperServer, "`brew install whisper-cpp`")}`);
+  const getWhisper = pinnedWhisper() ? "`mockingbird models pull`" : "`brew install whisper-cpp`";
+  console.log(`whisper-server:      ${yes(s.whisperServer, getWhisper)}`);
   console.log(`dictionary:          ${s.dictionaryWords} words`);
   return s.transcriptionModel && s.vadModel && s.ffmpeg && s.whisperServer ? 0 : 1;
 }
@@ -148,7 +155,9 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
     case "status":
       return status();
     case "models":
-      if (rest.length === 1 && rest[0] === "pull") return pullWithProgress();
+      if (rest[0] === "pull" && rest.length === 1) return pullWithProgress();
+      if (rest[0] === "pull" && rest.length === 2 && rest[1] === "whisper-server")
+        return pullWithProgress("whisper-server");
       return modelsCommand(rest);
     case "dictionary":
       return dictionaryMain(rest);
