@@ -47,6 +47,10 @@ curl -fsSL https://github.com/NirjharBhattacharjee/mockingbird/releases/latest/d
 It's safe to run again. Prefer to do it by hand? See
 [manual install](docs/README.md#manual-install).
 
+The binary isn't notarized yet. That doesn't matter for this command or
+Homebrew, but a copy downloaded in a browser gets blocked by macOS; see
+[the fix](docs/README.md#apple-could-not-verify-mockingbird).
+
 Or with Homebrew:
 
 ```sh
