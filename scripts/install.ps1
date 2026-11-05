@@ -1,3 +1,4 @@
+# ASCII only: Windows PowerShell 5.1 reads a file without a BOM as ANSI.
 # Sets up mockingbird on Windows in one go: the tools (Git, ffmpeg, Bun), the
 # code, whisper-server and the speech models. Safe to run again: anything
 # already done is skipped, and an existing install is updated to the latest
@@ -19,7 +20,7 @@ function Fail($message) {
   Write-Host "`nerror: $message" -ForegroundColor Red
   exit 1
 }
-function Done($message) { Write-Host "    ✓ $message" -ForegroundColor Green }
+function Done($message) { Write-Host "    $([char]0x2713) $message" -ForegroundColor Green }
 # A native command's failure doesn't stop a script by itself.
 function Run {
   & $args[0] $args[1..($args.Count - 1)]
