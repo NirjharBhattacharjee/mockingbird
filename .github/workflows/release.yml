@@ -25,7 +25,7 @@ concurrency:
 
 jobs:
   release:
-    runs-on: macos-14
+    runs-on: macos-15
     # Each environment only deploys from its own refs (repo settings): v* tags, and the staging branch.
     environment: ${{ github.ref_type == 'tag' && 'production' || 'staging' }}
     permissions:
