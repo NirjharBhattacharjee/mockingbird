@@ -9,7 +9,7 @@
 <p align="center">
   <a href="https://github.com/NirjharBhattacharjee/mockingbird/stargazers"><img src="https://img.shields.io/github/stars/NirjharBhattacharjee/mockingbird?style=for-the-badge&logo=starship&color=cba6f7&logoColor=cdd6f4&labelColor=313244" alt="stars"></a>
   <a href="https://github.com/NirjharBhattacharjee/mockingbird/commits/main"><img src="https://img.shields.io/github/last-commit/NirjharBhattacharjee/mockingbird?style=for-the-badge&logo=git&color=a6e3a1&logoColor=cdd6f4&labelColor=313244" alt="last commit"></a>
-  <img src="https://img.shields.io/badge/macOS-Apple%20Silicon-89b4fa?style=for-the-badge&logo=apple&logoColor=cdd6f4&labelColor=313244" alt="macOS on Apple Silicon">
+  <img src="https://img.shields.io/badge/runs%20on-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-89b4fa?style=for-the-badge&logoColor=cdd6f4&labelColor=313244" alt="macOS, Linux and Windows">
   <img src="https://img.shields.io/badge/runs-100%25%20local-fab387?style=for-the-badge&logo=lock&logoColor=cdd6f4&labelColor=313244" alt="runs 100% local">
   <img src="https://img.shields.io/badge/built%20with-Bun-f5e0dc?style=for-the-badge&logo=bun&logoColor=cdd6f4&labelColor=313244" alt="built with Bun">
   <img src="https://img.shields.io/badge/price-free%20forever-f38ba8?style=for-the-badge&logo=githubsponsors&logoColor=cdd6f4&labelColor=313244" alt="free forever">
@@ -37,11 +37,18 @@ decides the edit. No account, no cloud, no usage limits, nothing locked
 
 ## 🚀 Install
 
-You need a Mac with Apple Silicon, [Homebrew](https://brew.sh), and about 3 GB
-of free space.
+You need about 3 GB of free space, and a Mac (with [Homebrew](https://brew.sh)),
+Linux (with git, ffmpeg and unzip from your package manager) or Windows x64.
+Captions and motion graphics are macOS only for now.
 
 ```sh
 curl -fsSL https://github.com/NirjharBhattacharjee/mockingbird/releases/latest/download/install.sh | bash
+```
+
+On Windows, in PowerShell:
+
+```powershell
+irm https://github.com/NirjharBhattacharjee/mockingbird/releases/latest/download/install.ps1 | iex
 ```
 
 It's safe to run again. Prefer to do it by hand? See

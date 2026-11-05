@@ -81,7 +81,8 @@ Enforced by [ARCHITECTURE.md §9](./ARCHITECTURE.md#9-everything-is-local):
   are off by default and asked for on their own.
 - **No account, login or license server.**
 - **The only download is one you run:** `mockingbird models pull`, which
-  prints each URL and checks each file against a pinned sha256. No update
+  prints each URL and checks each file against a pinned sha256. On Linux
+  and Windows that includes whisper.cpp's whisper-server build. No update
   checks.
 - **`mockingbird mcp` opens no port.** The agent starts it and talks over
   stdin and stdout.
@@ -137,7 +138,12 @@ flowchart LR
   is verified: Homebrew formulas by sha256, the Go binary against the
   release's `checksums.txt`, models against pinned sha256s. If Homebrew is
   missing and you agree, it runs Homebrew's own installer, unpinned, as
-  brew.sh says to.
+  brew.sh says to. On Linux it uses the system's git and ffmpeg and
+  downloads Bun's release zip, checked against a sha256 pinned in the
+  script.
+- **`scripts/install.ps1`** (Windows) trusts GitHub the same way. Git and
+  ffmpeg come from winget, which checks each installer's hash; Bun's zip
+  and the Go binary are checked as above.
 - **The Homebrew formula** pins each release's source tarball by sha256.
   CI opens the PR that bumps it and a person merges it. `bun install`
   inside it is checked against `bun.lock`.

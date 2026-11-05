@@ -1,0 +1,56 @@
+name: install
+
+# The installers on clean Linux and Windows runners (#152), from this clone:
+# tools, code, dependencies, models and whisper-server, the command, then
+# `mockingbird status`. Only when they or what they run change, since each run
+# downloads the 1.1 GB model.
+on:
+  pull_request:
+    paths:
+      - scripts/install.sh
+      - scripts/install.ps1
+      - apps/daemon/src/models.ts
+      - apps/cli/**
+      - .github/workflows/install.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: apps/cli/go.mod
+          cache-dependency-path: apps/cli/go.mod
+      # What a user installs first; the script says so if it's missing.
+      - run: sudo apt-get update -q && sudo apt-get install -yq ffmpeg unzip
+      - run: ./scripts/install.sh
+      - run: ~/.local/bin/mockingbird status
+      - run: ~/.local/bin/mockingbird --version
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: apps/cli/go.mod
+          cache-dependency-path: apps/cli/go.mod
+      # Windows PowerShell 5.1, what a new Windows has; winget isn't on the
+      # runners, so ffmpeg comes from Chocolatey here.
+      - run: choco install ffmpeg -y --no-progress
+      - run: .\scripts\install.ps1
+        shell: powershell
+      - run: |
+          & "$HOME\.mockingbird\bin\mockingbird.cmd" status
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$HOME\.mockingbird\bin\mockingbird.cmd" --version
+        shell: powershell

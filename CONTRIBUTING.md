@@ -195,8 +195,9 @@ PR, on macOS, Linux and Windows (see [below](#on-linux-and-windows)).
 
 `bun run test:integration` needs, locally:
 
-- `whisper-server` (`brew install whisper-cpp`)
-- `ffmpeg` (`brew install ffmpeg`)
+- `whisper-server` (`brew install whisper-cpp` on macOS; `mockingbird models
+  pull whisper-server` on Linux and Windows)
+- `ffmpeg` (`brew install ffmpeg`, or the system's package manager)
 - `~/.mockingbird/models/silero_vad.onnx` (`mockingbird models pull`) and
   `~/.mockingbird/models/ggml-base.en.bin`, which the tests use to stay
   quick: fetch it from the same Hugging Face revision as the default model
@@ -208,7 +209,10 @@ any change that touches `packages/{audio,vad,asr,captions,motion}` or a tool.
 
 `ci.yml` runs typecheck, lint, `bun test` and the Go checks on macOS
 (`check`, `cli`), and on Linux and Windows (`check-other`, `cli-other`, #151).
-The Linux and Windows jobs don't block a merge yet. Tests that need a part
+The Linux and Windows jobs don't block a merge yet. `transcribe-other` also
+pulls whisper-server on Linux x64, Linux arm64 and Windows and runs the
+whisper-server and transcribe integration tests there with `base.en`, and
+`install.yml` runs both installers on clean runners when they change. Tests that need a part
 only macOS has skip elsewhere, until the issue that ports that part lands:
 
 | Skipped | Linux | Windows | Why | Ported by |
