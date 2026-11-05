@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  align,
   CLIPS_PER_PASS,
   chunks,
   fineClock,
@@ -15,6 +16,8 @@ import {
   spans,
   timedLines,
   timedWords,
+  uncovered,
+  union,
   wordCaptions,
 } from "../src/mcp.ts";
 
@@ -237,6 +240,92 @@ test("a project's clips from different sources are framed to one size and rate, 
   expect(seekClips("/x.mp4", [{ from: 1, to: 2, path: "/phone.mov" }])).toEqual([
     ...["-ss", "1", "-t", "1", "-i", "/phone.mov"],
   ]);
+});
+
+test("words are placed by their DTW points and the silences, not Whisper's drifting times", () => {
+  // The talk at 1:35 (#160), heard in a 30-second window: Whisper's times run
+  // about 0.5 s early; DTW's points and silencedetect's pauses are measured.
+  const heard = [
+    ["same", 95.01, 95.27, 95.6],
+    ["create", 95.4, 95.88, 96.2],
+    ["uh", 96.02, 96.25, 97.16],
+    ["create", 96.54, 97.32, 97.84],
+    ["framework", 97.35, 98.68, 98.52],
+  ].map(([word, start, end, at]) => ({
+    word: word as string,
+    start: start as number,
+    end: end as number,
+    at: [at, at] as [number, number],
+  }));
+  const gaps = [
+    { from: 95.75, to: 95.92 },
+    { from: 96.375, to: 97.054 },
+    { from: 97.487, to: 97.74 },
+    { from: 98.112, to: 98.196 },
+    { from: 98.199, to: 98.318 },
+    { from: 98.769, to: 99.547 },
+  ];
+  expect(align(heard, gaps).map((w) => [w.word, w.start, w.end])).toEqual([
+    ["same", 95.01, 95.75],
+    ["create", 95.92, 96.375],
+    ["uh", 97.054, 97.487],
+    ["create", 97.74, 98.112],
+    ["framework", 98.318, 98.769],
+  ]);
+  // Without points, Whisper's times stand.
+  expect(align([{ word: "x", start: 1, end: 2 }], gaps)).toEqual([{ word: "x", start: 1, end: 2 }]);
+});
+
+test("a word's DTW points come from its first and last token, offset to the file", () => {
+  expect(
+    timedWords(
+      [
+        { word: " gem", startMs: 0, endMs: 300, probability: 1, atMs: 360 },
+        { word: "ini", startMs: 300, endMs: 600, probability: 1, atMs: 480 },
+        { word: ",", startMs: 600, endMs: 610, probability: 1, atMs: 700 },
+      ],
+      1000,
+    ),
+  ).toEqual([
+    {
+      word: "gemini,",
+      startMs: 1000,
+      endMs: 1610,
+      probability: 1,
+      atMs: 1360,
+      atEndMs: 1480,
+    },
+  ]);
+});
+
+test("the word cache hears only the stretches no call has heard yet", () => {
+  expect(
+    union(
+      [
+        { from: 10, to: 12 },
+        { from: 0, to: 2 },
+        { from: 1, to: 3 },
+        { from: 14, to: 15 },
+      ],
+      2,
+    ),
+  ).toEqual([
+    { from: 0, to: 3 },
+    { from: 10, to: 15 },
+  ]);
+  expect(
+    uncovered(
+      [{ from: 0, to: 10 }],
+      [
+        { from: 2, to: 4 },
+        { from: 6, to: 12 },
+      ],
+    ),
+  ).toEqual([
+    { from: 0, to: 2 },
+    { from: 4, to: 6 },
+  ]);
+  expect(uncovered([{ from: 3, to: 5 }], [{ from: 0, to: 10 }])).toEqual([]);
 });
 
 test("a split stacks two areas of the picture into 1080x1920", () => {
@@ -586,6 +675,62 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
       rmSync(dir, { recursive: true, force: true });
     }
   }, 120_000);
+
+  test("text-based editing: a project's transcript, then cut_words, with the words heard once", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mb-words-"));
+    const saved = { home: process.env.MOCKINGBIRD_HOME, model: process.env.MOCKINGBIRD_ASR_MODEL };
+    try {
+      // The real models in a home of its own, so the user's data.db and cache are never touched.
+      const home = join(dir, "home");
+      mkdirSync(home);
+      symlinkSync(
+        join(saved.home ?? join(homedir(), ".mockingbird"), "models"),
+        join(home, "models"),
+      );
+      process.env.MOCKINGBIRD_HOME = home;
+      process.env.MOCKINGBIRD_ASR_MODEL = "ggml-base.en.bin";
+      const hello = join(import.meta.dir, "../../../bench/fixtures/hello.wav");
+      Bun.spawnSync([
+        ...["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=30"],
+        ...["-i", hello, "-shortest", "-pix_fmt", "yuv420p", join(dir, "hello.mp4")],
+      ]);
+      const tools = mcpTools(
+        async () => ({}),
+        () => {},
+      );
+      const tool = (name: string) =>
+        tools.find((t) => t.name === name) as {
+          run: (a: Record<string, unknown>) => Promise<string>;
+        };
+      const project = join(dir, "edit.json");
+      await tool("edit").run({
+        project,
+        ops: [{ op: "add", type: "clip", path: "hello.mp4", from: 0, to: 5 }],
+      });
+      const said = await tool("transcribe").run({ project });
+      expect(said.toLowerCase()).toContain("hello world");
+      expect(readdirSync(join(home, "cache", "words"))).toHaveLength(1);
+      // Heard already: with a model by the same name that can't load, a call that
+      // started whisper-server would fail, so this passes only from the cache.
+      mkdirSync(join(dir, "fake"));
+      writeFileSync(join(dir, "fake", "ggml-base.en.bin"), "");
+      process.env.MOCKINGBIRD_ASR_MODEL = join(dir, "fake", "ggml-base.en.bin");
+      const outline = await tool("edit").run({
+        project,
+        ops: [{ op: "cut_words", text: "hello world" }],
+      });
+      expect(outline).toMatch(/cut "hello world,?" \(2 words/);
+      expect((await tool("transcribe").run({ project })).toLowerCase()).not.toContain(
+        "hello world",
+      );
+    } finally {
+      process.env.MOCKINGBIRD_HOME = saved.home;
+      process.env.MOCKINGBIRD_ASR_MODEL = saved.model;
+      if (saved.home === undefined) delete process.env.MOCKINGBIRD_HOME;
+      if (saved.model === undefined) delete process.env.MOCKINGBIRD_ASR_MODEL;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 180_000);
 });
 
 test("motion takes only an HTML page, and says where canvas scripts went", async () => {

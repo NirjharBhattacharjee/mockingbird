@@ -6,7 +6,8 @@ type VerboseJson = {
   language?: string;
   segments?: {
     text: string;
-    words?: { word: string; start: number; end: number; probability: number }[];
+    /** t_dtw: centiseconds into the audio, or -1 without DTW. */
+    words?: { word: string; start: number; end: number; probability: number; t_dtw?: number }[];
   }[];
 };
 
@@ -41,6 +42,7 @@ export function parseVerboseJson(body: VerboseJson): AsrResult {
       startMs: Math.round(w.start * 1000),
       endMs: Math.round(w.end * 1000),
       probability: w.probability,
+      ...(w.t_dtw !== undefined && w.t_dtw >= 0 && { atMs: w.t_dtw * 10 }),
     })),
   );
   // Punctuation tokens score low even when the speech was heard clearly.
@@ -106,6 +108,42 @@ export function speedFlags(help: string): string[] {
   return help.includes("--no-language-probabilities") ? ["-nlp"] : [];
 }
 
+/**
+ * whisper.cpp's DTW preset for a model file (`ggml-large-v3-q5_0.bin` is
+ * "large.v3"): the attention heads that line its tokens up with the audio.
+ * A fine-tune or anything else unknown has none.
+ */
+export function dtwPreset(modelPath: string): string | undefined {
+  const name = basename(modelPath, ".bin")
+    .replace(/^ggml-/, "")
+    .replace(/-q\d.*$/, "");
+  const presets: Record<string, string> = {
+    tiny: "tiny",
+    "tiny.en": "tiny.en",
+    base: "base",
+    "base.en": "base.en",
+    small: "small",
+    "small.en": "small.en",
+    medium: "medium",
+    "medium.en": "medium.en",
+    "large-v1": "large.v1",
+    "large-v2": "large.v2",
+    "large-v3": "large.v3",
+    "large-v3-turbo": "large.v3.turbo",
+  };
+  return presets[name];
+}
+
+/**
+ * The flags that turn on DTW timestamps with `preset`, if this whisper-server
+ * has them. DTW doesn't run with flash attention, so that goes off: about
+ * 20% slower (32.5 s against 38.9 s for 4 minutes of a talk on an M3).
+ */
+export function dtwFlags(help: string, preset: string | undefined): string[] {
+  if (!preset || !help.includes("--dtw")) return [];
+  return [...(help.includes("--no-flash-attn") ? ["-nfa"] : []), "--dtw", preset];
+}
+
 /** The binary's `--help`, or "" if it isn't all there within `timeoutMs`. */
 async function helpOf(binary: string, timeoutMs: number): Promise<string> {
   let proc: Bun.Subprocess<"ignore", "pipe", "pipe">;
@@ -147,6 +185,7 @@ export async function startWhisperServer({
   language,
   readyTimeoutMs = 30_000,
   helpTimeoutMs = 5_000,
+  dtw = false,
 }: {
   binary?: string;
   modelPath: string;
@@ -156,8 +195,11 @@ export async function startWhisperServer({
   readyTimeoutMs?: number;
   /** How long to wait for `--help`, read to pick the flags. */
   helpTimeoutMs?: number;
+  /** Words placed by DTW too (`atMs`), where the model has a preset. */
+  dtw?: boolean;
 }): Promise<WhisperServerProcess> {
-  const flags = speedFlags(await helpOf(binary, helpTimeoutMs));
+  const help = await helpOf(binary, helpTimeoutMs);
+  const flags = [...speedFlags(help), ...(dtw ? dtwFlags(help, dtwPreset(modelPath)) : [])];
   const args = ["-m", modelPath, "--host", "127.0.0.1", "--port", String(port), ...flags];
   const proc = Bun.spawn([binary, ...args], {
     stdout: "ignore",

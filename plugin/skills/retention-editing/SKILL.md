@@ -30,7 +30,8 @@ The scripts are in this skill's `scripts/` folder.
 
 Cut from both. Whisper's word times smear across silences (a word's end runs
 into the pause after it), so pauses come from `pauses.sh`, and the words tell
-you what's being said where.
+you what's being said where. In a project, `cut_words` does this for you: it
+cuts words by quoting them, with each cut placed in the measured pause.
 
 ## Settings
 
