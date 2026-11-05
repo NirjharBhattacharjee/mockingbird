@@ -33,6 +33,7 @@ injection, the cleanup model, the launchd agent) is in git:
 | 2026-11-04 | `music` makes background music from a generator module played into `OfflineAudioContext` in the pinned Chrome, under the motion sandbox, saved as a WAV at −14 LUFS (#170). The plugin's first generator is lo-fi. |
 | 2026-11-04 | Captions and `render`'s texts are drawn as HTML in the pinned Chrome instead of with Core Text (#155), started under the no-network sandbox where there is one; the Core Text code is gone. Without Chrome, `render` falls back to libass or an `.srt`. |
 | 2026-11-04 | `motion` renders an HTML page in a pinned headless Chrome (#145): `mockingbird models pull chrome`, a frame clock injected into the page, several tabs capturing at once, Chrome inside the motion sandbox. The Canvas engine stays until the kit is ported. |
+| 2026-11-04 | `scenes`: shot changes from ffmpeg's `scdet`, decoded with the hardware where it can be (#164). |
 | 2026-11-04 | mockingbird-studio moved into `plugin/` and is now the `mockingbird` plugin; a `guide` tool and server instructions give every MCP client its playbooks (#140). |
 | 2026-11-04 | Long-form fixes (#127): `render` and `motion` reach −14 LUFS with a measured gain and a limiter instead of one pass of `loudnorm` (−15.9 → −14.3 LUFS on the v2 edit); `captions` hears overlapping padded clips as one stretch (171 s → 62 s for 96 clips); captions in a wide video are subtitle-sized. |
 | 2026-11-03 | `render` opens the source once per clip with a seek instead of trimming one input: 2.4x faster on a 96-clip edit, and frame-accurate. Over 100 clips it renders in batches and joins them, to bound memory (#137). |
@@ -159,6 +160,7 @@ tool, with its options, is documented in [MCP.md](./MCP.md):
 | `transcribe` | timestamped lines, or word times, for a file or a stretch of it |
 | `frames` | stills at an interval, for the agent to look at |
 | `audio_stats` | loudness, peaks, noise floor, voice against the rest, tempo and beats, sections |
+| `scenes` | shot changes, with how big each is, and the pace (cuts a minute, seconds a shot) |
 | `captions` | word-by-word SRT timed to the video `render` will make |
 | `edit` | changes a project file with ops (add, remove, split, trim, move, set) and returns an outline |
 | `render` | a project, or cuts from one video: framing, 9:16 or split layout, captions, text, b-roll, music and sound effects, loudness to −14 LUFS |

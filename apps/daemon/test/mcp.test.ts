@@ -12,6 +12,7 @@ import {
   mixGraph,
   moving,
   PROMPTS,
+  parseScenes,
   renderGraph,
   seekClips,
   spans,
@@ -420,6 +421,19 @@ test("moves frame each frame with perspective, eased between them", () => {
   expect(filter).toStartWith("perspective=x0='clip(if(lt((in/30),2),(0.5+-0.2*");
   expect(filter).toContain("(min(W,H*9/16)/if(lt((in/30),2),(1+0.5*(clip(((in/30)-0)/2,0,1)*");
   expect(filter).toEndWith(":interpolation=linear:eval=frame,scale=1080:1920,setsar=1");
+});
+
+test("scdet's log reads as cuts, timed from the seek", () => {
+  const log = [
+    "[Parsed_scdet_1 @ 0x9590] lavfi.scd.score: 29.301, lavfi.scd.time: 2",
+    "frame=  180 fps=0.0 q=-0.0 size=N/A",
+    "[Parsed_scdet_1 @ 0x9590] lavfi.scd.score: 20.581, lavfi.scd.time: 4.0333",
+  ].join("\n");
+  expect(parseScenes(log, 60)).toEqual([
+    { at: 62, score: 29.301 },
+    { at: 64.0333, score: 20.581 },
+  ]);
+  expect(parseScenes("nothing here")).toEqual([]);
 });
 
 test("a split stacks two areas of the picture into 1080x1920", () => {
@@ -1057,6 +1071,41 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
       rmSync(dir, { recursive: true, force: true });
     }
   }, 180_000);
+
+  test("scenes finds each cut to within a frame, timed in the file even after a seek", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mb-scenes-"));
+    try {
+      const file = join(dir, "cuts.mp4");
+      // Three shots of 2 s at 30 fps: cuts at 2 s and 4 s.
+      Bun.spawnSync([
+        ...[
+          "ffmpeg",
+          "-loglevel",
+          "error",
+          "-f",
+          "lavfi",
+          "-i",
+          "testsrc2=size=320x240:rate=30:d=2",
+        ],
+        ...["-f", "lavfi", "-i", "smptebars=size=320x240:rate=30:d=2"],
+        ...["-f", "lavfi", "-i", "color=c=red:size=320x240:rate=30:d=2"],
+        ...["-filter_complex", "[0][1][2]concat=n=3:v=1:a=0", "-pix_fmt", "yuv420p", file],
+      ]);
+      const tool = mcpTools(
+        async () => ({}),
+        () => {},
+      ).find((t) => t.name === "scenes");
+      const all = (await tool?.run({ path: file })) ?? "";
+      expect(all).toContain(": 2 cuts from 00:00.00 to 00:06.00, 20.0 a minute, 2.0 s a shot");
+      expect(all).toMatch(/\[00:02\.0\d\] \d/);
+      expect(all).toMatch(/\[00:04\.0\d\] \d/);
+      const later = (await tool?.run({ path: file, from: 3 })) ?? "";
+      expect(later).toContain(": 1 cut from 00:03.00 to 00:06.00");
+      expect(later).toMatch(/\[00:04\.0\d\]/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
 });
 
 test("motion takes only an HTML page, and says where canvas scripts went", async () => {
