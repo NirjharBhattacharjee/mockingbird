@@ -3,7 +3,15 @@ import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { main as dictionaryMain, readDictionary } from "./dictionary.ts";
 import { mcpTools, serve } from "./mcp.ts";
-import { listModels, type ModelFile, modelsCommand, pullModels, resolveModel } from "./models.ts";
+import {
+  findChrome,
+  listModels,
+  type ModelFile,
+  modelsCommand,
+  pullChrome,
+  pullModels,
+  resolveModel,
+} from "./models.ts";
 import { main as recordMain } from "./record.ts";
 import { retireDictation } from "./retire.ts";
 import { mockingbirdHome } from "./runtime.ts";
@@ -20,7 +28,7 @@ export const COMMANDS: { name: string; summary: string }[] = [
   {
     name: "models pull",
     summary:
-      "download the speech models, or `models pull <name or URL>`\nany Whisper model (it and `setup` are the only commands\nthat use the network)",
+      "download the speech models, `models pull <name or URL>` any\nWhisper model, `models pull chrome` the Chrome motion renders\nHTML in (it and `setup` are the only commands that use the\nnetwork)",
   },
   {
     name: "setup",
@@ -53,7 +61,7 @@ const log = (message: string) => console.error(message);
  * on a terminal. When the installer sets MOCKINGBIRD_PROGRESS, the same line
  * also goes to that file, which the install shows in place of its clock.
  */
-async function pullWithProgress(files?: ModelFile[]): Promise<number> {
+async function pullWithProgress(pull = pullModels, files?: ModelFile[]): Promise<number> {
   let file = process.env.MOCKINGBIRD_PROGRESS;
   let drawn = false;
   const clear = () => {
@@ -61,7 +69,7 @@ async function pullWithProgress(files?: ModelFile[]): Promise<number> {
     drawn = false;
   };
   try {
-    return await pullModels({
+    return await pull({
       files,
       log: (message) => {
         clear();
@@ -105,7 +113,7 @@ async function pullOne(args: string[]): Promise<number> {
   log(
     `${model.file}: ${size}, from ${new URL(model.url).host}, checked against SHA-256 ${model.sha256}`,
   );
-  const code = await pullWithProgress([model]);
+  const code = await pullWithProgress(pullModels, [model]);
   if (code === 0)
     log(
       `Use it with \`mockingbird models use ${model.file}\` (add --language <code> for one language).`,
@@ -114,7 +122,11 @@ async function pullOne(args: string[]): Promise<number> {
 }
 
 /** What `status` and the MCP `status` tool report. */
-export function engineStatus(home = mockingbirdHome(), which = (name: string) => Bun.which(name)) {
+export function engineStatus(
+  home = mockingbirdHome(),
+  which = (name: string) => Bun.which(name),
+  env = process.env,
+) {
   let words = 0;
   try {
     words = readDictionary(home).length;
@@ -126,6 +138,7 @@ export function engineStatus(home = mockingbirdHome(), which = (name: string) =>
     vadModel: existsSync(join(home, "models", "silero_vad.onnx")),
     ffmpeg: which("ffmpeg") !== null,
     whisperServer: which("whisper-server") !== null,
+    chrome: findChrome(env, home) !== undefined,
     dictionaryWords: words,
   };
 }
@@ -139,6 +152,7 @@ function status(): number {
   console.log(`speech detection:    ${yes(s.vadModel, "`mockingbird models pull`")}`);
   console.log(`ffmpeg:              ${yes(s.ffmpeg, "`brew install ffmpeg`")}`);
   console.log(`whisper-server:      ${yes(s.whisperServer, "`brew install whisper-cpp`")}`);
+  console.log(`chrome:              ${yes(s.chrome, "`mockingbird models pull chrome`")}`);
   console.log(`dictionary:          ${s.dictionaryWords} words`);
   return s.transcriptionModel && s.vadModel && s.ffmpeg && s.whisperServer ? 0 : 1;
 }
@@ -195,6 +209,9 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
       });
     case "models":
       if (rest.length === 1 && rest[0] === "pull") return pullWithProgress();
+      if (rest.length === 2 && rest[0] === "pull" && rest[1] === "chrome") {
+        return pullWithProgress(pullChrome);
+      }
       if (rest[0] === "pull") return pullOne(rest.slice(1));
       return modelsCommand(rest);
     case "dictionary":

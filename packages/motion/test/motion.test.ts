@@ -341,3 +341,18 @@ describe.if(macOS && !!Bun.which("ffmpeg"))("renderMotion", () => {
     }
   });
 });
+
+test("renderHtml refuses a tab count that isn't a whole number from 1, before starting Chrome", async () => {
+  const { renderHtml } = await import("../src/html.ts");
+  const options = {
+    chrome: "/no/chrome",
+    out: "/tmp/x.mp4",
+    width: 32,
+    height: 32,
+    fps: 10,
+    duration: 1,
+  };
+  for (const tabs of [0, -1, 1.5, Number.NaN]) {
+    await expect(renderHtml("/no/page.html", { ...options, tabs })).rejects.toThrow("tabs must be");
+  }
+});
