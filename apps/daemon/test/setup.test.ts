@@ -60,6 +60,20 @@ describe("agents", () => {
     expect(agents(mbAt(h), { home: h, which: none }).every((a) => a.registered)).toBe(true);
   });
 
+  test("a command written as a Windows path is a path, not a name to look up", () => {
+    const h = home();
+    writeFileSync(
+      join(h, ".cursor", "mcp.json"),
+      JSON.stringify({ mcpServers: { mockingbird: { command: "C:\\gone\\mockingbird.exe" } } }),
+    );
+    // `which` finds it, as the old check looked it up by name; but the path it
+    // names doesn't exist, so it isn't registered. Nothing else is found, so no
+    // agent's own command (claude) is run.
+    const which = (name: string) => (name.includes("\\") ? "/usr/bin/x" : null);
+    const cursor = agents("mb", { home: h, which }).find((a) => a.name === "Cursor");
+    expect(cursor?.registered).toBe(false);
+  });
+
   test("a symlinked, private config is written where it points, still private", () => {
     const h = home();
     const real = join(h, "dotfiles-gemini.json");
@@ -70,7 +84,8 @@ describe("agents", () => {
       ?.register();
     expect(lstatSync(join(h, ".gemini", "settings.json")).isSymbolicLink()).toBe(true);
     expect(JSON.parse(readFileSync(real, "utf8")).mcpServers.mockingbird.command).toBe("mb");
-    expect(statSync(real).mode & 0o777).toBe(0o600);
+    // Windows has no POSIX modes: every file reads as 0o666 there.
+    if (process.platform !== "win32") expect(statSync(real).mode & 0o777).toBe(0o600);
   });
 
   test("an empty config file counts as no servers yet", () => {
