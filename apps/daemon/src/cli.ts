@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { main as dictionaryMain, readDictionary } from "./dictionary.ts";
 import { mcpTools, serve } from "./mcp.ts";
 import { listModels, modelsCommand, pullModels } from "./models.ts";
+import { main as recordMain } from "./record.ts";
 import { retireDictation } from "./retire.ts";
 import { mockingbirdHome } from "./runtime.ts";
 import { doctor, setup } from "./setup.ts";
@@ -12,6 +13,7 @@ import { uninstall } from "./uninstall.ts";
 /** The commands, for `--help`. */
 export const COMMANDS: { name: string; summary: string }[] = [
   { name: "transcribe", summary: "an audio or video file's speech, with timestamps" },
+  { name: "record", summary: "record the microphone into a file, for a voiceover" },
   { name: "dictionary", summary: "list, add and remove words it should spell right" },
   { name: "models", summary: "list the transcription models, or `models use <file>` one" },
   {
@@ -173,6 +175,8 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
       return dictionaryMain(rest);
     case "transcribe":
       return transcribeMain(rest);
+    case "record":
+      return recordMain(rest);
     case "uninstall":
       return uninstallHere(rest);
     case "mcp":

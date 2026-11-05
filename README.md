@@ -113,6 +113,7 @@ it as a plugin, from [`plugin/`](plugin/README.md):
 Every option: [docs/MCP.md](docs/MCP.md). On the command line,
 `mockingbird transcribe`, `dictionary`, `models` and `status` do the same, and
 `mockingbird doctor` checks the whole install.
+`mockingbird record voiceover.wav` records a voiceover from the mic.
 
 Something not working? See [troubleshooting](docs/README.md#troubleshooting).
 
