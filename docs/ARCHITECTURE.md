@@ -354,6 +354,16 @@ plist, and boots the agent out. `install.sh` and `mockingbird uninstall` call
 the same function. The old `data.db` is migrated: its words stay, learned
 ones included, and the dictation tables go ([DATABASE.md](./DATABASE.md)).
 
+**When the stub goes:** `agent.ts`, `retire.ts` and the `retire` step in
+`install.sh` and `mockingbird uninstall` stay in every 0.x release and are
+deleted in v1.0.0. A Mac that skips straight from v0.3.2 to v1.0.0 would keep
+a launchd agent pointing at a missing file and a changed Fn setting, so the
+v1.0.0 release notes tell anyone still on v0.3.2 to install v0.4.2 first
+(it retires dictation on install), or to run
+`launchctl bootout gui/$(id -u)/com.mockingbird.agent` and
+`rm ~/Library/LaunchAgents/com.mockingbird.agent.plist`, then set
+"Press 🌐 key to" back in System Settings → Keyboard.
+
 ## 14. CI/CD pipeline
 
 **`ci.yml`**, on every push and pull request:
