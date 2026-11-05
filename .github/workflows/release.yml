@@ -4,18 +4,35 @@ name: release
 # install command, or with `brew upgrade` once the tap PR below is merged.
 # A tag with a "-" (v0.2.0-rc.1) is a prerelease: published as one, installed
 # only with MOCKINGBIRD_CHANNEL=beta, and left out of the Homebrew tap.
+#
+# Two deployments (#205): a tag deploys to `production`, and every push to
+# the `staging` branch deploys to `staging`: the same checks and builds,
+# published as a prerelease tagged staging-<sha> that MOCKINGBIRD_CHANNEL=
+# staging installs. Each staging build gets its own tag, since moving one
+# tag would make `git fetch --tags` fail in every clone that has it; older
+# staging prereleases and their tags are deleted.
 on:
   push:
     tags: ["v*.*.*"]
+    branches: [staging]
 
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: macos-14
+    # Each environment only deploys from its own refs (repo settings): v* tags, and the staging branch.
+    environment: ${{ github.ref_type == 'tag' && 'production' || 'staging' }}
     permissions:
       contents: write
+    env:
+      # The release's tag: the pushed one, or staging-<sha> for staging.
+      TAG: ${{ github.ref_type == 'tag' && github.ref_name || format('staging-{0}', github.sha) }}
     outputs:
       version: ${{ steps.pack.outputs.version }}
       sha256: ${{ steps.pack.outputs.sha256 }}
@@ -24,6 +41,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: The tag must be on main
+        if: github.ref_type == 'tag'
         run: |
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
             echo "::error::$GITHUB_REF_NAME isn't on main. Releases are only cut from main."
@@ -52,16 +70,16 @@ jobs:
             # The asset names say x64, as Node and Bun do.
             name="mockingbird-$os-${arch/amd64/x64}$ext"
             GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 \
-              go build -trimpath -ldflags "-s -w -X main.release=$GITHUB_REF_NAME" -o "../../$name" .
+              go build -trimpath -ldflags "-s -w -X main.release=$TAG" -o "../../$name" .
           done
       # Our own tarball rather than GitHub's generated one, so the sha256 the
       # Homebrew formula pins is one we made and published.
       - name: Pack the source
         id: pack
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="${TAG#v}"
           archive="mockingbird-$version.tar.gz"
-          git archive --format=tar.gz --prefix="mockingbird-$version/" -o "$archive" "$GITHUB_REF_NAME"
+          git archive --format=tar.gz --prefix="mockingbird-$version/" -o "$archive" "$GITHUB_SHA"
           cp scripts/install.sh install.sh
           cp scripts/install.ps1 install.ps1
           shasum -a 256 "$archive" mockingbird-darwin-* mockingbird-linux-* mockingbird-windows-* install.sh install.ps1 > checksums.txt
@@ -78,15 +96,27 @@ jobs:
         # latest release rather than main, so merging a PR doesn't change what
         # new users run. A prerelease is never "latest".
         run: |
-          prerelease=""
-          case "$VERSION" in *-*) prerelease=--prerelease ;; esac
-          gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes $prerelease \
-            "mockingbird-$VERSION.tar.gz" mockingbird-darwin-* mockingbird-linux-* mockingbird-windows-* install.sh install.ps1 checksums.txt
+          assets=("mockingbird-$VERSION.tar.gz" mockingbird-darwin-* mockingbird-linux-* mockingbird-windows-* install.sh install.ps1 checksums.txt)
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            prerelease=""
+            case "$VERSION" in *-*) prerelease=--prerelease ;; esac
+            gh release create "$TAG" --verify-tag --generate-notes $prerelease "${assets[@]}"
+            exit 0
+          fi
+          # Never "latest", so the README's install command keeps the release.
+          gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --latest=false \
+            --title "staging ${GITHUB_SHA:0:7}" \
+            --notes "The staging branch at $GITHUB_SHA, for trying before it reaches main. Install it with MOCKINGBIRD_CHANNEL=staging." \
+            "${assets[@]}"
+          # Only the newest staging build is kept.
+          gh release list --limit 100 --json tagName --jq '.[].tagName' |
+            grep '^staging-' | grep -vx "$TAG" |
+            while read -r old; do gh release delete "$old" --cleanup-tag --yes; done
 
   homebrew:
     needs: release
-    # Prereleases are for testers who opt in, not for `brew upgrade`.
-    if: ${{ !contains(needs.release.outputs.version, '-') }}
+    # Prereleases and staging are for testers who opt in, not for `brew upgrade`.
+    if: ${{ github.ref_type == 'tag' && !contains(needs.release.outputs.version, '-') }}
     runs-on: ubuntu-latest
     steps:
       # The workflow's own token can't write to another repo, so this needs a

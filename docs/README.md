@@ -65,6 +65,13 @@ To test what's coming before it's released, install the beta:
 curl -fsSL https://github.com/NirjharBhattacharjee/mockingbird/releases/latest/download/install.sh | MOCKINGBIRD_CHANNEL=beta bash
 ```
 
+Or the `staging` branch, where finished work waits to be tried before it
+reaches `main` (rebuilt on every push to it):
+
+```sh
+curl -fsSL https://github.com/NirjharBhattacharjee/mockingbird/releases/latest/download/install.sh | MOCKINGBIRD_CHANNEL=staging bash
+```
+
 ### Uninstalling
 
 ```sh
