@@ -151,6 +151,71 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("renderHtml (integration)"
     expect(hits).toBe(0);
   }, 60_000);
 
+  test("a page's WebRTC sends no UDP, even to a STUN server by IP (#157)", async () => {
+    let packets = 0;
+    const udp = await Bun.udpSocket({
+      hostname: "127.0.0.1",
+      socket: {
+        data: () => {
+          packets++;
+        },
+      },
+    });
+    const path = page(
+      "webrtc.html",
+      `<script>
+         mockingbird.draw = async () => {
+           const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:127.0.0.1:${udp.port}" }] });
+           pc.createDataChannel("x");
+           await pc.setLocalDescription(await pc.createOffer());
+           // Real time: gathering talks to the STUN server, if it may.
+           await new Promise((r) => setTimeout(r, 2000));
+           throw new Error("gathered");
+         };
+       </script>`,
+    );
+    try {
+      await expect(
+        renderHtml(path, {
+          chrome: chrome(),
+          out: join(dir, "webrtc.mp4"),
+          width: 32,
+          height: 32,
+          fps: 10,
+          duration: 0.1,
+        }),
+      ).rejects.toThrow(/gathered/);
+    } finally {
+      udp.close();
+    }
+    expect(packets).toBe(0);
+  }, 60_000);
+
+  test("a file URL with a host fails, as Windows would read it over SMB; a local file loads (#157)", async () => {
+    const png = join(dir, "dot.png");
+    Bun.spawnSync([
+      ..."ffmpeg -v error -y -f lavfi -i color=red:s=8x8 -frames:v 1".split(" "),
+      png,
+    ]);
+    // On Windows the same file through the machine's own admin share, so only
+    // the block can make it fail; elsewhere any file with a host.
+    const remote =
+      process.platform === "win32"
+        ? `file://127.0.0.1/${png[0]}$/${png.slice(3).replaceAll("\\", "/")}`
+        : "file://127.0.0.1/etc/hosts";
+    const path = page("unc.html", `<img src="dot.png"><img src="${remote}">`);
+    await expect(
+      renderHtml(path, {
+        chrome: chrome(),
+        out: join(dir, "unc.mp4"),
+        width: 8,
+        height: 8,
+        fps: 1,
+        duration: 1,
+      }),
+    ).rejects.toThrow(`couldn't load ${remote}`);
+  }, 60_000);
+
   test("lays the page over a video and keeps its sound", async () => {
     const video = join(dir, "under.mp4");
     Bun.spawnSync([

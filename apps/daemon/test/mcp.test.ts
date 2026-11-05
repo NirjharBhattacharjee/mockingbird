@@ -9,7 +9,6 @@ import {
   handle,
   mcpTools,
   mixGraph,
-  noNetwork,
   PROMPTS,
   renderGraph,
   seekClips,
@@ -516,11 +515,4 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
       rmSync(dir, { recursive: true, force: true });
     }
   }, 120_000);
-});
-
-test("noNetwork: sandbox-exec on macOS, a namespace on Linux if it can be made, Chrome alone on Windows", () => {
-  expect(noNetwork("darwin")[0]).toBe("/usr/bin/sandbox-exec");
-  expect(noNetwork("linux", () => true)).toEqual(["unshare", "-rn"]);
-  expect(noNetwork("linux", () => false)).toEqual([]);
-  expect(noNetwork("win32")).toEqual([]);
 });

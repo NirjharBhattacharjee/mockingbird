@@ -48,7 +48,7 @@ jobs:
         run: choco install ffmpeg -y --no-progress
       - if: runner.os == 'macOS'
         run: brew install ffmpeg
-      - run: MOCKINGBIRD_INTEGRATION=1 bun test packages/motion/test/html.integration.test.ts -t "network|slow to load"
+      - run: MOCKINGBIRD_INTEGRATION=1 bun test packages/motion/test/html.integration.test.ts -t "network|slow to load|WebRTC|file URL"
 
   cli:
     runs-on: macos-14
