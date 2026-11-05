@@ -2,7 +2,7 @@ import { rmSync } from "node:fs";
 import { availableParallelism } from "node:os";
 import { pathToFileURL } from "node:url";
 import type { Subprocess } from "bun";
-import { type Chrome, launchChrome } from "./chrome.ts";
+import { blockNetwork, type Chrome, launchChrome } from "./chrome.ts";
 import type { Cue } from "./index.ts";
 
 /** What a page sees as the global `mockingbird`, and `draw`'s second argument. */
@@ -337,6 +337,7 @@ async function openTab(chrome: Chrome, page: string, scene: PageScene, clock: st
   );
   // Without Page.enable, Chrome keeps the script but doesn't run it.
   await chrome.send("Page.enable", {}, session);
+  await blockNetwork(chrome, session);
   // Animations stand still in real time, so one can't play out, end and vanish
   // while a slow page loads; each frame seeks them instead.
   await chrome.send("Animation.enable", {}, session);

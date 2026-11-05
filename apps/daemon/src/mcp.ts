@@ -19,6 +19,7 @@ import { type AsrWord, stripNonSpeech } from "@mockingbird/asr";
 import { loadAudio, type PcmAudio } from "@mockingbird/audio";
 import { type Cue, drawCaptions, parseSrt } from "@mockingbird/captions";
 import type { MusicParams } from "@mockingbird/motion";
+import { noNetwork } from "@mockingbird/motion/sandbox";
 import { applyCorrections, correctNames } from "@mockingbird/store";
 import {
   compile,
@@ -1520,7 +1521,7 @@ async function render(
     const [width, height] = (split ? "1080x1920" : frameSize).split("x").map(Number);
     // Drawn in the pinned Chrome, started under the no-network sandbox where there is one (#157).
     const chrome = lines.length ? findChrome() : undefined;
-    const wrap = existsSync(SANDBOX) ? [SANDBOX, "-p", NO_NETWORK] : [];
+    const wrap = noNetwork();
     const images = chrome
       ? await drawCaptions(lines, dir, width ?? 1080, height, { chrome, wrap })
       : undefined;
@@ -1673,9 +1674,6 @@ export function spans(clips: Clip[], pad = 2): { from: number; to: number }[] {
  * Word-by-word captions for the video `clips` make out of `path`, as SRT
  * for render: each clip transcribed with word times, then wordCaptions.
  */
-/** macOS's sandbox, and a profile that allows everything but the network. */
-const SANDBOX = "/usr/bin/sandbox-exec";
-const NO_NETWORK = "(version 1)(allow default)(deny network*)";
 const MOTION_RUNNER = join(import.meta.dir, "motion-run.ts");
 /** Two hours: past any real video, short of a frame count that never ends. */
 const MOTION_MAX_SECONDS = 7200;
@@ -1687,7 +1685,7 @@ const MOTION_MAX_SECONDS = 7200;
  */
 async function sandboxed(options: object, what: string): Promise<string> {
   const proc = Bun.spawn(
-    [SANDBOX, "-p", NO_NETWORK, process.execPath, MOTION_RUNNER, JSON.stringify(options)],
+    [...noNetwork(), process.execPath, MOTION_RUNNER, JSON.stringify(options)],
     { stdout: "pipe", stderr: "pipe" },
   );
   const [said, why, code] = await Promise.all([

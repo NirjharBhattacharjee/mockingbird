@@ -406,7 +406,11 @@ describe("Chrome", () => {
     expect(pin?.zip.url).toContain(`/${CHROME_VERSION}/mac-arm64/`);
     expect(pin?.zip.sha256).toMatch(/^[0-9a-f]{64}$/);
     expect(pinnedChrome("/home", "darwin-x64")?.zip.sha256).not.toBe(pin?.zip.sha256);
-    expect(pinnedChrome("/home", "linux-x64")).toBeUndefined();
+    expect(pinnedChrome("/home", "linux-x64")?.zip.url).toEndWith(
+      "/linux64/chrome-headless-shell-linux64.zip",
+    );
+    expect(pinnedChrome("/home", "win32-x64")?.program).toEndWith("chrome-headless-shell.exe");
+    expect(pinnedChrome("/home", "linux-arm64")).toBeUndefined();
   });
 
   test("MOCKINGBIRD_CHROME wins; the pinned one counts once it's there", () => {

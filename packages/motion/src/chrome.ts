@@ -15,6 +15,9 @@ export type Chrome = {
   close: () => Promise<void>;
 };
 
+/** A paused request, as Fetch.requestPaused gives it. */
+type Paused = { requestId: string; request: { url: string } };
+
 /** Long enough for a heavy page to load, short of a page that never answers. */
 const COMMAND_TIMEOUT_MS = 60_000;
 
@@ -25,7 +28,23 @@ const COMMAND_TIMEOUT_MS = 60_000;
  * start inside another one: run this under an OS sandbox, as
  * `apps/daemon/src/motion-run.ts` does with `sandbox-exec`, or start Chrome
  * in one with `wrap`, a command Chrome's own is appended to.
+ *
+ * It can't reach the network on any OS (#157): no host name resolves, and
+ * everything else, an IP address or loopback included, goes to a proxy on
+ * the discard port, where nothing answers. Each tab also blocks http and ws
+ * URLs (`blockNetwork`), and WebRTC may send UDP only through that proxy.
  */
+/** URL patterns a tab may not load: everything but files and data. */
+export const BLOCKED_URLS = ["http://*", "https://*", "ws://*", "wss://*", "ftp://*"];
+
+/** Blocks the network in one tab, on top of the flags launchChrome starts with. */
+export async function blockNetwork(chrome: Chrome, session: string): Promise<void> {
+  await chrome.send("Network.enable", {}, session);
+  await chrome.send("Network.setBlockedURLs", { urls: BLOCKED_URLS }, session);
+  // Every file request stops for a look at its host (launchChrome's fileRequest).
+  await chrome.send("Fetch.enable", { patterns: [{ urlPattern: "file://*" }] }, session);
+}
+
 export async function launchChrome(
   path: string,
   { wrap = [] }: { wrap?: string[] } = {},
@@ -48,6 +67,13 @@ export async function launchChrome(
       "--disable-background-timer-throttling",
       "--disable-renderer-backgrounding",
       "--disable-backgrounding-occluded-windows",
+      "--host-resolver-rules=MAP * ~NOTFOUND",
+      "--proxy-server=127.0.0.1:9",
+      // Loopback goes through the proxy too, rather than straight out.
+      "--proxy-bypass-list=<-loopback>",
+      // WebRTC's UDP doesn't go through a proxy, so without this a page could
+      // reach a STUN server by its IP address.
+      "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
       "about:blank",
     ],
     { stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"] },
@@ -81,8 +107,12 @@ export async function launchChrome(
       const message = JSON.parse(Buffer.concat(parts).toString());
       parts = [];
       at = end + 1;
+      if (message.method === "Fetch.requestPaused") {
+        fileRequest(message.params as Paused, message.sessionId);
+        continue;
+      }
       const w = waiting.get(message.id);
-      if (!w) continue; // an event: nothing here listens for any
+      if (!w) continue; // another event: nothing here listens for it
       waiting.delete(message.id);
       if (message.error) w.reject(new Error(message.error.message));
       else w.resolve(message.result);
@@ -114,13 +144,34 @@ export async function launchChrome(
     });
   };
 
+  // A file URL with a host is another machine's share on Windows (UNC, over
+  // SMB): failed. One with none is a file here: let through.
+  const fileRequest = ({ requestId, request }: Paused, session?: string) => {
+    let host = "x";
+    try {
+      host = new URL(request.url).host;
+    } catch {
+      // unparseable: failed with the hosts
+    }
+    const [method, params] = host
+      ? ["Fetch.failRequest", { requestId, errorReason: "BlockedByClient" }]
+      : ["Fetch.continueRequest", { requestId }];
+    send(method as string, params, session).catch(() => {});
+  };
+
   const close = async () => {
     if (proc.exitCode === null && proc.signalCode === null) {
       const exited = new Promise((r) => proc.once("exit", r));
       proc.kill("SIGKILL");
       await exited;
     }
-    rmSync(profile, { recursive: true, force: true });
+    // On Windows, Chrome's child processes hold the profile for a moment
+    // after it's killed. A temp folder left behind mustn't fail the render.
+    try {
+      rmSync(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    } catch {
+      // the OS clears temp folders
+    }
   };
 
   try {

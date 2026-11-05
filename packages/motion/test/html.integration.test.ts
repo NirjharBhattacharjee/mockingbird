@@ -11,7 +11,8 @@ function chrome(): string {
   for (const version of existsSync(bin) ? readdirSync(bin) : []) {
     if (!version.startsWith("chrome-headless-shell-")) continue;
     for (const build of readdirSync(join(bin, version))) {
-      const program = join(bin, version, build, "chrome-headless-shell");
+      const exe = process.platform === "win32" ? ".exe" : "";
+      const program = join(bin, version, build, `chrome-headless-shell${exe}`);
       if (existsSync(program)) return program;
     }
   }
@@ -89,42 +90,130 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("renderHtml (integration)"
   }, 60_000);
 
   test("a short animation is still there when a page is slow to load", async () => {
-    // 0.3 s with no fill, on a page whose image takes a second to arrive: in
-    // real time it would be over before the page had loaded.
-    const server = Bun.serve({
-      port: 0,
-      // A 1x1 transparent GIF, a second late.
-      fetch: () =>
-        Bun.sleep(1000).then(
-          () =>
-            new Response(
-              Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64"),
-              { headers: { "content-type": "image/gif" } },
-            ),
-        ),
-    });
+    // 0.3 s with no fill, on a page that takes a second to load: in real time
+    // it would be over before the page had. A script holds the load up rather
+    // than a slow server, since the page can't reach one (#157); new Date()
+    // is real time, where Date.now() is the page's clock.
     const path = page(
       "slow.html",
       `<div style="width:32px;height:32px;animation:r 0.3s linear"></div>
        <style>@keyframes r { from { background: rgb(250,0,0) } to { background: rgb(0,0,0) } }</style>
-       <img src="http://127.0.0.1:${server.port}/slow.png">`,
+       <script>const until = new Date().getTime() + 1000; while (new Date().getTime() < until);</script>`,
     );
     const out = join(dir, "slow.mp4");
-    try {
-      await renderHtml(path, {
-        chrome: chrome(),
-        out,
-        width: 32,
-        height: 32,
-        fps: 10,
-        duration: 0.5,
-      });
-    } finally {
-      server.stop(true);
-    }
+    await renderHtml(path, {
+      chrome: chrome(),
+      out,
+      width: 32,
+      height: 32,
+      fps: 10,
+      duration: 0.5,
+    });
     const reds = pixels(out, 32, 32).map((p) => p[(16 * 32 + 16) * 3] as number);
     expect(reds[0]).toBeGreaterThan(220);
     expect(Math.abs((reds[1] as number) - 167)).toBeLessThan(20);
+  }, 60_000);
+
+  test("a page can't reach the network, loopback included (#157)", async () => {
+    let hits = 0;
+    const server = Bun.serve({
+      port: 0,
+      fetch: () => {
+        hits++;
+        return new Response("reached");
+      },
+    });
+    const urls = [`http://127.0.0.1:${server.port}/`, `http://localhost:${server.port}/`];
+    const path = page(
+      "fetch.html",
+      `<script>
+         mockingbird.draw = async () => {
+           const tried = await Promise.allSettled(${JSON.stringify(urls)}.map((u) => fetch(u)));
+           const reached = tried.findIndex((r) => r.status === "fulfilled");
+           throw new Error(reached === -1 ? "every fetch failed" : "reached " + ${JSON.stringify(urls)}[reached]);
+         };
+       </script>`,
+    );
+    try {
+      await expect(
+        renderHtml(path, {
+          chrome: chrome(),
+          out: join(dir, "fetch.mp4"),
+          width: 32,
+          height: 32,
+          fps: 10,
+          duration: 0.1,
+        }),
+      ).rejects.toThrow(/every fetch failed/);
+    } finally {
+      server.stop(true);
+    }
+    expect(hits).toBe(0);
+  }, 60_000);
+
+  test("a page's WebRTC sends no UDP, even to a STUN server by IP (#157)", async () => {
+    let packets = 0;
+    const udp = await Bun.udpSocket({
+      hostname: "127.0.0.1",
+      socket: {
+        data: () => {
+          packets++;
+        },
+      },
+    });
+    const path = page(
+      "webrtc.html",
+      `<script>
+         mockingbird.draw = async () => {
+           const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:127.0.0.1:${udp.port}" }] });
+           pc.createDataChannel("x");
+           await pc.setLocalDescription(await pc.createOffer());
+           // Real time: gathering talks to the STUN server, if it may.
+           await new Promise((r) => setTimeout(r, 2000));
+           throw new Error("gathered");
+         };
+       </script>`,
+    );
+    try {
+      await expect(
+        renderHtml(path, {
+          chrome: chrome(),
+          out: join(dir, "webrtc.mp4"),
+          width: 32,
+          height: 32,
+          fps: 10,
+          duration: 0.1,
+        }),
+      ).rejects.toThrow(/gathered/);
+    } finally {
+      udp.close();
+    }
+    expect(packets).toBe(0);
+  }, 60_000);
+
+  test("a file URL with a host fails, as Windows would read it over SMB; a local file loads (#157)", async () => {
+    const png = join(dir, "dot.png");
+    Bun.spawnSync([
+      ..."ffmpeg -v error -y -f lavfi -i color=red:s=8x8 -frames:v 1".split(" "),
+      png,
+    ]);
+    // On Windows the same file through the machine's own admin share, so only
+    // the block can make it fail; elsewhere any file with a host.
+    const remote =
+      process.platform === "win32"
+        ? `file://127.0.0.1/${png[0]}$/${png.slice(3).replaceAll("\\", "/")}`
+        : "file://127.0.0.1/etc/hosts";
+    const path = page("unc.html", `<img src="dot.png"><img src="${remote}">`);
+    await expect(
+      renderHtml(path, {
+        chrome: chrome(),
+        out: join(dir, "unc.mp4"),
+        width: 8,
+        height: 8,
+        fps: 1,
+        duration: 1,
+      }),
+    ).rejects.toThrow(`couldn't load ${remote}`);
   }, 60_000);
 
   test("lays the page over a video and keeps its sound", async () => {

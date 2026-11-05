@@ -18,6 +18,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
+| 2026-11-05 | A motion page can't reach the network on Linux or Windows either (#157): Chrome resolves no host name and sends the rest to a dead proxy, each tab blocks http and ws URLs, and on Linux the runner starts in a network namespace where one can be made. Chrome is pinned for Linux x64 and Windows x64. |
 | 2026-11-06 | Effects catalog, phase 1 (#197): one `effects` catalog (`apps/daemon/src/effects.ts`) instead of a tool per effect, put on a clip's picture or sound after its framing; color, LUT, vignette, sharpen, blur, denoise, high-pass, compressor, de-esser; `scopes` measures a picture for grading. |
 | 2026-11-06 | A project's overlays (#163): an HTML page on a clip, rendered alone with its transparency (ProRes 4444) and laid over the cut, cached in `~/.mockingbird/cache/overlays/`. A project sound can be a music generator (#170), its bed made at render time and cached in `~/.mockingbird/cache/music/`; `render(project, sound: true)` saves the mix alone as an .m4a. |
 | 2026-11-04 | `transcribe` and `captions` take `model` and `language` per call; with the language on `auto` and a per-language map, the language is detected from the first speech and its model used (`enginesFor` in `runtime.ts`, #143). |
@@ -275,8 +276,11 @@ before `concat`, and a clip from a source with no sound gets silence
 (`aevalsrc`). The package does no I/O beyond reading and writing the
 project file; probing and rendering stay in the engine.
 
-`motion` runs in a separate Bun process under `sandbox-exec` with the
-network denied (`apps/daemon/src/motion-run.ts`).
+`motion` runs in a separate Bun process with the network denied
+(`apps/daemon/src/motion-run.ts`): under `sandbox-exec` on macOS, in a
+network namespace (`unshare -rn`) on Linux where one can be made, and with
+Chrome's own blocking alone on Windows (`noNetwork` in
+`packages/motion/src/sandbox.ts`).
 
 `music` uses the same sandboxed process and Chrome:
 `packages/motion/src/music.ts` opens the generator module as a file page,
@@ -340,9 +344,11 @@ MCP server is its own short-lived process.
   mockingbird never checks for updates.
 - **`mockingbird mcp` opens no port.** It speaks over stdin and stdout to the
   agent that started it.
-- **An agent's motion script or page can't reach the network.** It runs
-  under `sandbox-exec` with `deny network*`, and so does the Chrome a page
-  renders in.
+- **An agent's motion script or page can't reach the network.** Chrome
+  resolves no host name, sends everything else to a proxy on the discard
+  port, and blocks http and ws URLs in each tab, on every OS. Around that,
+  the runner starts under `sandbox-exec` with `deny network*` on macOS, and
+  in a network namespace on Linux where the kernel allows one.
 
 Pivot step 3's `mockingbird setup` will offer the same Chrome download.
 
