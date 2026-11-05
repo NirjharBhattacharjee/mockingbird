@@ -6,6 +6,14 @@ export {
 } from "./normalize.ts";
 export { concatSamples, Pcm16Decoder, peak, rms } from "./pcm.ts";
 export {
+  bandShare,
+  beat,
+  levelOf,
+  noiseFloor,
+  sections,
+  windowLevels,
+} from "./stats.ts";
+export {
   decodeWav,
   durationMs,
   encodeWav,
