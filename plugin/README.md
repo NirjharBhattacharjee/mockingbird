@@ -57,9 +57,11 @@ Other agents (Codex, Cursor, Gemini CLI and the rest) don't need the plugin:
 mockingbird's MCP server hands them the same playbooks through its `guide`
 tool. See [mockingbird's MCP.md](../docs/MCP.md).
 
-The plugin starts `mockingbird mcp` itself. If you already added mockingbird
-with `claude mcp add`, remove that one (`claude mcp remove mockingbird`) so
-Claude doesn't see every tool twice.
+The plugin starts `mockingbird mcp` itself (`launch.sh`). Installed before
+mockingbird is, it offers Claude one tool, `install_mockingbird`, that says
+how to install it. If you already added mockingbird with `claude mcp add` (or
+`mockingbird setup` did), remove that one (`claude mcp remove mockingbird`)
+so Claude doesn't see every tool twice.
 
 ## What's in it
 

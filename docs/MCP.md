@@ -20,7 +20,8 @@ Nothing is exposed until you register the server with a client.
 
 ## Register it
 
-Claude Code:
+`mockingbird setup` does this for Claude Code, Cursor, Codex, Gemini CLI and
+VS Code, after asking. By hand, Claude Code:
 
 ```sh
 claude mcp add mockingbird -- mockingbird mcp
