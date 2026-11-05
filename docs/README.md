@@ -137,6 +137,31 @@ Settings, as environment variables:
 The first transcription on a Mac pauses about 15 seconds while macOS prepares
 the GPU.
 
+### "Apple could not verify mockingbird"
+
+The `mockingbird` binary isn't signed with an Apple Developer ID or
+notarized yet: that needs a paid yearly certificate the project doesn't
+have yet.
+
+The install command and Homebrew never show this warning: a file that
+`curl` or Homebrew downloads isn't marked as coming from the internet, so
+macOS runs it. The warning only appears when you download
+`mockingbird-darwin-arm64` from the releases page in a browser. Running it
+then gets the process killed, and macOS says it "could not verify" the app.
+To run it anyway, check it against the release's `checksums.txt`, then
+remove the browser's mark:
+
+```sh
+shasum -a 256 mockingbird-darwin-arm64   # compare with checksums.txt
+xattr -d com.apple.quarantine mockingbird-darwin-arm64
+```
+
+Or open **System Settings → Privacy & Security** and click **Open Anyway**
+next to the message about mockingbird.
+
+There are no Windows builds yet. When they arrive unsigned, SmartScreen will
+show "Windows protected your PC": click **More info**, then **Run anyway**.
+
 ## Privacy
 
 - Your footage is read where it is and never uploaded by mockingbird. The
