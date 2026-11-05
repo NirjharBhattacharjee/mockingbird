@@ -178,7 +178,8 @@ These are enforced, not stylistic suggestions:
 
 These are the checks a PR must pass
 (see [ARCHITECTURE.md §14](./docs/ARCHITECTURE.md#14-cicd-pipeline)).
-`ci.yml` currently runs the first four, and the Go checks, on every push and PR.
+`ci.yml` currently runs the first four, and the Go checks, on every push and
+PR, on macOS, Linux and Windows (see [below](#on-linux-and-windows)).
 `main` only takes changes through a pull request, squash-merged, once the
 `check` and `cli` jobs pass and every review thread is resolved.
 
@@ -202,6 +203,28 @@ These are the checks a PR must pass
 
 Override the location with `MOCKINGBIRD_HOME`. Run the integration tests for
 any change that touches `packages/{audio,vad,asr,captions,motion}` or a tool.
+
+### On Linux and Windows
+
+`ci.yml` runs typecheck, lint, `bun test` and the Go checks on macOS
+(`check`, `cli`), and on Linux and Windows (`check-other`, `cli-other`, #151).
+The Linux and Windows jobs don't block a merge yet. Tests that need a part
+only macOS has skip elsewhere, until the issue that ports that part lands:
+
+| Skipped | Linux | Windows | Why | Ported by |
+|---|---|---|---|---|
+| `canvas`, `Path2D and filter on the canvas` (20) | yes | yes | the Canvas engine draws with Core Graphics | the HTML engine (pivot step 7) |
+| `drawCaptions` (5) | yes | yes | captions are drawn with Core Text | #155 |
+| `startWhisperServer flags` (7) | no | yes | they fake whisper-server with a shell script | #153 |
+
+The integration tests (`MOCKINGBIRD_INTEGRATION=1`: VAD, whisper-server,
+ffmpeg renders, the transcribe CLI) skip on every OS in CI, since they need
+local models. With every check green, macOS runs 213 tests, Linux 188 and
+Windows 182 (229 in all).
+
+The repo keeps LF line endings on every OS (`.gitattributes`): Biome and
+gofmt check for them, and `install.sh` and the plugin's `launch.sh` won't run
+with CRLF.
 
 Run whichever of these apply to your change locally before opening a PR.
 A PR that only "probably passes CI" is not ready for review — run it first.
