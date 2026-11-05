@@ -20,7 +20,7 @@ injection, the cleanup model, the launchd agent) is in git:
 |---|---|
 | 2026-11-06 | Segment cache (#165): a project renders from segments of about 10 s kept in `~/.mockingbird/cache/segments/`, each keyed by its clips, what's drawn over it, the look and the engine, so an edit renders again only the segments it touches. On the v2 edit with four texts, changing one text took 16.4 s instead of 72.8 to 78.2 s. |
 | 2026-11-05 | Fonts ship with Chrome (#156): `models pull chrome` also downloads Inter, Charis SIL, JetBrains Mono and Noto for Bengali, Devanagari, Arabic, Hebrew, Thai, Tamil and CJK (OFL, pinned, [NOTICE.md](../NOTICE.md)); captions and pages use them by name, so a Bengali caption or a CJK title is drawn the same with or without the system's fonts. |
-| 2026-11-05 | A motion page can't reach the network on Linux or Windows either (#157): Chrome resolves no host name and sends the rest to a dead proxy, each tab blocks http and ws URLs, and on Linux the runner starts in a network namespace where one can be made. Chrome is pinned for Linux x64 and Windows x64. |
+| 2026-11-05 | A motion page can't reach the network on Linux or Windows either (#157): Chrome resolves no host name and sends the rest to a dead proxy, every request any tab makes is failed at the browser unless it's a file on this computer, and on Linux the runner starts in a network namespace where one can be made. Chrome is pinned for Linux x64 and Windows x64. |
 | 2026-11-06 | Effects catalog, phase 1 (#197): one `effects` catalog (`apps/daemon/src/effects.ts`) instead of a tool per effect, put on a clip's picture or sound after its framing; color, LUT, vignette, sharpen, blur, denoise, high-pass, compressor, de-esser; `scopes` measures a picture for grading. |
 | 2026-11-06 | A project's overlays (#163): an HTML page on a clip, rendered alone with its transparency (ProRes 4444) and laid over the cut, cached in `~/.mockingbird/cache/overlays/`. A project sound can be a music generator (#170), its bed made at render time and cached in `~/.mockingbird/cache/music/`; `render(project, sound: true)` saves the mix alone as an .m4a. |
 | 2026-11-04 | `transcribe` and `captions` take `model` and `language` per call; with the language on `auto` and a per-language map, the language is detected from the first speech and its model used (`enginesFor` in `runtime.ts`, #143). |
@@ -384,7 +384,8 @@ MCP server is its own short-lived process.
   agent that started it.
 - **An agent's motion script or page can't reach the network.** Chrome
   resolves no host name, sends everything else to a proxy on the discard
-  port, and blocks http and ws URLs in each tab, on every OS. Around that,
+  port, and fails every request but a local file at the browser, for every
+  tab (pages, captions, music), on every OS. Around that,
   the runner starts under `sandbox-exec` with `deny network*` on macOS, and
   in a network namespace on Linux where the kernel allows one.
 

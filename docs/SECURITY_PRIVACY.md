@@ -151,14 +151,15 @@ flowchart LR
 - **How each OS keeps a page off the network (#157).** On every OS, Chrome
   starts with `--host-resolver-rules=MAP * ~NOTFOUND` (no name resolves)
   and a proxy on `127.0.0.1:9` with loopback not bypassed (an IP address
-  goes nowhere), and each tab blocks `http`, `https`, `ws`, `wss` and `ftp`
-  URLs over DevTools. Each of the two would stop a `fetch` alone; the test
-  fetches a server on `127.0.0.1` and checks it was never reached. Two more
-  ways out are closed on every OS: WebRTC may send UDP only through the
-  proxy (`--force-webrtc-ip-handling-policy=disable_non_proxied_udp`; the
-  test's STUN server got 4 packets without it, 0 with it), and a `file://`
-  URL with a host, which Windows reads over SMB, is failed while one with
-  none loads. Around Chrome and the runner:
+  goes nowhere), and `launchChrome` turns on DevTools' `Fetch` interception
+  for the whole browser, so every request from every tab it opens (a motion
+  page, a caption, a music generator) stops there and is failed unless it's
+  a file on this computer. That also fails a `file://` URL with a host,
+  which Windows would read over SMB. The flags and the gate each stop a
+  `fetch` alone; the tests fetch a server on `127.0.0.1` and check it was
+  never reached. WebRTC may send UDP only through the proxy
+  (`--force-webrtc-ip-handling-policy=disable_non_proxied_udp`; the test's
+  STUN server got 4 packets without it, 0 with it). Around Chrome and the runner:
   - **macOS:** `sandbox-exec` with `deny network*`.
   - **Linux:** a user and network namespace (`unshare -rn`), which has no
     interface but loopback. Some kernels refuse one to a normal user

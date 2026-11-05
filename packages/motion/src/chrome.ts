@@ -29,22 +29,13 @@ const COMMAND_TIMEOUT_MS = 60_000;
  * `apps/daemon/src/motion-run.ts` does with `sandbox-exec`, or start Chrome
  * in one with `wrap`, a command Chrome's own is appended to.
  *
- * It can't reach the network on any OS (#157): no host name resolves, and
- * everything else, an IP address or loopback included, goes to a proxy on
- * the discard port, where nothing answers. Each tab also blocks http and ws
- * URLs (`blockNetwork`), and WebRTC may send UDP only through that proxy.
+ * It can't reach the network on any OS (#157), whatever page or script any
+ * tab runs: no host name resolves; everything else, an IP address or
+ * loopback included, goes to a proxy on the discard port, where nothing
+ * answers; WebRTC may send UDP only through that proxy; and every request
+ * any tab makes stops at the browser for `gate`, which lets through only a
+ * file on this computer.
  */
-/** URL patterns a tab may not load: everything but files and data. */
-export const BLOCKED_URLS = ["http://*", "https://*", "ws://*", "wss://*", "ftp://*"];
-
-/** Blocks the network in one tab, on top of the flags launchChrome starts with. */
-export async function blockNetwork(chrome: Chrome, session: string): Promise<void> {
-  await chrome.send("Network.enable", {}, session);
-  await chrome.send("Network.setBlockedURLs", { urls: BLOCKED_URLS }, session);
-  // Every file request stops for a look at its host (launchChrome's fileRequest).
-  await chrome.send("Fetch.enable", { patterns: [{ urlPattern: "file://*" }] }, session);
-}
-
 export async function launchChrome(
   path: string,
   { wrap = [] }: { wrap?: string[] } = {},
@@ -108,7 +99,7 @@ export async function launchChrome(
       parts = [];
       at = end + 1;
       if (message.method === "Fetch.requestPaused") {
-        fileRequest(message.params as Paused, message.sessionId);
+        gate(message.params as Paused);
         continue;
       }
       const w = waiting.get(message.id);
@@ -144,19 +135,20 @@ export async function launchChrome(
     });
   };
 
-  // A file URL with a host is another machine's share on Windows (UNC, over
-  // SMB): failed. One with none is a file here: let through.
-  const fileRequest = ({ requestId, request }: Paused, session?: string) => {
-    let host = "x";
+  // Only a file here goes through. A file URL with a host is another
+  // machine's share on Windows (UNC, read over SMB), so it fails like http.
+  const gate = ({ requestId, request }: Paused) => {
+    let local = false;
     try {
-      host = new URL(request.url).host;
+      const url = new URL(request.url);
+      local = url.protocol === "file:" && url.host === "";
     } catch {
-      // unparseable: failed with the hosts
+      // unparseable: failed
     }
-    const [method, params] = host
-      ? ["Fetch.failRequest", { requestId, errorReason: "BlockedByClient" }]
-      : ["Fetch.continueRequest", { requestId }];
-    send(method as string, params, session).catch(() => {});
+    const [method, params] = local
+      ? ["Fetch.continueRequest", { requestId }]
+      : ["Fetch.failRequest", { requestId, errorReason: "BlockedByClient" }];
+    send(method as string, params).catch(() => {});
   };
 
   const close = async () => {
@@ -176,6 +168,8 @@ export async function launchChrome(
 
   try {
     await send("Browser.getVersion");
+    // On the browser, not a tab: every tab and worker it opens is covered.
+    await send("Fetch.enable", { patterns: [{ urlPattern: "*" }] });
   } catch (error) {
     await close();
     throw error;

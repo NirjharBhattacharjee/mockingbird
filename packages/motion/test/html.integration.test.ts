@@ -2,6 +2,8 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { launchChrome } from "../src/chrome.ts";
 import { renderHtml } from "../src/index.ts";
 
 /** MOCKINGBIRD_CHROME, or the one `mockingbird models pull chrome` put in ~/.mockingbird/bin. */
@@ -19,6 +21,7 @@ function chrome(): string {
   throw new Error("No Chrome: run `mockingbird models pull chrome`, or set MOCKINGBIRD_CHROME.");
 }
 
+const chromePath = () => chrome();
 const dir = mkdtempSync(join(tmpdir(), "html-motion-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -214,6 +217,77 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("renderHtml (integration)"
         duration: 1,
       }),
     ).rejects.toThrow(`couldn't load ${remote}`);
+  }, 60_000);
+
+  test("any tab launchChrome opens is covered, with no setup of its own (#157)", async () => {
+    // As music.ts and drawCaptions open theirs: a tab, and code run in it.
+    let hits = 0;
+    const server = Bun.serve({
+      port: 0,
+      fetch: () => {
+        hits++;
+        return new Response("reached");
+      },
+    });
+    // The same picture by a local path and through a host: only the host may
+    // differ, so only the gate fails it. (A picture, not a module: Windows
+    // may give .js a MIME type a module won't take.)
+    const png = join(dir, "raw.png");
+    Bun.spawnSync([
+      ..."ffmpeg -v error -y -f lavfi -i color=red:s=8x8 -frames:v 1".split(" "),
+      png,
+    ]);
+    const local = pathToFileURL(png).href;
+    const remote =
+      process.platform === "win32"
+        ? `file://127.0.0.1/${png[0]}$/${png.slice(3).replaceAll("\\", "/")}`
+        : "file://127.0.0.1/etc/hosts";
+    const chrome = await launchChrome(chromePath());
+    try {
+      const { targetId } = await chrome.send<{ targetId: string }>("Target.createTarget", {
+        url: pathToFileURL(page("raw.html", "")).href,
+      });
+      const { sessionId } = await chrome.send<{ sessionId: string }>("Target.attachToTarget", {
+        targetId,
+        flatten: true,
+      });
+      const run = async (call: string) =>
+        (
+          await chrome.send<{ result: { value: string } }>(
+            "Runtime.evaluate",
+            {
+              expression: `(async () => { try { await ${call}; return "reached"; } catch { return "failed"; } })()`,
+              awaitPromise: true,
+              returnByValue: true,
+            },
+            sessionId,
+          )
+        ).result.value;
+      const picture = (url: string) =>
+        `new Promise((ok, no) => { const i = new Image(); i.onload = ok; i.onerror = no; i.src = ${JSON.stringify(url)}; })`;
+      // createTarget returns before the page has loaded, and a navigation
+      // under way throws away what's evaluated in it.
+      for (let tries = 0; ; tries++) {
+        const at = await chrome
+          .send<{ result: { value: string } }>(
+            "Runtime.evaluate",
+            { expression: "location.protocol + document.readyState", returnByValue: true },
+            sessionId,
+          )
+          .then((r) => r.result.value)
+          .catch(() => "");
+        if (at === "file:complete") break;
+        if (tries > 200) throw new Error(`the page didn't load: ${at}`);
+        await Bun.sleep(20);
+      }
+      expect(await run(`fetch("http://127.0.0.1:${server.port}/")`)).toBe("failed");
+      expect(await run(picture(local))).toBe("reached");
+      expect(await run(picture(remote))).toBe("failed");
+    } finally {
+      await chrome.close();
+      server.stop(true);
+    }
+    expect(hits).toBe(0);
   }, 60_000);
 
   test("lays the page over a video and keeps its sound", async () => {
