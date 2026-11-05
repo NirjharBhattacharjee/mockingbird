@@ -119,7 +119,8 @@ function jsonConfig(
     const command = (read()[key]?.mockingbird as { command?: unknown } | undefined)?.command;
     registered =
       typeof command === "string" &&
-      (command.includes("/") ? existsSync(command) : !!which(command));
+      // A path (either separator: Windows writes C:\...) must exist; a bare name, be on the PATH.
+      (/[\\/]/.test(command) ? existsSync(command) : !!which(command));
   } catch {}
   return {
     name,
