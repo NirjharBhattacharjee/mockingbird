@@ -155,7 +155,7 @@ describe("agents", () => {
       })[0];
     expect(claude("other: x - ✔ Connected\n")?.registered).toBe(false);
     expect(claude("mockingbird: mockingbird mcp - ✔ Connected\n")?.registered).toBe(true);
-    expect(claude("plugin:mockingbird:mockingbird: sh launch.sh - ✔ Connected\n")?.registered).toBe(
+    expect(claude("plugin:mockingbird:mockingbird: /p/launch - ✔ Connected\n")?.registered).toBe(
       true,
     );
   });
@@ -287,9 +287,24 @@ test("the plugin's launcher answers MCP itself when mockingbird isn't installed"
     { jsonrpc: "2.0", id: 4, method: "resources/list", params: { method: "ping" } },
     { jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "transcribe" } },
   ];
-  const r = Bun.spawnSync(["sh", join(PLUGIN, "launch.sh")], {
+  // Windows runs launch.cmd, which hands this to launch.ps1 when mockingbird isn't installed (#202).
+  const server =
+    process.platform === "win32"
+      ? [
+          "powershell",
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          join(PLUGIN, "launch.ps1"),
+        ]
+      : ["sh", join(PLUGIN, "launch")];
+  const r = Bun.spawnSync(server, {
     stdin: Buffer.from(`${requests.map((m) => JSON.stringify(m)).join("\n")}\n`),
-    env: { HOME: mkdtempSync(join(tmpdir(), "mb-setup-")), PATH: "/usr/bin:/bin" },
+    env:
+      process.platform === "win32"
+        ? process.env
+        : { HOME: mkdtempSync(join(tmpdir(), "mb-setup-")), PATH: "/usr/bin:/bin" },
   });
   const replies = r.stdout
     .toString()
