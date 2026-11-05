@@ -25,8 +25,10 @@ import {
   isWhisperFile,
   languageModels,
   mockingbirdHome,
+  pinnedWhisper,
   savedModelFor,
   spokenLanguage,
+  WHISPER_BUILD,
   WHISPER_LANGUAGES,
 } from "./runtime.ts";
 
@@ -356,6 +358,46 @@ async function installChrome(
       rmSync(join(bin, old), { recursive: true, force: true });
     }
   }
+}
+
+/**
+ * `mockingbird models pull` on Linux and Windows also downloads whisper-server
+ * and unpacks it into `~/.mockingbird/bin`. Returns 0 where there's no pin
+ * (macOS: Homebrew's).
+ */
+export async function pullWhisper(deps: PullDeps = {}): Promise<number> {
+  const log = deps.log ?? ((m: string) => console.error(m));
+  const home = deps.home ?? mockingbirdHome();
+  const pin = pinnedWhisper(home);
+  if (!pin) return 0;
+  if (existsSync(pin.program)) {
+    log(`whisper-server ${WHISPER_BUILD} is downloaded`);
+    return 0;
+  }
+  const bin = join(home, "bin");
+  await pullFile(pin.archive, bin, { fetch: deps.fetch, log });
+  const archive = join(bin, pin.archive.file);
+  // Unpacked beside the target and renamed into place, so a half-unpacked one
+  // is never found. tar reads .zip too on Windows (bsdtar, since Windows 10).
+  const unpacking = `${pin.dir}.part`;
+  rmSync(unpacking, { recursive: true, force: true });
+  mkdirSync(unpacking, { recursive: true });
+  // Windows' own tar.exe: Git Bash's GNU tar, often first on the PATH, takes
+  // "D:" for a remote host.
+  const tarExe =
+    process.platform === "win32"
+      ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
+      : "tar";
+  const tar = Bun.spawnSync([tarExe, "-xf", archive, "-C", unpacking], { stderr: "pipe" });
+  if (tar.exitCode !== 0) {
+    rmSync(unpacking, { recursive: true, force: true });
+    throw new Error(`couldn't unpack ${archive}: ${tar.stderr.toString().trim()}`);
+  }
+  rmSync(pin.dir, { recursive: true, force: true });
+  renameSync(unpacking, pin.dir);
+  rmSync(archive, { force: true });
+  log(`whisper-server ${WHISPER_BUILD} is downloaded.`);
+  return 0;
 }
 
 export type ModelsDeps = {

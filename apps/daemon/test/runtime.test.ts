@@ -1,14 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   DEFAULT_ASR_MODEL,
   enginesFor,
   englishOnly,
+  ffmpegMissing,
   findAsrModel,
+  findWhisperServer,
   languageCode,
+  pinnedWhisper,
   spokenLanguage,
+  WHISPER_BUILD,
   WHISPER_LANGUAGES,
 } from "../src/runtime.ts";
 
@@ -119,4 +123,59 @@ describe("languages by name", () => {
       "language takes a code Whisper knows",
     );
   });
+});
+
+test("pinnedWhisper: whisper.cpp's build on Linux and Windows, Homebrew's on macOS", () => {
+  expect(pinnedWhisper("/h", "darwin-arm64")).toBeUndefined();
+  const linux = pinnedWhisper("/h", "linux-x64");
+  expect(linux?.archive.url).toBe(
+    `https://github.com/ggml-org/whisper.cpp/releases/download/${WHISPER_BUILD}/whisper-bin-ubuntu-x64.tar.gz`,
+  );
+  expect(linux?.program).toBe(
+    join("/h", "bin", `whisper-cpp-${WHISPER_BUILD}`, "whisper-bin-ubuntu-x64", "whisper-server"),
+  );
+  expect(pinnedWhisper("/h", "win32-x64")?.program).toEndWith(
+    join("Release", "whisper-server.exe"),
+  );
+});
+
+test("findWhisperServer: the environment, then the pulled one, then the PATH", () => {
+  const home = mkdtempSync(join(tmpdir(), "mb-whisper-"));
+  const onPath = () => "/usr/bin/whisper-server";
+  expect(findWhisperServer({ MOCKINGBIRD_WHISPER_SERVER: "/x/ws" }, home, onPath)).toBe("/x/ws");
+  expect(findWhisperServer({}, home, onPath)).toBe("/usr/bin/whisper-server");
+  expect(findWhisperServer({}, home, () => null)).toBeUndefined();
+  const pin = pinnedWhisper(home);
+  if (pin) {
+    mkdirSync(dirname(pin.program), { recursive: true });
+    writeFileSync(pin.program, "");
+    expect(findWhisperServer({}, home, onPath)).toBe(pin.program);
+  }
+});
+
+test("ffmpegMissing names what a system ffmpeg was built without", () => {
+  const encoders =
+    " V....D libx264              libx264 H.264 (codec h264)\n A....D aac                  AAC";
+  const filters = [
+    " ... sidechaincompress AA->A      Sidechain compressor.",
+    " ... ebur128           A->N       EBU R128 scanner.",
+    " ... alimiter          A->A       Audio lookahead limiter.",
+    " ... aevalsrc          |->A       Generate an audio signal.",
+    " ... amix              N->A       Audio mixing.",
+    " ... adelay            A->A       Delay channels.",
+    " ... overlay           VV->V      Overlay a video source.",
+  ].join("\n");
+  expect(ffmpegMissing((what) => (what === "-encoders" ? encoders : filters))).toEqual([]);
+  // ffmpeg-free: no libx264, and "libx264rgb" alone doesn't count.
+  const free = " V....D libx264rgb           libx264 RGB\n A....D aac                  AAC";
+  expect(ffmpegMissing((what) => (what === "-encoders" ? free : ""))).toEqual([
+    "libx264",
+    "sidechaincompress",
+    "ebur128",
+    "alimiter",
+    "aevalsrc",
+    "amix",
+    "adelay",
+    "overlay",
+  ]);
 });

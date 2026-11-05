@@ -27,6 +27,7 @@ injection, the cleanup model, the launchd agent) is in git:
 | 2026-11-04 | Text-based editing (#160): a project's sources are heard once into a word cache (`~/.mockingbird/cache/words/`), with words placed by Whisper's DTW points and measured pauses; `transcribe(project)` gives the cut as text and `cut_words` cuts by quoting it; a project's captions come from the cache. |
 | 2026-11-04 | The playbooks' shell scripts became engine tools, so they run on every OS: `pauses` (silencedetect, and the clips between pauses) and `measure` (size, length, loudness), with cuts from `scenes` (#158). |
 | 2026-11-05 | Which ffmpeg (#154): the system one, not a pinned LGPL build; VideoToolbox measured slower, bigger and worse than x264 on the v2 edit ([§7](#7-rendering)). |
+| 2026-11-05 | Linux and Windows, first part (pivot step 4): CI runs the checks on all three (#151); `models pull` downloads a pinned whisper-server on Linux and Windows (#153); releases build the command for five targets, `install.sh` runs on Linux, and `install.ps1` installs on Windows (#152). ffmpeg stays the system's, and `status` names any encoder or filter the engine needs that it was built without (#154). |
 | 2026-11-04 | Timeline, first part (#148): `packages/timeline` keeps an edit in a project file; the `edit` tool changes it with ops; `render` renders one, with clips from several sources framed to one size and rate, and captions made for the cut. |
 | 2026-11-04 | `mockingbird setup` and `doctor`, and the plugin's `launch.sh`, which answers MCP with an install tool when mockingbird isn't installed (#141). |
 | 2026-11-04 | `mockingbird record`: the microphone through ffmpeg (`avfoundation`, the input System Settings picked) into a file, for a voiceover (#142). |
@@ -112,9 +113,9 @@ Constraints, not preferences. Check any proposed change against them.
 |---|---|---|
 | Engine | TypeScript on **Bun** ≥ 1.2, Bun workspaces | our process |
 | Command | **Go** ≥ 1.26, `apps/cli` | one compiled binary |
-| Decoding, cutting, mixing, encoding | `ffmpeg` | subprocess |
+| Decoding, cutting, mixing, encoding | the system's `ffmpeg` (Homebrew, apt, winget), never a copy we ship: a build with x264 is GPL ([#154](https://github.com/NirjharBhattacharjee/mockingbird/issues/154)) | subprocess |
 | Speech detection | Silero VAD via `onnxruntime-node` | native module in-process |
-| Speech-to-text | `whisper.cpp`'s `whisper-server`, default model `large-v3` Q5_0 | subprocess, HTTP on a free `127.0.0.1` port per call |
+| Speech-to-text | `whisper.cpp`'s `whisper-server` (Homebrew's on macOS, a pinned CPU build from `models pull` on Linux and Windows), default model `large-v3` Q5_0 | subprocess, HTTP on a free `127.0.0.1` port per call |
 | Captions | Core Text through `bun:ffi`, drawn to PNGs that ffmpeg overlays | in-process |
 | Motion graphics | HTML pages in a pinned chrome-headless-shell, driven over the DevTools protocol | subprocess, under `sandbox-exec` |
 | Captions | HTML in the pinned chrome-headless-shell, screenshotted to PNGs that ffmpeg overlays | subprocess, under `sandbox-exec` |
@@ -322,6 +323,9 @@ MCP server is its own short-lived process.
   (`mockingbird models pull`, and `models pull chrome` for the headless
   Chrome), which names each URL and checks each file's sha256. mockingbird
   never checks for updates.
+  sha256. On Linux and Windows it also downloads whisper.cpp's own
+  whisper-server build (release b5454, pinned sha256) into
+  `~/.mockingbird/bin`. mockingbird never checks for updates.
 - **`mockingbird mcp` opens no port.** It speaks over stdin and stdout to the
   agent that started it.
 - **An agent's motion script or page can't reach the network.** It runs
@@ -404,6 +408,16 @@ itself with `bun apps/daemon/src/cli.ts <args>`.
   newest release tag on `main`, downloads that release's Go binary and checks
   it against `checksums.txt`, runs `models pull`, and writes
   `~/.local/bin/mockingbird`. Each step logs to `~/.mockingbird/logs/`.
+  On Linux there's no Homebrew: git and ffmpeg come from the system's
+  package manager (it stops and says which are missing), Bun from its own
+  release with a pinned sha256, and whisper-server from `models pull`.
+- **`install.ps1`** (Windows x64): `irm …/releases/latest/download/install.ps1 | iex`.
+  Installs Git and ffmpeg with winget, Bun from its release (pinned sha256),
+  clones the repo at the newest release tag, runs `bun install` and
+  `models pull`, downloads `mockingbird-windows-x64.exe` and checks it, and
+  writes `~/.mockingbird/bin/mockingbird.cmd`, which it adds to the user's
+  PATH. The command runs the engine as a child there, since Windows can't
+  replace a process.
 - **From a clone:** `bun install`, then `bun apps/daemon/src/cli.ts`.
 
 Updating is always something the user runs: the install command again, or
@@ -448,21 +462,32 @@ v1.0.0 release notes tell anyone still on v0.3.2 to install v0.4.2 first
    (`MOCKINGBIRD_INTEGRATION=1`) need whisper-server, ffmpeg and downloaded
    models, so they run locally with `bun run test:integration`.
 2. `cli` (macOS): `gofmt`, `go vet`, `go test -race` in `apps/cli`.
-3. `dco` (pull requests): every commit carries a `Signed-off-by` line for
+3. `check-other`, `cli-other` (Linux, Windows): the same checks, not yet
+   required; [CONTRIBUTING.md §8](../CONTRIBUTING.md#on-linux-and-windows)
+   lists what each OS skips.
+4. `transcribe-other` (Linux x64 and arm64, Windows): `models pull
+   whisper-server`, base.en, and the whisper-server and transcribe
+   integration tests.
+5. `dco` (pull requests): every commit carries a `Signed-off-by` line for
    its author ([CONTRIBUTING.md §11](../CONTRIBUTING.md#11-contributor-licensing--dco-not-a-cla)).
 
 **`release.yml`**, on a `v*.*.*` tag:
 
 1. Refuse a tag that isn't on `main`.
 2. Rerun the checks on the tagged commit.
-3. Build `apps/cli` into `mockingbird-darwin-arm64` with the tag built in.
+3. Build `apps/cli` for macOS (arm64, x64), Linux (x64, arm64) and
+   Windows (x64), as `mockingbird-<os>-<arch>`, with the tag built in.
 4. Pack the source with `git archive`, and write the sha256 of it, the
-   binary and `install.sh` to `checksums.txt`.
+   binaries, `install.sh` and `install.ps1` to `checksums.txt`.
 5. Create the GitHub Release with those files. A tag with a `-` is a
    prerelease, which the installer only takes with `MOCKINGBIRD_CHANNEL=beta`
    and the tap never does.
 6. Open a PR on `NirjharBhattacharjee/homebrew-mockingbird` with the new
    `url` and `sha256` (needs the `TAP_TOKEN` secret).
+
+**`install.yml`**, on a pull request that changes an installer or what it
+runs: `install.sh` on clean Linux x64 and arm64 runners and `install.ps1`
+on Windows (PowerShell 5.1), from the clone, then `mockingbird status`.
 
 **`main` is staging, releases are production.** Rulesets require a pull
 request, squash merges, green `check` and `cli`, and resolved threads on
@@ -491,6 +516,9 @@ each step shippable on its own:
 - **macOS only.** Captions use Core Text, and `motion` relies on `sandbox-exec`.
 - **macOS only.** `motion` uses Core Graphics, and Chrome is sandboxed with
   `sandbox-exec`, which other OSes don't have (#157).
+- **Captions and motion are macOS only.** They use Core Text and Core
+  Graphics until the HTML engine lands (#147, #155). Transcription, `render`
+  without captions, and the commands work on Linux and Windows.
 - **No compiled engine** ([§11](#11-packaging)): Bun has to be installed.
 - **One render call per edit.** Any change re-renders everything (step 5).
 - **The agent sees a few stills, not the video.** Tool outputs stay small so

@@ -57,6 +57,7 @@ test("engineStatus says what's installed", () => {
     transcriptionModel: null,
     vadModel: false,
     ffmpeg: false,
+    ffmpegMissing: [],
     whisperServer: false,
     chrome: false,
     dictionaryWords: 0,
@@ -68,10 +69,18 @@ test("engineStatus says what's installed", () => {
   mkdirSync(join(home, "models"));
   writeFileSync(join(home, "models", "ggml-base.en.bin"), "");
   writeFileSync(join(home, "models", "silero_vad.onnx"), "");
-  expect(engineStatus(home, (n) => `/usr/bin/${n}`, {})).toMatchObject({
+  expect(
+    engineStatus(
+      home,
+      (n) => `/usr/bin/${n}`,
+      {},
+      () => ["libx264"],
+    ),
+  ).toMatchObject({
     transcriptionModel: "ggml-base.en.bin",
     vadModel: true,
     ffmpeg: true,
+    ffmpegMissing: ["libx264"],
     whisperServer: true,
   });
 });
