@@ -347,7 +347,18 @@ async function frames(
       const file = join(dir, `${String(stills.length + 1).padStart(4, "0")}.jpg`);
       const proc = Bun.spawn(
         [
-          ...["ffmpeg", "-nostdin", "-loglevel", "error", "-ss", String(t), "-i", path],
+          ...[
+            "ffmpeg",
+            "-nostdin",
+            "-loglevel",
+            "error",
+            "-hwaccel",
+            "auto",
+            "-ss",
+            String(t),
+            "-i",
+            path,
+          ],
           ...["-frames:v", "1", "-vf", "scale='min(1280,iw)':-2", file],
         ],
         { stderr: "pipe" },
@@ -973,7 +984,8 @@ export type Insert = { path: string; from: number; to: number };
 export const seekClips = (path: string, clips: Clip[]) =>
   clips.flatMap((c) => {
     const { from, to } = opened(c);
-    return ["-ss", String(from), "-t", String(to - from), "-i", c.path ?? path];
+    // Decoded with the hardware where there's a decoder: a minute of 4K HEVC rendered in 34.0 s against 91.1 s, frame for frame the same (#167).
+    return ["-hwaccel", "auto", "-ss", String(from), "-t", String(to - from), "-i", c.path ?? path];
   });
 
 /**
