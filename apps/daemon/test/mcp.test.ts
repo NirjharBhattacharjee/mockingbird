@@ -747,6 +747,85 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
     120_000,
   );
 
+  test.skipIf(!findChrome())(
+    "an overlay page is laid over its clip with its transparency (#163)",
+    async () => {
+      const dir = mkdtempSync(join(tmpdir(), "mb-overlay-"));
+      const home = process.env.MOCKINGBIRD_HOME;
+      try {
+        process.env.MOCKINGBIRD_HOME = join(dir, "home");
+        const talk = join(dir, "talk.mp4");
+        // Solid blue under a page that paints only its top half red.
+        Bun.spawnSync([
+          ...[
+            "ffmpeg",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=blue:s=320x240:r=30:d=3",
+          ],
+          ...["-pix_fmt", "yuv420p", talk],
+        ]);
+        const page = join(dir, "card.html");
+        writeFileSync(
+          page,
+          '<body style="margin:0"><div style="position:fixed;left:0;top:0;width:100%;height:50%;background:red"></div></body>',
+        );
+        const project = join(dir, "edit.json");
+        await mcpTools(
+          async () => ({}),
+          () => {},
+        )
+          .find((t) => t.name === "edit")
+          ?.run({
+            project,
+            ops: [
+              { op: "add", type: "clip", path: talk, from: 0, to: 3 },
+              { op: "add", type: "overlay", page, clip: "c1", from: 1, to: 2 },
+            ],
+          });
+        await run({ project });
+        const pixel = (t: number, y: number) => [
+          ...Bun.spawnSync([
+            ...[
+              "ffmpeg",
+              "-loglevel",
+              "error",
+              "-ss",
+              String(t),
+              "-i",
+              join(dir, "edit-render-1.mp4"),
+            ],
+            ...[
+              "-frames:v",
+              "1",
+              "-vf",
+              `format=rgb24,crop=1:1:160:${y}`,
+              "-f",
+              "rawvideo",
+              "-pix_fmt",
+              "rgb24",
+              "-",
+            ],
+          ]).stdout,
+        ];
+        const red = (rgb: number[]) => (rgb[0] ?? 0) > 200 && (rgb[2] ?? 255) < 60;
+        const blue = (rgb: number[]) => (rgb[2] ?? 0) > 200 && (rgb[0] ?? 255) < 60;
+        expect(red(pixel(1.5, 40))).toBe(true);
+        expect(blue(pixel(1.5, 200))).toBe(true);
+        expect(blue(pixel(0.5, 40))).toBe(true);
+        expect(blue(pixel(2.5, 40))).toBe(true);
+      } finally {
+        if (home === undefined) delete process.env.MOCKINGBIRD_HOME;
+        else process.env.MOCKINGBIRD_HOME = home;
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+    120_000,
+  );
+
   test("a quiet recording comes out at -14 LUFS, its peaks under -1.5 dBTP", async () => {
     const dir = mkdtempSync(join(tmpdir(), "mb-render-"));
     try {

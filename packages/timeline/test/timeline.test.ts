@@ -188,6 +188,26 @@ describe("compile and outline", () => {
   });
 });
 
+describe("overlays (#163)", () => {
+  test("an overlay is an insert whose picture is a page, and stays on its clip through split and remove", () => {
+    const { project: p } = apply(base(), [
+      { op: "add", type: "overlay", page: "cards/lower.html", clip: "c2", from: 1, to: 3 },
+      { op: "split", id: "c2", at: 4 },
+      { op: "remove", id: "c1" },
+    ]);
+    expect(p.inserts.find((i) => i.path === "cards/lower.html")?.clip).toBe("c3");
+    expect(outline(p, "/proj/edit.json")).toContain("overlay lower.html");
+    expect(compile(p, "/proj").inserts).toContainEqual({
+      path: native("/proj/cards/lower.html"),
+      from: 1,
+      to: 3,
+    });
+    expect(() =>
+      apply(base(), [{ op: "add", type: "overlay", page: "x.png", from: 0, to: 1 }]),
+    ).toThrow("needs page");
+  });
+});
+
 describe("generated music (#170)", () => {
   test("a sound takes a generator in place of a path, timed and resolved like a file", () => {
     const { project: p } = apply(base(), [

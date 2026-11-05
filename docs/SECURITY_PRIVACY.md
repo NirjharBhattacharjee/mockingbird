@@ -63,6 +63,8 @@ grants, dictation history) is in git: `git show v0.3.2:docs/SECURITY_PRIVACY.md`
 | Transcripts and word times | High | returned to the agent | no, unless the agent saves them |
 | Draft proxies: small copies of the stretches of large sources a project uses | High | `~/.mockingbird/cache/proxies/` | yes, until `~/.mockingbird` is deleted or the cache folder is |
 | A project's words and pauses (the word cache) | High | `~/.mockingbird/cache/words/`, one file per source, model and language | yes, until `~/.mockingbird` is deleted or the cache folder is |
+| A project's overlays, rendered (what its pages draw) | Medium | `~/.mockingbird/cache/overlays/` | yes, until `~/.mockingbird` is deleted or the cache folder is |
+| A project's generated music beds | Low | `~/.mockingbird/cache/music/` | yes, until `~/.mockingbird` is deleted or the cache folder is |
 | Stills (`frames`) | High | a new temp folder per call | yes, until the OS clears temp |
 | Renders | High | beside the source, or where `out` says | yes, they're the point |
 | Dictionary (names, jargon) | Medium | `data.db`, `dictionary` | yes, until removed |

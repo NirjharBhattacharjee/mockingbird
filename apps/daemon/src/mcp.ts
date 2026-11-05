@@ -2309,6 +2309,81 @@ async function proxied(clips: Clip[]): Promise<Clip[]> {
  * it timed from its clips. Saved beside the project as `<name>-render-N.mp4`.
  */
 /**
+ * A project's overlays (#163), inserts whose picture is an HTML page: each
+ * rendered alone with its transparency (ProRes 4444) at the project's size
+ * and rate for its stretch, kept under ~/.mockingbird/cache/overlays/ by the
+ * page's folder and the look, and laid over the cut like b-roll. A page's
+ * `mockingbird.audio` joins the project's sound, timed from the overlay.
+ */
+async function overlays(
+  inserts: Insert[],
+  look: { size: string; fps: number },
+  log: (m: string) => void,
+): Promise<{ inserts: Insert[]; sounds: (Sound & { path: string })[] }> {
+  const laid: Insert[] = [];
+  const heard: (Sound & { path: string })[] = [];
+  for (const insert of inserts) {
+    if (!/\.html?$/i.test(insert.path)) {
+      laid.push(insert);
+      continue;
+    }
+    const page = requireFile(insert.path, "Page");
+    const [width = 0, height = 0] = look.size.split("x").map(Number);
+    const duration = Math.round((insert.to - insert.from) * 1000) / 1000;
+    // A page loads its neighbours (CSS, images, the kit), so their sizes and times are in the key.
+    const hash = createHash("sha256").update(JSON.stringify([1, basename(page), look, duration]));
+    const folder = dirname(page);
+    for (const f of readdirSync(folder).sort()) {
+      const stat = statSync(join(folder, f));
+      if (stat.isFile()) hash.update(`${f}:${stat.size}:${stat.mtimeMs}`);
+    }
+    const key = hash.digest("hex").slice(0, 32);
+    const cache = join(mockingbirdHome(), "cache", "overlays");
+    const mov = join(cache, `${key}.mov`);
+    const listed = join(cache, `${key}.json`);
+    if (existsSync(mov) && existsSync(listed)) {
+      log(`${basename(page)}: reusing the overlay rendered before`);
+    } else {
+      mkdirSync(cache, { recursive: true });
+      log(`${basename(page)}: rendering ${duration.toFixed(1)} s of overlay`);
+      const part = join(cache, `${key}.part.mov`);
+      try {
+        const said = await sandboxed(
+          {
+            script: page,
+            chrome: needChrome(),
+            out: part,
+            width,
+            height,
+            fps: look.fps,
+            duration,
+            alpha: true,
+          },
+          "the overlay page",
+        );
+        const result = JSON.parse(said.trim().split("\n").at(-1) || "{}") ?? {};
+        writeFileSync(listed, JSON.stringify(result.sounds ?? []));
+        renameSync(part, mov);
+      } finally {
+        rmSync(part, { force: true });
+      }
+    }
+    laid.push({ ...insert, path: mov });
+    const sounds = JSON.parse(readFileSync(listed, "utf8")) as unknown;
+    for (const [i, t] of items(sounds).entries()) {
+      heard.push({
+        path: requireFile(String(t.path), `${basename(page)}'s audio[${i}]`),
+        at: insert.from + within(t.at, 0, Number.MAX_VALUE, `audio[${i}].at`, 0),
+        volume: within(t.volume, 0, 4, `audio[${i}].volume`, 1),
+        loop: !!t.loop,
+        duck: !!t.duck,
+      });
+    }
+  }
+  return { inserts: laid, sounds: heard };
+}
+
+/**
  * A project's generated sounds made into WAVs (#170), each as long as the
  * video from where it starts, and kept under ~/.mockingbird/cache/music/ by
  * the generator's folder of modules and its arguments, so a render after an
@@ -2373,15 +2448,23 @@ async function renderProject(
   const said = cut.captions && !soundOnly ? await cutCaptions(cut, log, cut.captions) : undefined;
   // A draft reads 4K from proxies; its size is still the source's, not the proxy's.
   const clips = draft ? await proxied(cut.clips) : cut.clips;
+  const source = await probe(first);
+  const laid = soundOnly
+    ? { inserts: [], sounds: [] }
+    : await overlays(
+        cut.inserts,
+        { size: cut.size ?? source.size, fps: cut.fps ?? source.fps },
+        log,
+      );
   return render(clips[0]?.path ?? first, clips, {
-    size: cut.size ?? (draft ? (await probe(first)).size : undefined),
+    size: cut.size ?? (draft ? source.size : undefined),
     fps: cut.fps,
     split: cut.split,
     captions: said,
     captionsY: cut.captions?.y ?? CAPTIONS_Y,
     texts: soundOnly ? [] : cut.texts,
-    inserts: soundOnly ? [] : cut.inserts,
-    sounds: await beds(cut, log),
+    inserts: laid.inserts,
+    sounds: [...(await beds(cut, log)), ...laid.sounds],
     out,
     named: file,
     kind: soundOnly ? "sound" : draft ? "draft" : "render",

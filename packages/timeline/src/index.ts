@@ -745,9 +745,19 @@ function step(p: Project, raw: unknown, what: string, notes: string[], words?: W
   const { op, ...a } = raw as Obj;
   switch (op) {
     case "add": {
-      const { type, index, ...fields } = a;
+      const { type: asked, index, ...given } = a;
+      // An overlay (#163) is an insert whose picture is an HTML page, rendered
+      // with its transparency at render time; it's kept as one, so it stays on
+      // its clip through split, trim and remove like any insert.
+      const overlay = asked === "overlay";
+      if (overlay && !(typeof given.page === "string" && /\.html?$/i.test(given.page))) {
+        fail(`${what}: an overlay needs page, the path of an .html page`);
+      }
+      const { page, ...rest } = given;
+      const fields = overlay ? { ...rest, path: page } : given;
+      const type = overlay ? "insert" : asked;
       if (!(typeof type === "string" && type in READ)) {
-        fail(`${what}: add needs type: clip, text, insert or audio`);
+        fail(`${what}: add needs type: clip, text, insert, overlay or audio`);
       }
       const kind = type as keyof typeof READ;
       const key = LIST[kind];
@@ -941,7 +951,7 @@ export function outline(p: Project, file: string): string {
       const y = t.y === undefined ? "" : ` y ${short(t.y)}`;
       return `${t.id}  ${when}  text ${JSON.stringify(t.text)}${y}`;
     }
-    return `${t.id}  ${when}  insert ${basename(t.path)}`;
+    return `${t.id}  ${when}  ${/\.html?$/i.test(t.path) ? "overlay" : "insert"} ${basename(t.path)}`;
   };
   const lines = [`${file}: ${head.join(", ")}`];
   for (const c of p.clips) {
