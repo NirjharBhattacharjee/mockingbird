@@ -108,6 +108,14 @@ jobs:
         run: dirname "$(find "$MOCKINGBIRD_HOME/bin" -name 'whisper-server*' -type f | head -1)" >> "$GITHUB_PATH"
       - run: bun apps/daemon/src/cli.ts status || true
       - run: MOCKINGBIRD_INTEGRATION=1 bun test apps/daemon/test/mcp.test.ts
+      # A whole short, tool after tool, as an agent would make it.
+      - run: MOCKINGBIRD_ASR_MODEL=ggml-base.en.bin bun bench/edit.ts edit-out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: edit-windows
+          path: edit-out/*.png
+          if-no-files-found: ignore
 
   # The plugin's MCP server starts on Windows (#202), checked with Claude Code
   # itself. Git Bash's sh is taken off the PATH, as on a PC where Git is
