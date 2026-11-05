@@ -18,6 +18,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
+| 2026-11-06 | `render` copies the groups of pictures that need no change and encodes only the clip edges and reframed clips: 4.6x faster on a talk cut into 35 s clips, about 1.6x on the 96-clip v2 edit, with copied frames bit-identical to the source (#166). |
 | 2026-11-04 | One framing path: `render`'s parameters frame clips the way a project does, so the separate `vertical` graph is gone (same frames, measured); `captions` takes a project (#162). |
 | 2026-11-04 | Every clip input and still is decoded with the hardware where it can be (`-hwaccel auto`: 4K HEVC rendered in 34.0 s against 91.1 s); `render(draft: true)` makes a half-size preview, reading 4K from proxies of just the stretches used (#167). |
 | 2026-11-04 | J and L cuts: a project clip's `lead` moves its sound's cut off its picture's; each clip's input opens both stretches, and picture and sound are joined apart (#161). |
@@ -206,6 +207,25 @@ Measured on an M3 with a 96-clip edit of a 908 s 1080p60 recording
 (#137): 152.9 s with one trimmed input, 63.4 s seeking, 103.1 s in two
 batches. VideoToolbox's H.264 encoder was slower than x264 `veryfast` there
 (about 213 fps against 557), so encoding stays on x264.
+
+**Stream copy (#166).** When nothing is drawn over the picture (no
+captions, text or inserts), there's no split or draft, and no clip has a
+transition, a J or L cut or a speed, `render` copies what it can instead
+of encoding it. That needs a source in H.264 yuv420p at the output's size
+and rate, with every frame on that rate's grid. Each unzoomed clip keeps
+the whole groups of pictures inside it: from its first closed keyframe to
+its last, copied as they are. Only the frames before the first and after
+the last are encoded, with zoomed clips encoded whole. All of those are one
+x264 stream with an IDR forced at each piece, split there with the segment
+muxer. x264 numbers its parameter sets 1 (`sps-id=1`), so they never
+overwrite the source's 0 where pieces meet. ffmpeg and AVFoundation both
+decode every frame. The sound is cut to the same whole frames, mixed and
+levelled as before. Each piece's frame count is checked, and any failure
+falls back to encoding everything. Copies come from the first clip's source
+only. On the v2 edit (96 clips averaging 4 s, keyframes every 1.95 s), 57%
+of frames are copied: 72.5 to 90.9 s became 49.7 to 51.5 s on a loaded M3.
+Ten 35 s clips from the same recording went from 57.4 s to 12.4 s.
+Copied frames are bit-identical to the source.
 
 A project (`packages/timeline`) compiles into the same inputs: each clip
 with its own source, everything laid over the cut timed in the finished
