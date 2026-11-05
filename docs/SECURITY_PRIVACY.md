@@ -61,6 +61,7 @@ grants, dictation history) is in git: `git show v0.3.2:docs/SECURITY_PRIVACY.md`
 | Your source videos and audio | High | wherever you keep them; read, never moved or changed | yours |
 | Decoded audio | High | memory, and HTTP over loopback to whisper-server | no |
 | Transcripts and word times | High | returned to the agent | no, unless the agent saves them |
+| Draft proxies: small copies of the stretches of large sources a project uses | High | `~/.mockingbird/cache/proxies/` | yes, until `~/.mockingbird` is deleted or the cache folder is |
 | A project's words and pauses (the word cache) | High | `~/.mockingbird/cache/words/`, one file per source, model and language | yes, until `~/.mockingbird` is deleted or the cache folder is |
 | Stills (`frames`) | High | a new temp folder per call | yes, until the OS clears temp |
 | Renders | High | beside the source, or where `out` says | yes, they're the point |

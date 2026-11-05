@@ -20,6 +20,7 @@ injection, the cleanup model, the launchd agent) is in git:
 |---|---|
 | 2026-11-04 | `transcribe` and `captions` take `model` and `language` per call; with the language on `auto` and a per-language map, the language is detected from the first speech and its model used (`enginesFor` in `runtime.ts`, #143). |
 | 2026-11-04 | `models pull <name or URL>` downloads any Whisper model against the sha256 Hugging Face gives (or `--sha256`), pinned to its commit; `models use <file> --language <code>` saves a model per language (#143). |
+| 2026-11-04 | Every clip input and still is decoded with the hardware where it can be (`-hwaccel auto`: 4K HEVC rendered in 34.0 s against 91.1 s); `render(draft: true)` makes a half-size preview, reading 4K from proxies of just the stretches used (#167). |
 | 2026-11-04 | J and L cuts: a project clip's `lead` moves its sound's cut off its picture's; each clip's input opens both stretches, and picture and sound are joined apart (#161). |
 | 2026-11-04 | A project's clips can have a `speed`, `moves` (focus and zoom over time, drawn with `perspective` to a fraction of a pixel) and a `transition` in (`xfade` and `acrossfade`) (#161). |
 | 2026-11-04 | Text-based editing (#160): a project's sources are heard once into a word cache (`~/.mockingbird/cache/words/`), with words placed by Whisper's DTW points and measured pauses; `transcribe(project)` gives the cut as text and `cut_words` cuts by quoting it; a project's captions come from the cache. |
@@ -274,6 +275,7 @@ MCP server is its own short-lived process.
 | Models | `~/.mockingbird/models/` | `mockingbird models pull` |
 | Headless Chrome | `~/.mockingbird/bin/chrome-headless-shell-<version>/` | `mockingbird models pull chrome` |
 | Word cache: each source's words and pauses | `~/.mockingbird/cache/words/` | `transcribe(project)`, `edit`'s `cut_words`, `render(project)` with captions |
+| Draft proxies: 720-line copies of the stretches of 4K sources a project uses | `~/.mockingbird/cache/proxies/` | `render(project, draft: true)` |
 | Renders, stills | beside the source, or a temp folder for stills | `render`, `motion`, `frames` |
 
 `MOCKINGBIRD_HOME` moves `~/.mockingbird`.

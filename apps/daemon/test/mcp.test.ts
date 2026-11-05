@@ -937,6 +937,66 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
       rmSync(dir, { recursive: true, force: true });
     }
   }, 120_000);
+
+  test("a draft is half the size, read from a proxy kept for the next draft", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mb-draft-"));
+    const saved = process.env.MOCKINGBIRD_HOME;
+    try {
+      process.env.MOCKINGBIRD_HOME = join(dir, "home");
+      // Bigger than 1080 on its short side, so it's drafted from a proxy.
+      Bun.spawnSync([
+        ...[
+          "ffmpeg",
+          "-loglevel",
+          "error",
+          "-f",
+          "lavfi",
+          "-i",
+          "testsrc2=size=1440x2560:rate=30:duration=3",
+        ],
+        ...[
+          "-f",
+          "lavfi",
+          "-i",
+          "sine=frequency=440:duration=3",
+          "-pix_fmt",
+          "yuv420p",
+          join(dir, "big.mp4"),
+        ],
+      ]);
+      const tool = (name: string) =>
+        mcpTools(
+          async () => ({}),
+          () => {},
+        ).find((t) => t.name === name) as { run: (a: Record<string, unknown>) => Promise<string> };
+      const project = join(dir, "edit.json");
+      await tool("edit").run({
+        project,
+        ops: [{ op: "add", type: "clip", path: "big.mp4", from: 0.5, to: 2.5 }],
+      });
+      expect(await tool("render").run({ project, draft: true })).toStartWith(
+        join(dir, "edit-draft-1.mp4"),
+      );
+      const size = (file: string) =>
+        Bun.spawnSync([
+          ...["ffprobe", "-v", "error", "-select_streams", "v:0"],
+          ...["-show_entries", "stream=width,height", "-of", "csv=p=0", file],
+        ])
+          .stdout.toString()
+          .trim();
+      // Half the source's size, not the 720-line proxy's.
+      expect(size(join(dir, "edit-draft-1.mp4"))).toBe("720,1280");
+      expect(seconds(join(dir, "edit-draft-1.mp4"))).toBeCloseTo(2, 1);
+      const proxies = join(dir, "home", "cache", "proxies");
+      expect(readdirSync(proxies)).toHaveLength(1);
+      await tool("render").run({ project, draft: true });
+      expect(readdirSync(proxies)).toHaveLength(1);
+    } finally {
+      if (saved === undefined) delete process.env.MOCKINGBIRD_HOME;
+      else process.env.MOCKINGBIRD_HOME = saved;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 120_000);
 });
 
 test("motion takes only an HTML page, and says where canvas scripts went", async () => {
