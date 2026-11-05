@@ -119,10 +119,8 @@ Constraints, not preferences. Check any proposed change against them.
 | Decoding, cutting, mixing, encoding | the system's `ffmpeg` (Homebrew, apt, winget), never a copy we ship: a build with x264 is GPL ([#154](https://github.com/NirjharBhattacharjee/mockingbird/issues/154)) | subprocess |
 | Speech detection | Silero VAD via `onnxruntime-node` | native module in-process |
 | Speech-to-text | `whisper.cpp`'s `whisper-server` (Homebrew's on macOS, a pinned CPU build from `models pull` on Linux and Windows), default model `large-v3` Q5_0 | subprocess, HTTP on a free `127.0.0.1` port per call |
-| Captions | Core Text through `bun:ffi`, drawn to PNGs that ffmpeg overlays | in-process |
 | Motion graphics | HTML pages in a pinned chrome-headless-shell, driven over the DevTools protocol | subprocess, under `sandbox-exec` |
 | Captions | HTML in the pinned chrome-headless-shell, screenshotted to PNGs that ffmpeg overlays | subprocess, under `sandbox-exec` |
-| Motion graphics | Canvas 2D API implemented over Core Graphics, Core Text and vImage through `bun:ffi` | in-process, the script under `sandbox-exec` |
 | Storage | `bun:sqlite` (`data.db`: the dictionary and settings) | in-process |
 | Agent protocol | MCP, JSON-RPC over stdin/stdout | `mockingbird mcp` |
 | Tests | `bun test`, `go test` | — |
@@ -170,7 +168,8 @@ tool, with its options, is documented in [MCP.md](./MCP.md):
 | `captions` | word-by-word SRT timed to the video `render` will make |
 | `edit` | changes a project file with ops (add, remove, split, trim, move, set) and returns an outline |
 | `render` | a project, or cuts from one video: framing, 9:16 or split layout, captions, text, b-roll, music and sound effects, loudness to −14 LUFS |
-| `motion` | a script that draws with the Canvas 2D API, rendered to MP4 |
+| `motion` | an HTML page rendered in a pinned headless Chrome, frame by frame, to MP4 |
+| `music` | background music written as code, rendered with Web Audio in the same Chrome |
 | `status` | what's installed |
 | `dictionary_list`, `dictionary_add` | names to spell right |
 
@@ -276,14 +275,9 @@ before `concat`, and a clip from a source with no sound gets silence
 (`aevalsrc`). The package does no I/O beyond reading and writing the
 project file; probing and rendering stay in the engine.
 
-`motion` imports the agent's script in a separate Bun process under
-`sandbox-exec` with the network denied (`apps/daemon/src/motion-run.ts`),
-calls its `draw(ctx, t, m)` for every frame against `packages/motion`'s
-Canvas, and pipes raw frames to ffmpeg.
 `motion` runs in a separate Bun process under `sandbox-exec` with the
-network denied (`apps/daemon/src/motion-run.ts`). The page is rendered by
-`packages/motion/src/html.ts` in the pinned chrome-headless-shell, started
-from that sandboxed process, so the sandbox covers Chrome too. It's driven over the DevTools protocol on a pipe
+network denied (`apps/daemon/src/motion-run.ts`).
+
 `music` uses the same sandboxed process and Chrome:
 `packages/motion/src/music.ts` opens the generator module as a file page,
 seeds `Math.random`, has the module schedule its sound on an
@@ -307,9 +301,6 @@ and come in with a transition: then the clips are joined one at a time,
 `xfade` and `acrossfade` where there's a transition and `concat` where
 there isn't, each step set back to one timebase (`settb`), which `xfade`
 needs.
-
-Pivot step 7 replaces `packages/motion` (macOS only) with HTML and CSS
-rendered in a pinned headless Chrome; see #134.
 
 ## 8. State
 
@@ -339,17 +330,14 @@ MCP server is its own short-lived process.
   setup.
 - **No account, no login, no license server.**
 - **The only network activity is a download the user runs**
-  (`mockingbird models pull`), which names each URL and checks each file's
-  sha256. `mockingbird setup` runs the same download only after showing its
-  size and hosts and getting a yes, and asks before `brew install` for a
-  missing ffmpeg or whisper-cpp (Homebrew fetches and checks those itself).
-  mockingbird never checks for updates.
   (`mockingbird models pull`, and `models pull chrome` for the headless
-  Chrome), which names each URL and checks each file's sha256. mockingbird
-  never checks for updates.
-  sha256. On Linux and Windows it also downloads whisper.cpp's own
-  whisper-server build (release b5454, pinned sha256) into
-  `~/.mockingbird/bin`. mockingbird never checks for updates.
+  Chrome), which names each URL and checks each file's sha256. On Linux and
+  Windows `models pull` also downloads whisper.cpp's own whisper-server
+  build (release b5454, pinned sha256) into `~/.mockingbird/bin`.
+  `mockingbird setup` runs the same downloads only after showing their size
+  and hosts and getting a yes, and asks before `brew install` for a missing
+  ffmpeg or whisper-cpp (Homebrew fetches and checks those itself).
+  mockingbird never checks for updates.
 - **`mockingbird mcp` opens no port.** It speaks over stdin and stdout to the
   agent that started it.
 - **An agent's motion script or page can't reach the network.** It runs
@@ -386,15 +374,10 @@ mockingbird/
 │   │                        levels, the speech band, tempo, sections
 │   ├── vad/                 Silero ONNX wrapper
 │   ├── asr/                 whisper-server adapter, word diff (WER)
-│   ├── captions/            SRT parsing, captions drawn with Core Text
-│   ├── motion/              Canvas 2D over Core Graphics, motion scripts to MP4
-│   ├── timeline/            project files: format, checks, edit ops, outline
 │   ├── captions/            SRT parsing, captions drawn as HTML in Chrome
-│   ├── motion/              HTML pages in headless Chrome, and Canvas 2D over
-│   │                        Core Graphics, to MP4
-│   ├── motion/              HTML pages in headless Chrome, to MP4
 │   ├── motion/              HTML pages and Web Audio music in headless Chrome,
-│   │                        and Canvas 2D over Core Graphics, to MP4
+│   │                        to MP4
+│   ├── timeline/            project files: format, checks, edit ops, outline
 │   └── store/               data.db, the dictionary's parsing and name matching
 ├── plugin/                  the Claude Code plugin: skills, the reviewer agent,
 │                            the motion kit, templates, sound effects, research
@@ -537,12 +520,9 @@ each step shippable on its own:
 
 ## 16. Known gaps
 
-- **macOS only.** Captions use Core Text, and `motion` relies on `sandbox-exec`.
-- **macOS only.** `motion` uses Core Graphics, and Chrome is sandboxed with
-  `sandbox-exec`, which other OSes don't have (#157).
-- **Captions and motion are macOS only.** They use Core Text and Core
-  Graphics until the HTML engine lands (#147, #155). Transcription, `render`
-  without captions, and the commands work on Linux and Windows.
+- **No network sandbox off macOS yet.** Chrome (motion, captions, music) is
+  sandboxed with `sandbox-exec`, which Linux and Windows don't have (#157).
+  Transcription, `render` and the commands work on Linux and Windows.
 - **No compiled engine** ([§11](#11-packaging)): Bun has to be installed.
 - **One render call per edit.** Any change re-renders everything (step 5).
 - **The agent sees a few stills, not the video.** Tool outputs stay small so

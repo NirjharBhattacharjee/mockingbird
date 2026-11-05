@@ -15,22 +15,13 @@ Only measure. Never copy the reference's footage, music, graphics or script.
 
 With mockingbird's tools:
 
-```sh
-<this skill's folder>/scripts/measure.sh reference.mp4
-```
-
-prints the size, length, cuts and cuts per minute, seconds per shot,
-integrated loudness and true peak, and when each cut happens. It finds cuts
-with ffmpeg's scene detection (threshold 0.3; pass a second argument, lower to
-catch more). A punch-in on the same shot often doesn't count as a cut, so
-look at the stills too. Where the script can't run, `scenes` gives the same
-list of cuts and the pace; it misses jump cuts within one shot the same way.
 - `measure` on the reference gives its size, length, integrated loudness and
   true peak.
-- `scenes` on it gives when each cut happens. Cuts per minute is their count
-  over the length in minutes, and seconds per shot is the length over the
-  cuts plus one. A punch-in on the same shot often doesn't count as a cut, so
-  look at the stills too.
+- `scenes` on it gives when each cut happens and the pace. Cuts per minute
+  is their count over the length in minutes, and seconds per shot is the
+  length over the cuts plus one. It finds changes of shot, not jump cuts
+  within one shot, and a punch-in on the same shot often doesn't count as a
+  cut, so look at the stills too.
 
 Then with mockingbird:
 

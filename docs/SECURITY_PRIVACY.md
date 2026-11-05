@@ -87,18 +87,13 @@ Enforced by [ARCHITECTURE.md §9](./ARCHITECTURE.md#9-everything-is-local):
   are off by default and asked for on their own.
 - **No account, login or license server.**
 - **The only download is one you run:** `mockingbird models pull`, which
-  prints each URL and checks each file against a pinned sha256.
-  `mockingbird setup` runs the same download after showing its size and
-  hosts, and `brew install` for a missing ffmpeg or whisper-cpp after naming
-  them; each only on a yes (or `--yes`). Homebrew fetches and checks its
-  own downloads. No update checks.
-- **The only download is one you run:** `mockingbird models pull`, and
-  `models pull chrome` for the headless Chrome `motion` renders HTML in and
-  `render` draws captions in.
-  Each prints its URL and checks the file against a pinned sha256. No
-  update checks.
-  prints each URL and checks each file against a pinned sha256. On Linux
-  and Windows that includes whisper.cpp's whisper-server build. No update
+  prints each URL and checks each file against a pinned sha256: the speech
+  models, and on Linux and Windows whisper.cpp's whisper-server build.
+  `models pull chrome` fetches the headless Chrome that `motion`, `music`
+  and captions render in, checked the same way. `mockingbird setup` runs
+  the same downloads after showing their size and hosts, and `brew install`
+  for a missing ffmpeg or whisper-cpp after naming them; each only on a yes
+  (or `--yes`). Homebrew fetches and checks its own downloads. No update
   checks.
 - **`mockingbird mcp` opens no port.** The agent starts it and talks over
   stdin and stdout.
@@ -135,8 +130,6 @@ flowchart LR
     MCP -->|spawn| FF["ffmpeg"]
     MCP <-->|HTTP, 127.0.0.1, free port| WS["whisper-server"]
     MCP -->|spawn under sandbox-exec,\nnetwork denied| MS["motion runner"]
-    MS -->|spawn, pipe| CH["headless Chrome\n(HTML pages)"]
-    MCP -->|spawn under sandbox-exec,\nnetwork denied| MS["motion script"]
     MS -->|spawn, pipe| CH["headless Chrome\n(HTML pages, music)"]
 ```
 

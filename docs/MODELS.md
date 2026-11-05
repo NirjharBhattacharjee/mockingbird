@@ -259,10 +259,8 @@ The spike's script is on #109.
 - They're plain files in `~/.mockingbird/models/`. `data.db` keeps only file
   names: the one chosen for every language (`asr_model`), and one per
   language picked with `--language` (`asr_model.<code>`).
-  continued, and one that doesn't match is deleted. whisper-server's build
-  is pinned the same way (`pinnedWhisper` in `apps/daemon/src/runtime.ts`).
-- They're plain files in `~/.mockingbird/models/`; only the chosen file's
-  name is in `data.db`.
+- whisper-server's build for Linux and Windows is pinned the same way
+  (`pinnedWhisper` in `apps/daemon/src/runtime.ts`).
 
 ## 9. Licensing
 

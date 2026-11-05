@@ -18,12 +18,9 @@ you ──"make shorts from talk.mp4"──▶ Claude Code
 | Part | Lives in | Does |
 |---|---|---|
 | Skills | `plugin/skills/` | Know-how, plus motion-page templates: which moments make a short, how to hook, how tight to cut, where captions go, when music hurts. Plain Markdown that Claude reads. |
-| Scripts | `skills/*/scripts/` | Measurements Claude can't make by reading text: where the pauses are (`pauses.sh`, `clips.sh`), a finished video's pace and loudness (`measure.sh`). POSIX shell over ffmpeg. |
-| Skills | `plugin/skills/` | Know-how, plus a motion-script template: which moments make a short, how to hook, how tight to cut, where captions go, when music hurts. Plain Markdown that Claude reads. |
 | Measurements | the engine's `pauses`, `measure` and `scenes` tools | Measurements Claude can't make by reading text: where the pauses are and the clips between them, a finished video's size, loudness and cuts. ffmpeg, run by the engine on every OS (#158). |
 | Reviewer | `agents/reviewer.md` | Checks a render in a fresh context, so the agent that made the choices isn't the one grading them. |
-| Engine | the rest of this repo, via `.mcp.json` | Transcribes with local Whisper, cuts and frames with ffmpeg, draws captions with Core Text, and renders Claude's motion pages in a headless Chrome. It makes no editing choices. |
-| Engine | the rest of this repo, via `.mcp.json` | Transcribes with local Whisper, cuts and frames with ffmpeg, draws captions in a headless Chrome, and runs Claude's motion scripts with Core Graphics. It makes no editing choices. |
+| Engine | the rest of this repo, via `.mcp.json` | Transcribes with local Whisper, cuts and frames with ffmpeg, and draws captions and Claude's motion pages in a headless Chrome. It makes no editing choices. |
 
 The plugin imports nothing from the engine. They meet at the MCP tools,
 which [MCP.md](../../docs/MCP.md) documents. The engine reads one thing from
