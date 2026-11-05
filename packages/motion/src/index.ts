@@ -4,3 +4,4 @@
 export type Cue = { start: number; end: number; text: string };
 
 export { type PageScene, renderHtml } from "./html.ts";
+export { type MusicParams, renderMusic } from "./music.ts";

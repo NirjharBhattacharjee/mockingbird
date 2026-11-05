@@ -25,6 +25,7 @@ injection, the cleanup model, the launchd agent) is in git:
 | 2026-11-04 | `mockingbird record`: the microphone through ffmpeg (`avfoundation`, the input System Settings picked) into a file, for a voiceover (#142). |
 | 2026-11-04 | `audio_stats` (#171): loudness, peaks, noise floor, voice against what's between phrases, the 1 to 4 kHz share, tempo and beats, sections. The reviewer playbook checks sound with it. |
 | 2026-11-04 | The Canvas motion engine is gone (#169): `packages/motion`'s Canvas 2D over Core Graphics, Core Text and vImage, and `motion`'s `.ts`/`.js` scripts. `motion` renders HTML pages only, and the kit runs in them (#168). |
+| 2026-11-04 | `music` makes background music from a generator module played into `OfflineAudioContext` in the pinned Chrome, under the motion sandbox, saved as a WAV at −14 LUFS (#170). The plugin's first generator is lo-fi. |
 | 2026-11-04 | `motion` renders an HTML page in a pinned headless Chrome (#145): `mockingbird models pull chrome`, a frame clock injected into the page, several tabs capturing at once, Chrome inside the motion sandbox. The Canvas engine stays until the kit is ported. |
 | 2026-11-04 | mockingbird-studio moved into `plugin/` and is now the `mockingbird` plugin; a `guide` tool and server instructions give every MCP client its playbooks (#140). |
 | 2026-11-04 | Long-form fixes (#127): `render` and `motion` reach −14 LUFS with a measured gain and a limiter instead of one pass of `loudnorm` (−15.9 → −14.3 LUFS on the v2 edit); `captions` hears overlapping padded clips as one stretch (171 s → 62 s for 96 clips); captions in a wide video are subtitle-sized. |
@@ -219,6 +220,16 @@ Canvas, and pipes raw frames to ffmpeg.
 network denied (`apps/daemon/src/motion-run.ts`). The page is rendered by
 `packages/motion/src/html.ts` in the pinned chrome-headless-shell, started
 from that sandboxed process, so the sandbox covers Chrome too. It's driven over the DevTools protocol on a pipe
+`music` uses the same sandboxed process and Chrome:
+`packages/motion/src/music.ts` opens the generator module as a file page,
+seeds `Math.random`, has the module schedule its sound on an
+`OfflineAudioContext`, renders it, and reads the samples back over the
+DevTools pipe ten seconds at a time into a float WAV. The engine then
+levels it to −14 LUFS.
+
+An HTML page is rendered by `packages/motion/src/html.ts` in the pinned
+chrome-headless-shell, started from that sandboxed process, so the sandbox
+covers Chrome too. It's driven over the DevTools protocol on a pipe
 (`--remote-debugging-pipe`), so no port is opened. Each tab gets a script
 before the page's own that freezes the page's clocks and steps them frame
 by frame (`pageClock`). Frame `i` is captured by tab `i mod n` as a PNG with
@@ -300,6 +311,8 @@ mockingbird/
 │   ├── motion/              HTML pages in headless Chrome, and Canvas 2D over
 │   │                        Core Graphics, to MP4
 │   ├── motion/              HTML pages in headless Chrome, to MP4
+│   ├── motion/              HTML pages and Web Audio music in headless Chrome,
+│   │                        and Canvas 2D over Core Graphics, to MP4
 │   └── store/               data.db, the dictionary's parsing and name matching
 ├── plugin/                  the Claude Code plugin: skills, the reviewer agent,
 │                            the motion kit, templates, sound effects, research

@@ -38,6 +38,7 @@ grants, dictation history) is in git: `git show v0.3.2:docs/SECURITY_PRIVACY.md`
   transcripts or renders, or learning that you use mockingbird, because of
   anything mockingbird does.
 - A page an agent writes for `motion` reaching the network
+- A script an agent writes for `motion`, or a generator for `music`, reaching the network
   ([§6](#6-process--trust-boundaries)).
 
 **Not defended against:**
@@ -127,6 +128,8 @@ flowchart LR
     MCP <-->|HTTP, 127.0.0.1, free port| WS["whisper-server"]
     MCP -->|spawn under sandbox-exec,\nnetwork denied| MS["motion runner"]
     MS -->|spawn, pipe| CH["headless Chrome\n(HTML pages)"]
+    MCP -->|spawn under sandbox-exec,\nnetwork denied| MS["motion script"]
+    MS -->|spawn, pipe| CH["headless Chrome\n(HTML pages, music)"]
 ```
 
 - **`motion` runs a page the agent wrote** ([MCP.md](./MCP.md#motion-graphics)).
@@ -137,6 +140,8 @@ flowchart LR
   a way to run code. The server never fetches a page; it runs a path the
   agent gives it. An agent that shouldn't run code on your computer
   shouldn't be given `mockingbird mcp`.
+- **A `music` generator is the agent's code too**, run the same way: in
+  Chrome, started from a new process under the same sandbox.
 - **An HTML page renders in Chrome inside that sandbox.** Chrome is
   started from the sandboxed process, so the network is denied to it and
   to the page as well; a `fetch` from a page fails there. Chrome's own

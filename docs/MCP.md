@@ -54,6 +54,8 @@ after the curl install, or `/opt/homebrew/bin/mockingbird` with Homebrew.
 | `captions(path, clips, perCue, lit, upper)` | Word-by-word captions for the video `render` will make from `clips`, as SRT timed to the finished video: up to `perCue` words a cue (default 3), the word being said written `*like this*` (`lit`, default on), in capitals if `upper`. A new cue starts at each clip, after a sentence, after half a second's pause, or when its words span 1.2 seconds. Each clip is transcribed with two seconds either side, clips whose padded stretches overlap are transcribed together as one, and a word belongs to the clip its middle falls in. |
 | `render(path, clips, …)` | Cuts `clips` out of a video and joins them into one MP4 with ffmpeg; see [Render options](#render-options). Saves to `out`, or `<name>-short-N.mp4` beside the source, and never overwrites a file. |
 | `motion(script, path, captions, size, duration, fps, out)` | Motion graphics written as code: an HTML page rendered in a pinned headless Chrome; see [Motion graphics](#motion-graphics). Saves to `out`, or `<name>-motion-N.mp4` beside the video or script, and never overwrites a file. |
+| `motion(script, path, captions, size, duration, fps, out)` | Motion graphics written as code: an HTML page rendered in a pinned headless Chrome, or a canvas script drawn with Core Graphics; see [Motion graphics](#motion-graphics). Saves to `out`, or `<name>-motion-N.mp4` beside the video or script, and never overwrites a file. |
+| `music(script, duration, out, tempo, key, energy, seed)` | Background music written as code: a generator module played into Web Audio's `OfflineAudioContext` in the pinned headless Chrome, saved as a WAV at −14 LUFS for `render`'s `audio`; see [Music](#music). Never overwrites a file. |
 | `guide(topic)` | A playbook for one job, from [`plugin/`](../plugin/README.md): `viral-short`, `long-form`, `hooks`, `retention-editing`, `captions`, `motion-graphics`, `style-match`, or `reviewer` (the checks a finished video has to pass). It starts with the folder holding the playbook's scripts, kit and templates. |
 | `status` | Whether mockingbird is ready: the transcription model in use, the speech detection model, ffmpeg, whisper-server, the Chrome that `motion` renders HTML in, and how many words the dictionary has. |
 | `dictionary_list` | Your dictionary: the names, places and jargon mockingbird spells a particular way. |
@@ -313,6 +315,133 @@ motion-graphics kit's `page()` does that wrapping.)
 - **No network.** Chrome runs in a process under macOS's sandbox with the
   network denied, so a page can't fetch anything from the internet. Chrome's own
   sandbox can't run inside that one, so it's off.
+
+### Canvas scripts
+
+```ts
+// title.ts
+export default function draw(ctx, t, m) {
+  const pop = m.spring(t, { from: 0.6, to: 1, start: 0.1 });
+  ctx.translate(m.width / 2, 330);
+  ctx.scale(pop, pop);
+  ctx.fillStyle = "#FFD500";
+  ctx.roundRect(-430, -95, 860, 190, 36);
+  ctx.fill();
+  ctx.fillStyle = "#111";
+  ctx.font = "900 92px SF Pro";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("3 MISTAKES", 0, 0);
+}
+```
+
+- **The script** is one `.ts` or `.js` file, with no imports of its own. Its
+  default export is called with the canvas context, the time `t` in seconds,
+  and `m`. Each call runs it in a new process, so edit it and run `motion`
+  again.
+- **Over a video** (`path`, usually `render`'s output), each frame of the
+  video is drawn first, its sound is kept, and the frame is also `m.video`:
+  draw it again scaled and moved to zoom or pan. Without `path`, give `size`
+  (default `1080x1920`) and `duration`; each frame starts transparent, which
+  comes out black.
+- **`m`** has `width`, `height`, `fps`, `duration`, `frame`, `video`,
+  `cues` (from `captions`, as `{ start, end, text }` timed to the video),
+  `image(path)` for a PNG, JPEG or HEIC (read once), and the timing helpers:
+  `interpolate(t, [t0, t1, …], [v0, v1, …], easing)`, held at the ends;
+  `spring(t, { from, to, start, stiffness, damping, mass })`, which
+  overshoots a little and settles in about a second with the defaults; and
+  `ease`: `linear`, `in`, `out`, `inOut`, `back`, and `bezier(x1, y1, x2, y2)`
+  like CSS's `cubic-bezier`.
+- **The canvas** has paths (`moveTo`, `lineTo`, curves, `arc`, `arcTo`,
+  `ellipse`, `rect`, `roundRect`), `fill`, `stroke`, `clip`, `fillRect`,
+  `strokeRect`, `clearRect`, linear and radial gradients, shadows,
+  `globalAlpha`, `globalCompositeOperation`, `save`/`restore`, `translate`,
+  `rotate`, `scale`, `transform`, `setTransform`, `setLineDash` and
+  `lineDashOffset` (for lines that draw themselves on), `fillText`,
+  `strokeText`, `measureText`, and `drawImage`. Fonts are written as in CSS,
+  `"italic 900 96px Avenir Next"`; `SF Pro` and `system-ui` are the system
+  font, at any weight. A family that isn't installed is an error when
+  `ctx.font` is set, not a silent swap to Helvetica; list fallbacks as CSS
+  does (`"40px SF Mono, Menlo"`) and the first installed one is used.
+  `strokeText` with a gradient outlines the letters. There's no DOM or pixel
+  access.
+- **`Path2D`** is there as a global, as in a browser: build a path once and
+  draw it with `ctx.fill(path, rule)`, `ctx.stroke(path)` or `ctx.clip(path)`,
+  under whatever transform is current then. `new Path2D("M12 21.35 …")` takes
+  SVG path data, so an icon's `d` from an SVG file draws as it is; `addPath`
+  adds one path to another, with a transform.
+- **`ctx.filter`** takes CSS filter functions, chained: `blur()`,
+  `brightness()`, `contrast()`, `drop-shadow()`, `grayscale()`,
+  `hue-rotate()`, `invert()`, `opacity()`, `saturate()` and `sepia()`, e.g.
+  `"blur(12px) brightness(150%)"` for a glow behind a title. As in a browser,
+  each thing drawn is filtered on its own, then the clip, shadow,
+  `globalAlpha` and blend apply. `url()` isn't supported, since there's no SVG
+  document. The pixel work runs in macOS's Accelerate framework (vImage).
+- **Sound** comes from the script too:
+  `export const audio = [{ path: "whoosh.wav", at: 1.2 }]` beside `draw`, with
+  `volume`, `loop` and `duck` as `render`'s `audio` takes them, or
+  `export function audio(m)` returning that list from `m`'s `width`,
+  `height`, `fps`, `duration` and `cues`, to put a pop on every caption.
+  Paths are from the script's folder. The sounds are mixed under the video's
+  own sound, ducked under speech if asked, and the result comes out at
+  −14 LUFS.
+- **Errors** say when they happened: `draw failed at 2.40 s (frame 72): …`,
+  and nothing is saved. `draw` must return before the next frame, so an
+  `async` one is refused. `duration` is at most two hours.
+
+It needs a Mac with Apple silicon. On an M3, 6 seconds of 1080x1920 over a
+short, with a spring title, a zoom, captions that pop in and a progress bar,
+took 3.8 seconds: about 47 frames a second, counting decoding, drawing and
+encoding. Each call runs the script in its own process under macOS's sandbox
+with the network denied, so it can read and write files but can't reach the
+internet; see
+[SECURITY_PRIVACY.md §6](./SECURITY_PRIVACY.md#6-process--trust-boundaries).
+
+## Music
+
+`music` makes background music from code, so there are no samples to
+license. `script` is a generator, a JavaScript module:
+
+```js
+// drone.js
+export default function (ctx, { duration, tempo = 80, key, energy, seed }) {
+  const o = ctx.createOscillator();
+  o.frequency.value = 110;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0, 0);
+  g.gain.linearRampToValueAtTime(0.3, 2);
+  o.connect(g).connect(ctx.destination);
+  o.start(0);
+}
+```
+
+- **`ctx`** is an `OfflineAudioContext`, stereo at 48 kHz, as long as
+  `duration`. The generator schedules its sound on it (oscillators, filters,
+  gains, buffers it fills, convolvers, compressors) and returns, or resolves
+  once it has; Chrome then renders the whole track at once. 60 s of the
+  plugin's lo-fi generator takes about 6 s, most of it starting Chrome and
+  levelling.
+- **The second argument** has `duration`, `sampleRate`, `seed`, and the
+  `tempo`, `key` and `energy` the call gave, for the generator to read.
+  `energy` is 0 to 1, or a curve of `[seconds, level]` points, so the music
+  can build and drop with the edit's sections.
+- **The same arguments make the same track.** `Math.random` is seeded from
+  `seed` (default 1), so a generator can use it freely, and another seed
+  makes a variation. Not the same bytes, though: Chrome adds up a node's
+  inputs in an order that changes between runs, so the float rounding
+  differs in the last bits (at most about 6e-8 before levelling, a few steps
+  of 32768 in the WAV), never audibly.
+- **The WAV** is 16-bit stereo at 48 kHz, brought to −14 LUFS with its peaks
+  held under −1.5 dBTP, like everything mockingbird makes. Under speech,
+  give it to `render` as `{ path, volume: 0.15, loop: true, duck: true }`.
+- It runs like a `motion` page: in Chrome, started from a process under
+  macOS's sandbox with the network denied.
+
+The plugin's generators are in `plugin/skills/music/generators/`, with the
+instruments they share in `lib.js`. Today that's `lofi.js`: swung drums,
+electric-piano seventh chords, a bass, tape flutter and vinyl crackle;
+energy adds the drums at 0.25, the snare and bass at 0.45, and a melody
+at 0.7.
 
 ## Without MCP
 
