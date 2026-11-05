@@ -23,7 +23,9 @@ import { applyCorrections, correctNames } from "@mockingbird/store";
 import {
   compile,
   edit,
+  lengthOf,
   load,
+  type Move,
   type Project,
   transcript,
   type Word,
@@ -379,7 +381,91 @@ export type Clip = {
   focus?: { x: number; y: number };
   zoom?: number;
   path?: string;
+  /** A project's: played faster or slower, framed differently as it plays, and how it comes in. */
+  speed?: number;
+  moves?: Move[];
+  transition?: { type: string; duration: number };
 };
+
+/**
+ * Each clip's start in the finished video and the video's length: a clip
+ * lasts its source stretch over its speed, and one with a transition starts
+ * that much before the clip ahead of it ends.
+ */
+export function timeline(clips: Clip[]): { starts: number[]; length: number } {
+  const starts: number[] = [];
+  let length = 0;
+  for (const c of clips) {
+    const start = Math.max(0, length - (c.transition?.duration ?? 0));
+    starts.push(start);
+    length = start + lengthOf(c);
+  }
+  return { starts, length };
+}
+
+/** atempo steps for `speed`: each step can only be 0.5 to 2. */
+export function tempo(speed: number): string {
+  const steps: number[] = [];
+  let left = speed;
+  while (left > 2) {
+    steps.push(2);
+    left /= 2;
+  }
+  while (left < 0.5) {
+    steps.push(0.5);
+    left /= 0.5;
+  }
+  steps.push(Number(left.toFixed(6)));
+  return steps.map((s) => `atempo=${s}`).join(",");
+}
+
+/**
+ * The perspective filter that frames a clip with moves: each frame, a window
+ * of `shape`'s width to height around the focus, made smaller by the zoom,
+ * mapped onto the whole frame with sub-pixel accuracy, then scaled to
+ * `shape`. Measured on a slow push: crop sizes and positions rounded to whole
+ * pixels jitter (frame-to-frame change 7.6 ± 3.9 for scale and overlay, 9.0 ±
+ * 2.7 for zoompan, against 3.4 ± 0.3 for a 4x supersampled reference);
+ * perspective moved 3.1 ± 0.06, at the same speed (#161). The clip's time is
+ * its frame number over `fps`, as perspective has no other clock.
+ */
+export function moving(clip: Clip, shape: string, fps: number): string {
+  const [sw = 1, sh = 1] = shape.split("x").map(Number);
+  const [a, b] = [sw / gcd(sw, sh), sh / gcd(sw, sh)];
+  const t = `(in/${fps})`;
+  // Each value over time: a nested if() of eased segments, then the last value held.
+  const over = (pick: (s: { focus: { x: number; y: number }; zoom: number }) => number) => {
+    let at = 0;
+    let now = { focus: clip.focus ?? { x: 0.5, y: 0.5 }, zoom: clip.zoom ?? 1 };
+    const parts: [number, string][] = [];
+    for (const m of clip.moves ?? []) {
+      const next = { focus: m.focus ?? now.focus, zoom: m.zoom ?? now.zoom };
+      const [from, to] = [pick(now), pick(next)];
+      const u = `clip((${t}-${at})/${Math.max(m.at - at, 1e-3)},0,1)`;
+      const eased = m.ease === "linear" ? u : `(${u}*${u}*(3-2*${u}))`;
+      parts.push([m.at, from === to ? `${from}` : `(${from}+${to - from}*${eased})`]);
+      at = m.at;
+      now = next;
+    }
+    return parts.reduceRight(
+      (rest, [until, value]) => `if(lt(${t},${until}),${value},${rest})`,
+      `${pick(now)}`,
+    );
+  };
+  const z = over((s) => s.zoom);
+  const w = `(min(W,H*${a}/${b})/${z})`;
+  const h = `(min(H,W*${b}/${a})/${z})`;
+  const x = `clip(${over((s) => s.focus.x)}*W-${w}/2,0,W-${w})`;
+  const y = `clip(${over((s) => s.focus.y)}*H-${h}/2,0,H-${h})`;
+  const corners = [
+    [x, y],
+    [`${x}+${w}`, y],
+    [x, `${y}+${h}`],
+    [`${x}+${w}`, `${y}+${h}`],
+  ];
+  const points = corners.flatMap(([cx, cy], i) => [`x${i}='${cx}'`, `y${i}='${cy}'`]).join(":");
+  return `perspective=${points}:interpolation=linear:eval=frame,scale=${shape.replace("x", ":")},setsar=1`;
+}
 
 /** An area of the source: its left, top, width and height, each 0–1 of the picture. */
 export type Area = { x: number; y: number; w: number; h: number };
@@ -419,7 +505,9 @@ const fill = ({ x, y, w, h }: Area, size: string) =>
   `crop=w='floor(${w}*iw/2)*2':h='floor(${h}*ih/2)*2':x='${x}*iw':y='${y}*ih',` +
   `scale=${size.replace("x", ":")}:force_original_aspect_ratio=increase,crop=${size.replace("x", ":")}`;
 
-const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
+function gcd(a: number, b: number): number {
+  return b ? gcd(b, a % b) : a;
+}
 
 /**
  * The filters that frame one clip: a window of `shape`'s width to height
@@ -487,23 +575,31 @@ export function renderGraph(
   },
 ): string {
   const out = vertical || split ? "1080x1920" : size;
+  // Transitions overlap clips with xfade, which needs every input on one timebase.
+  const chained = !!fps && clips.some((c, i) => i > 0 && c.transition);
   // A split takes its areas from the whole picture, so its clips aren't framed
   // one by one, only brought to one size if they're from different sources.
   const parts = clips.map((clip, i) => {
+    const speed = clip.speed && clip.speed !== 1 ? `,setpts=PTS/${clip.speed}` : "";
     const look = fps
-      ? `${frame(split ? { from: 0, to: 0 } : clip, size, size)},fps=${fps}`
+      ? split || !clip.moves?.length
+        ? `${frame(split ? { from: 0, to: 0 } : clip, size, size)},fps=${fps}`
+        : `,fps=${fps},${moving(clip, size, fps)}`
       : split
         ? ""
         : frame(clip, vertical ? out : undefined, out);
-    const v = `[${i}:v]setpts=PTS-STARTPTS,${SQUARE}${look}[v${i}]`;
+    const tb = chained ? `,settb=1/${fps}` : "";
+    const v = `[${i}:v]setpts=PTS-STARTPTS${speed},${SQUARE}${look}${tb}[v${i}]`;
     if (!audio) return v;
     const a = clip.silent
-      ? `aevalsrc=0:c=stereo:s=48000:d=${clip.to - clip.from}[a${i}]`
-      : `[${i}:a]asetpts=PTS-STARTPTS[a${i}]`;
+      ? `aevalsrc=0:c=stereo:s=48000:d=${lengthOf(clip)}[a${i}]`
+      : `[${i}:a]asetpts=PTS-STARTPTS${speed ? `,${tempo(clip.speed as number)}` : ""}[a${i}]`;
     return `${v};${a}`;
   });
   const inputs = clips.map((_, i) => (audio ? `[v${i}][a${i}]` : `[v${i}]`)).join("");
-  const joined = `${inputs}concat=n=${clips.length}:v=1:a=${audio ? 1 : 0}[joined]${audio ? "[speech]" : ""}`;
+  const joined = chained
+    ? chain(clips, audio, fps as number)
+    : `${inputs}concat=n=${clips.length}:v=1:a=${audio ? 1 : 0}[joined]${audio ? "[speech]" : ""}`;
   const stacked = split && [
     "[joined]split[upper][lower]",
     `[upper]${fill(split.top, "1080x960")}[top]`,
@@ -539,7 +635,7 @@ export function renderGraph(
     ? [`[laid]subtitles=filename=${CAPTIONS}:force_style='Alignment=2,MarginV=${margin}'[v]`]
     : [];
 
-  const length = clips.reduce((sum, { from, to }) => sum + to - from, 0);
+  const { length } = timeline(clips);
   return [
     ...parts,
     joined,
@@ -554,6 +650,39 @@ export function renderGraph(
       whole,
     }),
   ].join(";");
+}
+
+/**
+ * The clips [v0][a0], [v1][a1], … joined one after another into [joined] and
+ * [speech]: by concat, or by xfade and acrossfade where a clip comes in with
+ * a transition, starting that long before the clip ahead of it ends.
+ */
+function chain(clips: Clip[], audio: boolean, fps: number): string {
+  const steps: string[] = [];
+  let [v, a] = ["[v0]", "[a0]"];
+  let length = lengthOf(clips[0] as Clip);
+  clips.slice(1).forEach((c, k) => {
+    const i = k + 1;
+    const last = i === clips.length - 1;
+    const [nv, na] = last ? ["[joined]", "[speech]"] : [`[jv${i}]`, `[ja${i}]`];
+    const t = c.transition;
+    if (t) {
+      steps.push(
+        `${v}[v${i}]xfade=transition=${t.type}:duration=${t.duration}:offset=${(length - t.duration).toFixed(6)}${nv}`,
+      );
+      if (audio) steps.push(`${a}[a${i}]acrossfade=d=${t.duration}${na}`);
+      length += lengthOf(c) - t.duration;
+    } else {
+      const pair = audio ? `${v}${a}[v${i}][a${i}]` : `${v}[v${i}]`;
+      const outs = audio ? `[cv${i}][ca${i}]` : `[cv${i}]`;
+      // concat's timebase isn't xfade's: set it back.
+      steps.push(`${pair}concat=n=2:v=1:a=${audio ? 1 : 0}${outs}`, `[cv${i}]settb=1/${fps}${nv}`);
+      if (audio) steps.push(`[ca${i}]anull${na}`);
+      length += lengthOf(c);
+    }
+    [v, a] = [nv, na];
+  });
+  return steps.join(";");
 }
 
 /**
@@ -747,9 +876,13 @@ export function wordCaptions(
   type Said = { text: string; start: number; end: number; ends: boolean };
   // Each page with where its clip ends in the finished video: no caption outlasts its shot.
   const pages: { words: Said[]; cut: number }[] = [];
-  let offset = 0;
-  clips.forEach(({ from, to }, i) => {
-    const cut = offset + to - from;
+  const { starts } = timeline(clips);
+  clips.forEach((clip, i) => {
+    const { from, to } = clip;
+    const offset = starts[i] ?? 0;
+    // A word's time in the finished video: a clip's speed shortens or stretches it.
+    const at = (t: number) => (t - from) / (clip.speed ?? 1) + offset;
+    const cut = offset + lengthOf(clip);
     let page: Said[] = [];
     pages.push({ words: page, cut });
     for (const w of words[i] ?? []) {
@@ -761,8 +894,8 @@ export function wordCaptions(
       const text = w.word.replace(/[,.;:]+$/, "");
       const said = {
         text: upper ? text.toLocaleUpperCase() : text,
-        start: Math.max(start, from) - from + offset,
-        end: Math.min(end, to) - from + offset,
+        start: at(Math.max(start, from)),
+        end: at(Math.min(end, to)),
         ends: /[.?!]["')\]]?$/.test(w.word),
       };
       const last = page.at(-1);
@@ -776,7 +909,6 @@ export function wordCaptions(
       }
       if (said.text) page.push(said);
     }
-    offset += to - from;
   });
   const cues = pages
     .filter(({ words }) => words.length)
@@ -1003,6 +1135,12 @@ async function render(
   const frameSize = fit && !split ? (size ?? source.size) : source.size;
   const rate = fit ? (fps ?? source.fps) : undefined;
   if (clips.length > CLIPS_PER_PASS) {
+    // ponytail: a transition can't cross two batches; join batches with xfade if long edits need them.
+    if (clips.some((c, i) => i > 0 && c.transition)) {
+      throw new Error(
+        `Transitions work with up to ${CLIPS_PER_PASS} clips for now; this has ${clips.length}.`,
+      );
+    }
     const batches = mkdtempSync(join(tmpdir(), "mockingbird-batches-"));
     try {
       const look = { audio, vertical, size: frameSize, fps: rate, split };
@@ -1872,7 +2010,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
     {
       name: "edit",
       description: `Edit a project file (project.json): an edit kept between calls, whose clips can come from several sources and whose texts, b-roll and sounds stay on their clips as the cut changes. Applies \`ops\` in order, all or none, saves, and returns an outline: each clip's place in the finished video and what's on it. Makes the file if it isn't there; no ops only reads it. You can also edit the JSON by hand. Times: a clip's from/to are seconds in its source (as \`transcribe\` gives them); a text's, insert's or sound's are seconds from the start of its \`clip\` in the finished video, or of the video without one. Ops:
-- {op:"add", type:"clip", path, from, to, focus?:{x,y}, zoom?, index?}: on the main track, which plays in order with no gaps (default at the end)
+- {op:"add", type:"clip", path, from, to, focus?:{x,y}, zoom?, speed?, moves?, transition?, index?}: on the main track, which plays in order with no gaps (default at the end). speed: 0.25-4. moves: [{at, focus?, zoom?, ease?}], the framing by \`at\` seconds into the clip, eased ("smooth", or "linear") from the one before: a slow push-in, a move to the other speaker. transition: {type, duration}, how the clip comes in over the end of the one before: ffmpeg xfade's fade, fadeblack, fadewhite, dissolve, wipe*, slide*, smooth*, circleopen, zoomin and others
 - {op:"add", type:"text", text, from, to, clip?, y?}: drawn like the captions, *words* yellow
 - {op:"add", type:"insert", path, from, to, clip?}: a picture or video over the whole frame (b-roll)
 - {op:"add", type:"audio", path, at?, clip?, volume?, loop?, duck?}: music or a sound effect under the speech

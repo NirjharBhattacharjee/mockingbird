@@ -20,6 +20,7 @@ injection, the cleanup model, the launchd agent) is in git:
 |---|---|
 | 2026-11-04 | `transcribe` and `captions` take `model` and `language` per call; with the language on `auto` and a per-language map, the language is detected from the first speech and its model used (`enginesFor` in `runtime.ts`, #143). |
 | 2026-11-04 | `models pull <name or URL>` downloads any Whisper model against the sha256 Hugging Face gives (or `--sha256`), pinned to its commit; `models use <file> --language <code>` saves a model per language (#143). |
+| 2026-11-04 | A project's clips can have a `speed`, `moves` (focus and zoom over time, drawn with `perspective` to a fraction of a pixel) and a `transition` in (`xfade` and `acrossfade`) (#161). |
 | 2026-11-04 | Text-based editing (#160): a project's sources are heard once into a word cache (`~/.mockingbird/cache/words/`), with words placed by Whisper's DTW points and measured pauses; `transcribe(project)` gives the cut as text and `cut_words` cuts by quoting it; a project's captions come from the cache. |
 | 2026-11-04 | Timeline, first part (#148): `packages/timeline` keeps an edit in a project file; the `edit` tool changes it with ops; `render` renders one, with clips from several sources framed to one size and rate, and captions made for the cut. |
 | 2026-11-04 | `mockingbird setup` and `doctor`, and the plugin's `launch.sh`, which answers MCP with an install tool when mockingbird isn't installed (#141). |
@@ -251,6 +252,15 @@ transparency, and ffmpeg gets the frames in order and lays them over the
 video or over black. Every tab steps through every frame and captures only
 its own, so all tabs have the same history: an animation a page starts at
 frame 40 starts at frame 40 in every tab.
+A project's clips can also change speed (`setpts`, `atempo`), move
+(`perspective`, evaluated every frame from the frame number, after `fps`),
+and come in with a transition: then the clips are joined one at a time,
+`xfade` and `acrossfade` where there's a transition and `concat` where
+there isn't, each step set back to one timebase (`settb`), which `xfade`
+needs.
+
+Pivot step 7 replaces `packages/motion` (macOS only) with HTML and CSS
+rendered in a pinned headless Chrome; see #134.
 
 ## 8. State
 
