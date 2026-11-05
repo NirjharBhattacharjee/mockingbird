@@ -18,6 +18,7 @@ import {
   englishOnly,
   findAsrModel,
   isWhisperFile,
+  languageModels,
   mockingbirdHome,
   savedModelFor,
   spokenLanguage,
@@ -264,24 +265,6 @@ export function listModels(deps: ModelsDeps = {}): SpeechModel[] {
 const USAGE =
   "usage: mockingbird models | models use <file> [--language <code>] | models use --default [--language <code>]\n" +
   "       models pull [<name or URL> [--sha256 <hex>] [--as <ggml-name.bin>]]";
-
-/** The models saved for one language each, as [code, file], from `models use <file> --language`. */
-export function languageModels(home = mockingbirdHome()): [string, string][] {
-  if (!existsSync(join(home, "data.db"))) return [];
-  // A data.db that can't be read has no map to show, as savedSetting reads it.
-  try {
-    return withStore(
-      (store) =>
-        [...WHISPER_LANGUAGES].flatMap((code): [string, string][] => {
-          const file = store.setting(`${ASR_MODEL_SETTING}.${code}`);
-          return file ? [[code, file]] : [];
-        }),
-      home,
-    );
-  } catch {
-    return [];
-  }
-}
 
 /** Where `models pull <name>` finds an official model: whisper.cpp's own Hugging Face repo. */
 const OFFICIAL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/";

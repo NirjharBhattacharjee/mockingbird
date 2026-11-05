@@ -106,6 +106,7 @@ export PATH="$HOME/.local/bin:$PATH"
 | `mockingbird mcp` | Serves the editing tools to an agent over MCP. The agent starts it; you don't run it yourself. |
 | `mockingbird record <file>` | Records the microphone until Enter or Ctrl-C (or `--for <seconds>`), for a voiceover your agent builds a video around. `.wav` is 48 kHz mono, `.m4a` AAC. `--devices` lists the inputs, `--device` picks one. |
 | `mockingbird transcribe <file>` | Prints a file's speech as `[mm:ss]` lines. `--words` gives each word's start and end, `--from`/`--to` (seconds) one stretch. |
+| `mockingbird transcribe <file>` | Prints a file's speech as `[mm:ss]` lines. `--words` gives each word's start and end, `--from`/`--to` (seconds) one stretch, `--model`/`--language` the model and language for this file. |
 | `mockingbird dictionary` | Lists the words it spells a particular way. `add "Nirjhar Bhattacharjee"`, `add "cat puck => Catppuccin"` (what it hears => what to write), `remove <term>`. |
 | `mockingbird setup` | Installs what's missing (ffmpeg, whisper-cpp, the models), then adds mockingbird to your coding agents. Asks before each step; `--yes` doesn't. |
 | `mockingbird doctor` | Checks every part, names what's broken and how to fix it, and lists which agents have mockingbird. `--json` for agents. |
