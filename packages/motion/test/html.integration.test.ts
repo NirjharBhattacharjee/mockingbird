@@ -11,7 +11,8 @@ function chrome(): string {
   for (const version of existsSync(bin) ? readdirSync(bin) : []) {
     if (!version.startsWith("chrome-headless-shell-")) continue;
     for (const build of readdirSync(join(bin, version))) {
-      const program = join(bin, version, build, "chrome-headless-shell");
+      const exe = process.platform === "win32" ? ".exe" : "";
+      const program = join(bin, version, build, `chrome-headless-shell${exe}`);
       if (existsSync(program)) return program;
     }
   }
