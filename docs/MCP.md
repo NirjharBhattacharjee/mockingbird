@@ -45,7 +45,6 @@ after the curl install, or `/opt/homebrew/bin/mockingbird` with Homebrew.
 |---|---|
 | `transcribe(path, from, to, words, model, language)` | An audio or video file (anything ffmpeg reads: m4a, mp3, wav, mp4, mov, mkv) as text, in lines timestamped `[mm:ss]`, with names fixed from your dictionary (a `heard => term` entry first, then anything that sounds like a term). Each call starts its own whisper-server, so two can run at once. The client's model does any cleanup or summarising. `from` and `to` (seconds) take one stretch of the file. `words: true` gives one line per word with its start and end, `[01:23.48-01:23.71] Catppuccin`, to cut a clip on; names are fixed one word at a time there, so a name misheard as two words stays as heard. `model` (a file in `models/`) and `language` (a Whisper code, or `auto`) pick the model and language for this call only; given neither, with the language on `auto` and a model mapped to a language (`models use --language`), it detects the language from the first speech and uses that model. The first line then names the language and model. |
 | `transcribe(project)` | The words in a project's cut, clip by clip, each line at its time in the finished video: the edit as text, to choose what `cut_words` cuts. See [Text-based editing](#text-based-editing). |
-| `transcribe(path, from, to, words)` | An audio or video file (anything ffmpeg reads: m4a, mp3, wav, mp4, mov, mkv) as text, in lines timestamped `[mm:ss]`, with names fixed from your dictionary (a `heard => term` entry first, then anything that sounds like a term). Each call starts its own whisper-server, so two can run at once. The client's model does any cleanup or summarising. `from` and `to` (seconds) take one stretch of the file. `words: true` gives one line per word with its start and end, `[01:23.48-01:23.71] Catppuccin`, to cut a clip on; names are fixed one word at a time there, so a name misheard as two words stays as heard. |
 | `audio_stats(path, from, to)` | What a file's sound measures, since the agent can't listen: see [Measuring sound](#measuring-sound). |
 | `scenes(path, from, to, threshold)` | The shot changes in a video, from ffmpeg's `scdet` over frames shrunk to 180 lines: each one's `[mm:ss.cc]` time and how big a change it is (0 to 100), and cuts a minute and seconds a shot. `threshold` (default 10) is how big a change counts. It finds changes of shot, such as a cut to b-roll, a new slide or another camera, not jump cuts within one shot: in the first minute of the v2 edit, the two cuts that changed the framing scored 5.9 and 7.5, and eight jump cuts scored under 1 or not at all, below ordinary movement. Decoded with the hardware where there's a decoder: a minute of 4K HEVC phone video took 21.6 s, against 165.6 s in software; a 4-minute 1080p60 screen recording took 29.5 s. |
 | `frames(path, every, from, to)` | Stills from a video, one every `every` seconds (default 60), saved to a temp folder; returns their paths with `[mm:ss]` times, so a client that reads images can see slides and screen shares, or where the speaker is before framing a clip. `from` and `to` (seconds) take one stretch. Each still is read by seeking to it, so a long 4K phone video takes seconds, not minutes. |
@@ -53,14 +52,9 @@ after the curl install, or `/opt/homebrew/bin/mockingbird` with Homebrew.
 | `captions(project)` | The same word-by-word SRT for an `edit` project's cut, timed to its finished video with speed, transitions and J and L cuts, from the word cache; `perCue`, `lit` and `upper` default to the project's captions. Pass it to `motion` as `captions` over the project's render. |
 | `pauses(path, from, to, noise, shortest, minPause, margin)` | The pauses in a file's sound (ffmpeg's `silencedetect`, quieter than `noise` dB, default −35, for at least `shortest` s, default 0.25), one `start end length` line each, then `render`'s `clips` as JSON: what's between pauses of at least `minPause` s (default 0.4), `margin` s (default 0.15) kept into each, a stretch of 0.3 s or less joined to the next. |
 | `measure(path)` | A finished video's size, length, integrated loudness and true peak; its cuts come from `scenes`. |
-| `captions(path, clips, perCue, lit, upper)` | Word-by-word captions for the video `render` will make from `clips`, as SRT timed to the finished video: up to `perCue` words a cue (default 3), the word being said written `*like this*` (`lit`, default on), in capitals if `upper`. A new cue starts at each clip, after a sentence, after half a second's pause, or when its words span 1.2 seconds. Each clip is transcribed with two seconds either side, clips whose padded stretches overlap are transcribed together as one, and a word belongs to the clip its middle falls in. |
 | `edit(project, ops)` | Changes a project file, an edit kept between calls; see [Projects](#projects). Applies `ops` in order, all of them or none, saves the file, and returns an outline of the cut. Makes the file if it isn't there; with no ops it only reads it. |
 | `render(project)` or `render(path, clips, …)` | Renders a project, or cuts `clips` out of one video and joins them, into one MP4 with ffmpeg; see [Render options](#render-options). Saves to `out`, or `<name>-render-N.mp4` beside the project (`<name>-short-N.mp4` beside the source), and never overwrites a file. |
-| `motion(script, path, captions, size, duration, fps, out)` | Motion graphics written as code, drawn on the Mac with Core Graphics: see [Motion graphics](#motion-graphics). Saves to `out`, or `<name>-motion-N.mp4` beside the video or script, and never overwrites a file. |
-| `captions(path, clips, perCue, lit, upper)` | Word-by-word captions for the video `render` will make from `clips`, as SRT timed to the finished video: up to `perCue` words a cue (default 3), the word being said written `*like this*` (`lit`, default on), in capitals if `upper`. A new cue starts at each clip, after a sentence, after half a second's pause, or when its words span 1.2 seconds. Each clip is transcribed with two seconds either side, clips whose padded stretches overlap are transcribed together as one, and a word belongs to the clip its middle falls in. |
-| `render(path, clips, …)` | Cuts `clips` out of a video and joins them into one MP4 with ffmpeg; see [Render options](#render-options). Saves to `out`, or `<name>-short-N.mp4` beside the source, and never overwrites a file. |
 | `motion(script, path, captions, size, duration, fps, out)` | Motion graphics written as code: an HTML page rendered in a pinned headless Chrome; see [Motion graphics](#motion-graphics). Saves to `out`, or `<name>-motion-N.mp4` beside the video or script, and never overwrites a file. |
-| `motion(script, path, captions, size, duration, fps, out)` | Motion graphics written as code: an HTML page rendered in a pinned headless Chrome, or a canvas script drawn with Core Graphics; see [Motion graphics](#motion-graphics). Saves to `out`, or `<name>-motion-N.mp4` beside the video or script, and never overwrites a file. |
 | `music(script, duration, out, tempo, key, energy, seed)` | Background music written as code: a generator module played into Web Audio's `OfflineAudioContext` in the pinned headless Chrome, saved as a WAV at −14 LUFS for `render`'s `audio`; see [Music](#music). Never overwrites a file. |
 | `guide(topic)` | A playbook for one job, from [`plugin/`](../plugin/README.md): `viral-short`, `long-form`, `hooks`, `retention-editing`, `captions`, `motion-graphics`, `music`, `style-match`, or `reviewer` (the checks a finished video has to pass). It starts with the folder holding the playbook's scripts, kit and templates. |
 | `status` | Whether mockingbird is ready: the transcription model in use, the speech detection model, ffmpeg, whisper-server, the Chrome that `motion` renders HTML in, and how many words the dictionary has. |
@@ -496,87 +490,6 @@ motion-graphics kit's `page()` does that wrapping.)
 - **No network.** Chrome runs in a process under macOS's sandbox with the
   network denied, so a page can't fetch anything from the internet. Chrome's own
   sandbox can't run inside that one, so it's off.
-
-### Canvas scripts
-
-```ts
-// title.ts
-export default function draw(ctx, t, m) {
-  const pop = m.spring(t, { from: 0.6, to: 1, start: 0.1 });
-  ctx.translate(m.width / 2, 330);
-  ctx.scale(pop, pop);
-  ctx.fillStyle = "#FFD500";
-  ctx.roundRect(-430, -95, 860, 190, 36);
-  ctx.fill();
-  ctx.fillStyle = "#111";
-  ctx.font = "900 92px SF Pro";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("3 MISTAKES", 0, 0);
-}
-```
-
-- **The script** is one `.ts` or `.js` file, with no imports of its own. Its
-  default export is called with the canvas context, the time `t` in seconds,
-  and `m`. Each call runs it in a new process, so edit it and run `motion`
-  again.
-- **Over a video** (`path`, usually `render`'s output), each frame of the
-  video is drawn first, its sound is kept, and the frame is also `m.video`:
-  draw it again scaled and moved to zoom or pan. Without `path`, give `size`
-  (default `1080x1920`) and `duration`; each frame starts transparent, which
-  comes out black.
-- **`m`** has `width`, `height`, `fps`, `duration`, `frame`, `video`,
-  `cues` (from `captions`, as `{ start, end, text }` timed to the video),
-  `image(path)` for a PNG, JPEG or HEIC (read once), and the timing helpers:
-  `interpolate(t, [t0, t1, …], [v0, v1, …], easing)`, held at the ends;
-  `spring(t, { from, to, start, stiffness, damping, mass })`, which
-  overshoots a little and settles in about a second with the defaults; and
-  `ease`: `linear`, `in`, `out`, `inOut`, `back`, and `bezier(x1, y1, x2, y2)`
-  like CSS's `cubic-bezier`.
-- **The canvas** has paths (`moveTo`, `lineTo`, curves, `arc`, `arcTo`,
-  `ellipse`, `rect`, `roundRect`), `fill`, `stroke`, `clip`, `fillRect`,
-  `strokeRect`, `clearRect`, linear and radial gradients, shadows,
-  `globalAlpha`, `globalCompositeOperation`, `save`/`restore`, `translate`,
-  `rotate`, `scale`, `transform`, `setTransform`, `setLineDash` and
-  `lineDashOffset` (for lines that draw themselves on), `fillText`,
-  `strokeText`, `measureText`, and `drawImage`. Fonts are written as in CSS,
-  `"italic 900 96px Avenir Next"`; `SF Pro` and `system-ui` are the system
-  font, at any weight. A family that isn't installed is an error when
-  `ctx.font` is set, not a silent swap to Helvetica; list fallbacks as CSS
-  does (`"40px SF Mono, Menlo"`) and the first installed one is used.
-  `strokeText` with a gradient outlines the letters. There's no DOM or pixel
-  access.
-- **`Path2D`** is there as a global, as in a browser: build a path once and
-  draw it with `ctx.fill(path, rule)`, `ctx.stroke(path)` or `ctx.clip(path)`,
-  under whatever transform is current then. `new Path2D("M12 21.35 …")` takes
-  SVG path data, so an icon's `d` from an SVG file draws as it is; `addPath`
-  adds one path to another, with a transform.
-- **`ctx.filter`** takes CSS filter functions, chained: `blur()`,
-  `brightness()`, `contrast()`, `drop-shadow()`, `grayscale()`,
-  `hue-rotate()`, `invert()`, `opacity()`, `saturate()` and `sepia()`, e.g.
-  `"blur(12px) brightness(150%)"` for a glow behind a title. As in a browser,
-  each thing drawn is filtered on its own, then the clip, shadow,
-  `globalAlpha` and blend apply. `url()` isn't supported, since there's no SVG
-  document. The pixel work runs in macOS's Accelerate framework (vImage).
-- **Sound** comes from the script too:
-  `export const audio = [{ path: "whoosh.wav", at: 1.2 }]` beside `draw`, with
-  `volume`, `loop` and `duck` as `render`'s `audio` takes them, or
-  `export function audio(m)` returning that list from `m`'s `width`,
-  `height`, `fps`, `duration` and `cues`, to put a pop on every caption.
-  Paths are from the script's folder. The sounds are mixed under the video's
-  own sound, ducked under speech if asked, and the result comes out at
-  −14 LUFS.
-- **Errors** say when they happened: `draw failed at 2.40 s (frame 72): …`,
-  and nothing is saved. `draw` must return before the next frame, so an
-  `async` one is refused. `duration` is at most two hours.
-
-It needs a Mac with Apple silicon. On an M3, 6 seconds of 1080x1920 over a
-short, with a spring title, a zoom, captions that pop in and a progress bar,
-took 3.8 seconds: about 47 frames a second, counting decoding, drawing and
-encoding. Each call runs the script in its own process under macOS's sandbox
-with the network denied, so it can read and write files but can't reach the
-internet; see
-[SECURITY_PRIVACY.md §6](./SECURITY_PRIVACY.md#6-process--trust-boundaries).
 
 ## Music
 
