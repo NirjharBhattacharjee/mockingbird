@@ -308,11 +308,10 @@ test("the plugin's launcher answers MCP itself when mockingbird isn't installed"
         ? process.env
         : { HOME: mkdtempSync(join(tmpdir(), "mb-setup-")), PATH: "/usr/bin:/bin" },
   });
-  const replies = r.stdout
-    .toString()
-    .trim()
-    .split("\n")
-    .map((l) => JSON.parse(l));
+  const said = r.stdout.toString().trim();
+  // No reply at all: show why, not a JSON parse error (#215).
+  if (!said) throw new Error(`the launcher exited ${r.exitCode} with no reply: ${r.stderr}`);
+  const replies = said.split("\n").map((l) => JSON.parse(l));
   expect(replies.map((m) => m.id)).toEqual([1, "b", 3, 4, 5]);
   expect(replies[0].result.protocolVersion).toBe("2025-06-18");
   expect(replies[0].result.instructions).toContain("isn't installed");
@@ -321,4 +320,5 @@ test("the plugin's launcher answers MCP itself when mockingbird isn't installed"
   // The method is the request's, not one inside its params.
   expect(replies[3].error.code).toBe(-32601);
   expect(replies[4].error.code).toBe(-32602);
-});
+  // PowerShell can take seconds to start on a busy Windows runner (#215).
+}, 30_000);
