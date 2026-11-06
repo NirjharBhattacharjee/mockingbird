@@ -128,7 +128,29 @@ flowchart LR
   shouldn't be given `mockingbird mcp`.
 - **An HTML page renders in Chrome inside that sandbox.** Chrome is
   started from the sandboxed process, so the network is denied to it and
-  to the page as well; a `fetch` from a page fails there. Chrome's own
+  to the page as well; a `fetch` from a page fails there.
+- **How each OS keeps a page off the network (#157).** On every OS, Chrome
+  starts with `--host-resolver-rules=MAP * ~NOTFOUND` (no name resolves)
+  and a proxy on `127.0.0.1:9` with loopback not bypassed (an IP address
+  goes nowhere), and `launchChrome` turns on DevTools' `Fetch` interception
+  for the whole browser, so every request from every tab it opens (a motion
+  page, a caption, a music generator) stops there and is failed unless it's
+  a file on this computer. That also fails a `file://` URL with a host,
+  which Windows would read over SMB. The flags and the gate each stop a
+  `fetch` alone; the tests fetch a server on `127.0.0.1` and check it was
+  never reached. WebRTC may send UDP only through the proxy
+  (`--force-webrtc-ip-handling-policy=disable_non_proxied_udp`; the test's
+  STUN server got 4 packets without it, 0 with it). Around Chrome and the runner:
+  - **macOS:** `sandbox-exec` with `deny network*`.
+  - **Linux:** a user and network namespace (`unshare -rn`), which has no
+    interface but loopback. Some kernels refuse one to a normal user
+    (Ubuntu's AppArmor setting `apparmor_restrict_unprivileged_userns`);
+    then Chrome's blocking stands alone.
+  - **Windows:** Chrome's blocking alone; Windows has no sandbox a process
+    can put itself in without a service or admin rights.
+  - A canvas script is imported by the runner itself, outside Chrome, so it
+    runs only where there is an OS sandbox (macOS, Linux with a namespace);
+    elsewhere `motion` refuses it and asks for a page. Chrome's own
   sandbox can't start inside another, so it runs with `--no-sandbox`. The
   page can read files as you, through `file://`, as a script can. Chrome is
   pinned to one version and checked against its sha256 when pulled. A

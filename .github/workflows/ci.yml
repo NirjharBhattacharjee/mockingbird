@@ -22,6 +22,34 @@ jobs:
       # downloaded models; they run locally via `bun run test:integration` for now.
       - run: bun test
 
+  # A motion page can't reach the network on any OS (#157): the pinned
+  # Chrome, and the test that a page's fetch never reaches a local server.
+  motion-network:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      MOCKINGBIRD_HOME: ${{ github.workspace }}/.mb-home
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun apps/daemon/src/cli.ts models pull chrome
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update -q && sudo apt-get install -yq ffmpeg
+      - if: runner.os == 'Windows'
+        run: choco install ffmpeg -y --no-progress
+      - if: runner.os == 'macOS'
+        run: brew install ffmpeg
+      - run: MOCKINGBIRD_INTEGRATION=1 bun test packages/motion/test/html.integration.test.ts -t "network|slow to load|WebRTC|file URL|any tab"
+
   cli:
     runs-on: macos-14
     defaults:

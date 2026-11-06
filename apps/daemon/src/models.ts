@@ -208,6 +208,15 @@ const CHROME_BUILDS: Record<string, { platform: string; sha256: string }> = {
     platform: "mac-x64",
     sha256: "535d417d9034cbd11e7dacd1a71aa3d6e1b525e6d5dcd2671eb2532f01481228",
   },
+  // Downloaded on 2026-11-05 (#157). Chrome for Testing has no Linux arm64 build.
+  "linux-x64": {
+    platform: "linux64",
+    sha256: "547dcd374e02961bf998f6046a267644f8502225c36bb78ca307dab32a0b3eb4",
+  },
+  "win32-x64": {
+    platform: "win64",
+    sha256: "10a77466005e7f64e00f1a75fd1ea81f4a38a60093c65fea6895843b26e60a9a",
+  },
 };
 
 /**
@@ -229,7 +238,8 @@ export function pinnedChrome(
     url: `https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/${build.platform}/${name}.zip`,
     sha256: build.sha256,
   };
-  return { zip, dir, program: join(dir, name, "chrome-headless-shell") };
+  const exe = system.startsWith("win32") ? ".exe" : "";
+  return { zip, dir, program: join(dir, name, `chrome-headless-shell${exe}`) };
 }
 
 /** Whether `path` is a file this process may run. */
@@ -336,7 +346,20 @@ async function installChrome(
     // Unpacked beside the target and renamed into place, so a half-unpacked Chrome is never found.
     const unpacking = `${pin.dir}.part`;
     rmSync(unpacking, { recursive: true, force: true });
-    const unzip = Bun.spawnSync(["unzip", "-q", zip, "-d", unpacking], { stderr: "pipe" });
+    // Windows has no unzip; its own tar.exe reads zips (not Git Bash's GNU tar, which can't).
+    mkdirSync(unpacking, { recursive: true });
+    const unzip = Bun.spawnSync(
+      process.platform === "win32"
+        ? [
+            join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe"),
+            "-xf",
+            zip,
+            "-C",
+            unpacking,
+          ]
+        : ["unzip", "-q", zip, "-d", unpacking],
+      { stderr: "pipe" },
+    );
     if (unzip.exitCode !== 0) {
       rmSync(unpacking, { recursive: true, force: true });
       throw new Error(`couldn't unpack ${zip}: ${unzip.stderr.toString().trim()}`);

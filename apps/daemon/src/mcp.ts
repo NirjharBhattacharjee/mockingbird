@@ -13,6 +13,7 @@ import { basename, dirname, extname, join, resolve } from "node:path";
 import { type AsrWord, stripNonSpeech } from "@mockingbird/asr";
 import { loadAudio, type PcmAudio } from "@mockingbird/audio";
 import { type Cue, drawCaptions, parseSrt } from "@mockingbird/captions";
+import { noNetwork } from "@mockingbird/motion/sandbox";
 import { applyCorrections, correctNames } from "@mockingbird/store";
 import type { SpeechSegment } from "@mockingbird/vad";
 import { addEntries, formatEntry, readDictionary } from "./dictionary.ts";
@@ -1028,9 +1029,6 @@ export function spans(clips: Clip[], pad = 2): { from: number; to: number }[] {
  * Word-by-word captions for the video `clips` make out of `path`, as SRT
  * for render: each clip transcribed with word times, then wordCaptions.
  */
-/** macOS's sandbox, and a profile that allows everything but the network. */
-const SANDBOX = "/usr/bin/sandbox-exec";
-const NO_NETWORK = "(version 1)(allow default)(deny network*)";
 const MOTION_RUNNER = join(import.meta.dir, "motion-run.ts");
 /** Two hours: past any real video, short of a frame count that never ends. */
 const MOTION_MAX_SECONDS = 7200;
@@ -1112,10 +1110,19 @@ async function motion(
   };
   // A fresh process per call, sandboxed with no network: the script is the
   // client's code, and mockingbird's only download is `models pull`.
-  const proc = Bun.spawn(
-    [SANDBOX, "-p", NO_NETWORK, process.execPath, MOTION_RUNNER, JSON.stringify(options)],
-    { stdout: "pipe", stderr: "pipe" },
-  );
+  const wall = noNetwork();
+  // The runner imports a canvas script itself, so where there's no OS
+  // sandbox nothing else would stop its network calls. A page is fine:
+  // Chrome blocks those.
+  if (!page && wall.length === 0) {
+    throw new Error(
+      `${basename(script)} is a canvas script, which runs only where the OS can sandbox it (macOS, or Linux with a network namespace). Make it an .html page.`,
+    );
+  }
+  const proc = Bun.spawn([...wall, process.execPath, MOTION_RUNNER, JSON.stringify(options)], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   const [said, why, code] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
