@@ -15,6 +15,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { type AsrWord, stripNonSpeech } from "@mockingbird/asr";
 import { loadAudio, type PcmAudio } from "@mockingbird/audio";
 import { type Cue, drawCaptions, parseSrt } from "@mockingbird/captions";
@@ -36,7 +37,7 @@ import type { SpeechSegment } from "@mockingbird/vad";
 import { audioStats } from "./audio-stats.ts";
 import { addEntries, formatEntry, readDictionary } from "./dictionary.ts";
 import { catalog, checkEffects, type Effect, effectFilters } from "./effects.ts";
-import { guide, INSTRUCTIONS, playbooks } from "./guide.ts";
+import { guide, INSTRUCTIONS, PLUGIN, playbooks } from "./guide.ts";
 import { findChrome, fontFaces } from "./models.ts";
 import { clipsFrom, findPauses, measure } from "./pauses.ts";
 import {
@@ -1964,6 +1965,24 @@ function needChrome(): string {
   );
 }
 
+/** The motion kit, as the URL a page imports it from. */
+export const KIT_URL = pathToFileURL(join(PLUGIN, "skills", "motion-graphics", "kit.js")).href;
+
+/**
+ * A template imports the kit `from "KIT"`, and motion fills it in (#213): an
+ * agent replacing it by hand hit the template's comment first, and a Windows
+ * path isn't a URL. The filled-in copy goes beside the page, so the page's own
+ * files are where it says. Returns the page to load: `script` itself when it
+ * doesn't import "KIT".
+ */
+export function withKit(script: string): string {
+  const html = readFileSync(script, "utf8");
+  if (!html.includes('from "KIT"')) return script;
+  const copy = join(dirname(script), `.${basename(script)}.${process.pid}-${Date.now()}.html`);
+  writeFileSync(copy, html.replaceAll('from "KIT"', `from ${JSON.stringify(KIT_URL)}`));
+  return copy;
+}
+
 /**
  * Renders `script`, an HTML page, in Chrome, over the video at `path` or on
  * its own at `size` for `duration` seconds, and saves the result. It runs in its own
@@ -2030,8 +2049,9 @@ async function motion(
   }
   const target = outputFor(path ?? script, out, false, "motion");
   const started = performance.now();
+  const page = withKit(script);
   const options = {
-    script,
+    script: page,
     chrome,
     out: target,
     width,
@@ -2049,6 +2069,8 @@ async function motion(
   } catch (error) {
     rmSync(target, { force: true });
     throw error;
+  } finally {
+    if (page !== script) rmSync(page, { force: true });
   }
   let frames = 0;
   let work: string | undefined;

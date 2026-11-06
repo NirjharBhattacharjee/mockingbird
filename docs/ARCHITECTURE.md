@@ -18,6 +18,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
+| 2026-11-06 | `motion` swaps a page's `from "KIT"` for the kit's file URL in a copy beside the page (#213), so agents leave the templates' import alone: replacing it by hand hit a comment first, and a Windows path isn't a URL. |
 | 2026-11-06 | Windows (#202): the plugin starts there (`launch.cmd`, `launch.ps1`); filter graphs go to ffmpeg in a file, since one for 100 clips is longer than a Windows command line; off Apple Silicon the default Whisper model is `small` Q5_1, as `large-v3` took 2.6x real time on a 2-core CPU (MODELS.md §6). |
 | 2026-11-06 | Segment cache (#165): a project renders from segments of about 10 s kept in `~/.mockingbird/cache/segments/`, each keyed by its clips, what's drawn over it, the look and the engine, so an edit renders again only the segments it touches. On the v2 edit with four texts, changing one text took 16.4 s instead of 72.8 to 78.2 s. |
 | 2026-11-05 | Fonts ship with Chrome (#156): `models pull chrome` also downloads Inter, Charis SIL, JetBrains Mono and Noto for Bengali, Devanagari, Arabic, Hebrew, Thai, Tamil and CJK (OFL, pinned, [NOTICE.md](../NOTICE.md)); captions and pages use them by name, so a Bengali caption or a CJK title is drawn the same with or without the system's fonts. |

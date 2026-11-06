@@ -44,17 +44,15 @@ for (const file of [cut, final]) rmSync(file, { force: true });
 // The captions go on in the motion pass, which draws its own, so not here too.
 console.log(await call("render", { path: talk, clips, vertical: true, out: cut }));
 
-// The kit's short template as a full-frame shot, with its hook over the cut.
-const kit = resolve(import.meta.dir, "../plugin/skills/motion-graphics/kit.js");
+// The kit's short template as it ships (motion fills in "KIT"), as a full-frame
+// shot, with its hook over the cut.
 const page = join(out, "short.html");
 writeFileSync(
   page,
   readFileSync(
     resolve(import.meta.dir, "../plugin/skills/motion-graphics/templates/short.html"),
     "utf8",
-  )
-    .replace('from "KIT"', `from ${JSON.stringify(Bun.pathToFileURL(kit).href)}`)
-    .replace("const SPLIT = true;", "const SPLIT = false;"),
+  ).replace("const SPLIT = true;", "const SPLIT = false;"),
 );
 console.log(await call("motion", { script: page, path: cut, captions: srt, out: final }));
 

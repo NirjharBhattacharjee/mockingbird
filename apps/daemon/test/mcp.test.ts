@@ -1,13 +1,24 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   align,
   CLIPS_PER_PASS,
   chunks,
   fineClock,
   handle,
+  KIT_URL,
   mcpTools,
   mixGraph,
   moving,
@@ -24,6 +35,7 @@ import {
   timeline,
   uncovered,
   union,
+  withKit,
   wordCaptions,
 } from "../src/mcp.ts";
 import { findChrome } from "../src/models.ts";
@@ -1445,4 +1457,27 @@ describe("music", () => {
     },
     120_000,
   );
+});
+
+test("motion fills in a page's `from \"KIT\"` with the kit's file URL, beside the page (#213)", () => {
+  expect(existsSync(fileURLToPath(KIT_URL))).toBe(true);
+  const dir = mkdtempSync(join(tmpdir(), "mb-kit-"));
+  try {
+    const page = join(dir, "short.html");
+    // The comment comes first, as in the templates: it stays as written.
+    writeFileSync(
+      page,
+      '<script type="module">\n// replace "KIT"? no\nimport { kit } from "KIT";\n</script>',
+    );
+    const copy = withKit(page);
+    expect(dirname(copy)).toBe(dir);
+    expect(readFileSync(copy, "utf8")).toBe(
+      `<script type="module">\n// replace "KIT"? no\nimport { kit } from ${JSON.stringify(KIT_URL)};\n</script>`,
+    );
+    const plain = join(dir, "plain.html");
+    writeFileSync(plain, '<script type="module">import { kit } from "./kit.js";</script>');
+    expect(withKit(plain)).toBe(plain);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

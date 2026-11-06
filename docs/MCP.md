@@ -467,6 +467,10 @@ HyperFrames. `script` is an HTML page, rendered in a pinned headless Chrome.
 Graphics; a canvas script becomes a page with a `<canvas>`, and the
 motion-graphics kit's `page()` does that wrapping.)
 
+A page that imports `from "KIT"`, as the kit's templates do, gets the kit:
+`motion` loads a copy beside the page with `"KIT"` swapped for the kit's
+file URL, and deletes the copy after (#213). Leave `"KIT"` as it is.
+
 ### HTML pages
 
 ```html
