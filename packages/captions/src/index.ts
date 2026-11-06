@@ -125,6 +125,19 @@ export async function drawCaptions(
     });
     const send = <T>(method: string, params = {}) =>
       (chrome as Chrome).send<T>(method, params, sessionId);
+    // createTarget returns before the page has loaded, and anything evaluated
+    // while it's still navigating is thrown away: wait until it's there.
+    for (const end = Date.now() + 15_000; ; ) {
+      const at = await send<{ result: { value: string } }>("Runtime.evaluate", {
+        expression: "location.href + ' ' + document.readyState",
+        returnByValue: true,
+      })
+        .then((r) => r.result.value)
+        .catch(() => "");
+      if (at === `${folder} complete`) break;
+      if (Date.now() > end) throw new Error(`the caption page didn't load: ${at}`);
+      await Bun.sleep(20);
+    }
     await send("Emulation.setDeviceMetricsOverride", {
       width: side,
       height: Math.round(height),
