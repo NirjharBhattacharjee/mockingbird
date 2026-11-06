@@ -242,10 +242,11 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("renderHtml (integration)"
       process.platform === "win32"
         ? `file://127.0.0.1/${png[0]}$/${png.slice(3).replaceAll("\\", "/")}`
         : "file://127.0.0.1/etc/hosts";
+    const rawPage = pathToFileURL(page("raw.html", "")).href;
     const chrome = await launchChrome(chromePath());
     try {
       const { targetId } = await chrome.send<{ targetId: string }>("Target.createTarget", {
-        url: pathToFileURL(page("raw.html", "")).href,
+        url: rawPage,
       });
       const { sessionId } = await chrome.send<{ sessionId: string }>("Target.attachToTarget", {
         targetId,
@@ -266,18 +267,19 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("renderHtml (integration)"
       const picture = (url: string) =>
         `new Promise((ok, no) => { const i = new Image(); i.onload = ok; i.onerror = no; i.src = ${JSON.stringify(url)}; })`;
       // createTarget returns before the page has loaded, and a navigation
-      // under way throws away what's evaluated in it.
-      for (let tries = 0; ; tries++) {
+      // under way throws away what's evaluated in it. A slow Windows runner
+      // has taken more than 4 s (#216).
+      for (const end = Date.now() + 15_000; ; ) {
         const at = await chrome
           .send<{ result: { value: string } }>(
             "Runtime.evaluate",
-            { expression: "location.protocol + document.readyState", returnByValue: true },
+            { expression: "location.href + ' ' + document.readyState", returnByValue: true },
             sessionId,
           )
           .then((r) => r.result.value)
           .catch(() => "");
-        if (at === "file:complete") break;
-        if (tries > 200) throw new Error(`the page didn't load: ${at}`);
+        if (at === `${rawPage} complete`) break;
+        if (Date.now() > end) throw new Error(`the page didn't load: ${at}`);
         await Bun.sleep(20);
       }
       expect(await run(`fetch("http://127.0.0.1:${server.port}/")`)).toBe("failed");
