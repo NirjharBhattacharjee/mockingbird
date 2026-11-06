@@ -25,8 +25,19 @@ export type PageScene = {
  * the same history; `Math.random` is seeded the same in each for the same
  * reason.
  */
-export function pageClock(scene: PageScene, epoch: number): string {
+/** A font file a page can use by its family name: a file URL, its weights and style. */
+export type PageFont = { family: string; url: string; weight: string; style: string };
+
+/**
+ * Registers `fonts` with the page, unloaded, as @font-face rules would: each
+ * loads the first time text needs it, and the frame waits for it.
+ */
+export const pageFonts = (fonts: PageFont[]) =>
+  `for (const f of ${JSON.stringify(fonts)}) document.fonts.add(new FontFace(f.family, "url(" + JSON.stringify(f.url) + ")", { weight: f.weight, style: f.style }));`;
+
+export function pageClock(scene: PageScene, epoch: number, fonts: PageFont[] = []): string {
   return `(() => {
+  ${pageFonts(fonts)}
   let now = 0;
   const born = new WeakMap();
   const callbacks = new Map();
@@ -123,6 +134,7 @@ export async function renderHtml(
     video,
     audio = false,
     cues = [],
+    fonts = [],
     tabs: tabCount = TABS,
     onLoad = () => {},
   }: {
@@ -136,6 +148,8 @@ export async function renderHtml(
     /** Whether `video` has sound to keep. */
     audio?: boolean;
     cues?: Cue[];
+    /** Fonts the page can use by name, besides the system's. */
+    fonts?: PageFont[];
     tabs?: number;
     onLoad?: (page: { audio: unknown }) => void;
   },
@@ -150,7 +164,7 @@ export async function renderHtml(
     );
   }
   const scene: PageScene = { width, height, fps, duration: total / fps, frame: 0, cues };
-  const clock = pageClock(scene, Date.now());
+  const clock = pageClock(scene, Date.now(), fonts);
   let chrome: Chrome | undefined;
   let encoder: Subprocess<"pipe", "ignore", "pipe"> | undefined;
   let drawn = 0;
