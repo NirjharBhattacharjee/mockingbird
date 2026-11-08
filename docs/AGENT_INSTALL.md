@@ -221,12 +221,10 @@ macOS and Linux:
 ~/.local/bin/mockingbird setup --yes
 ```
 
-Windows (setup looks for `mockingbird` on the PATH, so put it there for this
-shell first):
+Windows:
 
 ```powershell
-$env:Path = "$HOME\.mockingbird\bin;$env:Path"
-mockingbird setup --yes
+& "$HOME\.mockingbird\bin\mockingbird.cmd" setup --yes
 ```
 
 It adds the MCP server to each agent's config (Claude Code with `claude mcp
@@ -238,9 +236,9 @@ JSON configs don't expand `~`:
 
 - macOS and Linux: `/home/<user>/.local/bin/mockingbird` on Linux, or
   `/Users/<user>/.local/bin/mockingbird` on a Mac.
-- Windows: `C:\Users\<user>\.mockingbird\bin\mockingbird.cmd`. Many agents
-  can't start a `.cmd` file directly. If yours can't, make the command `cmd`
-  with the arguments `/c`, the full path, and `mcp`.
+- Windows: the command is `cmd` with the arguments `/c`,
+  `C:\Users\<user>\.mockingbird\bin\mockingbird.cmd` and `mcp`, which is
+  what `setup` writes. Many agents can't start a `.cmd` file directly.
 
 Most agents load MCP servers at start, so tell the person to restart you,
 then call the `status` tool to check.
@@ -271,7 +269,7 @@ from ~/Movies/talk.mp4".
 | `Couldn't replace ...mockingbird.exe` (Windows) | An agent has mockingbird running. Ask the person to close that agent, then step 2 again. |
 | `curl: (...)`, or an `Invoke-WebRequest` error, when starting step 2 | The installer didn't download, so nothing ran. Check the network, then step 2 again. |
 | `command not found: mockingbird` | Use the full path: `~/.local/bin/mockingbird`, or `~\.mockingbird\bin\mockingbird.cmd` on Windows. |
-| The `status` tool isn't there after a restart | The MCP config has the wrong path, or wasn't reloaded. On Windows, try the `cmd /c` form from step 4. |
+| The `status` tool isn't there after a restart | The MCP config has the wrong path, or wasn't reloaded. On Windows, check it runs `cmd /c`, as in step 4. |
 
 More detail for people: [the user guide](./README.md), especially
 [Troubleshooting](./README.md#troubleshooting).

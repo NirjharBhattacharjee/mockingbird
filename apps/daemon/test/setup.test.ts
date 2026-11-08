@@ -145,6 +145,34 @@ describe("agents", () => {
     );
   });
 
+  test("a Windows .cmd shim is registered through cmd /c, and one run directly is repaired", () => {
+    const h = home();
+    const shim = join(h, "mockingbird.cmd");
+    writeFileSync(shim, "");
+    // Written the old way: Node's spawn can't start a .cmd, so it doesn't count.
+    writeFileSync(
+      join(h, ".cursor", "mcp.json"),
+      JSON.stringify({ mcpServers: { mockingbird: { command: shim, args: ["mcp"] } } }),
+    );
+    let argv: string[] = [];
+    const which = (n: string) => (n === "claude" ? "/bin/claude" : null);
+    const run = (a: string[]) => {
+      if (a[2] === "add") argv = a;
+      return { code: 0, out: "" };
+    };
+    const found = agents(shim, { home: h, which, run });
+    expect(found.find((a) => a.name === "Cursor")?.registered).toBe(false);
+    for (const a of found) a.register();
+    expect(argv.slice(argv.indexOf("--") + 1)).toEqual(["cmd", "/c", shim, "mcp"]);
+    const cursor = JSON.parse(readFileSync(join(h, ".cursor", "mcp.json"), "utf8"));
+    expect(cursor.mcpServers.mockingbird).toEqual({ command: "cmd", args: ["/c", shim, "mcp"] });
+    expect(readFileSync(join(h, ".codex", "config.toml"), "utf8")).toContain(
+      `command = "cmd"\nargs = ${JSON.stringify(["/c", shim, "mcp"])}\n`,
+    );
+    const again = agents(shim, { home: h, which: none });
+    expect(again.find((a) => a.name === "Cursor")?.registered).toBe(true);
+  });
+
   test("Claude Code counts as having it through `claude mcp add` or the plugin", () => {
     const empty = mkdtempSync(join(tmpdir(), "mb-setup-"));
     const claude = (out: string) =>
