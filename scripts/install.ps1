@@ -119,7 +119,11 @@ try {
 # the clone is on and checked against its checksums.txt; built with Go when
 # there's no release for it.
 $cli = Join-Path $dir "apps\cli\mockingbird.exe"
-Remove-Item -Force $cli -ErrorAction SilentlyContinue
+# A running `mockingbird mcp` holds the old one open: stop rather than keep it.
+if (Test-Path $cli) {
+  try { Remove-Item -Force $cli -ErrorAction Stop }
+  catch { throw "Couldn't replace $cli, probably because mockingbird is running (an agent's MCP server). Close it and run the installer again." }
+}
 # Windows PowerShell turns a native command's stderr into an error under "Stop".
 $tag = try { git -C $dir describe --tags --exact-match 2>$null } catch { $null }
 if ($tag) {
@@ -149,6 +153,7 @@ $run = if (Test-Path $cli) { "`"$cli`" %*" } else { "`"$bun`" `"$dir\apps\daemon
 Set-Content -Encoding ASCII (Join-Path $binDir "mockingbird.cmd") @"
 @echo off
 rem Written by scripts\install.ps1. Run it again after moving the clone.
+if not defined MOCKINGBIRD_HOME set "MOCKINGBIRD_HOME=$mbHome"
 set "PATH=$(Split-Path -Parent $bun);%PATH%"
 $run
 "@

@@ -227,7 +227,16 @@ export function findWhisperServer(
  */
 export const FFMPEG_NEEDS = {
   encoders: ["libx264", "aac"],
-  filters: ["sidechaincompress", "ebur128", "alimiter", "aevalsrc", "amix", "adelay", "overlay"],
+  filters: [
+    "sidechaincompress",
+    "ebur128",
+    "alimiter",
+    "aevalsrc",
+    "amix",
+    "adelay",
+    "overlay",
+    "scale",
+  ],
 };
 
 /** What this ffmpeg lacks of FFMPEG_NEEDS, from its `-encoders` and `-filters` lists. */

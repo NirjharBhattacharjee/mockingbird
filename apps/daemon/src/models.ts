@@ -24,11 +24,11 @@ import {
   findAsrModel,
   isWhisperFile,
   mockingbirdHome,
+  pinnedWhisper,
   savedModelFor,
   spokenLanguage,
-  WHISPER_LANGUAGES,
-  pinnedWhisper,
   WHISPER_BUILD,
+  WHISPER_LANGUAGES,
 } from "./runtime.ts";
 
 /** `name` is what the progress line calls it; `bytes` is its size, shown before a download. */

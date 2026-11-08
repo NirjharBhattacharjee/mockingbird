@@ -107,7 +107,13 @@ test("pinnedWhisper: whisper.cpp's build on Linux and Windows, Homebrew's on mac
     `https://github.com/ggml-org/whisper.cpp/releases/download/${WHISPER_BUILD}/whisper-bin-ubuntu-x64.tar.gz`,
   );
   expect(linux?.program).toBe(
-    join("/h", "bin", `whisper-cpp-${WHISPER_BUILD}-linux-x64`, "whisper-bin-ubuntu-x64", "whisper-server"),
+    join(
+      "/h",
+      "bin",
+      `whisper-cpp-${WHISPER_BUILD}-linux-x64`,
+      "whisper-bin-ubuntu-x64",
+      "whisper-server",
+    ),
   );
   expect(pinnedWhisper("/h", "win32-x64")?.program).toEndWith(
     join("Release", "whisper-server.exe"),
@@ -139,6 +145,7 @@ test("ffmpegMissing names what a system ffmpeg was built without", () => {
     " ... amix              N->A       Audio mixing.",
     " ... adelay            A->A       Delay channels.",
     " ... overlay           VV->V      Overlay a video source.",
+    " ... scale             V->V       Scale the input video size.",
   ].join("\n");
   expect(ffmpegMissing((what) => (what === "-encoders" ? encoders : filters))).toEqual([]);
   // ffmpeg-free: no libx264, and "libx264rgb" alone doesn't count.
@@ -152,6 +159,7 @@ test("ffmpegMissing names what a system ffmpeg was built without", () => {
     "amix",
     "adelay",
     "overlay",
+    "scale",
   ]);
 });
 

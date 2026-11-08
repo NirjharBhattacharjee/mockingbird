@@ -222,6 +222,11 @@ main() {
   linux_bun() {
     command -v bun >/dev/null 2>&1 && return
     [ -x "$bun_dir/bun" ] && return
+    # Bun's Linux builds need glibc; on musl (Alpine) the download wouldn't run.
+    if ldd --version 2>&1 | grep -qi musl; then
+      echo "Bun's Linux build needs glibc, and this system uses musl. Install a Bun that runs here (or glibc), put it on the PATH, and run this again." >&2
+      return 1
+    fi
     local zip="bun-linux-x64.zip" sum="36368faef7527875d5ffa52e53cd48021741f2a83eb6208a8dd64068d422a913"
     if [ "$arch" = arm64 ]; then
       zip="bun-linux-aarch64.zip" sum="54328bbc2d9c8e0c9f892c544d66c57a83b84139e34909e5ee81758f1ac8fda7"

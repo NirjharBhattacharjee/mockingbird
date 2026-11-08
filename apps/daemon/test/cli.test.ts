@@ -85,7 +85,11 @@ test("engineStatus says what's installed", () => {
   });
   // An override that names nothing isn't a whisper-server.
   expect(
-    engineStatus(home, () => null, { MOCKINGBIRD_WHISPER_SERVER: "/no/whisper-server" }, () => [])
-      .whisperServer,
+    engineStatus(
+      home,
+      () => null,
+      { MOCKINGBIRD_WHISPER_SERVER: "/no/whisper-server" },
+      () => [],
+    ).whisperServer,
   ).toBe(false);
 });

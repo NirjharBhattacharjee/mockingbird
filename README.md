@@ -38,7 +38,7 @@ decides the edit. No account, no cloud, no usage limits, nothing locked
 ## 🚀 Install
 
 You need about 3 GB of free space, and a Mac (with [Homebrew](https://brew.sh)),
-Linux (with git, ffmpeg and unzip from your package manager) or Windows x64.
+Linux (with git, curl, ffmpeg and unzip from your package manager) or Windows x64.
 Captions and motion graphics are macOS only for now.
 
 ```sh
