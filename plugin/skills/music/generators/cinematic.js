@@ -56,10 +56,11 @@ export default function cinematic(ctx, { duration, tempo = 72, key = "D minor", 
     for (let b = 0; b < 8; b++) {
       const on = t + b * beat;
       const downbeat = b % 4 === 0;
-      if ((e > 0.55 && downbeat) || (e > 0.8 && b % 2 === 0)) {
+      if ((e > 0.55 && downbeat) || e > 0.8) {
         tom(ctx, drums, on, downbeat ? 0.9 : 0.6, { pitch: downbeat ? 70 : 95, noiseBuffer: hiss });
       }
     }
-    if (e > 0.8 && n % 2 === 1) riser(ctx, fx, t + span, beat * 6, 0.12, { noiseBuffer: hiss });
+    if (energyAt(energy, t + span) > 0.8 && n % 2 === 1)
+      riser(ctx, fx, t + span, beat * 6, 0.12, { noiseBuffer: hiss });
   }
 }

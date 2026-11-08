@@ -75,6 +75,7 @@ export default function corporate(ctx, { duration, tempo = 116, key = "C major",
       }
     }
     // A riser into every fourth bar's downbeat.
-    if (e > 0.75 && n % 4 === 3) riser(ctx, fx, t + bar, bar, 0.1, { noiseBuffer: hiss });
+    if (energyAt(energy, t + bar) > 0.75 && n % 4 === 3)
+      riser(ctx, fx, t + bar, bar, 0.1, { noiseBuffer: hiss });
   }
 }

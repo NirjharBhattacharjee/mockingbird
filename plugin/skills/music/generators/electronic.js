@@ -82,6 +82,7 @@ export default function electronic(ctx, { duration, tempo = 122, key = "F minor"
         }
       }
     }
-    if (e > 0.75 && n % 8 === 7) riser(ctx, fx, t + bar, bar * 2, 0.1, { noiseBuffer: hiss });
+    if (energyAt(energy, t + bar) > 0.75 && n % 8 === 7)
+      riser(ctx, fx, t + bar, bar * 2, 0.1, { noiseBuffer: hiss });
   }
 }
