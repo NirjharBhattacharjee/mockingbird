@@ -15,7 +15,7 @@ import {
   writeFileSync,
   writeSync,
 } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { withStore } from "./dictionary.ts";
 import {
@@ -421,11 +421,7 @@ export async function pullChrome(deps: PullDeps = {}): Promise<number> {
   const log = deps.log ?? ((m: string) => console.error(m));
   const home = deps.home ?? mockingbirdHome();
   const pin = pinnedChrome(home);
-  if (!pin) {
-    log(`There's no pinned Chrome for ${process.platform}-${process.arch} yet.`);
-    return 1;
-  }
-  const bin = dirname(pin.dir);
+  const bin = join(home, "bin");
   mkdirSync(bin, { recursive: true });
   // One pull at a time: two would share the download and the unpacking folder.
   const lock = join(bin, ".chrome-pull.lock");
@@ -435,10 +431,17 @@ export async function pullChrome(deps: PullDeps = {}): Promise<number> {
     return 1;
   }
   try {
-    await installChrome(pin, bin, deps);
+    if (pin) await installChrome(pin, bin, deps);
+    // The fonts even with no pin, for a MOCKINGBIRD_CHROME to use.
     await pullFiles(deps.fonts ?? FONT_FILES, join(home, "fonts"), deps);
   } finally {
     rmSync(lock, { force: true });
+  }
+  if (!pin) {
+    log(
+      `The fonts are downloaded, but there's no pinned Chrome for ${process.platform}-${process.arch} yet: set MOCKINGBIRD_CHROME to one that runs here.`,
+    );
+    return 1;
   }
   log(`Chrome ${CHROME_VERSION} and its fonts are downloaded.`);
   return 0;

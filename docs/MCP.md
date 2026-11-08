@@ -150,8 +150,10 @@ HyperFrames. `script` is one of two things:
   `motion` says so and does nothing.
 - **Fonts** come with Chrome (about 43 MB, [NOTICE.md](../NOTICE.md)), so
   text looks the same on every machine: a page can name `Inter`,
-  `Charis SIL`, `JetBrains Mono`, and `Noto Sans Bengali`, `Devanagari`,
-  `Arabic`, `Hebrew`, `Thai`, `Tamil`, `SC`, `JP` and `KR` in CSS, and
+  `Charis SIL`, `JetBrains Mono`, `Noto Sans Bengali`, `Noto Sans
+  Devanagari`, `Noto Sans Arabic`, `Noto Sans Hebrew`, `Noto Sans Thai`,
+  `Noto Sans Tamil`, `Noto Sans SC`, `Noto Sans JP` and `Noto Sans KR` in
+  CSS (the full names), and
   each loads the first time text needs it. Captions use Inter, then the Noto
   family for the script.
 - **The page** is the size of the video, with a transparent background.
