@@ -23,6 +23,7 @@ injection, the cleanup model, the launchd agent) is in git:
 | 2026-11-05 | Which ffmpeg (#154): the system one, not a pinned LGPL build; VideoToolbox measured slower, bigger and worse than x264 on the v2 edit ([§7](#7-rendering)). |
 | 2026-11-04 | `transcribe` and `captions` take `model` and `language` per call; with the language on `auto` and a per-language map, the language is detected from the first speech and its model used (`enginesFor` in `runtime.ts`, #143). |
 | 2026-11-04 | `models pull <name or URL>` downloads any Whisper model against the sha256 Hugging Face gives (or `--sha256`), pinned to its commit; `models use <file> --language <code>` saves a model per language (#143). |
+| 2026-11-04 | The playbooks' shell scripts became engine tools, so they run on every OS: `pauses` (silencedetect, and the clips between pauses) and `measure` (size, length, loudness), with cuts from `scenes` (#158). |
 | 2026-11-04 | Timeline, first part (#148): `packages/timeline` keeps an edit in a project file; the `edit` tool changes it with ops; `render` renders one, with clips from several sources framed to one size and rate, and captions made for the cut. |
 | 2026-11-04 | `motion` renders an HTML page in a pinned headless Chrome (#145): `mockingbird models pull chrome`, a frame clock injected into the page, several tabs capturing at once, Chrome inside the motion sandbox. The Canvas engine stays until the kit is ported. |
 | 2026-11-04 | `mockingbird setup` and `doctor`, and the plugin's `launch.sh`, which answers MCP with an install tool when mockingbird isn't installed (#141). |
@@ -151,6 +152,8 @@ tool, with its options, is documented in [MCP.md](./MCP.md):
 |---|---|
 | `transcribe` | timestamped lines, or word times, for a file or a stretch of it |
 | `frames` | stills at an interval, for the agent to look at |
+| `pauses` | the pauses in a file's sound, and render's clips between them |
+| `measure` | a video's picture size, length, loudness and true peak |
 | `audio_stats` | loudness, peaks, noise floor, voice against the rest, tempo and beats, sections |
 | `scenes` | shot changes, with how big each is, and the pace (cuts a minute, seconds a shot) |
 | `captions` | word-by-word SRT timed to the video `render` will make |
@@ -307,6 +310,7 @@ mockingbird/
 │   │   ├── cli.ts           every command
 │   │   ├── mcp.ts           the MCP server and its tools
 │   │   ├── audio-stats.ts   `audio_stats`: what a file's sound measures
+│   │   ├── pauses.ts        `pauses` and `measure`, once the playbooks' shell scripts
 │   │   ├── guide.ts         the plugin's playbooks, served by `guide`
 │   │   ├── motion-run.ts    runs a motion script or page in its own process
 │   │   ├── transcribe.ts    `mockingbird transcribe`
