@@ -342,9 +342,10 @@ SHIM
   fi
 
   printf '\n\033[1;32mAll set.\033[0m mockingbird %s is installed.\n\n' "$(version "$dir")"
-  printf 'Give it to your AI agent. For Claude Code:\n\n'
-  printf '    claude mcp add mockingbird -- %s mcp\n\n' "$cmd"
-  printf 'Other agents: docs/AGENT_INSTALL.md. `%s status` checks the install.\n' "$cmd"
+  printf 'Give it to your AI agents:\n\n'
+  printf '    %s setup\n\n' "$cmd"
+  printf 'It adds mockingbird to Claude Code, Cursor, Codex, Gemini CLI and VS Code,\n'
+  printf 'after asking. `%s doctor` checks the install.\n' "$cmd"
   if [ -n "$in_profile" ]; then
     printf 'In a new terminal window, plain `mockingbird` works too.\n'
   fi
