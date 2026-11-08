@@ -54,14 +54,18 @@ irm https://github.com/NirjharBhattacharjee/mockingbird/releases/latest/download
 ```
 
 Then download the headless Chrome that captions and motion graphics are
-drawn in (about 100 MB, with the fonts they use; there's no build for Linux
-on ARM yet):
+drawn in (about 100 MB, with the fonts they use). In the same terminal,
+before you've opened a new one, that's `~/.local/bin/mockingbird`:
 
 ```sh
 mockingbird models pull chrome
 ```
 
-It's all safe to run again. Prefer to do it by hand? See
+There's no build for Linux on ARM yet: skip it there, and set
+`MOCKINGBIRD_CHROME` to a Chrome that runs for motion graphics. Captions
+fall back to ffmpeg without one.
+
+It's all safe to run again. Prefer to do it by hand on a Mac? See
 [manual install](docs/README.md#manual-install).
 
 Or with Homebrew:
@@ -93,16 +97,16 @@ Each binary's sha256 is in the release's `checksums.txt`.
 
 ### With a coding agent
 
-Paste this into your agent:
+On a Mac with Apple Silicon (on Linux and Windows, use the commands above;
+[#221](https://github.com/NirjharBhattacharjee/mockingbird/issues/221)
+makes this work everywhere), paste this into your agent:
 
 ```text
 Set up mockingbird on this computer by following
 https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/docs/AGENT_INSTALL.md
 ```
 
-It runs the installer, checks it, and connects mockingbird to itself. That
-page is macOS only for now; making it work everywhere is
-[#221](https://github.com/NirjharBhattacharjee/mockingbird/issues/221).
+It runs the installer, checks it, and connects mockingbird to itself.
 
 ### Updating
 
