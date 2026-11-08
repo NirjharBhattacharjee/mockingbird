@@ -14,6 +14,7 @@ import {
 } from "./models.ts";
 import { retireDictation } from "./retire.ts";
 import { mockingbirdHome } from "./runtime.ts";
+import { doctor, setup } from "./setup.ts";
 import { main as transcribeMain, UsageError } from "./transcribe.ts";
 import { uninstall } from "./uninstall.ts";
 
@@ -25,8 +26,13 @@ export const COMMANDS: { name: string; summary: string }[] = [
   {
     name: "models pull",
     summary:
-      "download the speech models, or `models pull <name or URL>`\nany Whisper model; `models pull chrome` gets the Chrome\nmotion renders HTML in (the only commands that use the network)",
+      "download the speech models, or `models pull <name or URL>`\nany Whisper model; `models pull chrome` gets the Chrome\nmotion renders HTML in (these and `setup` are the only\ncommands that use the network)",
   },
+  {
+    name: "setup",
+    summary: "install what's missing and add it to your coding agents\n(asks first; --yes doesn't)",
+  },
+  { name: "doctor", summary: "check every part, and say how to fix what's broken" },
   { name: "status", summary: "whether the models and tools it needs are installed" },
   { name: "mcp", summary: "serve the editing tools to an AI agent over MCP" },
   { name: "uninstall", summary: "remove mockingbird and what it installed (asks first)" },
@@ -187,6 +193,18 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
       return 0;
     case "status":
       return status();
+    case "doctor":
+      return doctor(rest);
+    case "setup":
+      return setup(rest, {
+        ask: (question, fallback) => {
+          const answer = prompt(question);
+          // No input at all (closed, or not a terminal) is a no, never the default.
+          if (answer === null) return false;
+          return answer.trim() ? /^y/i.test(answer.trim()) : fallback;
+        },
+        pull: pullWithProgress,
+      });
     case "models":
       if (rest.length === 1 && rest[0] === "pull") return pullWithProgress();
       if (rest.length === 2 && rest[0] === "pull" && rest[1] === "chrome") {
