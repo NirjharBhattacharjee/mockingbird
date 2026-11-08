@@ -15,6 +15,7 @@ import { type AsrWord, stripNonSpeech } from "@mockingbird/asr";
 import { loadAudio, type PcmAudio } from "@mockingbird/audio";
 import { type Cue, drawCaptions, parseSrt } from "@mockingbird/captions";
 import { noNetwork } from "@mockingbird/motion/sandbox";
+import type { MusicParams } from "@mockingbird/motion";
 import { applyCorrections, correctNames } from "@mockingbird/store";
 import { compile, edit, load } from "@mockingbird/timeline";
 import type { SpeechSegment } from "@mockingbird/vad";
@@ -1192,6 +1193,36 @@ const MOTION_RUNNER = join(import.meta.dir, "motion-run.ts");
 const MOTION_MAX_SECONDS = 7200;
 
 /**
+ * Runs MOTION_RUNNER with `options` in a fresh process, sandboxed with no
+ * network where the OS can (Chrome blocks it everywhere): the script is the client's code, and mockingbird's only download
+ * is `models pull`. Returns what it printed.
+ */
+async function sandboxed(options: object, what: string): Promise<string> {
+  const proc = Bun.spawn(
+    [...noNetwork(), process.execPath, MOTION_RUNNER, JSON.stringify(options)],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  const [said, why, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  if (code !== 0) throw new Error(why.trim() || `${what} stopped (exit ${code})`);
+  return said;
+}
+
+/** Chrome's path, or the error that says how to get it. */
+function needChrome(): string {
+  const chrome = findChrome();
+  if (chrome) return chrome;
+  throw new Error(
+    process.env.MOCKINGBIRD_CHROME
+      ? `MOCKINGBIRD_CHROME is ${process.env.MOCKINGBIRD_CHROME}, which isn't a program that can run. Ask the user to fix it, or to unset it and run \`mockingbird models pull chrome\`.`
+      : "An HTML page renders in a headless Chrome that isn't downloaded yet. Ask the user to run `mockingbird models pull chrome` (about 100 MB), or to set MOCKINGBIRD_CHROME to one.",
+  );
+}
+
+/**
  * Renders `script`, an HTML page, in Chrome, over the video at `path` or on
  * its own at `size` for `duration` seconds, and saves the result. It runs in its own
  * sandboxed process with no network, Chrome included.
@@ -1221,14 +1252,7 @@ async function motion(
       `motion renders an HTML page; ${script} isn't one. Canvas scripts went with the Canvas engine (#169): draw on a <canvas> in a page, with the kit's page() (guide("motion-graphics")).`,
     );
   }
-  const chrome = findChrome();
-  if (!chrome) {
-    throw new Error(
-      process.env.MOCKINGBIRD_CHROME
-        ? `MOCKINGBIRD_CHROME is ${process.env.MOCKINGBIRD_CHROME}, which isn't a program that can run. Ask the user to fix it, or to unset it and run \`mockingbird models pull chrome\`.`
-        : "An HTML page renders in a headless Chrome that isn't downloaded yet. Ask the user to run `mockingbird models pull chrome` (about 100 MB), or to set MOCKINGBIRD_CHROME to one.",
-    );
-  }
+  const chrome = needChrome();
   let seconds = duration;
   let audio = false;
   let picture = size;
@@ -1270,22 +1294,12 @@ async function motion(
     cues: captions?.trim() ? parseSrt(captions) : [],
     fonts: fontFaces(),
   };
-  // A fresh process per call, sandboxed with no network: the script is the
-  // client's code, and mockingbird's only download is `models pull`.
-  // Where there's no OS sandbox, Chrome's own blocking is the wall.
-  const wall = noNetwork();
-  const proc = Bun.spawn([...wall, process.execPath, MOTION_RUNNER, JSON.stringify(options)], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [said, why, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  if (code !== 0) {
+  let said: string;
+  try {
+    said = await sandboxed(options, "the motion script");
+  } catch (error) {
     rmSync(target, { force: true });
-    throw new Error(why.trim() || `the motion script stopped (exit ${code})`);
+    throw error;
   }
   let frames = 0;
   let work: string | undefined;
@@ -1406,6 +1420,74 @@ async function clipWords(
   } finally {
     await engines.close();
   }
+}
+
+/** The rate every generated track is made at. */
+const MUSIC_RATE = 48000;
+
+/**
+ * Music written as code: the generator module `script` played into an
+ * OfflineAudioContext in the pinned Chrome, sandboxed like `motion`, and
+ * saved as a WAV at `out` brought to LUFS through LIMIT, like everything
+ * mockingbird makes. The same arguments make the same track, to the last
+ * bits: Chrome sums a node's inputs in an order that varies between runs.
+ */
+async function music(
+  script: string,
+  out: string,
+  params: Omit<MusicParams, "sampleRate">,
+): Promise<string> {
+  requireFile(script, "Generator");
+  if (!/\.m?js$/i.test(script)) throw new Error(`A generator is a .js module; got ${script}`);
+  if (!/\.wav$/i.test(out)) throw new Error(`out must be a .wav file; got ${out}`);
+  const chrome = needChrome();
+  const target = outputFor(out, out, false);
+  const started = performance.now();
+  const work = mkdtempSync(join(dirname(target), ".mockingbird-music-"));
+  let reached = LUFS;
+  try {
+    const raw = join(work, "raw.wav");
+    await sandboxed(
+      { music: true, script, chrome, out: raw, params: { ...params, sampleRate: MUSIC_RATE } },
+      "the generator",
+    );
+    if (!((await loudness(raw)) > -70)) throw new Error(`${script} made silence.`);
+    // levelGain's one correction falls short on music with big hits (cinematic
+    // drums: -14.9 LUFS). A bed is short, so measure through the limiter once more.
+    let gain = await levelGain(raw);
+    gain = Math.min(MAX_GAIN, gain + LUFS - (await loudness(raw, `volume=${gain}dB,${LIMIT},`)));
+    const levelled = join(work, "levelled.wav");
+    await ffmpeg(
+      ["-i", raw, "-af", `volume=${gain.toFixed(2)}dB,${LIMIT}`, "-c:a", "pcm_s16le", levelled],
+      `bring ${target} to ${LUFS} LUFS`,
+    );
+    reached = await loudness(levelled);
+    renameSync(levelled, target);
+  } catch (error) {
+    rmSync(target, { force: true });
+    throw error;
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+  const took = ((performance.now() - started) / 1000).toFixed(1);
+  return `${target} (${clock(params.duration * 1000)}, 48 kHz stereo, ${reached.toFixed(1)} LUFS), made in ${took} s`;
+}
+
+/** An `energy` argument: a level 0-1, or [seconds, level] points in time order. */
+function energy(value: unknown): MusicParams["energy"] {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value)) return within(value, 0, 1, "energy");
+  if (!value.length) throw new Error("energy's curve needs at least one [seconds, level] point");
+  let last = -1;
+  return value.map((point, i) => {
+    if (!Array.isArray(point) || point.length !== 2) {
+      throw new Error(`energy[${i}] must be [seconds, level]; got ${JSON.stringify(point)}`);
+    }
+    const at = within(point[0], 0, MOTION_MAX_SECONDS, `energy[${i}][0]`);
+    if (at <= last) throw new Error(`energy's points must be in time order; energy[${i}] isn't`);
+    last = at;
+    return [at, within(point[1], 0, 1, `energy[${i}][1]`)];
+  });
 }
 
 async function captions(
@@ -1844,6 +1926,42 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
         required: ["path"],
       },
       run: (a) => audioStats(resolve(String(a.path)), { from: seconds(a.from), to: seconds(a.to) }),
+    },
+    {
+      name: "music",
+      description:
+        "Background music written as code, with no samples to license: `script` is a generator, a .js module whose `export default function (ctx, params)` schedules sound on `ctx`, an OfflineAudioContext as long as `duration`, with Web Audio nodes (oscillators, filters, gains, buffers of noise, convolvers). It runs in the pinned headless Chrome, in a sandbox with no network. `params` has duration, sampleRate (48000), seed, and the tempo, key and energy given here, for the generator to read. Math.random is seeded from `seed`, so the same arguments make the same track (Chrome's mixer can round the last bits differently between runs, never audibly). Saves a 48 kHz stereo WAV at `out`, brought to -14 LUFS with its peaks held, and never overwrites. Use it as one of render's `audio` tracks (volume about 0.1 to 0.2 under speech, `duck: true`). The plugin's generators and how to choose one are in guide(\"music\").",
+      inputSchema: {
+        type: "object",
+        properties: {
+          script: { type: "string", description: "Absolute path to the generator (.js)" },
+          duration: { type: "number", description: "Seconds, 1 to 7200" },
+          out: { type: "string", description: "Absolute path for the WAV" },
+          tempo: { type: "number", description: "Beats a minute, 30 to 240, for the generator" },
+          key: { type: "string", description: 'A key for the generator, like "A minor"' },
+          energy: {
+            description:
+              "0 to 1, or a curve of [seconds, level] points in time order, eased between: how busy the music is",
+            oneOf: [
+              { type: "number" },
+              { type: "array", items: { type: "array", items: { type: "number" } } },
+            ],
+          },
+          seed: {
+            type: "number",
+            description: "Another whole number makes a variation (default 1)",
+          },
+        },
+        required: ["script", "duration", "out"],
+      },
+      run: async (a) =>
+        music(resolve(String(a.script)), resolve(String(a.out)), {
+          duration: within(a.duration, 1, MOTION_MAX_SECONDS, "duration"),
+          seed: Math.round(within(a.seed, 0, 2 ** 32 - 1, "seed", 1)),
+          tempo: a.tempo === undefined ? undefined : within(a.tempo, 30, 240, "tempo"),
+          key: a.key === undefined ? undefined : String(a.key).slice(0, 40),
+          energy: energy(a.energy),
+        }),
     },
     {
       name: "frames",

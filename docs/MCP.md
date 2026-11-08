@@ -53,7 +53,8 @@ after the curl install, or `/opt/homebrew/bin/mockingbird` with Homebrew.
 | `edit(project, ops)` | Changes a project file, an edit kept between calls; see [Projects](#projects). Applies `ops` in order, all of them or none, saves the file, and returns an outline of the cut. Makes the file if it isn't there; with no ops it only reads it. |
 | `render(project)` or `render(path, clips, …)` | Renders a project, or cuts `clips` out of one video and joins them, into one MP4 with ffmpeg; see [Render options](#render-options). Saves to `out`, or `<name>-render-N.mp4` beside the project (`<name>-short-N.mp4` beside the source), and never overwrites a file. |
 | `motion(script, path, captions, size, duration, fps, out)` | Motion graphics written as code: an HTML page rendered in a pinned headless Chrome; see [Motion graphics](#motion-graphics). Saves to `out`, or `<name>-motion-N.mp4` beside the video or script, and never overwrites a file. |
-| `guide(topic)` | A playbook for one job, from [`plugin/`](../plugin/README.md): `viral-short`, `long-form`, `hooks`, `retention-editing`, `captions`, `motion-graphics`, `style-match`, or `reviewer` (the checks a finished video has to pass). It starts with the folder holding the playbook's scripts, kit and templates. |
+| `music(script, duration, out, tempo, key, energy, seed)` | Background music written as code: a generator module played into Web Audio's `OfflineAudioContext` in the pinned headless Chrome, saved as a WAV at −14 LUFS for `render`'s `audio`; see [Music](#music). Never overwrites a file. |
+| `guide(topic)` | A playbook for one job, from [`plugin/`](../plugin/README.md): `viral-short`, `long-form`, `hooks`, `retention-editing`, `captions`, `motion-graphics`, `music`, `style-match`, or `reviewer` (the checks a finished video has to pass). It starts with the folder holding the playbook's scripts, kit and templates. |
 | `status` | Whether mockingbird is ready: the transcription model in use, the speech detection model, ffmpeg, whisper-server, the Chrome that `motion` renders HTML in, and how many words the dictionary has. |
 | `dictionary_list` | Your dictionary: the names, places and jargon mockingbird spells a particular way. |
 | `dictionary_add(entry)` | Adds a word, like `mockingbird dictionary add`: `"Catppuccin"`, `"Catppuccin (a colour theme)"`, or `"cat puck => Catppuccin"`. |
@@ -323,6 +324,52 @@ motion-graphics kit's `page()` does that wrapping.)
 - **No network.** Chrome runs in a process under macOS's sandbox with the
   network denied, so a page can't fetch anything from the internet. Chrome's own
   sandbox can't run inside that one, so it's off.
+
+## Music
+
+`music` makes background music from code, so there are no samples to
+license. `script` is a generator, a JavaScript module:
+
+```js
+// drone.js
+export default function (ctx, { duration, tempo = 80, key, energy, seed }) {
+  const o = ctx.createOscillator();
+  o.frequency.value = 110;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0, 0);
+  g.gain.linearRampToValueAtTime(0.3, 2);
+  o.connect(g).connect(ctx.destination);
+  o.start(0);
+}
+```
+
+- **`ctx`** is an `OfflineAudioContext`, stereo at 48 kHz, as long as
+  `duration`. The generator schedules its sound on it (oscillators, filters,
+  gains, buffers it fills, convolvers, compressors) and returns, or resolves
+  once it has; Chrome then renders the whole track at once. 60 s of the
+  plugin's lo-fi generator takes about 6 s, most of it starting Chrome and
+  levelling.
+- **The second argument** has `duration`, `sampleRate`, `seed`, and the
+  `tempo`, `key` and `energy` the call gave, for the generator to read.
+  `energy` is 0 to 1, or a curve of `[seconds, level]` points, so the music
+  can build and drop with the edit's sections.
+- **The same arguments make the same track.** `Math.random` is seeded from
+  `seed` (default 1), so a generator can use it freely, and another seed
+  makes a variation. Not the same bytes, though: Chrome adds up a node's
+  inputs in an order that changes between runs, so the float rounding
+  differs in the last bits (at most about 6e-8 before levelling, a few steps
+  of 32768 in the WAV), never audibly.
+- **The WAV** is 16-bit stereo at 48 kHz, brought to −14 LUFS with its peaks
+  held under −1.5 dBTP, like everything mockingbird makes. Under speech,
+  give it to `render` as `{ path, volume: 0.15, loop: true, duck: true }`.
+- It runs like a `motion` page: in Chrome, which can't reach the network,
+  started under the OS sandbox where there is one.
+
+The plugin's generators are in `plugin/skills/music/generators/`, with the
+instruments they share in `lib.js`: `lofi.js`, `ambient.js`,
+`corporate.js`, `cinematic.js` and `electronic.js`. Each reads `tempo`,
+`key` and `energy`, and energy brings its layers in as it rises. Which one
+suits which video, and how to draw the curve, is in `guide("music")`.
 
 ## Without MCP
 
