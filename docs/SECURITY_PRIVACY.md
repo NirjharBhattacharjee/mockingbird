@@ -99,7 +99,12 @@ Enforced by [ARCHITECTURE.md §9](./ARCHITECTURE.md#9-everything-is-local):
 None. Reading and writing files the user points at needs no TCC grant. A
 folder macOS protects (Desktop, Documents, Downloads) prompts for the
 terminal or agent app that runs mockingbird, the first time, as it would for
-`ls`. Pivot step 3's `mockingbird record` will need the microphone, once.
+`ls`. `mockingbird record` needs the microphone: macOS asks once, for the
+terminal it runs in, and the answer is that terminal's to keep or revoke in
+System Settings → Privacy & Security → Microphone. It records only while the
+command runs and only into the file it was given; a recording that comes out
+silent says where to look, since a denied mic records silence rather than
+failing.
 
 ## 5. At-rest storage & retention
 
