@@ -1262,15 +1262,8 @@ async function motion(
   };
   // A fresh process per call, sandboxed with no network: the script is the
   // client's code, and mockingbird's only download is `models pull`.
+  // Where there's no OS sandbox, Chrome's own blocking is the wall.
   const wall = noNetwork();
-  // The runner imports a canvas script itself, so where there's no OS
-  // sandbox nothing else would stop its network calls. A page is fine:
-  // Chrome blocks those.
-  if (!page && wall.length === 0) {
-    throw new Error(
-      `${basename(script)} is a canvas script, which runs only where the OS can sandbox it (macOS, or Linux with a network namespace). Make it an .html page.`,
-    );
-  }
   const proc = Bun.spawn([...wall, process.execPath, MOTION_RUNNER, JSON.stringify(options)], {
     stdout: "pipe",
     stderr: "pipe",
