@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime/debug"
-	"syscall"
 )
 
 // engineCLI is the engine's command, relative to the repo root.
@@ -31,11 +30,9 @@ func run(args []string) int {
 	}
 	bun, err := exec.LookPath("bun")
 	if err != nil {
-		return fail(errors.New("bun isn't on the PATH; install it with `brew install bun`"))
+		return fail(errors.New("bun isn't on the PATH; run the install again, or install it from https://bun.sh"))
 	}
-	argv := append([]string{bun, filepath.Join(root, engineCLI)}, args...)
-	// Replace this process, so the engine gets the terminal, signals and exit code.
-	return fail(syscall.Exec(bun, argv, os.Environ()))
+	return runEngine(bun, append([]string{bun, filepath.Join(root, engineCLI)}, args...))
 }
 
 // release is the tag, which release.yml builds in with

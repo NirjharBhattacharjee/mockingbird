@@ -24,8 +24,10 @@ import {
   findAsrModel,
   isWhisperFile,
   mockingbirdHome,
+  pinnedWhisper,
   savedModelFor,
   spokenLanguage,
+  WHISPER_BUILD,
   WHISPER_LANGUAGES,
 } from "./runtime.ts";
 
@@ -378,6 +380,69 @@ async function installChrome(
       rmSync(join(bin, old), { recursive: true, force: true });
     }
   }
+}
+
+/**
+ * `mockingbird models pull` on Linux and Windows also downloads whisper-server
+ * and unpacks it into `~/.mockingbird/bin`. Returns 0 where there's no pin
+ * (macOS: Homebrew's).
+ */
+export async function pullWhisper(deps: PullDeps & { force?: boolean } = {}): Promise<number> {
+  const log = deps.log ?? ((m: string) => console.error(m));
+  const home = deps.home ?? mockingbirdHome();
+  const pin = pinnedWhisper(home);
+  if (!pin) return 0;
+  // A plain `models pull` keeps one that's there; `models pull whisper-server`
+  // unpacks it again, to repair a damaged one.
+  if (existsSync(pin.program) && !deps.force) {
+    log(`whisper-server ${WHISPER_BUILD} is downloaded`);
+    return 0;
+  }
+  const bin = join(home, "bin");
+  mkdirSync(bin, { recursive: true });
+  // One pull at a time: two would share the download and the unpacking folder.
+  const lock = join(bin, ".whisper-pull.lock");
+  const holder = takeLock(lock);
+  if (holder) {
+    log(`Another \`mockingbird models pull\` (pid ${holder}) is running; wait for it.`);
+    return 1;
+  }
+  try {
+    await pullFiles([pin.archive], bin, deps);
+    const archive = join(bin, pin.archive.file);
+    // Unpacked beside the target and renamed into place, so a half-unpacked one
+    // is never found. tar reads .zip too on Windows (bsdtar, since Windows 10).
+    const unpacking = `${pin.dir}.part`;
+    rmSync(unpacking, { recursive: true, force: true });
+    mkdirSync(unpacking, { recursive: true });
+    // Windows' own tar.exe: Git Bash's GNU tar, often first on the PATH, takes
+    // "D:" for a remote host.
+    const tarExe =
+      process.platform === "win32"
+        ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
+        : "tar";
+    const tar = Bun.spawnSync([tarExe, "-xf", archive, "-C", unpacking], { stderr: "pipe" });
+    if (tar.exitCode !== 0) {
+      rmSync(unpacking, { recursive: true, force: true });
+      throw new Error(`couldn't unpack ${archive}: ${tar.stderr.toString().trim()}`);
+    }
+    // The one there stays until the new one is in place.
+    const old = `${pin.dir}.old`;
+    rmSync(old, { recursive: true, force: true });
+    if (existsSync(pin.dir)) renameSync(pin.dir, old);
+    try {
+      renameSync(unpacking, pin.dir);
+    } catch (error) {
+      if (existsSync(old)) renameSync(old, pin.dir);
+      throw error;
+    }
+    rmSync(old, { recursive: true, force: true });
+    rmSync(archive, { force: true });
+  } finally {
+    rmSync(lock, { force: true });
+  }
+  log(`whisper-server ${WHISPER_BUILD} is downloaded.`);
+  return 0;
 }
 
 export type ModelsDeps = {

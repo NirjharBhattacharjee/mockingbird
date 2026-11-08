@@ -127,6 +127,7 @@ describe("clonePristine", () => {
     expect(clonePristine(fresh(), git)).toBe(true);
   });
 
+  // Real git, which is slow on Windows runners: over 5 s once.
   test("ignored files, a local commit or a stash are the user's work", () => {
     const ignored = fresh();
     writeFileSync(join(ignored, ".env"), "SECRET=1");
@@ -144,7 +145,7 @@ describe("clonePristine", () => {
     expect(clonePristine(stashed, git)).toBe(false);
 
     expect(clonePristine("/nonexistent", git)).toBe(false);
-  });
+  }, 20_000);
 });
 
 describe("uninstall stops before losing anything", () => {

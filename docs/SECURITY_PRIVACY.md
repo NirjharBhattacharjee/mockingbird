@@ -83,7 +83,9 @@ Enforced by [ARCHITECTURE.md §9](./ARCHITECTURE.md#9-everything-is-local):
 - **No account, login or license server.**
 - **The only download is one you run:** `mockingbird models pull`, and
   `models pull chrome` for the headless Chrome `motion` renders HTML in.
-  Each prints its URL and checks the file against a pinned sha256.
+  Each prints its URL and checks the file against a pinned sha256. On
+  Linux and Windows `models pull` includes whisper.cpp's whisper-server
+  build.
   `mockingbird setup` runs the same download after showing its size and
   hosts, and `brew install` for a missing ffmpeg or whisper-cpp after naming
   them; each only on a yes (or `--yes`). Homebrew fetches and checks its
@@ -178,10 +180,20 @@ flowchart LR
   is verified: Homebrew formulas by sha256, the Go binary against the
   release's `checksums.txt`, models against pinned sha256s. If Homebrew is
   missing and you agree, it runs Homebrew's own installer, unpinned, as
-  brew.sh says to.
+  brew.sh says to. On Linux it uses the system's git and ffmpeg and
+  downloads Bun's release zip, checked against a sha256 pinned in the
+  script.
+- **`scripts/install.ps1`** (Windows) trusts GitHub the same way. Git and
+  ffmpeg come from winget, which checks each installer's hash; Bun's zip
+  and the Go binary are checked as above.
 - **The Homebrew formula** pins each release's source tarball by sha256.
   CI opens the PR that bumps it and a person merges it. `bun install`
   inside it is checked against `bun.lock`.
+- **Release binaries aren't signed or notarized yet** (#159). The
+  installers download with `curl` and `Invoke-WebRequest`, which add no
+  quarantine flag or Mark of the Web, so Gatekeeper and SmartScreen don't
+  check them; their integrity comes from `checksums.txt`. A browser
+  download is flagged, and the README says what the user sees.
 - **Updates are never automatic.** A silent updater would be unannounced
   network activity and a way to compromise every install at once.
 

@@ -1,0 +1,7 @@
+# LF everywhere, Windows included: Biome and gofmt check for it, and a shell
+# script (install.sh, the plugin's launch.sh) won't run with CRLF.
+* text=auto eol=lf
+*.wav binary
+*.png binary
+*.jpg binary
+*.onnx binary
