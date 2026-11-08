@@ -4,13 +4,14 @@
  * process under macOS's sandbox with the network denied, so the page, and
  * the Chrome it renders in, can't break mockingbird's one-download rule
  * (ARCHITECTURE.md §9) or take the server down with it. Arguments are one
- * JSON object: renderHtml's options plus `script` (the page) and `chrome`.
+ * JSON object: renderHtml's options plus `script` (the page) and `chrome`;
+ * or, with `music`, renderMusic's options, `script` being the generator.
  */
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { renderHtml } from "@mockingbird/motion";
+import { renderHtml, renderMusic } from "@mockingbird/motion";
 
-const { script, chrome, ...options } = JSON.parse(process.argv[2] ?? "{}");
+const { script, chrome, music, ...options } = JSON.parse(process.argv[2] ?? "{}");
 
 /** A list of sounds with paths from the page's folder. */
 function soundsOf(listed: unknown, where: string) {
@@ -25,6 +26,11 @@ function soundsOf(listed: unknown, where: string) {
 }
 
 try {
+  if (music) {
+    await renderMusic(script, { chrome, ...options });
+    console.log(JSON.stringify({ made: true }));
+    process.exit(0);
+  }
   let sounds: unknown[] = [];
   const frames = await renderHtml(script, {
     ...options,

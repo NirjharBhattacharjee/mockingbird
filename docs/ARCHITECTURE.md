@@ -28,6 +28,7 @@ injection, the cleanup model, the launchd agent) is in git:
 | 2026-11-04 | Timeline, first part (#148): `packages/timeline` keeps an edit in a project file; the `edit` tool changes it with ops; `render` renders one, with clips from several sources framed to one size and rate, and captions made for the cut. |
 | 2026-11-04 | The Canvas motion engine is gone (#169): `packages/motion`'s Canvas 2D over Core Graphics, Core Text and vImage, and `motion`'s `.ts`/`.js` scripts. `motion` renders HTML pages only, and the kit runs in them (#168). |
 | 2026-11-04 | Captions and `render`'s texts are drawn as HTML in the pinned Chrome instead of with Core Text (#155), started under the no-network sandbox where there is one; the Core Text code is gone. Without Chrome, `render` falls back to libass or an `.srt`. |
+| 2026-11-04 | `music` makes background music from a generator module played into `OfflineAudioContext` in the pinned Chrome, under the motion sandbox, saved as a WAV at −14 LUFS (#170). The plugin's first generator is lo-fi. |
 | 2026-11-04 | `motion` renders an HTML page in a pinned headless Chrome (#145): `mockingbird models pull chrome`, a frame clock injected into the page, several tabs capturing at once, Chrome inside the motion sandbox. The Canvas engine stays until the kit is ported. |
 | 2026-11-04 | `mockingbird setup` and `doctor`, and the plugin's `launch.sh`, which answers MCP with an install tool when mockingbird isn't installed (#141). |
 | 2026-11-04 | `mockingbird record`: the microphone through ffmpeg (`avfoundation`, the input System Settings picked) into a file, for a voiceover (#142). |
@@ -256,6 +257,13 @@ video or over black. Every tab steps through every frame and captures only
 its own, so all tabs have the same history: an animation a page starts at
 frame 40 starts at frame 40 in every tab.
 
+`music` uses the same sandboxed process and Chrome:
+`packages/motion/src/music.ts` opens the generator module as a file page,
+seeds `Math.random`, has the module schedule its sound on an
+`OfflineAudioContext`, renders it, and reads the samples back over the
+DevTools pipe ten seconds at a time into a float WAV. The engine then
+levels it to −14 LUFS.
+
 ## 8. State
 
 There's no daemon and nothing runs in the background. Each command and each
@@ -328,7 +336,8 @@ mockingbird/
 │   ├── vad/                 Silero ONNX wrapper
 │   ├── asr/                 whisper-server adapter, word diff (WER)
 │   ├── captions/            SRT parsing, captions drawn as HTML in Chrome
-│   ├── motion/              HTML pages in headless Chrome, to MP4
+│   ├── motion/              HTML pages and Web Audio music in headless Chrome,
+│   │                        to MP4 and WAV
 │   ├── timeline/            project files: format, checks, edit ops, outline
 │   └── store/               data.db, the dictionary's parsing and name matching
 ├── plugin/                  the Claude Code plugin: skills, the reviewer agent,
