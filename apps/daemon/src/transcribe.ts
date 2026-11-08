@@ -2,6 +2,7 @@ import { parseArgs } from "node:util";
 import { transcribe } from "./mcp.ts";
 
 const USAGE = `Usage: mockingbird transcribe <file> [--words] [--from <s>] [--to <s>]
+                                        [--model <file>] [--language <code>]
 
 Prints an audio or video file's speech as timestamped lines, names spelled
 the dictionary's way. Any format ffmpeg can read works.
@@ -9,6 +10,10 @@ the dictionary's way. Any format ffmpeg can read works.
 Options:
   --words      each word with its start and end, to cut on
   --from, --to only this stretch, in seconds
+  --model      a Whisper model file in models/ (\`mockingbird models\` lists them)
+  --language   what's spoken: a code like bn or de, or auto to detect it and
+               use the model \`models use --language\` picked for it
+               (only with MOCKINGBIRD_ASR_MODEL unset)
   -h, --help   show this help
 
 Environment:
@@ -45,7 +50,11 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
     throw new UsageError("expected exactly one file");
   }
   const range = { from: seconds(values.from), to: seconds(values.to) };
-  console.log(await transcribe(positionals[0], log, range, values.words ?? false));
+  const choice = {
+    ...(values.model ? { model: values.model } : {}),
+    ...(values.language ? { language: values.language.toLowerCase() } : {}),
+  };
+  console.log(await transcribe(positionals[0], log, range, values.words ?? false, choice));
   return 0;
 }
 
@@ -56,6 +65,8 @@ const parse = (args: string[]) =>
       words: { type: "boolean" },
       from: { type: "string" },
       to: { type: "string" },
+      model: { type: "string" },
+      language: { type: "string" },
       help: { type: "boolean", short: "h" },
     },
     allowPositionals: true,

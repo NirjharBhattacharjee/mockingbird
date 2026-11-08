@@ -7,6 +7,8 @@ export type AsrResult = {
   /** Mean probability of spoken (non-punctuation) words, 0..1. */
   confidence: number;
   words: AsrWord[];
+  /** The language Whisper heard, by its name ("german"), when it was asked to detect it. */
+  language?: string;
 };
 
 export type TranscribeOptions = {

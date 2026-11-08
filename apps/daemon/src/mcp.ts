@@ -20,7 +20,13 @@ import type { SpeechSegment } from "@mockingbird/vad";
 import { addEntries, formatEntry, readDictionary } from "./dictionary.ts";
 import { guide, INSTRUCTIONS, playbooks } from "./guide.ts";
 import { findChrome } from "./models.ts";
-import { type Engines, requireFile, spokenLanguage, startEngines } from "./runtime.ts";
+import {
+  type Engines,
+  enginesFor,
+  type ModelChoice,
+  requireFile,
+  WHISPER_LANGUAGES,
+} from "./runtime.ts";
 
 /**
  * `mockingbird mcp` (#88): mockingbird's local functions as Model Context
@@ -193,14 +199,14 @@ export const fineClock = (ms: number) =>
  * matched by sound, which only works for English (as dictation's cleanup
  * did). If data.db can't be read, words come out as heard.
  */
-function speller(log: (m: string) => void): (text: string) => string {
+function speller(log: (m: string) => void, language: string): (text: string) => string {
   let dictionary: ReturnType<typeof readDictionary> = [];
   try {
     dictionary = readDictionary();
   } catch (error) {
     log(`warning: couldn't read the dictionary from data.db: ${error}`);
   }
-  const english = spokenLanguage() === "en";
+  const english = language === "en";
   return (text) => {
     const fixed = applyCorrections(text, dictionary);
     return english ? correctNames(fixed, dictionary) : fixed;
@@ -236,6 +242,7 @@ export async function transcribe(
   log: (m: string) => void,
   { from, to }: { from?: number; to?: number } = {},
   words = false,
+  choice: ModelChoice = {},
 ): Promise<string> {
   const file: PcmAudio = await loadAudio(requireFile(path, "File"));
   const rate = file.sampleRate;
@@ -249,9 +256,10 @@ export async function transcribe(
   }
   const audio = { sampleRate: rate, samples: file.samples.subarray(first, last) };
   const startMs = (first / rate) * 1000;
-  const spell = speller(log);
   // A whisper-server per call, since two requests can run at once.
-  const engines = await startEngines(log);
+  const picked = await enginesFor(audio, choice, log);
+  const { engines } = picked;
+  const spell = speller(log, picked.language);
   try {
     const lines: string[] = [];
     for await (const { heard, offsetMs } of hear(audio, startMs, engines)) {
@@ -273,9 +281,14 @@ export async function transcribe(
       from === undefined && to === undefined
         ? `${Math.round(audio.samples.length / rate / 60)} min`
         : `${clock(startMs)}-${clock((last / rate) * 1000)}`;
+    // Which language and model, when the call picked them or the language was detected.
+    const how =
+      choice.model || choice.language || picked.detected
+        ? `, ${WHISPER_LANGUAGES.get(picked.language) ?? picked.language}${picked.detected ? " (detected)" : ""} with ${picked.model}`
+        : "";
     return lines.length
-      ? `${path} (${span})\n\n${lines.join("\n")}`
-      : `${path} (${span}): no speech found.`;
+      ? `${path} (${span}${how})\n\n${lines.join("\n")}`
+      : `${path} (${span}${how}): no speech found.`;
   } finally {
     await engines.close();
   }
@@ -1275,16 +1288,39 @@ async function motion(
  * from the dictionary. Each source is heard once, over the stretches its
  * clips need; a source with no sound has no words.
  */
-async function clipWords(path: string, clips: Clip[], log: (m: string) => void) {
-  const spell = speller(log);
+async function clipWords(
+  path: string,
+  clips: Clip[],
+  log: (m: string) => void,
+  choice: ModelChoice = {},
+) {
   const words: AsrWord[][] = clips.map(() => []);
+  // The first clip's source, loaded once: the language is detected from that
+  // clip (what's captioned first), and the loop below reuses the file.
+  const opening = clips[0];
+  const openingSource = opening ? (opening.path ?? path) : undefined;
+  let loaded: { source: string; file: PcmAudio } | undefined;
+  let sample: PcmAudio = { sampleRate: 16_000, samples: new Int16Array(0) };
+  if (opening && openingSource && (await probe(requireFile(openingSource, "File"))).audio) {
+    const file = await loadAudio(openingSource);
+    loaded = { source: openingSource, file };
+    const rate = file.sampleRate;
+    sample = {
+      sampleRate: rate,
+      samples: file.samples.subarray(
+        Math.round(opening.from * rate),
+        Math.round(opening.to * rate),
+      ),
+    };
+  }
   // A whisper-server per call, since two requests can run at once.
-  const engines = await startEngines(log);
+  const { engines, language } = await enginesFor(sample, choice, log);
+  const spell = speller(log, language);
   try {
     for (const source of new Set(clips.map((c) => c.path ?? path))) {
       const mine = clips.flatMap((c, i) => ((c.path ?? path) === source ? [{ c, i }] : []));
       if (!(await probe(requireFile(source, "File"))).audio) continue;
-      const file = await loadAudio(source);
+      const file = loaded?.source === source ? loaded.file : await loadAudio(source);
       const rate = file.sampleRate;
       const stretches = spans(mine.map(({ c }) => c));
       const heard: AsrWord[][] = [];
@@ -1314,8 +1350,9 @@ async function captions(
   log: (m: string) => void,
   clips: Clip[],
   options: Parameters<typeof wordCaptions>[2],
+  choice: ModelChoice = {},
 ): Promise<string> {
-  const words = await clipWords(path, clips, log);
+  const words = await clipWords(path, clips, log, choice);
   return wordCaptions(clips, words, options) || "No speech in those clips.";
 }
 
@@ -1352,6 +1389,12 @@ async function renderProject(file: string, log: (m: string) => void, out?: strin
     kind: "render",
   });
 }
+
+/** A tool's `model` and `language`, each only if given. */
+const choiceOf = (a: Record<string, unknown>): ModelChoice => ({
+  ...(a.model === undefined ? {} : { model: String(a.model) }),
+  ...(a.language === undefined ? {} : { language: String(a.language).toLowerCase() }),
+});
 
 /** A tool's seconds argument: absent stays absent, anything else must be a number. */
 const seconds = (value: unknown) => {
@@ -1438,11 +1481,27 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
           from: { type: "number", description: "Start, in seconds from the start of the file" },
           to: { type: "number", description: "End, in seconds from the start of the file" },
           words: { type: "boolean", description: "One line per word, with start and end" },
+          model: {
+            type: "string",
+            description:
+              "A Whisper model file in models/ for this call (`mockingbird models` lists them), e.g. a Bangla fine-tune for a Bangla video. Default: the one picked for the language.",
+          },
+          language: {
+            type: "string",
+            description:
+              "What's spoken, as a Whisper code (en, bn, de, hi, …) or auto. Default: the user's setting. Give it for mixed speech, like Bangla and English in one sentence, where detection guesses wrong.",
+          },
         },
         required: ["path"],
       },
       run: (a) =>
-        transcribe(String(a.path), log, { from: seconds(a.from), to: seconds(a.to) }, !!a.words),
+        transcribe(
+          String(a.path),
+          log,
+          { from: seconds(a.from), to: seconds(a.to) },
+          !!a.words,
+          choiceOf(a),
+        ),
     },
     {
       name: "edit",
@@ -1649,17 +1708,33 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
           perCue: { type: "number", description: "Most words on screen at once, 1-8 (default 3)" },
           lit: { type: "boolean", description: "Mark the word being said (default true)" },
           upper: { type: "boolean", description: "In capitals (default false)" },
+          model: {
+            type: "string",
+            description:
+              "A Whisper model file in models/ for this call (`mockingbird models` lists them), e.g. a Bangla fine-tune for a Bangla video. Default: the one picked for the language.",
+          },
+          language: {
+            type: "string",
+            description:
+              "What's spoken, as a Whisper code (en, bn, de, hi, …) or auto. Default: the user's setting. Give it for mixed speech, like Bangla and English in one sentence, where detection guesses wrong.",
+          },
         },
         required: ["path", "clips"],
       },
       run: (a) => {
         const clips = items(a.clips).map((c, i) => stretch(c, `clips[${i}]`));
         if (!clips.length) throw new Error("No clips: give at least one { from, to } in seconds.");
-        return captions(resolve(String(a.path)), log, clips, {
-          perCue: Math.round(within(a.perCue, 1, 8, "perCue", 3)),
-          lit: a.lit === undefined ? true : !!a.lit,
-          upper: !!a.upper,
-        });
+        return captions(
+          resolve(String(a.path)),
+          log,
+          clips,
+          {
+            perCue: Math.round(within(a.perCue, 1, 8, "perCue", 3)),
+            lit: a.lit === undefined ? true : !!a.lit,
+            upper: !!a.upper,
+          },
+          choiceOf(a),
+        );
       },
     },
     {

@@ -141,8 +141,19 @@ fixed one name and bent two others the model had right ("Bhattacharjee" →
     Plain http is refused.
   - A file not named `ggml-*.bin` needs a name with `--as`.
 
-  The model and language per `transcribe` call, and picking the model from
-  the language detected, come next (#143).
+- **Per call:** `transcribe` and `captions` take `model` and `language`
+  (and `mockingbird transcribe --model --language`). They win over the
+  settings and the environment, for that call only.
+- **Detection:** with the language on `auto`, no `model` given,
+  `MOCKINGBIRD_ASR_MODEL` unset, and at least one model mapped to a
+  language, the call transcribes the first stretch of
+  speech (up to 30 s) with the default model, reads the language Whisper
+  names ("german"), and, if the map has another model for it, restarts on
+  that one. That costs one extra model load, only when the model changes.
+  The transcript's first line says which language and model it used.
+- Mixed speech in one video is transcribed with the model chosen from the
+  start. For Bangla and English in one sentence, give `language` (and the
+  model) rather than rely on detection.
 
 ## 6. Which Whisper, measured
 

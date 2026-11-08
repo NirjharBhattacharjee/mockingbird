@@ -4,13 +4,16 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
   DEFAULT_ASR_MODEL,
+  enginesFor,
   englishOnly,
   ffmpegMissing,
   findAsrModel,
   findWhisperServer,
+  languageCode,
   pinnedWhisper,
   spokenLanguage,
   WHISPER_BUILD,
+  WHISPER_LANGUAGES,
 } from "../src/runtime.ts";
 
 const modelsWith = (...names: string[]) => {
@@ -174,4 +177,26 @@ test("findAsrModel takes a path with either separator, as Windows writes one", (
   expect(findAsrModel(modelsWith(), join(dir, "ggml-mine.bin"), () => {})).toBe(
     join(dir, "ggml-mine.bin"),
   );
+});
+
+describe("languages by name", () => {
+  test("Whisper's reply names a language; its code comes back", () => {
+    expect(WHISPER_LANGUAGES.size).toBe(100);
+    expect(WHISPER_LANGUAGES.get("bn")).toBe("bengali");
+    expect(languageCode("german")).toBe("de");
+    expect(languageCode("Haitian Creole")).toBe("ht");
+    expect(languageCode("de")).toBe("de");
+    expect(languageCode("klingon")).toBeUndefined();
+    expect(languageCode(undefined)).toBeUndefined();
+  });
+
+  test("a call's model and language are checked before any engine starts", async () => {
+    const audio = { sampleRate: 16_000, samples: new Int16Array(16) };
+    await expect(enginesFor(audio, { model: "../data.db" }, () => {})).rejects.toThrow(
+      "model takes a file name in models/",
+    );
+    await expect(enginesFor(audio, { language: "xx" }, () => {})).rejects.toThrow(
+      "language takes a code Whisper knows",
+    );
+  });
 });

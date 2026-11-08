@@ -3,6 +3,7 @@ import { encodeWav, type PcmAudio } from "@mockingbird/audio";
 import type { AsrEngine, AsrResult, AsrWord, TranscribeOptions } from "./engine.ts";
 
 type VerboseJson = {
+  language?: string;
   segments?: {
     text: string;
     words?: { word: string; start: number; end: number; probability: number }[];
@@ -48,7 +49,7 @@ export function parseVerboseJson(body: VerboseJson): AsrResult {
     ? spoken.reduce((sum, w) => sum + w.probability, 0) / spoken.length
     : 0;
 
-  return { text, confidence, words };
+  return { text, confidence, words, ...(body.language ? { language: body.language } : {}) };
 }
 
 export class WhisperServerEngine implements AsrEngine {
