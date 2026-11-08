@@ -262,6 +262,7 @@ export const FFMPEG_NEEDS = {
     "adelay",
     "overlay",
     "scale",
+    "scdet",
   ],
 };
 

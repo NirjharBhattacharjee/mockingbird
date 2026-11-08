@@ -338,6 +338,61 @@ async function frames(
   return stills.join("\n");
 }
 
+/**
+ * The shot changes ffmpeg's `scdet` logged, `from` seconds added back, since
+ * a seek starts its times at 0: `lavfi.scd.score: 29.3, lavfi.scd.time: 2`.
+ */
+export function parseScenes(log: string, from = 0): { at: number; score: number }[] {
+  return [...log.matchAll(/lavfi\.scd\.score: ([\d.]+), lavfi\.scd\.time: ([\d.]+)/g)]
+    .map(([, score, at]) => ({ at: from + Number(at), score: Number(score) }))
+    .filter((c) => c.score > 0); // At threshold 0, an unchanged frame is logged too.
+}
+
+/**
+ * The shot changes in a video, from `from` to `to` seconds: ffmpeg's `scdet`
+ * over each frame shrunk to 180 lines, which is plenty to see a cut and
+ * quick to compare. `threshold` (0-100, default 10) is how different two
+ * frames must be to count; a jump cut in one shot scores lower than a cut
+ * to another shot. Decoded with the hardware when there's a decoder for it:
+ * a minute of 4K HEVC from a phone took 21.6 s that way, 165.6 s without.
+ */
+async function scenes(
+  path: string,
+  { from = 0, to, threshold = 10 }: { from?: number; to?: number; threshold?: number },
+): Promise<string> {
+  requireFile(path, "File");
+  const source = await probe(path);
+  if (!source.video) return `${path} has no video, only audio.`;
+  const end = Math.min(to ?? source.seconds, source.seconds);
+  if (!(end > from))
+    throw new Error(`Nothing to look at from ${from}s: ${path} is ${source.seconds}s.`);
+  const run = async (hw: boolean) => {
+    const proc = Bun.spawn(
+      [
+        ...["ffmpeg", "-nostdin", "-nostats", ...(hw ? ["-hwaccel", "auto"] : [])],
+        ...["-ss", String(from), "-t", String(end - from), "-i", path, "-an"],
+        ...["-vf", `scale=-2:180,scdet=threshold=${threshold}`, "-f", "null", "-"],
+      ],
+      { stderr: "pipe" },
+    );
+    const said = await new Response(proc.stderr).text();
+    return { said, code: await proc.exited };
+  };
+  // A hardware decoder that can't hand its frames over fails; software then.
+  let { said, code } = await run(true);
+  if (code !== 0) ({ said, code } = await run(false));
+  if (code !== 0) {
+    throw new Error(
+      `ffmpeg couldn't look for cuts in ${path}: ${said.trim().split("\n").slice(-3).join("\n")}`,
+    );
+  }
+  const cuts = parseScenes(said, from);
+  const length = end - from;
+  const pace = `, ${((cuts.length / length) * 60).toFixed(1)} a minute, ${(length / (cuts.length + 1)).toFixed(1)} s a shot`;
+  const head = `${path}: ${cuts.length} cut${cuts.length === 1 ? "" : "s"} from ${fineClock(from * 1000)} to ${fineClock(end * 1000)}${pace}`;
+  return [head, ...cuts.map((c) => `[${fineClock(c.at * 1000)}] ${c.score.toFixed(1)}`)].join("\n");
+}
+
 /** The captions file's name in render's temp folder. */
 const CAPTIONS = "captions.srt";
 
@@ -1801,6 +1856,32 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
         frames(String(a.path), Math.max(1, Number(a.every ?? 60)), {
           from: seconds(a.from),
           to: seconds(a.to),
+        }),
+    },
+    {
+      name: "scenes",
+      description:
+        "The cuts in a video: each shot change's time ([mm:ss.cc]) and how big a change it is (0-100), plus cuts a minute and seconds a shot. To find the shots in b-roll, a screen recording or multi-camera footage without looking at every frame, or to measure a reference video's pace. `from`/`to` (seconds) look at one stretch. `threshold` (0-100, default 10) is how different two frames must be: lower finds subtler cuts, such as a jump cut within one shot.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path,
+          from: { type: "number", description: "Start, in seconds from the start of the file" },
+          to: { type: "number", description: "End, in seconds from the start of the file" },
+          threshold: {
+            type: "number",
+            minimum: 0,
+            maximum: 100,
+            description: "0-100 (default 10)",
+          },
+        },
+        required: ["path"],
+      },
+      run: (a) =>
+        scenes(String(a.path), {
+          from: seconds(a.from),
+          to: seconds(a.to),
+          threshold: within(a.threshold, 0, 100, "threshold", 10),
         }),
     },
     {
