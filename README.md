@@ -25,21 +25,23 @@ Give your AI agent (Claude Code, Codex, Cursor, Gemini CLI, anything that
 speaks MCP) a recording, and get back an edited video: cut on word
 boundaries, framed for 9:16, with word-by-word captions, b-roll, music under
 the speech, motion graphics written as code, and loudness set for the feed.
-mockingbird does the transcribing and rendering on your Mac; your agent
+mockingbird does the transcribing and rendering on your computer; your agent
 decides the edit. No account, no cloud, no usage limits, nothing locked
 ([why](docs/PHILOSOPHY.md)).
 
 > [!NOTE]
 > **Changing direction.** Until v0.3.2 mockingbird was voice dictation. That's
-> gone ([#134](https://github.com/NirjharBhattacharjee/mockingbird/issues/134) has the plan and the reasons). What's here now: transcription,
-> stills, captions, cutting and framing, motion graphics and rendering over
-> MCP. A timeline, effects, Linux and Windows are on the roadmap.
+> gone ([#134](https://github.com/NirjharBhattacharjee/mockingbird/issues/134) has the plan and the reasons). What's here now, over
+> MCP: transcription, stills and shot changes, projects with speed, moves,
+> transitions and J and L cuts, captions, effects, motion graphics, music
+> and rendering, on macOS, Linux and Windows.
 
 ## 🚀 Install
 
 You need about 3 GB of free space, and a Mac (with [Homebrew](https://brew.sh)),
 Linux (with git, ffmpeg and unzip from your package manager) or Windows x64.
-Captions and motion graphics are macOS only for now.
+The speech model is Whisper `large-v3` on Apple Silicon (1.1 GB) and the
+smaller `small` elsewhere (0.2 GB), which a CPU keeps up with.
 
 ```sh
 curl -fsSL https://github.com/NirjharBhattacharjee/mockingbird/releases/latest/download/install.sh | bash
@@ -51,18 +53,27 @@ On Windows, in PowerShell:
 irm https://github.com/NirjharBhattacharjee/mockingbird/releases/latest/download/install.ps1 | iex
 ```
 
-It's safe to run again. Prefer to do it by hand? See
-[manual install](docs/README.md#manual-install).
+Then download the headless Chrome that captions and motion graphics are
+drawn in (about 100 MB, with the fonts they use). In the same terminal,
+before you've opened a new one, that's `~/.local/bin/mockingbird`:
 
-The binary isn't notarized yet. That doesn't matter for this command or
-Homebrew, but a copy downloaded in a browser gets blocked by macOS; see
-[the fix](docs/README.md#apple-could-not-verify-mockingbird).
+```sh
+mockingbird models pull chrome
+```
+
+There's no build for Linux on ARM yet: skip it there, and set
+`MOCKINGBIRD_CHROME` to a Chrome that runs for motion graphics. Captions
+fall back to ffmpeg without one.
+
+It's all safe to run again. Prefer to do it by hand on a Mac? See
+[manual install](docs/README.md#manual-install).
 
 Or with Homebrew:
 
 ```sh
 brew install nirjharbhattacharjee/mockingbird/mockingbird
 mockingbird models pull
+mockingbird models pull chrome
 ```
 
 ### Unsigned binaries
@@ -86,10 +97,12 @@ Each binary's sha256 is in the release's `checksums.txt`.
 
 ### With a coding agent
 
-Paste this into your agent:
+On a Mac with Apple Silicon (on Linux and Windows, use the commands above;
+[#221](https://github.com/NirjharBhattacharjee/mockingbird/issues/221)
+makes this work everywhere), paste this into your agent:
 
 ```text
-Set up mockingbird on this Mac by following
+Set up mockingbird on this computer by following
 https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/docs/AGENT_INSTALL.md
 ```
 
@@ -145,12 +158,19 @@ it as a plugin, from [`plugin/`](plugin/README.md):
 | `status`, `dictionary_list`, `dictionary_add` | What's installed; names to spell right |
 
 Every option: [docs/MCP.md](docs/MCP.md). On the command line,
-`mockingbird transcribe`, `dictionary`, `models` and `status` do the same, and
-`mockingbird doctor` checks the whole install.
-`mockingbird record voiceover.wav` records a voiceover from the mic.
+`mockingbird transcribe`, `dictionary`, `models` and `status` do the same,
+`mockingbird doctor` checks the whole install, `mockingbird record
+voiceover.wav` records a voiceover from the mic, and `mockingbird uninstall`
+removes it.
 
 Something not working? See [troubleshooting](docs/README.md#troubleshooting).
 
 ## 📚 More
+
+- [User guide](docs/README.md): every command, troubleshooting, privacy
+- [MCP.md](docs/MCP.md): every tool and option
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md), [MODELS.md](docs/MODELS.md),
+  [PHILOSOPHY.md](docs/PHILOSOPHY.md)
+- [CONTRIBUTING.md](CONTRIBUTING.md)
 
 [MIT](LICENSE). Use it, change it, share it.
