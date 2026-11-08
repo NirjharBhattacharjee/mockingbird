@@ -23,7 +23,7 @@ jobs:
       - run: bun test
 
   # Linux and Windows (#151), not yet required: macOS-only parts (Core Text,
-  # the Canvas engine, sandbox-exec, launchctl) skip there until they're ported.
+  # sandbox-exec, launchctl) skip there until they're ported.
   check-other:
     strategy:
       fail-fast: false
