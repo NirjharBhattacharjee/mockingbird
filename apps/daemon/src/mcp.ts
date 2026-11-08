@@ -25,7 +25,6 @@ import {
   enginesFor,
   type ModelChoice,
   requireFile,
-  startEngines,
   spokenLanguage,
   WHISPER_LANGUAGES,
 } from "./runtime.ts";
