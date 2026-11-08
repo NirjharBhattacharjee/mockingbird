@@ -19,8 +19,9 @@ import {
   findAsrModel,
   isWhisperFile,
   mockingbirdHome,
-  savedSetting,
+  savedModelFor,
   spokenLanguage,
+  WHISPER_LANGUAGES,
 } from "./runtime.ts";
 
 /** `name` is what the progress line calls it. */
@@ -77,7 +78,9 @@ export async function pullFile(
   // A temporary name first, so an interrupted download isn't mistaken for a
   // model. What an interrupted one left behind is kept and continued: on a slow
   // connection, starting a 1 GB file over is what makes an install take an hour.
-  const part = `${path}.part`;
+  // Named for the checksum it's heading for, so a partial of another
+  // version of the file is never continued into this one.
+  const part = `${path}.${model.sha256.slice(0, 12)}.part`;
   const have = existsSync(part) ? statSync(part).size : 0;
   if (have > 0 && (await sha256Of(part)) === model.sha256) {
     renameSync(part, path);
@@ -227,7 +230,7 @@ export function listModels(deps: ModelsDeps = {}): SpeechModel[] {
   }
   let inUse: string | undefined;
   try {
-    const saved = savedSetting(ASR_MODEL_SETTING, home);
+    const saved = savedModelFor(spokenLanguage(env), home);
     inUse = basename(findAsrModel(dir, env.MOCKINGBIRD_ASR_MODEL, () => {}, saved));
   } catch {
     // None installed: nothing is in use.
@@ -256,6 +259,89 @@ export function listModels(deps: ModelsDeps = {}): SpeechModel[] {
     .sort((a, b) => b.size - a.size);
 }
 
+const USAGE =
+  "usage: mockingbird models | models use <file> [--language <code>] | models use --default [--language <code>]\n" +
+  "       models pull [<name or URL> [--sha256 <hex>] [--as <ggml-name.bin>]]";
+
+/** The models saved for one language each, as [code, file], from `models use <file> --language`. */
+export function languageModels(home = mockingbirdHome()): [string, string][] {
+  if (!existsSync(join(home, "data.db"))) return [];
+  // A data.db that can't be read has no map to show, as savedSetting reads it.
+  try {
+    return withStore(
+      (store) =>
+        [...WHISPER_LANGUAGES].flatMap((code): [string, string][] => {
+          const file = store.setting(`${ASR_MODEL_SETTING}.${code}`);
+          return file ? [[code, file]] : [];
+        }),
+      home,
+    );
+  } catch {
+    return [];
+  }
+}
+
+/** Where `models pull <name>` finds an official model: whisper.cpp's own Hugging Face repo. */
+const OFFICIAL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/";
+
+/**
+ * A model to download, from a name (`large-v3-turbo`, `ggml-small.bin`) or
+ * an https URL, with the sha256 it must match (#143). Hugging Face gives a
+ * file's sha256 and the commit it's at in its headers, so a name or a
+ * Hugging Face URL needs nothing else, and the download is pinned to that
+ * commit. Any other URL needs `sha256`.
+ */
+export async function resolveModel(
+  spec: string,
+  { sha256, as, fetch: get = fetch }: { sha256?: string; as?: string; fetch?: typeof fetch } = {},
+): Promise<ModelFile & { bytes?: number }> {
+  const url = /^https?:\/\//.test(spec)
+    ? // A Hugging Face page link (/blob/) is the viewer; /resolve/ is the file.
+      spec.replace(/^(https:\/\/(?:huggingface\.co|hf\.co)\/[^/]+\/[^/]+)\/blob\//, "$1/resolve/")
+    : `${OFFICIAL}ggml-${spec.replace(/^ggml-/, "").replace(/\.bin$/, "")}.bin`;
+  if (!url.startsWith("https://"))
+    throw new Error(`${spec}: only https downloads, so the file can't be swapped on the way`);
+  const file = as ?? decodeURIComponent(basename(new URL(url).pathname));
+  if (!isWhisperFile(file)) {
+    throw new Error(
+      `${file} isn't named like a Whisper model; give it a name with --as ggml-<name>.bin`,
+    );
+  }
+  if (sha256 !== undefined && !/^[0-9a-f]{64}$/i.test(sha256)) {
+    throw new Error(`--sha256 takes the 64 hex digits of the file's SHA-256`);
+  }
+  // Not followed: Hugging Face's own reply carries the checksum, the CDN's doesn't.
+  const head = await get(url, { method: "HEAD", redirect: "manual" });
+  if (head.status === 404 || head.status === 401)
+    throw new Error(`no model at ${url} (HTTP ${head.status})`);
+  // Only Hugging Face's own reply is trusted for a checksum: any server can
+  // send these headers, and one that names its own sha256 proves nothing.
+  const fromHf = ["huggingface.co", "hf.co"].includes(new URL(url).host);
+  const linked = fromHf ? head.headers.get("x-linked-etag")?.replace(/"/g, "") : undefined;
+  const known = linked && /^[0-9a-f]{64}$/i.test(linked) ? linked.toLowerCase() : undefined;
+  if (sha256 && known && sha256.toLowerCase() !== known) {
+    throw new Error(`${url}'s SHA-256 is ${known}, not the ${sha256} given`);
+  }
+  const expected = sha256?.toLowerCase() ?? known;
+  if (!expected) {
+    throw new Error(
+      `${url} doesn't say its SHA-256; give the one its publisher lists with --sha256`,
+    );
+  }
+  const commit = fromHf ? head.headers.get("x-repo-commit") : null;
+  return {
+    name: speechName(file),
+    file,
+    // Pinned to the commit checked, whatever branch or tag the link named.
+    url:
+      commit && /^[0-9a-f]{7,40}$/.test(commit)
+        ? url.replace(/\/resolve\/[^/]+\//, `/resolve/${commit}/`)
+        : url,
+    sha256: expected,
+    bytes: Number(head.headers.get("x-linked-size")) || undefined,
+  };
+}
+
 /**
  * `mockingbird models` lists the Whisper models; `models use <file>` picks
  * the one transcription uses, and `models use --default` goes back.
@@ -278,13 +364,34 @@ export function modelsCommand(args: string[], deps: ModelsDeps = {}): number {
       const mark = [m.inUse && "in use", m.isDefault && "default"].filter(Boolean).join(", ");
       out(`${m.file.padEnd(width)}${gb(m.size).padEnd(9)}${mark}`.trimEnd());
     }
-    out("\nSwitch with `mockingbird models use <file>`; `--default` goes back.");
+    const mapped = languageModels(home);
+    if (mapped.length) {
+      out("\nBy language:");
+      for (const [language, file] of mapped) out(`  ${language.padEnd(4)}${file}`);
+    }
+    out(
+      "\nSwitch with `mockingbird models use <file>` (`--language <code>` for one language);" +
+        " `--default` goes back.",
+    );
     return 0;
   }
 
-  const [verb, choice, ...extra] = args;
-  if (verb !== "use" || !choice || extra.length > 0) {
-    log("usage: mockingbird models | models use <file> | models use --default | models pull");
+  // Read as MOCKINGBIRD_LANGUAGE is: lower case, region dropped (de-DE is de).
+  const language = args.includes("--language")
+    ? args[args.indexOf("--language") + 1]?.toLowerCase().split(/[-_]/)[0]
+    : undefined;
+  const rest = language
+    ? args.filter(
+        (_, i) => i !== args.indexOf("--language") && i !== args.indexOf("--language") + 1,
+      )
+    : args;
+  const [verb, choice, ...extra] = rest;
+  if (verb !== "use" || !choice || extra.length > 0 || (args.includes("--language") && !language)) {
+    log(USAGE);
+    return 2;
+  }
+  if (language && !WHISPER_LANGUAGES.has(language)) {
+    log(`${language} isn't a language Whisper knows; use a code like bn, de or hi.`);
     return 2;
   }
   let model: string | undefined;
@@ -296,8 +403,13 @@ export function modelsCommand(args: string[], deps: ModelsDeps = {}): number {
     }
     model = choice;
   }
-  withStore((store) => store.setSetting(ASR_MODEL_SETTING, model), home, log);
-  log(`transcription model: ${model ?? "the default"}`);
+  const key = language ? `${ASR_MODEL_SETTING}.${language}` : ASR_MODEL_SETTING;
+  withStore((store) => store.setSetting(key, model), home, log);
+  log(
+    language
+      ? `transcription model for ${language}: ${model ?? "the one for every language"}`
+      : `transcription model: ${model ?? "the default"}`,
+  );
   if (env.MOCKINGBIRD_ASR_MODEL) {
     log(
       `note: MOCKINGBIRD_ASR_MODEL=${env.MOCKINGBIRD_ASR_MODEL} is set in this shell and wins over this choice.`,
