@@ -160,7 +160,7 @@ tool, with its options, is documented in [MCP.md](./MCP.md):
 | `captions` | word-by-word SRT timed to the video `render` will make |
 | `edit` | changes a project file with ops (add, remove, split, trim, move, set) and returns an outline |
 | `render` | a project, or cuts from one video: framing, 9:16 or split layout, captions, text, b-roll, music and sound effects, loudness to −14 LUFS |
-| `motion` | a script that draws with the Canvas 2D API, rendered to MP4 |
+| `motion` | an HTML page in the pinned Chrome, rendered to MP4 |
 | `status` | what's installed |
 | `dictionary_list`, `dictionary_add` | names to spell right |
 

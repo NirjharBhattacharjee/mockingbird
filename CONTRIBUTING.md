@@ -219,7 +219,6 @@ only macOS has skip elsewhere, until the issue that ports that part lands:
 
 | Skipped | Linux | Windows | Why | Ported by |
 |---|---|---|---|---|
-| `canvas`, `Path2D and filter on the canvas` (20) | yes | yes | the Canvas engine draws with Core Graphics | the HTML engine (pivot step 7) |
 | `drawCaptions` (5) | yes | yes | captions are drawn with Core Text | #155 |
 | `startWhisperServer flags` (7) | no | yes | they fake whisper-server with a shell script | #153 |
 
