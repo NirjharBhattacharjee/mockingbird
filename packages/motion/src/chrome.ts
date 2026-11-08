@@ -34,12 +34,20 @@ const COMMAND_TIMEOUT_MS = 60_000;
  * answers; WebRTC may send UDP only through that proxy; and every request
  * any tab makes stops at the browser for `gate`, which lets through only a
  * file on this computer.
+ *
+ * To start Chrome inside an OS sandbox, pass `wrap`, a command Chrome's own
+ * is appended to.
  */
-export async function launchChrome(path: string): Promise<Chrome> {
+export async function launchChrome(
+  path: string,
+  { wrap = [] }: { wrap?: string[] } = {},
+): Promise<Chrome> {
   const profile = mkdtempSync(join(tmpdir(), "mockingbird-chrome-"));
+  const [program = path, ...before] = [...wrap, path];
   const proc = spawn(
-    path,
+    program,
     [
+      ...before,
       "--remote-debugging-pipe",
       "--no-sandbox",
       `--user-data-dir=${profile}`,

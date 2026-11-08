@@ -25,8 +25,19 @@ export type PageScene = {
  * the same history; `Math.random` is seeded the same in each for the same
  * reason.
  */
-export function pageClock(scene: PageScene, epoch: number): string {
+/** A font file a page can use by its family name: a file URL, its weights and style. */
+export type PageFont = { family: string; url: string; weight: string; style: string };
+
+/**
+ * Registers `fonts` with the page, unloaded, as @font-face rules would: each
+ * loads the first time text needs it, and the frame waits for it.
+ */
+export const pageFonts = (fonts: PageFont[]) =>
+  `for (const f of ${JSON.stringify(fonts)}) document.fonts.add(new FontFace(f.family, "url(" + JSON.stringify(f.url) + ")", { weight: f.weight, style: f.style }));`;
+
+export function pageClock(scene: PageScene, epoch: number, fonts: PageFont[] = []): string {
   return `(() => {
+  ${pageFonts(fonts)}
   let now = 0;
   const born = new WeakMap();
   const callbacks = new Map();
@@ -89,7 +100,14 @@ export function pageClock(scene: PageScene, epoch: number): string {
         const due = [...callbacks.values()];
         callbacks.clear();
         for (const cb of due) cb(now);
-        if (typeof m.draw === "function") await m.draw(now / 1000, m);
+        if (typeof m.draw === "function") {
+          await m.draw(now / 1000, m);
+          // A canvas drawn with a font still loading kept the fallback: draw it again.
+          if ([...document.fonts].some((f) => f.status === "loading")) {
+            await document.fonts.ready;
+            await m.draw(now / 1000, m);
+          }
+        }
         seek();
         // A font draw used for the first time loads now; the frame waits for it.
         await document.fonts.ready;
@@ -99,6 +117,10 @@ export function pageClock(scene: PageScene, epoch: number): string {
     // An error the page caught nowhere, from a frame or from work it left running.
     check() {
       if (errors.length) throw new Error(errors[0]);
+      // A font that failed to load would be drawn as fallback glyphs or boxes.
+      for (const f of document.fonts) {
+        if (f.status === "error") throw new Error("couldn't load the font " + f.family);
+      }
     },
     // After the last frame: anything still running gets a turn to fail.
     async done() {
@@ -137,6 +159,7 @@ export async function renderHtml(
     video,
     audio = false,
     cues = [],
+    fonts = [],
     tabs: tabCount = TABS,
     onLoad = () => {},
   }: {
@@ -150,6 +173,8 @@ export async function renderHtml(
     /** Whether `video` has sound to keep. */
     audio?: boolean;
     cues?: Cue[];
+    /** Fonts the page can use by name, besides the system's. */
+    fonts?: PageFont[];
     tabs?: number;
     onLoad?: (page: { audio: unknown }) => void;
   },
@@ -164,7 +189,7 @@ export async function renderHtml(
     );
   }
   const scene: PageScene = { width, height, fps, duration: total / fps, frame: 0, cues };
-  const clock = pageClock(scene, Date.now());
+  const clock = pageClock(scene, Date.now(), fonts);
   let chrome: Chrome | undefined;
   let encoder: Subprocess<"pipe", "ignore", "pipe"> | undefined;
   let decoder: Subprocess<"ignore", "pipe", "pipe"> | undefined;

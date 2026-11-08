@@ -10,7 +10,7 @@ you ──"make shorts from talk.mp4"──▶ Claude Code
                          mockingbird mcp (on your Mac)
             transcribe · frames · captions · render · motion · dictionary
                                        │
-                         whisper-server + ffmpeg + Core Text
+                         whisper-server + ffmpeg + headless Chrome
                                        ▼
                          talk-short-1.mp4 beside the source
 ```
@@ -20,7 +20,7 @@ you ──"make shorts from talk.mp4"──▶ Claude Code
 | Skills | `plugin/skills/` | Know-how, plus motion-page templates: which moments make a short, how to hook, how tight to cut, where captions go, when music hurts. Plain Markdown that Claude reads. |
 | Measurements | the engine's `pauses`, `measure` and `scenes` tools | Measurements Claude can't make by reading text: where the pauses are and the clips between them, a finished video's size, loudness and cuts. ffmpeg, run by the engine on every OS (#158). |
 | Reviewer | `agents/reviewer.md` | Checks a render in a fresh context, so the agent that made the choices isn't the one grading them. |
-| Engine | the rest of this repo, via `.mcp.json` | Transcribes with local Whisper, cuts and frames with ffmpeg, draws captions with Core Text, and renders Claude's motion pages in a headless Chrome. It makes no editing choices. |
+| Engine | the rest of this repo, via `.mcp.json` | Transcribes with local Whisper, cuts and frames with ffmpeg, draws captions in a headless Chrome, and renders Claude's motion pages in a headless Chrome. It makes no editing choices. |
 
 The plugin imports nothing from the engine. They meet at the MCP tools,
 which [MCP.md](../../docs/MCP.md) documents. The engine reads one thing from
