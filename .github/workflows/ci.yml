@@ -130,8 +130,7 @@ jobs:
 
   # Bengali and CJK drawn with the shipped fonts (#156), on a Linux runner
   # that has no font for either and on macOS; the stills are kept as an
-  # artifact. Linux gets Chrome straight from Chrome for Testing until it's
-  # pinned there (#157).
+  # artifact.
   fonts:
     strategy:
       fail-fast: false
@@ -148,15 +147,10 @@ jobs:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
       - if: runner.os == 'macOS'
-        run: brew install ffmpeg && bun apps/daemon/src/cli.ts models pull chrome
+        run: brew install ffmpeg
       - if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update -q && sudo apt-get install -yq ffmpeg
-          curl -fsSLo chs.zip https://storage.googleapis.com/chrome-for-testing-public/156.0.8078.80/linux64/chrome-headless-shell-linux64.zip
-          echo "547dcd374e02961bf998f6046a267644f8502225c36bb78ca307dab32a0b3eb4  chs.zip" | sha256sum -c -
-          unzip -q chs.zip -d "$RUNNER_TEMP"
-          echo "MOCKINGBIRD_CHROME=$RUNNER_TEMP/chrome-headless-shell-linux64/chrome-headless-shell" >> "$GITHUB_ENV"
-          bun -e 'import { FONT_FILES, pullFile } from "./apps/daemon/src/models.ts"; for (const f of FONT_FILES) await pullFile(f, process.env.MOCKINGBIRD_HOME + "/fonts");'
+        run: sudo apt-get update -q && sudo apt-get install -yq ffmpeg
+      - run: bun apps/daemon/src/cli.ts models pull chrome
       - run: MOCKINGBIRD_INTEGRATION=1 bun test apps/daemon/test/fonts.integration.test.ts
       - uses: actions/upload-artifact@v4
         if: always()
