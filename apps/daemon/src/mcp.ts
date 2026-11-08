@@ -17,6 +17,7 @@ import { noNetwork } from "@mockingbird/motion/sandbox";
 import { applyCorrections, correctNames } from "@mockingbird/store";
 import { compile, edit, load } from "@mockingbird/timeline";
 import type { SpeechSegment } from "@mockingbird/vad";
+import { audioStats } from "./audio-stats.ts";
 import { addEntries, formatEntry, readDictionary } from "./dictionary.ts";
 import { guide, INSTRUCTIONS, playbooks } from "./guide.ts";
 import { findChrome } from "./models.ts";
@@ -1766,6 +1767,21 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
           captions: a.captions === undefined ? undefined : String(a.captions),
           out: a.out === undefined ? undefined : resolve(String(a.out)),
         }),
+    },
+    {
+      name: "audio_stats",
+      description:
+        "Measure a file's sound, since you can't listen to it: integrated loudness (aim for -14 LUFS), loudness range, true and sample peak (clipping), and noise floor. With speech: how much of it is speech, and how far under the voice the sound between phrases sits (music under speech: 18 to 24 dB under) and how much of the 1 to 4 kHz speech band it fills. The beat (tempo and where beats fall, to cut on) when there's a steady one: measure the music file itself, since speech over it hides the beat; and the sections where the energy changes for a while. `from`/`to` (seconds) measure one stretch; times come back from the start of the file.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path,
+          from: { type: "number", description: "Start, in seconds from the start of the file" },
+          to: { type: "number", description: "End, in seconds from the start of the file" },
+        },
+        required: ["path"],
+      },
+      run: (a) => audioStats(resolve(String(a.path)), { from: seconds(a.from), to: seconds(a.to) }),
     },
     {
       name: "frames",
