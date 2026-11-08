@@ -4,7 +4,7 @@
 > video editing engine for AI agents, served over MCP. macOS only so far. The
 > plan for the rest is [#134](https://github.com/NirjharBhattacharjee/mockingbird/issues/134).
 > **Owner:** bhattacharjeenirjhar26@gmail.com
-> **Last updated:** 2026-11-03
+> **Last updated:** 2026-11-04
 
 This document is the single source of truth for what mockingbird is, what it's
 built from, and why. When architecture changes, this file changes in the same
@@ -20,6 +20,7 @@ injection, the cleanup model, the launchd agent) is in git:
 |---|---|
 | 2026-11-04 | `models pull <name or URL>` downloads any Whisper model against the sha256 Hugging Face gives (or `--sha256`), pinned to its commit; `models use <file> --language <code>` saves a model per language (#143). |
 | 2026-11-04 | Timeline, first part (#148): `packages/timeline` keeps an edit in a project file; the `edit` tool changes it with ops; `render` renders one, with clips from several sources framed to one size and rate, and captions made for the cut. |
+| 2026-11-04 | `motion` renders an HTML page in a pinned headless Chrome (#145): `mockingbird models pull chrome`, a frame clock injected into the page, several tabs capturing at once, Chrome inside the motion sandbox. The Canvas engine stays until the kit is ported. |
 | 2026-11-04 | mockingbird-studio moved into `plugin/` and is now the `mockingbird` plugin; a `guide` tool and server instructions give every MCP client its playbooks (#140). |
 | 2026-11-04 | Long-form fixes (#127): `render` and `motion` reach −14 LUFS with a measured gain and a limiter instead of one pass of `loudnorm` (−15.9 → −14.3 LUFS on the v2 edit); `captions` hears overlapping padded clips as one stretch (171 s → 62 s for 96 clips); captions in a wide video are subtitle-sized. |
 | 2026-11-03 | `render` opens the source once per clip with a seek instead of trimming one input: 2.4x faster on a 96-clip edit, and frame-accurate. Over 100 clips it renders in batches and joins them, to bound memory (#137). |
@@ -203,13 +204,24 @@ before `concat`, and a clip from a source with no sound gets silence
 (`aevalsrc`). The package does no I/O beyond reading and writing the
 project file; probing and rendering stay in the engine.
 
-`motion` imports the agent's script in a separate Bun process under
-`sandbox-exec` with the network denied (`apps/daemon/src/motion-run.ts`),
-calls its `draw(ctx, t, m)` for every frame against `packages/motion`'s
-Canvas, and pipes raw frames to ffmpeg.
+`motion` runs in a separate Bun process under `sandbox-exec` with the
+network denied (`apps/daemon/src/motion-run.ts`). A canvas script is
+imported there; its `draw(ctx, t, m)` is called for every frame against
+`packages/motion`'s Canvas, and raw frames are piped to ffmpeg.
 
-Pivot step 7 replaces `packages/motion` (macOS only) with HTML and CSS
-rendered in a pinned headless Chrome; see #134.
+An HTML page is rendered by `packages/motion/src/html.ts` in the pinned
+chrome-headless-shell, started from that sandboxed process, so the sandbox
+covers Chrome too. It's driven over the DevTools protocol on a pipe
+(`--remote-debugging-pipe`), so no port is opened. Each tab gets a script
+before the page's own that freezes the page's clocks and steps them frame
+by frame (`pageClock`). Frame `i` is captured by tab `i mod n` as a PNG with
+transparency, and ffmpeg gets the frames in order and lays them over the
+video or over black. Every tab steps through every frame and captures only
+its own, so all tabs have the same history: an animation a page starts at
+frame 40 starts at frame 40 in every tab.
+
+Pivot step 7 goes on to port the motion kit to HTML and then remove the
+Canvas engine; see #134.
 
 ## 8. State
 
@@ -220,6 +232,7 @@ MCP server is its own short-lived process.
 |---|---|---|
 | Dictionary, settings | `~/.mockingbird/data.db` ([DATABASE.md](./DATABASE.md)) | any mockingbird process (WAL, 5 s busy timeout) |
 | Models | `~/.mockingbird/models/` | `mockingbird models pull` |
+| Headless Chrome | `~/.mockingbird/bin/chrome-headless-shell-<version>/` | `mockingbird models pull chrome` |
 | Renders, stills | beside the source, or a temp folder for stills | `render`, `motion`, `frames` |
 
 `MOCKINGBIRD_HOME` moves `~/.mockingbird`.
@@ -234,15 +247,16 @@ MCP server is its own short-lived process.
   setup.
 - **No account, no login, no license server.**
 - **The only network activity is a download the user runs**
-  (`mockingbird models pull`), which names each URL and checks each file's
-  sha256. mockingbird never checks for updates.
+  (`mockingbird models pull`, and `models pull chrome` for the headless
+  Chrome), which names each URL and checks each file's sha256. mockingbird
+  never checks for updates.
 - **`mockingbird mcp` opens no port.** It speaks over stdin and stdout to the
   agent that started it.
-- **An agent's motion script can't reach the network.** It runs under
-  `sandbox-exec` with `deny network*`.
+- **An agent's motion script or page can't reach the network.** It runs
+  under `sandbox-exec` with `deny network*`, and so does the Chrome a page
+  renders in.
 
-Pivot step 3 adds one more explicit, user-approved download in
-`mockingbird setup`: a pinned headless Chrome for the HTML motion engine.
+Pivot step 3's `mockingbird setup` will offer the same Chrome download.
 
 ## 10. Repository layout
 
@@ -253,7 +267,7 @@ mockingbird/
 │   │   ├── cli.ts           every command
 │   │   ├── mcp.ts           the MCP server and its tools
 │   │   ├── guide.ts         the plugin's playbooks, served by `guide`
-│   │   ├── motion-run.ts    runs a motion script in its own process
+│   │   ├── motion-run.ts    runs a motion script or page in its own process
 │   │   ├── transcribe.ts    `mockingbird transcribe`
 │   │   ├── dictionary.ts    `mockingbird dictionary`, data.db access
 │   │   ├── models.ts        `mockingbird models`, pinned downloads
@@ -267,7 +281,8 @@ mockingbird/
 │   ├── vad/                 Silero ONNX wrapper
 │   ├── asr/                 whisper-server adapter, word diff (WER)
 │   ├── captions/            SRT parsing, captions drawn with Core Text
-│   ├── motion/              Canvas 2D over Core Graphics, motion scripts to MP4
+│   ├── motion/              HTML pages in headless Chrome, and Canvas 2D over
+│   │                        Core Graphics, to MP4
 │   ├── timeline/            project files: format, checks, edit ops, outline
 │   └── store/               data.db, the dictionary's parsing and name matching
 ├── plugin/                  the Claude Code plugin: skills, the reviewer agent,
