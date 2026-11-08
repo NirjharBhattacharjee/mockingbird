@@ -27,7 +27,8 @@ function Run {
   if ($LASTEXITCODE -ne 0) { Fail "$($args -join ' ') failed (exit $LASTEXITCODE)." }
 }
 function Refresh-Path {
-  $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
+  # The new entries, keeping this session's own (a Git only on it, say).
+  $env:Path = $env:Path + ";" + [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
 }
 
 if ($env:PROCESSOR_ARCHITECTURE -ne "AMD64") {
@@ -85,6 +86,10 @@ if ($contributor) {
   if (-not (Test-Path (Join-Path $dir ".git"))) {
     if (Test-Path $dir) { Fail "$dir already exists and isn't a clone of mockingbird. Set MOCKINGBIRD_DIR to use another folder." }
     Run git clone --quiet https://github.com/NirjharBhattacharjee/mockingbird.git $dir
+  }
+  $origin = try { git -C $dir remote get-url origin 2>$null } catch { "" }
+  if ($origin -notmatch 'NirjharBhattacharjee/mockingbird(\.git)?$') {
+    Fail "$dir is a git clone of something else ($origin). Set MOCKINGBIRD_DIR to another folder."
   }
   if (git -C $dir status --porcelain --untracked-files=no) {
     Fail "$dir has local changes, so it wasn't updated. Commit or discard them, then run this again."

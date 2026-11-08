@@ -463,7 +463,8 @@ each step shippable on its own:
 
 - **Captions and motion are macOS only.** They use Core Text and Core
   Graphics until the HTML engine lands (#147, #155). Transcription, `render`
-  without captions, and the commands work on Linux and Windows.
+  without captions or text overlays, and the commands but `record` (macOS
+  only for now) work on Linux and Windows.
 - **No compiled engine** ([§11](#11-packaging)): Bun has to be installed.
 - **One render call per edit.** Any change re-renders everything (step 5).
 - **The agent sees a few stills, not the video.** Tool outputs stay small so

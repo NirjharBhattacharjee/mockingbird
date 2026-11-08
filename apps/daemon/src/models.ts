@@ -426,8 +426,17 @@ export async function pullWhisper(deps: PullDeps & { force?: boolean } = {}): Pr
       rmSync(unpacking, { recursive: true, force: true });
       throw new Error(`couldn't unpack ${archive}: ${tar.stderr.toString().trim()}`);
     }
-    rmSync(pin.dir, { recursive: true, force: true });
-    renameSync(unpacking, pin.dir);
+    // The one there stays until the new one is in place.
+    const old = `${pin.dir}.old`;
+    rmSync(old, { recursive: true, force: true });
+    if (existsSync(pin.dir)) renameSync(pin.dir, old);
+    try {
+      renameSync(unpacking, pin.dir);
+    } catch (error) {
+      if (existsSync(old)) renameSync(old, pin.dir);
+      throw error;
+    }
+    rmSync(old, { recursive: true, force: true });
     rmSync(archive, { force: true });
   } finally {
     rmSync(lock, { force: true });

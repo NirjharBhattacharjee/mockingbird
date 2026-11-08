@@ -241,8 +241,14 @@ export const FFMPEG_NEEDS = {
 
 /** What this ffmpeg lacks of FFMPEG_NEEDS, from its `-encoders` and `-filters` lists. */
 export function ffmpegMissing(
-  list = (what: "-encoders" | "-filters") =>
-    Bun.spawnSync(["ffmpeg", "-hide_banner", what], { stderr: "ignore" }).stdout.toString(),
+  list = (what: "-encoders" | "-filters") => {
+    // Bounded, so an ffmpeg that hangs can't hang status; a failed probe lists nothing.
+    const probe = Bun.spawnSync(["ffmpeg", "-hide_banner", what], {
+      stderr: "ignore",
+      timeout: 10_000,
+    });
+    return probe.exitCode === 0 ? probe.stdout.toString() : "";
+  },
 ): string[] {
   // Each line is flags, a name, then a description: match the name as a word.
   const has = (text: string, name: string) => new RegExp(`^\\s*\\S+\\s+${name}\\s`, "m").test(text);

@@ -1,4 +1,12 @@
-import { existsSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import {
+  accessSync,
+  constants,
+  existsSync,
+  realpathSync,
+  renameSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { main as dictionaryMain, readDictionary } from "./dictionary.ts";
@@ -129,6 +137,16 @@ async function pullOne(args: string[]): Promise<number> {
   return code;
 }
 
+/** Whether `path` is a file this user can run. */
+function runnable(path: string): boolean {
+  try {
+    accessSync(path, constants.X_OK);
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
 /** What `status` and the MCP `status` tool report. */
 export function engineStatus(
   home = mockingbirdHome(),
@@ -149,7 +167,7 @@ export function engineStatus(
     ffmpeg: which("ffmpeg") !== null,
     /** What the system's ffmpeg was built without, of what the engine uses. */
     ffmpegMissing: which("ffmpeg") !== null ? missing() : [],
-    whisperServer: server !== undefined && (existsSync(server) || which(server) !== null),
+    whisperServer: server !== undefined && (runnable(server) || which(server) !== null),
     chrome: findChrome(env, home) !== undefined,
     dictionaryWords: words,
   };

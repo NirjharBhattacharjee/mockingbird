@@ -223,7 +223,8 @@ main() {
     command -v bun >/dev/null 2>&1 && return
     [ -x "$bun_dir/bun" ] && return
     # Bun's Linux builds need glibc; on musl (Alpine) the download wouldn't run.
-    if ldd --version 2>&1 | grep -qi musl; then
+    # ldd exits 1 on musl after printing its banner, so its status is ignored.
+    if { ldd --version 2>&1 || true; } | grep -qi musl; then
       echo "Bun's Linux build needs glibc, and this system uses musl. Install a Bun that runs here (or glibc), put it on the PATH, and run this again." >&2
       return 1
     fi
