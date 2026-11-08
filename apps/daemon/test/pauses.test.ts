@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -53,31 +53,34 @@ describe.skipIf(!Bun.which("ffmpeg"))("on a file (needs ffmpeg)", () => {
   const dir = mkdtempSync(join(tmpdir(), "mb-pauses-"));
   const gaps = join(dir, "gaps.wav");
   const video = join(dir, "v.mp4");
-  Bun.spawnSync([
-    ...["ffmpeg", "-loglevel", "error", "-f", "lavfi"],
-    ...["-i", "sine=frequency=300:duration=6,volume='gt(sin(2*PI*t*0.35),0)':eval=frame", gaps],
-  ]);
-  Bun.spawnSync([
-    ...[
-      "ffmpeg",
-      "-loglevel",
-      "error",
-      "-f",
-      "lavfi",
-      "-i",
-      "testsrc2=size=640x360:rate=30:duration=6",
-    ],
-    ...[
-      "-f",
-      "lavfi",
-      "-i",
-      "sine=frequency=330:duration=6",
-      "-pix_fmt",
-      "yuv420p",
-      "-shortest",
-      video,
-    ],
-  ]);
+  // Made here, not in the describe body, which runs even when it skips.
+  beforeAll(() => {
+    Bun.spawnSync([
+      ...["ffmpeg", "-loglevel", "error", "-f", "lavfi"],
+      ...["-i", "sine=frequency=300:duration=6,volume='gt(sin(2*PI*t*0.35),0)':eval=frame", gaps],
+    ]);
+    Bun.spawnSync([
+      ...[
+        "ffmpeg",
+        "-loglevel",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=size=640x360:rate=30:duration=6",
+      ],
+      ...[
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=330:duration=6",
+        "-pix_fmt",
+        "yuv420p",
+        "-shortest",
+        video,
+      ],
+    ]);
+  });
 
   test("finds the pauses pauses.sh found", async () => {
     expect(await findPauses(gaps, { from: 0.5, to: 5.5 })).toEqual([

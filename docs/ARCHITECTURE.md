@@ -152,6 +152,8 @@ tool, with its options, is documented in [MCP.md](./MCP.md):
 |---|---|
 | `transcribe` | timestamped lines, or word times, for a file or a stretch of it |
 | `frames` | stills at an interval, for the agent to look at |
+| `pauses` | the pauses in a file's sound, and render's clips between them |
+| `measure` | a video's picture size, length, loudness and true peak |
 | `audio_stats` | loudness, peaks, noise floor, voice against the rest, tempo and beats, sections |
 | `scenes` | shot changes, with how big each is, and the pace (cuts a minute, seconds a shot) |
 | `captions` | word-by-word SRT timed to the video `render` will make |

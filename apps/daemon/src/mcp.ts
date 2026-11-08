@@ -1917,14 +1917,16 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
       run: async (a) => {
         const file = requireFile(String(a.path), "File");
         const from = seconds(a.from) ?? 0;
+        const length = (await probe(file)).seconds;
+        const end = Math.min(seconds(a.to) ?? length, length);
+        if (!(end > from)) throw new Error(`Nothing to look at from ${from}s: ${file} is ${length}s.`);
         const found = await findPauses(file, {
           from,
-          to: seconds(a.to),
+          to: end,
           noise: within(a.noise, -90, 0, "noise", -35),
           shortest: within(a.shortest, 0.01, 10, "shortest", 0.25),
         });
-        const to = seconds(a.to) ?? (await probe(file)).seconds;
-        const clips = clipsFrom(found, from, to, {
+        const clips = clipsFrom(found, from, end, {
           min: within(a.minPause, 0.05, 30, "minPause", 0.4),
           margin: within(a.margin, 0, 5, "margin", 0.15),
         });
@@ -1937,7 +1939,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
     {
       name: "measure",
       description:
-        "A finished video's size, length and loudness (EBU R128 integrated LUFS and true peak), to match a reference's style or check a render. Its cuts come from `scenes`.",
+        "A finished video's picture size (WxH), length and loudness (EBU R128 integrated LUFS and true peak), to match a reference's style or check a render. Its cuts come from `scenes`.",
       inputSchema: { type: "object", properties: { path }, required: ["path"] },
       run: (a) => measure(requireFile(String(a.path), "File")),
     },
