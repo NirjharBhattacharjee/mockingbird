@@ -343,9 +343,9 @@ async function frames(
  * a seek starts its times at 0: `lavfi.scd.score: 29.3, lavfi.scd.time: 2`.
  */
 export function parseScenes(log: string, from = 0): { at: number; score: number }[] {
-  return [...log.matchAll(/lavfi\.scd\.score: ([\d.]+), lavfi\.scd\.time: ([\d.]+)/g)].map(
-    ([, score, at]) => ({ at: from + Number(at), score: Number(score) }),
-  ).filter((c) => c.score > 0); // At threshold 0, an unchanged frame is logged too.
+  return [...log.matchAll(/lavfi\.scd\.score: ([\d.]+), lavfi\.scd\.time: ([\d.]+)/g)]
+    .map(([, score, at]) => ({ at: from + Number(at), score: Number(score) }))
+    .filter((c) => c.score > 0); // At threshold 0, an unchanged frame is logged too.
 }
 
 /**
@@ -1868,7 +1868,12 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
           path,
           from: { type: "number", description: "Start, in seconds from the start of the file" },
           to: { type: "number", description: "End, in seconds from the start of the file" },
-          threshold: { type: "number", minimum: 0, maximum: 100, description: "0-100 (default 10)" },
+          threshold: {
+            type: "number",
+            minimum: 0,
+            maximum: 100,
+            description: "0-100 (default 10)",
+          },
         },
         required: ["path"],
       },
