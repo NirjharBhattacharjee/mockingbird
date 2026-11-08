@@ -105,7 +105,7 @@ async function pullOne(args: string[]): Promise<number> {
   log(
     `${model.file}: ${size}, from ${new URL(model.url).host}, checked against SHA-256 ${model.sha256}`,
   );
-  const code = await pullWithProgress([model]);
+  const code = await pullWithProgress(pullModels, [model]);
   if (code === 0)
     log(
       `Use it with \`mockingbird models use ${model.file}\` (add --language <code> for one language).`,
