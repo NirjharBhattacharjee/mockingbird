@@ -19,6 +19,7 @@ injection, the cleanup model, the launchd agent) is in git:
 | Date | Change |
 |---|---|
 | 2026-11-05 | A motion page can't reach the network on Linux or Windows either (#157): Chrome resolves no host name and sends the rest to a dead proxy, every request any tab makes is failed at the browser unless it's a file on this computer, and on Linux the runner starts in a network namespace where one can be made. Chrome is pinned for Linux x64 and Windows x64. |
+| 2026-11-05 | Which ffmpeg (#154): the system one, not a pinned LGPL build; VideoToolbox measured slower, bigger and worse than x264 on the v2 edit ([§7](#7-rendering)). |
 | 2026-11-04 | `models pull <name or URL>` downloads any Whisper model against the sha256 Hugging Face gives (or `--sha256`), pinned to its commit; `models use <file> --language <code>` saves a model per language (#143). |
 | 2026-11-04 | Timeline, first part (#148): `packages/timeline` keeps an edit in a project file; the `edit` tool changes it with ops; `render` renders one, with clips from several sources framed to one size and rate, and captions made for the cut. |
 | 2026-11-04 | `motion` renders an HTML page in a pinned headless Chrome (#145): `mockingbird models pull chrome`, a frame clock injected into the page, several tabs capturing at once, Chrome inside the motion sandbox. The Canvas engine stays until the kit is ported. |
@@ -196,8 +197,27 @@ encoded near-lossless (x264 CRF 10, PCM sound), joined with the concat
 demuxer, and then given the overlays, sound and loudness in one last pass.
 Measured on an M3 with a 96-clip edit of a 908 s 1080p60 recording
 (#137): 152.9 s with one trimmed input, 63.4 s seeking, 103.1 s in two
-batches. VideoToolbox's H.264 encoder was slower than x264 `veryfast` there
-(about 213 fps against 557), so encoding stays on x264.
+batches.
+
+**Which ffmpeg (#154): the system one.** mockingbird runs whatever `ffmpeg`
+is on the `PATH` (Homebrew, apt, winget) and ships none. A build with x264
+is GPL, so we can't put one in the product. An LGPL build we could download
+would have to encode with the OS's hardware encoder instead, and on the same
+96-clip edit (389 s of 1080p60, Apple M3, VMAF against a lossless render of
+the same cut) that loses on speed, size and quality:
+
+| Encoder | Render | Video size | VMAF |
+|---|---|---|---|
+| x264 CRF 18 `veryfast` (today) | 64.0 s, 61.5 s | 51 MB | 95.6 |
+| VideoToolbox H.264 `-q:v 65` | 121.6 s, 120.9 s | 139 MB | 94.6 |
+
+Encoding the lossless cut alone, VideoToolbox H.264 at x264's bitrate
+(867 kb/s) took 109.6 s against x264's 45.5 s and scored 73.8 against 95.0.
+HEVC VideoToolbox at that bitrate scored 83.8 in 120.8 s. OpenH264, the
+other LGPL option, isn't in Homebrew's build and wasn't measured. The cost of
+using the system ffmpeg is that its version differs between machines, so
+`doctor` has to check for the encoder and filters the engine uses
+(`libx264`, `sidechaincompress`, `aevalsrc`, `ebur128`, `alimiter`).
 
 A project (`packages/timeline`) compiles into the same inputs: each clip
 with its own source, everything laid over the cut timed in the finished
@@ -353,6 +373,20 @@ Fn setting back from `~/.mockingbird/fn-key.json`, removes the app and the
 plist, and boots the agent out. `install.sh` and `mockingbird uninstall` call
 the same function. The old `data.db` is migrated: its words stay, learned
 ones included, and the dictation tables go ([DATABASE.md](./DATABASE.md)).
+
+**When the stub goes:** `agent.ts`, `retire.ts` and the `retire` step in
+`install.sh` and `mockingbird uninstall` stay in every 0.x release and are
+deleted in v1.0.0. A Mac that skips straight from v0.3.2 to v1.0.0 would keep
+a launchd agent pointing at a missing file and a changed Fn setting, so the
+v1.0.0 release notes tell anyone on v0.3.2 or earlier to install v0.4.2
+first (it retires dictation on install), or to run
+`launchctl bootout gui/$(id -u)/com.mockingbird.agent`,
+`rm ~/Library/LaunchAgents/com.mockingbird.agent.plist`,
+`lsregister -u ~/.mockingbird/bin/mockingbird.app` (from
+`/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/`)
+and `rm -rf ~/.mockingbird/bin/mockingbird.app ~/.mockingbird/fn-key.json`,
+then set "Press 🌐 key to" back in System Settings → Keyboard. Without the
+last `rm`, a later 0.x install would put the old Fn setting back over it.
 
 ## 14. CI/CD pipeline
 
