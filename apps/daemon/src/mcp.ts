@@ -345,7 +345,7 @@ async function frames(
 export function parseScenes(log: string, from = 0): { at: number; score: number }[] {
   return [...log.matchAll(/lavfi\.scd\.score: ([\d.]+), lavfi\.scd\.time: ([\d.]+)/g)].map(
     ([, score, at]) => ({ at: from + Number(at), score: Number(score) }),
-  );
+  ).filter((c) => c.score > 0); // At threshold 0, an unchanged frame is logged too.
 }
 
 /**
@@ -366,25 +366,29 @@ async function scenes(
   const end = Math.min(to ?? source.seconds, source.seconds);
   if (!(end > from))
     throw new Error(`Nothing to look at from ${from}s: ${path} is ${source.seconds}s.`);
-  const proc = Bun.spawn(
-    [
-      ...["ffmpeg", "-nostdin", "-nostats", "-hwaccel", "auto"],
-      ...["-ss", String(from), "-t", String(end - from), "-i", path, "-an"],
-      ...["-vf", `scale=-2:180,scdet=threshold=${threshold}`, "-f", "null", "-"],
-    ],
-    { stderr: "pipe" },
-  );
-  const said = await new Response(proc.stderr).text();
-  if ((await proc.exited) !== 0) {
+  const run = async (hw: boolean) => {
+    const proc = Bun.spawn(
+      [
+        ...["ffmpeg", "-nostdin", "-nostats", ...(hw ? ["-hwaccel", "auto"] : [])],
+        ...["-ss", String(from), "-t", String(end - from), "-i", path, "-an"],
+        ...["-vf", `scale=-2:180,scdet=threshold=${threshold}`, "-f", "null", "-"],
+      ],
+      { stderr: "pipe" },
+    );
+    const said = await new Response(proc.stderr).text();
+    return { said, code: await proc.exited };
+  };
+  // A hardware decoder that can't hand its frames over fails; software then.
+  let { said, code } = await run(true);
+  if (code !== 0) ({ said, code } = await run(false));
+  if (code !== 0) {
     throw new Error(
       `ffmpeg couldn't look for cuts in ${path}: ${said.trim().split("\n").slice(-3).join("\n")}`,
     );
   }
   const cuts = parseScenes(said, from);
   const length = end - from;
-  const pace = cuts.length
-    ? `, ${((cuts.length / length) * 60).toFixed(1)} a minute, ${(length / (cuts.length + 1)).toFixed(1)} s a shot`
-    : "";
+  const pace = `, ${((cuts.length / length) * 60).toFixed(1)} a minute, ${(length / (cuts.length + 1)).toFixed(1)} s a shot`;
   const head = `${path}: ${cuts.length} cut${cuts.length === 1 ? "" : "s"} from ${fineClock(from * 1000)} to ${fineClock(end * 1000)}${pace}`;
   return [head, ...cuts.map((c) => `[${fineClock(c.at * 1000)}] ${c.score.toFixed(1)}`)].join("\n");
 }
@@ -1864,7 +1868,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
           path,
           from: { type: "number", description: "Start, in seconds from the start of the file" },
           to: { type: "number", description: "End, in seconds from the start of the file" },
-          threshold: { type: "number", description: "0-100 (default 10)" },
+          threshold: { type: "number", minimum: 0, maximum: 100, description: "0-100 (default 10)" },
         },
         required: ["path"],
       },

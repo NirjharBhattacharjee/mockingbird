@@ -251,6 +251,7 @@ test("scdet's log reads as cuts, timed from the seek", () => {
     { at: 64.0333, score: 20.581 },
   ]);
   expect(parseScenes("nothing here")).toEqual([]);
+  expect(parseScenes("lavfi.scd.score: 0.000, lavfi.scd.time: 1")).toEqual([]);
 });
 
 test("a split stacks two areas of the picture into 1080x1920", () => {
