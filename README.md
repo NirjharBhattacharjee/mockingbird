@@ -7,146 +7,151 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/NirjharBhattacharjee/mockingbird/stargazers"><img src="https://img.shields.io/github/stars/NirjharBhattacharjee/mockingbird?style=for-the-badge&logo=starship&color=cba6f7&logoColor=cdd6f4&labelColor=313244" alt="stars"></a>
-  <a href="https://github.com/NirjharBhattacharjee/mockingbird/commits/main"><img src="https://img.shields.io/github/last-commit/NirjharBhattacharjee/mockingbird?style=for-the-badge&logo=git&color=a6e3a1&logoColor=cdd6f4&labelColor=313244" alt="last commit"></a>
   <img src="https://img.shields.io/badge/runs%20on-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-89b4fa?style=for-the-badge&logoColor=cdd6f4&labelColor=313244" alt="macOS, Linux and Windows">
   <img src="https://img.shields.io/badge/runs-100%25%20local-fab387?style=for-the-badge&logo=lock&logoColor=cdd6f4&labelColor=313244" alt="runs 100% local">
-  <img src="https://img.shields.io/badge/built%20with-Bun-f5e0dc?style=for-the-badge&logo=bun&logoColor=cdd6f4&labelColor=313244" alt="built with Bun">
   <img src="https://img.shields.io/badge/price-free%20forever-f38ba8?style=for-the-badge&logo=githubsponsors&logoColor=cdd6f4&labelColor=313244" alt="free forever">
-  <img src="https://img.shields.io/badge/for-AI%20agents%20over%20MCP-b4befe?style=for-the-badge&logo=modelcontextprotocol&logoColor=cdd6f4&labelColor=313244" alt="for AI agents over MCP">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-94e2d5?style=for-the-badge&logo=opensourceinitiative&logoColor=cdd6f4&labelColor=313244" alt="MIT license"></a>
 </p>
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/catppuccin/catppuccin/main/assets/palette/macchiato.png" width="400" alt="">
-</p>
+You give your AI agent a recording. It gives you back an edited video.
 
-Give your AI agent (Claude Code, Codex, Cursor, Gemini CLI, anything that
-speaks MCP) a recording, and get back an edited video: cut on word
-boundaries, framed for 9:16, with word-by-word captions, b-roll, music under
-the speech, motion graphics written as code, and loudness set for the feed.
-mockingbird does the transcribing and rendering on your Mac; your agent
-decides the edit. No account, no cloud, no usage limits, nothing locked
+mockingbird works with Claude Code, Codex, Cursor, Gemini CLI, or any agent
+that speaks MCP. Your agent decides the edit, and mockingbird does the work
+on your computer. It transcribes the speech, cuts on word boundaries,
+frames the speaker for a vertical video, adds word-by-word captions, b-roll,
+music and motion graphics, and sets the loudness to what YouTube plays at.
+
+Your footage never leaves your computer. There's no account, no cloud and no
+usage limit, and nothing is held back for a paid tier
 ([why](docs/PHILOSOPHY.md)).
 
-> [!NOTE]
-> **Changing direction.** Until v0.3.2 mockingbird was voice dictation. That's
-> gone ([#134](https://github.com/NirjharBhattacharjee/mockingbird/issues/134) has the plan and the reasons). What's here now: transcription,
-> stills, captions, cutting and framing, motion graphics and rendering over
-> MCP. A timeline, effects, Linux and Windows are on the roadmap.
+## What you can ask for
 
-## 🚀 Install
+Once it's set up, talk to your agent the way you'd brief an editor:
 
-You need about 3 GB of free space, and a Mac (with [Homebrew](https://brew.sh)),
-Linux (with git, curl, ffmpeg and unzip from your package manager) or Windows x64.
-Captions and motion graphics are macOS only for now.
+> Cut a 60-second vertical short with captions from ~/Movies/talk.mp4.
+
+> Edit ~/Movies/tutorial.mov into a tighter YouTube video. Cut the long
+> pauses and false starts, and write chapters.
+
+> Transcribe ~/Desktop/interview.m4a.
+
+For a short, the agent transcribes the video, picks the best moment, looks
+at stills to find the speaker, frames the shot, makes the captions and
+renders. You get an MP4 next to the original. mockingbird never overwrites
+a file.
+
+## Install
+
+You need about 3 GB of free space, plus one of these:
+
+- a Mac with [Homebrew](https://brew.sh)
+- Linux with git, curl, ffmpeg and unzip from your package manager
+- Windows x64
+
+Captions and motion graphics work on macOS only for now.
+
+On a Mac or Linux, run this in a terminal:
 
 ```sh
 curl -fsSL https://github.com/NirjharBhattacharjee/mockingbird/releases/latest/download/install.sh | bash
 ```
 
-On Windows, in PowerShell:
+On Windows, run this in PowerShell:
 
 ```powershell
 irm https://github.com/NirjharBhattacharjee/mockingbird/releases/latest/download/install.ps1 | iex
 ```
 
-It's safe to run again. Prefer to do it by hand? See
-[manual install](docs/README.md#manual-install).
-
-The binary isn't notarized yet. That doesn't matter for this command or
-Homebrew, but a copy downloaded in a browser gets blocked by macOS; see
-[the fix](docs/README.md#apple-could-not-verify-mockingbird).
-
-Or with Homebrew:
+It's safe to run again. You can also install with Homebrew:
 
 ```sh
 brew install nirjharbhattacharjee/mockingbird/mockingbird
 mockingbird models pull
 ```
 
-### Unsigned binaries
+Or install [by hand](docs/README.md#manual-install).
 
-The release binaries aren't signed by Apple or Microsoft yet: that needs a
-paid developer account and certificate, which is the maintainer's call, not
-something users pay for. The installers and Homebrew never hit a warning,
-because they download with `curl` or PowerShell, which don't mark files as
-coming from the internet; Homebrew builds from source.
+### Let your agent install it
 
-A binary you download yourself in a browser is marked, and then:
-
-- **macOS** stops it: `zsh: killed` in a terminal, or "can't be opened
-  because Apple cannot check it" from Finder. Clear the mark with
-  `xattr -d com.apple.quarantine mockingbird-darwin-arm64`.
-- **Windows** SmartScreen shows "Windows protected your PC". Choose
-  **More info → Run anyway**, or run `Unblock-File mockingbird-windows-x64.exe`
-  in PowerShell.
-
-Each binary's sha256 is in the release's `checksums.txt`.
-
-### With a coding agent
-
-Paste this into your agent:
+On a Mac, paste this into your agent and it runs the installer, checks it,
+and connects mockingbird to itself:
 
 ```text
 Set up mockingbird on this Mac by following
 https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/docs/AGENT_INSTALL.md
 ```
 
-It runs the installer, checks it, and connects mockingbird to itself.
-
-### Updating
-
-Run the same install command again, or `brew upgrade mockingbird`.
-mockingbird never checks for updates on its own. Updating from v0.3.2 or
-earlier removes dictation's background agent and keeps your dictionary.
-
-To remove it, follow [Uninstalling](docs/README.md#uninstalling).
-
-## 🎬 Use it
-
-Connect it to your agents once:
+### Connect it to your agent
 
 ```sh
 mockingbird setup
 ```
 
-It adds mockingbird to Claude Code, Cursor, Codex, Gemini CLI and VS Code,
-whichever you have, after asking. By hand: [MCP.md](docs/MCP.md#register-it).
-`mockingbird doctor` checks the install. Then ask:
+It finds Claude Code, Cursor, Codex, Gemini CLI and VS Code, whichever you
+have, and asks before adding mockingbird to each. To do it by hand, see
+[MCP.md](docs/MCP.md#register-it). Run `mockingbird doctor` any time to check
+the install.
 
-> Cut a 60-second vertical short with captions from ~/Movies/talk.mp4.
+### Claude Code plugin
 
-The agent transcribes the video, picks the moment, gets the word times,
-looks at stills to frame the speaker, makes the captions and renders. The
-editing know-how (hooks, pacing, caption style, motion design) comes with it:
-any agent gets it through the `guide` tool, and Claude Code can also install
-it as a plugin, from [`plugin/`](plugin/README.md):
+Your agent gets mockingbird's editing playbooks for hooks, pacing, caption
+style and motion design through the `guide` tool. In Claude Code you can
+also install them as a [plugin](plugin/README.md):
 
 ```text
 /plugin marketplace add NirjharBhattacharjee/mockingbird
 /plugin install mockingbird@mockingbird
 ```
 
-## 🧰 Tools
+### If your computer blocks it
 
-| Tool | Does |
+The release binaries aren't signed by Apple or Microsoft yet. The install
+commands and Homebrew never trigger a warning. A binary you download in a
+browser does, and here's how to let it run:
+
+- **macOS** says `zsh: killed`, or "Apple cannot check it" from Finder. Run
+  `xattr -d com.apple.quarantine mockingbird-darwin-arm64`.
+- **Windows** says "Windows protected your PC". Choose **More info**, then
+  **Run anyway**. Or run `Unblock-File mockingbird-windows-x64.exe` in
+  PowerShell.
+
+Each binary's sha256 is in the release's `checksums.txt`.
+
+### Update or remove
+
+To update, run the install command again, or `brew upgrade mockingbird`.
+mockingbird never checks for updates by itself. To remove it, follow
+[Uninstalling](docs/README.md#uninstalling).
+
+## What your agent can do with it
+
+| Tool | What it does |
 |---|---|
-| `transcribe` | Timestamped lines, or each word's start and end, with names spelled your way |
-| `frames` | Stills from a video, for the agent to look at |
-| `captions` | Word-by-word captions timed to the finished cut |
-| `render` | Cuts, framing, 9:16 or split layout, captions, titles, b-roll, music and sound effects, −14 LUFS |
-| `motion` | Motion graphics as code (the Canvas 2D API), rendered to video |
-| `guide` | A playbook for one job: shorts, long-form, hooks, captions, motion graphics, review |
-| `status`, `dictionary_list`, `dictionary_add` | What's installed; names to spell right |
+| `transcribe` | Turns speech into text with timestamps, down to each word, with names spelled your way |
+| `frames` | Pulls stills from a video so the agent can see what's on screen |
+| `scenes` | Finds where the shot changes, like a cut to b-roll or a new slide |
+| `audio_stats` | Measures the sound, since the agent can't listen |
+| `captions` | Makes word-by-word captions timed to the finished cut |
+| `edit` | Keeps an edit in a project file the agent can change step by step |
+| `render` | Cuts, frames and joins the clips, adds captions, titles, b-roll, music and sound effects, and sets the loudness |
+| `motion` | Renders animated titles and graphics, written as code |
+| `guide` | Hands the agent a playbook for one job, like a short, a long-form video or a final review |
+| `status`, `dictionary_list`, `dictionary_add` | Shows what's installed, and keeps the names it should spell right |
 
-Every option: [docs/MCP.md](docs/MCP.md). On the command line,
-`mockingbird transcribe`, `dictionary`, `models` and `status` do the same,
-`mockingbird doctor` checks the whole install, and
-`mockingbird record voiceover.wav` records a voiceover from the mic.
+Every option is in [docs/MCP.md](docs/MCP.md). Some of these work from the
+terminal too: `mockingbird transcribe`, `dictionary`, `models` and `status`.
+`mockingbird record voiceover.wav` records a voiceover from your mic.
 
 Something not working? See [troubleshooting](docs/README.md#troubleshooting).
 
-## 📚 More
+## Coming from dictation?
+
+Up to v0.3.2, mockingbird was a voice dictation app. Dictation is gone, and
+[#134](https://github.com/NirjharBhattacharjee/mockingbird/issues/134)
+explains why. Updating from v0.3.2 or earlier removes dictation's background
+agent and keeps your dictionary.
+
+## License
 
 [MIT](LICENSE). Use it, change it, share it.
