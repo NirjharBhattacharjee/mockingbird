@@ -378,11 +378,15 @@ ones included, and the dictation tables go ([DATABASE.md](./DATABASE.md)).
 `install.sh` and `mockingbird uninstall` stay in every 0.x release and are
 deleted in v1.0.0. A Mac that skips straight from v0.3.2 to v1.0.0 would keep
 a launchd agent pointing at a missing file and a changed Fn setting, so the
-v1.0.0 release notes tell anyone still on v0.3.2 to install v0.4.2 first
-(it retires dictation on install), or to run
-`launchctl bootout gui/$(id -u)/com.mockingbird.agent` and
-`rm ~/Library/LaunchAgents/com.mockingbird.agent.plist`, then set
-"Press 🌐 key to" back in System Settings → Keyboard.
+v1.0.0 release notes tell anyone on v0.3.2 or earlier to install v0.4.2
+first (it retires dictation on install), or to run
+`launchctl bootout gui/$(id -u)/com.mockingbird.agent`,
+`rm ~/Library/LaunchAgents/com.mockingbird.agent.plist`,
+`lsregister -u ~/.mockingbird/bin/mockingbird.app` (from
+`/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/`)
+and `rm -rf ~/.mockingbird/bin/mockingbird.app ~/.mockingbird/fn-key.json`,
+then set "Press 🌐 key to" back in System Settings → Keyboard. Without the
+last `rm`, a later 0.x install would put the old Fn setting back over it.
 
 ## 14. CI/CD pipeline
 
