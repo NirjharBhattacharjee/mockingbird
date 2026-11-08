@@ -346,7 +346,11 @@ export async function enginesFor(
     return { engines, language: spokenLanguage(e), model: basename(engines.model) };
   };
   const first = await start(callEnv);
-  const mapped = languageModels(mockingbirdHome(env));
+  // A mapping to a model since deleted counts for nothing.
+  const models = join(mockingbirdHome(env), "models");
+  const mapped = languageModels(mockingbirdHome(env)).filter(([, file]) =>
+    existsSync(join(models, file)),
+  );
   if (
     choice.model ||
     first.language !== "auto" ||
@@ -356,14 +360,21 @@ export async function enginesFor(
     return { ...first, detected: false };
   }
   // Detect from the first speech: VAD finds it, Whisper names its language.
-  const speech = (await first.engines.detectSpeech(audio))[0];
-  if (!speech) return { ...first, detected: false };
-  const from = speech.startSample;
-  const sample = {
-    sampleRate: audio.sampleRate,
-    samples: audio.samples.subarray(from, from + 30 * audio.sampleRate),
-  };
-  const code = languageCode((await first.engines.asr.transcribe(sample)).language);
+  let code: string | undefined;
+  try {
+    const speech = (await first.engines.detectSpeech(audio))[0];
+    if (!speech) return { ...first, detected: false };
+    const from = speech.startSample;
+    const sample = {
+      sampleRate: audio.sampleRate,
+      samples: audio.samples.subarray(from, from + 30 * audio.sampleRate),
+    };
+    code = languageCode((await first.engines.asr.transcribe(sample)).language);
+  } catch (error) {
+    // The caller never gets these engines, so they're closed here.
+    await first.engines.close();
+    throw error;
+  }
   const wanted = code && mapped.find(([c]) => c === code)?.[1];
   if (!code || !wanted || wanted === first.model)
     return { ...first, language: code ?? "auto", detected: !!code };

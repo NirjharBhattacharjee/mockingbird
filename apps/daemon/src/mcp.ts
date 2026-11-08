@@ -25,7 +25,6 @@ import {
   enginesFor,
   type ModelChoice,
   requireFile,
-  spokenLanguage,
   WHISPER_LANGUAGES,
 } from "./runtime.ts";
 
@@ -200,14 +199,14 @@ export const fineClock = (ms: number) =>
  * matched by sound, which only works for English (as dictation's cleanup
  * did). If data.db can't be read, words come out as heard.
  */
-function speller(log: (m: string) => void): (text: string) => string {
+function speller(log: (m: string) => void, language: string): (text: string) => string {
   let dictionary: ReturnType<typeof readDictionary> = [];
   try {
     dictionary = readDictionary();
   } catch (error) {
     log(`warning: couldn't read the dictionary from data.db: ${error}`);
   }
-  const english = spokenLanguage() === "en";
+  const english = language === "en";
   return (text) => {
     const fixed = applyCorrections(text, dictionary);
     return english ? correctNames(fixed, dictionary) : fixed;
@@ -257,10 +256,10 @@ export async function transcribe(
   }
   const audio = { sampleRate: rate, samples: file.samples.subarray(first, last) };
   const startMs = (first / rate) * 1000;
-  const spell = speller(log);
   // A whisper-server per call, since two requests can run at once.
   const picked = await enginesFor(audio, choice, log);
   const { engines } = picked;
+  const spell = speller(log, picked.language);
   try {
     const lines: string[] = [];
     for await (const { heard, offsetMs } of hear(audio, startMs, engines)) {
@@ -1295,7 +1294,6 @@ async function clipWords(
   log: (m: string) => void,
   choice: ModelChoice = {},
 ) {
-  const spell = speller(log);
   const words: AsrWord[][] = clips.map(() => []);
   // The first clip's source, loaded once: the language is detected from that
   // clip (what's captioned first), and the loop below reuses the file.
@@ -1316,7 +1314,8 @@ async function clipWords(
     };
   }
   // A whisper-server per call, since two requests can run at once.
-  const { engines } = await enginesFor(sample, choice, log);
+  const { engines, language } = await enginesFor(sample, choice, log);
+  const spell = speller(log, language);
   try {
     for (const source of new Set(clips.map((c) => c.path ?? path))) {
       const mine = clips.flatMap((c, i) => ((c.path ?? path) === source ? [{ c, i }] : []));

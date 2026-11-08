@@ -13,6 +13,7 @@ Options:
   --model      a Whisper model file in models/ (\`mockingbird models\` lists them)
   --language   what's spoken: a code like bn or de, or auto to detect it and
                use the model \`models use --language\` picked for it
+               (only with MOCKINGBIRD_ASR_MODEL unset)
   -h, --help   show this help
 
 Environment:
