@@ -374,6 +374,13 @@ itself with `bun apps/daemon/src/cli.ts <args>`.
 Updating is always something the user runs: the install command again, or
 `brew upgrade`.
 
+Release binaries are only ad-hoc signed (Go's linker does it), not signed
+with a Developer ID or notarized: that needs a paid certificate the
+maintainer doesn't have yet. Neither install path hits Gatekeeper, because
+`curl` and Homebrew don't set `com.apple.quarantine`. Only a browser
+download does; the [user guide](./README.md#apple-could-not-verify-mockingbird)
+explains what that looks like and the way past it.
+
 ## 13. Upgrading from dictation
 
 v0.3.2 and earlier installed a launchd agent
