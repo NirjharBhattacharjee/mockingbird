@@ -18,6 +18,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
+| 2026-11-05 | Fonts ship with Chrome (#156): `models pull chrome` also downloads Inter, Charis SIL, JetBrains Mono and Noto for Bengali, Devanagari, Arabic, Hebrew, Thai, Tamil and CJK (OFL, pinned, [NOTICE.md](../NOTICE.md)); captions and pages use them by name, so a Bengali caption or a CJK title is drawn the same with or without the system's fonts. |
 | 2026-11-05 | Linux and Windows, first part (pivot step 4): CI runs the checks on all three (#151); `models pull` downloads a pinned whisper-server on Linux and Windows (#153); releases build the command for five targets, `install.sh` runs on Linux, and `install.ps1` installs on Windows (#152). ffmpeg stays the system's, and `status` names any encoder or filter the engine needs that it was built without (#154). |
 | 2026-11-05 | A motion page can't reach the network on Linux or Windows either (#157): Chrome resolves no host name and sends the rest to a dead proxy, every request any tab makes is failed at the browser unless it's a file on this computer, and on Linux the runner starts in a network namespace where one can be made. Chrome is pinned for Linux x64 and Windows x64. |
 | 2026-11-05 | Which ffmpeg (#154): the system one, not a pinned LGPL build; VideoToolbox measured slower, bigger and worse than x264 on the v2 edit ([§7](#7-rendering)). |
@@ -26,6 +27,7 @@ injection, the cleanup model, the launchd agent) is in git:
 | 2026-11-04 | The playbooks' shell scripts became engine tools, so they run on every OS: `pauses` (silencedetect, and the clips between pauses) and `measure` (size, length, loudness), with cuts from `scenes` (#158). |
 | 2026-11-04 | Timeline, first part (#148): `packages/timeline` keeps an edit in a project file; the `edit` tool changes it with ops; `render` renders one, with clips from several sources framed to one size and rate, and captions made for the cut. |
 | 2026-11-04 | The Canvas motion engine is gone (#169): `packages/motion`'s Canvas 2D over Core Graphics, Core Text and vImage, and `motion`'s `.ts`/`.js` scripts. `motion` renders HTML pages only, and the kit runs in them (#168). |
+| 2026-11-04 | Captions and `render`'s texts are drawn as HTML in the pinned Chrome instead of with Core Text (#155), started under the no-network sandbox where there is one; the Core Text code is gone. Without Chrome, `render` falls back to libass or an `.srt`. |
 | 2026-11-04 | `motion` renders an HTML page in a pinned headless Chrome (#145): `mockingbird models pull chrome`, a frame clock injected into the page, several tabs capturing at once, Chrome inside the motion sandbox. The Canvas engine stays until the kit is ported. |
 | 2026-11-04 | `mockingbird setup` and `doctor`, and the plugin's `launch.sh`, which answers MCP with an install tool when mockingbird isn't installed (#141). |
 | 2026-11-04 | `mockingbird record`: the microphone through ffmpeg (`avfoundation`, the input System Settings picked) into a file, for a voiceover (#142). |
@@ -98,7 +100,8 @@ Constraints, not preferences. Check any proposed change against them.
    and no permission prompt: feed it a file, assert on the output.
 5. **Degrade, don't break.** A missing piece narrows what works instead of
    stopping everything: no dictionary means names come out as heard, no
-   Core Text captions means ffmpeg's `subtitles` filter or a sidecar `.srt`.
+   Chrome means captions through ffmpeg's `subtitles` filter or a sidecar
+   `.srt`.
 
 ## 3. Technology stack
 
@@ -109,8 +112,8 @@ Constraints, not preferences. Check any proposed change against them.
 | Decoding, cutting, mixing, encoding | the system's `ffmpeg` (Homebrew, apt, winget), never a copy we ship: a build with x264 is GPL ([#154](https://github.com/NirjharBhattacharjee/mockingbird/issues/154)) | subprocess |
 | Speech detection | Silero VAD via `onnxruntime-node` | native module in-process |
 | Speech-to-text | `whisper.cpp`'s `whisper-server` (Homebrew's on macOS, a pinned CPU build from `models pull` on Linux and Windows), default model `large-v3` Q5_0 | subprocess, HTTP on a free `127.0.0.1` port per call |
-| Captions | Core Text through `bun:ffi`, drawn to PNGs that ffmpeg overlays | in-process |
-| Motion graphics | HTML pages in a pinned chrome-headless-shell, driven over the DevTools protocol | subprocess, under `sandbox-exec` |
+| Captions | HTML in the pinned chrome-headless-shell, screenshotted to PNGs that ffmpeg overlays | subprocess, under the no-network sandbox |
+| Motion graphics | HTML pages in a pinned chrome-headless-shell, driven over the DevTools protocol | subprocess, under the no-network sandbox |
 | Storage | `bun:sqlite` (`data.db`: the dictionary and settings) | in-process |
 | Agent protocol | MCP, JSON-RPC over stdin/stdout | `mockingbird mcp` |
 | Tests | `bun test`, `go test` | — |
@@ -192,7 +195,7 @@ its own input, the source opened at the clip's start (`-ss`) and read for
 its length (`-t`), so only what's kept is decoded. Then a crop and scale per
 clip for framing and zoom (or two crops stacked for a split), `concat`,
 overlays for b-roll, then the captions and text as PNG overlays drawn by
-`packages/captions` with Core Text, and an audio graph that mixes music and
+`packages/captions` in the pinned Chrome, and an audio graph that mixes music and
 effects under the speech with sidechain ducking. The sound is written
 uncompressed, then `level` brings it to −14 LUFS: it measures the file,
 measures again through a 4x-oversampled limiter at −2 dB (peaks stay under
@@ -278,7 +281,7 @@ MCP server is its own short-lived process.
 - **No account, no login, no license server.**
 - **The only network activity is a download the user runs**
   (`mockingbird models pull`, and `models pull chrome` for the headless
-  Chrome), which names each URL and checks each file's sha256. `mockingbird
+  Chrome and its fonts), which names each URL and checks each file's sha256. `mockingbird
   setup` runs the same download only after showing its size and hosts and
   getting a yes, and asks before `brew install` for a missing ffmpeg or
   whisper-cpp (Homebrew fetches and checks those itself). On Linux and
@@ -324,7 +327,7 @@ mockingbird/
 │   │                        levels, the speech band, tempo, sections
 │   ├── vad/                 Silero ONNX wrapper
 │   ├── asr/                 whisper-server adapter, word diff (WER)
-│   ├── captions/            SRT parsing, captions drawn with Core Text
+│   ├── captions/            SRT parsing, captions drawn as HTML in Chrome
 │   ├── motion/              HTML pages in headless Chrome, to MP4
 │   ├── timeline/            project files: format, checks, edit ops, outline
 │   └── store/               data.db, the dictionary's parsing and name matching
@@ -473,9 +476,9 @@ each step shippable on its own:
 
 ## 16. Known gaps
 
-- **Captions are macOS only.** They use Core Text until #155 lands.
-  Transcription, `render` without captions or text overlays, `motion`, and
-  the commands but `record` (macOS only for now) work on Linux and Windows.
+- **`record` is macOS only for now.** Transcription, `render` (captions and
+  texts included, drawn in Chrome), `motion` and the other commands work on
+  Linux and Windows.
 - **No compiled engine** ([§11](#11-packaging)): Bun has to be installed.
 - **One render call per edit.** Any change re-renders everything (step 5).
 - **The agent sees a few stills, not the video.** Tool outputs stay small so

@@ -436,7 +436,7 @@ describe("Chrome", () => {
     const old = join(home, "bin", "chrome-headless-shell-1.0.0.0");
     mkdirSync(old);
     const { get, calls } = serving("");
-    expect(await pullChrome({ home, fetch: get, log: () => {} })).toBe(0);
+    expect(await pullChrome({ home, fetch: get, log: () => {}, fonts: [] })).toBe(0);
     expect(calls).toEqual([]);
     expect(existsSync(old)).toBe(false);
     expect(existsSync(pin.program)).toBe(true);
@@ -452,13 +452,13 @@ describe("Chrome", () => {
     const said: string[] = [];
     const { get, calls } = serving("");
     writeFileSync(lock, String(process.pid));
-    expect(await pullChrome({ home, fetch: get, log: (m) => said.push(m) })).toBe(1);
+    expect(await pullChrome({ home, fetch: get, log: (m) => said.push(m), fonts: [] })).toBe(1);
     expect(said.join("\n")).toContain(`pid ${process.pid}`);
     expect(existsSync(lock)).toBe(true);
 
     const gone = Bun.spawnSync(["true"]).pid; // exited, so not running
     writeFileSync(lock, String(gone));
-    expect(await pullChrome({ home, fetch: get, log: () => {} })).toBe(0);
+    expect(await pullChrome({ home, fetch: get, log: () => {}, fonts: [] })).toBe(0);
     expect(existsSync(lock)).toBe(false);
     expect(calls).toEqual([]);
   });

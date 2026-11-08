@@ -183,10 +183,13 @@ centred a little below the middle (or at `captionsY`), wrapped to fit, with
 words marked `*like this*` in yellow. In a tall video the text is 7.5% of
 the width, as Shorts captions are; in a wide one it's 5% of the height and
 wraps at 60% of the width, as subtitles do, clear of a webcam in a corner. mockingbird draws each cue
-as an image with macOS's own text engine (Core Text) and ffmpeg lays it over
-the video, so this works with Homebrew's `ffmpeg`, which has no libass. Emoji
-and non-Latin scripts come out as macOS draws them anywhere else. If the
-images can't be drawn, `render` falls back to ffmpeg's `subtitles` filter
+as an image in the same pinned headless Chrome as `motion` (white bold
+system font, a black outline under it, as HTML), and ffmpeg lays it over the
+video, so this works with Homebrew's `ffmpeg`, which has no libass, and
+looks the same on every OS. Emoji and non-Latin scripts come out as Chrome
+draws them; a word too long for a line breaks between characters. Each
+render starts Chrome once for all its captions, about 0.3 s. If the images
+can't be drawn, or Chrome isn't pulled (`mockingbird models pull chrome`), `render` falls back to ffmpeg's `subtitles` filter
 when your ffmpeg has libass (at `captionsY` too, and over any inserts), and otherwise to a subtitle track plus an `.srt`
 beside the video, which an editor such as CapCut can burn in.
 
@@ -261,6 +264,14 @@ motion-graphics kit's `page()` does that wrapping.)
   (about 100 MB) into `~/.mockingbird/bin/` and checks its sha256;
   `MOCKINGBIRD_CHROME=/path` uses another build instead. Without either,
   `motion` says so and does nothing.
+- **Fonts** come with Chrome (about 43 MB, [NOTICE.md](../NOTICE.md)), so
+  text looks the same on every machine: a page can name `Inter`,
+  `Charis SIL`, `JetBrains Mono`, `Noto Sans Bengali`, `Noto Sans
+  Devanagari`, `Noto Sans Arabic`, `Noto Sans Hebrew`, `Noto Sans Thai`,
+  `Noto Sans Tamil`, `Noto Sans SC`, `Noto Sans JP` and `Noto Sans KR` in
+  CSS (the full names), and
+  each loads the first time text needs it. Captions use Inter, then the Noto
+  family for the script.
 - **The page** is the size of the video, with a transparent background.
   Anything Chrome draws works: CSS, SVG, gradients, blend modes, filters,
   fonts installed on the Mac or loaded with `@font-face`, images by relative
