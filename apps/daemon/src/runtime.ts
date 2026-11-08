@@ -56,7 +56,8 @@ export function findAsrModel(
 ): string {
   if (configured) {
     return requireFile(
-      configured.includes("/") ? configured : join(models, configured),
+      // A path, with either separator (Windows writes C:\...), or a name in models/.
+      /[\\/]/.test(configured) ? configured : join(models, configured),
       "Whisper model",
       SETUP_HINT,
     );
@@ -155,6 +156,95 @@ export function savedModelFor(language: string, home = mockingbirdHome()): strin
   return there ? own : savedSetting(ASR_MODEL_SETTING, home);
 }
 
+/**
+ * whisper.cpp's own build of whisper-server, for systems with no Homebrew:
+ * one release, checked against its sha256 (of the archives as downloaded on
+ * 2026-11-05; the release publishes none). CPU builds: the CUDA ones are
+ * 0.5 GB and need NVIDIA's runtime. macOS has no prebuilt server, and keeps
+ * Homebrew's whisper-cpp, which uses Metal.
+ */
+export const WHISPER_BUILD = "b5454"; // whisper.cpp v1.9.5
+const WHISPER_BUILDS: Record<string, { asset: string; folder: string; sha256: string }> = {
+  "linux-x64": {
+    asset: "whisper-bin-ubuntu-x64.tar.gz",
+    folder: "whisper-bin-ubuntu-x64",
+    sha256: "a72becf15d7917f990f6313867a52638b82b7f9ef237fb0c980dac56a135781c",
+  },
+  "linux-arm64": {
+    asset: "whisper-bin-ubuntu-arm64.tar.gz",
+    folder: "whisper-bin-ubuntu-arm64",
+    sha256: "6b95ebfc60447df48e70ef00a73bdc3f41679ed2d01ef465827206a2ff325149",
+  },
+  "win32-x64": {
+    asset: "whisper-bin-x64.zip",
+    folder: "Release",
+    sha256: "6ba69e3482d7826214f90a6a9c84ca07782aec1e1d0c6a7c30c994fd5d816ccb",
+  },
+};
+
+/** The pinned whisper-server for this computer, or none where Homebrew's is used. */
+export function pinnedWhisper(
+  home = mockingbirdHome(),
+  system = `${process.platform}-${process.arch}`,
+) {
+  const build = WHISPER_BUILDS[system];
+  if (!build) return undefined;
+  // One folder per platform, so Linux x64 and arm64 can share a home.
+  const dir = join(home, "bin", `whisper-cpp-${WHISPER_BUILD}-${system}`);
+  const archive = {
+    name: "whisper-server",
+    file: build.asset,
+    url: `https://github.com/ggml-org/whisper.cpp/releases/download/${WHISPER_BUILD}/${build.asset}`,
+    sha256: build.sha256,
+  };
+  const program = join(
+    dir,
+    build.folder,
+    system.startsWith("win32") ? "whisper-server.exe" : "whisper-server",
+  );
+  return { archive, dir, program };
+}
+
+/**
+ * The whisper-server to run: MOCKINGBIRD_WHISPER_SERVER, the pinned one once
+ * it's pulled, or whichever is on the PATH.
+ */
+export function findWhisperServer(
+  env = process.env,
+  home = mockingbirdHome(env),
+  which = (name: string) => Bun.which(name),
+): string | undefined {
+  if (env.MOCKINGBIRD_WHISPER_SERVER) return env.MOCKINGBIRD_WHISPER_SERVER;
+  const program = pinnedWhisper(home)?.program;
+  if (program && existsSync(program)) return program;
+  return which("whisper-server") ?? undefined;
+}
+
+/**
+ * The encoders and filters the engine uses that a system ffmpeg can be
+ * built without (#154: mockingbird uses the system's ffmpeg). libx264 is
+ * the usual one: Fedora's ffmpeg-free leaves it out.
+ */
+export const FFMPEG_NEEDS = {
+  encoders: ["libx264", "aac"],
+  filters: ["sidechaincompress", "ebur128", "alimiter", "aevalsrc", "amix", "adelay", "overlay"],
+};
+
+/** What this ffmpeg lacks of FFMPEG_NEEDS, from its `-encoders` and `-filters` lists. */
+export function ffmpegMissing(
+  list = (what: "-encoders" | "-filters") =>
+    Bun.spawnSync(["ffmpeg", "-hide_banner", what], { stderr: "ignore" }).stdout.toString(),
+): string[] {
+  // Each line is flags, a name, then a description: match the name as a word.
+  const has = (text: string, name: string) => new RegExp(`^\\s*\\S+\\s+${name}\\s`, "m").test(text);
+  const encoders = list("-encoders");
+  const filters = list("-filters");
+  return [
+    ...FFMPEG_NEEDS.encoders.filter((n) => !has(encoders, n)),
+    ...FFMPEG_NEEDS.filters.filter((n) => !has(filters, n)),
+  ];
+}
+
 /** Checks the models, loads VAD and starts a whisper-server on `asrPort`. */
 export async function startEngines(
   log: (message: string) => void,
@@ -176,6 +266,7 @@ export async function startEngines(
   const vad = await SileroVad.load(vadModel);
   try {
     const whisper = await startWhisperServer({
+      binary: findWhisperServer(env) ?? "whisper-server",
       modelPath: whisperModel,
       port: asrPort,
       language,

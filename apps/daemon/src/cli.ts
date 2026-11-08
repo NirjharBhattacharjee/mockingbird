@@ -10,11 +10,12 @@ import {
   modelsCommand,
   pullChrome,
   pullModels,
+  pullWhisper,
   resolveModel,
 } from "./models.ts";
 import { main as recordMain } from "./record.ts";
 import { retireDictation } from "./retire.ts";
-import { mockingbirdHome } from "./runtime.ts";
+import { ffmpegMissing, findWhisperServer, mockingbirdHome, pinnedWhisper } from "./runtime.ts";
 import { doctor, setup } from "./setup.ts";
 import { main as transcribeMain, UsageError } from "./transcribe.ts";
 import { uninstall } from "./uninstall.ts";
@@ -28,7 +29,7 @@ export const COMMANDS: { name: string; summary: string }[] = [
   {
     name: "models pull",
     summary:
-      "download the speech models, or `models pull <name or URL>`\nany Whisper model; `models pull chrome` gets the Chrome\nmotion renders HTML in (these and `setup` are the only\ncommands that use the network)",
+      "download the speech models, and whisper-server on Linux and\nWindows; `models pull <name or URL>` any Whisper model;\n`models pull chrome` the Chrome motion renders HTML in\n(these and `setup` are the only commands that use the network)",
   },
   {
     name: "setup",
@@ -56,12 +57,18 @@ Run a command with --help for its own options, e.g. \`mockingbird transcribe --h
 
 const log = (message: string) => console.error(message);
 
+/** The plain `models pull`: the speech models, then whisper-server where it's pinned. */
+const pullAll: typeof pullModels = async (deps) => {
+  const code = await pullModels(deps);
+  return code !== 0 ? code : pullWhisper(deps);
+};
+
 /**
  * `models pull`, with the downloads drawn on one line that redraws in place
  * on a terminal. When the installer sets MOCKINGBIRD_PROGRESS, the same line
  * also goes to that file, which the install shows in place of its clock.
  */
-async function pullWithProgress(pull = pullModels, files?: ModelFile[]): Promise<number> {
+async function pullWithProgress(pull = pullAll, files?: ModelFile[]): Promise<number> {
   let file = process.env.MOCKINGBIRD_PROGRESS;
   let drawn = false;
   const clear = () => {
@@ -69,13 +76,13 @@ async function pullWithProgress(pull = pullModels, files?: ModelFile[]): Promise
     drawn = false;
   };
   try {
-    return await pull({
+    const deps = {
       files,
-      log: (message) => {
+      log: (message: string) => {
         clear();
         log(message);
       },
-      progress: (line) => {
+      progress: (line: string) => {
         if (file) {
           // Renamed into place, so the installer never reads half a line. The
           // file is only for show: if it can't be written, the downloads go on.
@@ -92,7 +99,8 @@ async function pullWithProgress(pull = pullModels, files?: ModelFile[]): Promise
           drawn = line !== "";
         }
       },
-    });
+    };
+    return await pull(deps);
   } finally {
     clear();
   }
@@ -126,7 +134,9 @@ export function engineStatus(
   home = mockingbirdHome(),
   which = (name: string) => Bun.which(name),
   env = process.env,
+  missing = ffmpegMissing,
 ) {
+  const server = findWhisperServer(env, home, which);
   let words = 0;
   try {
     words = readDictionary(home).length;
@@ -137,7 +147,9 @@ export function engineStatus(
     transcriptionModel: listModels({ home }).find((m) => m.inUse)?.file ?? null,
     vadModel: existsSync(join(home, "models", "silero_vad.onnx")),
     ffmpeg: which("ffmpeg") !== null,
-    whisperServer: which("whisper-server") !== null,
+    /** What the system's ffmpeg was built without, of what the engine uses. */
+    ffmpegMissing: which("ffmpeg") !== null ? missing() : [],
+    whisperServer: server !== undefined && (existsSync(server) || which(server) !== null),
     chrome: findChrome(env, home) !== undefined,
     dictionaryWords: words,
   };
@@ -150,11 +162,27 @@ function status(): number {
     `transcription model: ${s.transcriptionModel ?? "missing: `mockingbird models pull`"}`,
   );
   console.log(`speech detection:    ${yes(s.vadModel, "`mockingbird models pull`")}`);
-  console.log(`ffmpeg:              ${yes(s.ffmpeg, "`brew install ffmpeg`")}`);
-  console.log(`whisper-server:      ${yes(s.whisperServer, "`brew install whisper-cpp`")}`);
+  const getFfmpeg =
+    process.platform === "win32"
+      ? "`winget install Gyan.FFmpeg`"
+      : process.platform === "linux"
+        ? "your package manager's ffmpeg, e.g. `sudo apt install ffmpeg`"
+        : "`brew install ffmpeg`";
+  const ffmpegLine = s.ffmpegMissing.length
+    ? `installed, but built without ${s.ffmpegMissing.join(", ")}: install a full build (${getFfmpeg})`
+    : yes(s.ffmpeg, getFfmpeg);
+  console.log(`ffmpeg:              ${ffmpegLine}`);
+  const getWhisper = pinnedWhisper() ? "`mockingbird models pull`" : "`brew install whisper-cpp`";
+  console.log(`whisper-server:      ${yes(s.whisperServer, getWhisper)}`);
   console.log(`chrome:              ${yes(s.chrome, "`mockingbird models pull chrome`")}`);
   console.log(`dictionary:          ${s.dictionaryWords} words`);
-  return s.transcriptionModel && s.vadModel && s.ffmpeg && s.whisperServer ? 0 : 1;
+  return s.transcriptionModel &&
+    s.vadModel &&
+    s.ffmpeg &&
+    !s.ffmpegMissing.length &&
+    s.whisperServer
+    ? 0
+    : 1;
 }
 
 /** `uninstall` with the real git and du behind it. */
@@ -211,6 +239,9 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
       if (rest.length === 1 && rest[0] === "pull") return pullWithProgress();
       if (rest.length === 2 && rest[0] === "pull" && rest[1] === "chrome") {
         return pullWithProgress(pullChrome);
+      }
+      if (rest.length === 2 && rest[0] === "pull" && rest[1] === "whisper-server") {
+        return pullWithProgress((deps) => pullWhisper({ ...deps, force: true }));
       }
       if (rest[0] === "pull") return pullOne(rest.slice(1));
       return modelsCommand(rest);
