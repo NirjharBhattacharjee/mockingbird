@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   release:
-    runs-on: macos-14
+    runs-on: macos-15
     permissions:
       contents: write
     outputs:
@@ -40,12 +40,20 @@ jobs:
         with:
           go-version-file: apps/cli/go.mod
           cache-dependency-path: apps/cli/go.mod
-      # The `mockingbird` command. Apple Silicon only, like the installer.
+      # The `mockingbird` command, cross-compiled for every system the
+      # installers support (#152).
       - name: Build the command
         working-directory: apps/cli
         run: |
           go test ./...
-          go build -trimpath -ldflags "-s -w -X main.release=$GITHUB_REF_NAME" -o ../../mockingbird-darwin-arm64 .
+          for target in darwin-arm64 darwin-amd64 linux-amd64 linux-arm64 windows-amd64; do
+            os="${target%-*}" arch="${target#*-}" ext=""
+            [ "$os" = windows ] && ext=.exe
+            # The asset names say x64, as Node and Bun do.
+            name="mockingbird-$os-${arch/amd64/x64}$ext"
+            GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 \
+              go build -trimpath -ldflags "-s -w -X main.release=$GITHUB_REF_NAME" -o "../../$name" .
+          done
       # Our own tarball rather than GitHub's generated one, so the sha256 the
       # Homebrew formula pins is one we made and published.
       - name: Pack the source
@@ -55,7 +63,8 @@ jobs:
           archive="mockingbird-$version.tar.gz"
           git archive --format=tar.gz --prefix="mockingbird-$version/" -o "$archive" "$GITHUB_REF_NAME"
           cp scripts/install.sh install.sh
-          shasum -a 256 "$archive" mockingbird-darwin-arm64 install.sh > checksums.txt
+          cp scripts/install.ps1 install.ps1
+          shasum -a 256 "$archive" mockingbird-darwin-* mockingbird-linux-* mockingbird-windows-* install.sh install.ps1 > checksums.txt
           sha="$(shasum -a 256 "$archive" | cut -d' ' -f1)"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "sha256=$sha" >> "$GITHUB_OUTPUT"
@@ -72,7 +81,7 @@ jobs:
           prerelease=""
           case "$VERSION" in *-*) prerelease=--prerelease ;; esac
           gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes $prerelease \
-            "mockingbird-$VERSION.tar.gz" mockingbird-darwin-arm64 install.sh checksums.txt
+            "mockingbird-$VERSION.tar.gz" mockingbird-darwin-* mockingbird-linux-* mockingbird-windows-* install.sh install.ps1 checksums.txt
 
   homebrew:
     needs: release

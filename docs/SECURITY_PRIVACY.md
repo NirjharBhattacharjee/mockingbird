@@ -65,6 +65,7 @@ grants, dictation history) is in git: `git show v0.3.2:docs/SECURITY_PRIVACY.md`
 | Dictionary (names, jargon) | Medium | `data.db`, `dictionary` | yes, until removed |
 | Settings (the model in use) | Low | `data.db`, `settings` | yes |
 | Model weights | None (public files) | `~/.mockingbird/models/` | yes |
+| Headless Chrome | None (public files) | `~/.mockingbird/bin/` | yes |
 | Install logs | Low | `~/.mockingbird/logs/` | yes |
 
 An upgraded Mac may still have dictation's `~/.mockingbird/recordings/` and
@@ -80,9 +81,15 @@ Enforced by [ARCHITECTURE.md §9](./ARCHITECTURE.md#9-everything-is-local):
 - **No telemetry, analytics or crash reporting.** Any future opt-in stats
   are off by default and asked for on their own.
 - **No account, login or license server.**
-- **The only download is one you run:** `mockingbird models pull`, which
-  prints each URL and checks each file against a pinned sha256. No update
-  checks.
+- **The only download is one you run:** `mockingbird models pull`, and
+  `models pull chrome` for the headless Chrome `motion` renders HTML in.
+  Each prints its URL and checks the file against a pinned sha256. On
+  Linux and Windows `models pull` includes whisper.cpp's whisper-server
+  build.
+  `mockingbird setup` runs the same download after showing its size and
+  hosts, and `brew install` for a missing ffmpeg or whisper-cpp after naming
+  them; each only on a yes (or `--yes`). Homebrew fetches and checks its
+  own downloads. No update checks.
 - **`mockingbird mcp` opens no port.** The agent starts it and talks over
   stdin and stdout.
 - **The stack rule is a security control.** Every dependency is code in
@@ -94,7 +101,12 @@ Enforced by [ARCHITECTURE.md §9](./ARCHITECTURE.md#9-everything-is-local):
 None. Reading and writing files the user points at needs no TCC grant. A
 folder macOS protects (Desktop, Documents, Downloads) prompts for the
 terminal or agent app that runs mockingbird, the first time, as it would for
-`ls`. Pivot step 3's `mockingbird record` will need the microphone, once.
+`ls`. `mockingbird record` needs the microphone: macOS asks once, for the
+terminal it runs in, and the answer is that terminal's to keep or revoke in
+System Settings → Privacy & Security → Microphone. It records only while the
+command runs and only into the file it was given; a recording that comes out
+silent says where to look, since a denied mic records silence rather than
+failing.
 
 ## 5. At-rest storage & retention
 
@@ -113,6 +125,7 @@ flowchart LR
     MCP -->|spawn| FF["ffmpeg"]
     MCP <-->|HTTP, 127.0.0.1, free port| WS["whisper-server"]
     MCP -->|spawn under sandbox-exec,\nnetwork denied| MS["motion script"]
+    MS -->|spawn, pipe| CH["headless Chrome\n(HTML pages)"]
 ```
 
 - **`motion` runs a script the agent wrote** ([MCP.md](./MCP.md#motion-graphics)).
@@ -123,6 +136,36 @@ flowchart LR
   a way to run code. The server never fetches a script; it runs a path the
   agent gives it. An agent that shouldn't run code on your computer
   shouldn't be given `mockingbird mcp`.
+- **An HTML page renders in Chrome inside that sandbox.** Chrome is
+  started from the sandboxed process, so the network is denied to it and
+  to the page as well; a `fetch` from a page fails there.
+- **How each OS keeps a page off the network (#157).** On every OS, Chrome
+  starts with `--host-resolver-rules=MAP * ~NOTFOUND` (no name resolves)
+  and a proxy on `127.0.0.1:9` with loopback not bypassed (an IP address
+  goes nowhere), and `launchChrome` turns on DevTools' `Fetch` interception
+  for the whole browser, so every request from every tab it opens (a motion
+  page, a caption, a music generator) stops there and is failed unless it's
+  a file on this computer. That also fails a `file://` URL with a host,
+  which Windows would read over SMB. The flags and the gate each stop a
+  `fetch` alone; the tests fetch a server on `127.0.0.1` and check it was
+  never reached. WebRTC may send UDP only through the proxy
+  (`--force-webrtc-ip-handling-policy=disable_non_proxied_udp`; the test's
+  STUN server got 4 packets without it, 0 with it). Around Chrome and the runner:
+  - **macOS:** `sandbox-exec` with `deny network*`.
+  - **Linux:** a user and network namespace (`unshare -rn`), which has no
+    interface but loopback. Some kernels refuse one to a normal user
+    (Ubuntu's AppArmor setting `apparmor_restrict_unprivileged_userns`);
+    then Chrome's blocking stands alone.
+  - **Windows:** Chrome's blocking alone; Windows has no sandbox a process
+    can put itself in without a service or admin rights.
+  - A canvas script is imported by the runner itself, outside Chrome, so it
+    runs only where there is an OS sandbox (macOS, Linux with a namespace);
+    elsewhere `motion` refuses it and asks for a page. Chrome's own
+  sandbox can't start inside another, so it runs with `--no-sandbox`. The
+  page can read files as you, through `file://`, as a script can. Chrome is
+  pinned to one version and checked against its sha256 when pulled. A
+  security fix in Chrome reaches users only when mockingbird bumps the pin,
+  so the pin should move with Chrome's stable releases.
 - **Every tool reads any path the agent passes.** The agent can usually
   read those files itself; mockingbird adds no new reach.
 - **Model files and media are untrusted input to native code.** whisper.cpp,
@@ -137,10 +180,20 @@ flowchart LR
   is verified: Homebrew formulas by sha256, the Go binary against the
   release's `checksums.txt`, models against pinned sha256s. If Homebrew is
   missing and you agree, it runs Homebrew's own installer, unpinned, as
-  brew.sh says to.
+  brew.sh says to. On Linux it uses the system's git and ffmpeg and
+  downloads Bun's release zip, checked against a sha256 pinned in the
+  script.
+- **`scripts/install.ps1`** (Windows) trusts GitHub the same way. Git and
+  ffmpeg come from winget, which checks each installer's hash; Bun's zip
+  and the Go binary are checked as above.
 - **The Homebrew formula** pins each release's source tarball by sha256.
   CI opens the PR that bumps it and a person merges it. `bun install`
   inside it is checked against `bun.lock`.
+- **Release binaries aren't signed or notarized yet** (#159). The
+  installers download with `curl` and `Invoke-WebRequest`, which add no
+  quarantine flag or Mark of the Web, so Gatekeeper and SmartScreen don't
+  check them; their integrity comes from `checksums.txt`. A browser
+  download is flagged, and the README says what the user sees.
 - **Updates are never automatic.** A silent updater would be unannounced
   network activity and a way to compromise every install at once.
 
@@ -151,7 +204,7 @@ flowchart LR
 2. **Stills sit in temp folders** until macOS clears them.
 3. **Backups** (Time Machine, sync tools) copy `data.db` and renders like any
    other file.
-4. **`models pull` tells the host** (Hugging Face, GitHub) which file you
+4. **`models pull` tells the host** (Hugging Face, GitHub, Google for Chrome) which file you
    fetched, from your IP, at that time. Disclosed, user-run, still a leak.
 5. **The dictionary can be more sensitive than it looks**: client names,
    codenames, people's names.

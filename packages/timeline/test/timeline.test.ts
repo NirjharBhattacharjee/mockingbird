@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { apply, check, compile, edit, outline, type Project } from "../src/index.ts";
+
+/** A path as compile resolves it on this OS: "/p/a.wav" is D:\p\a.wav on Windows. */
+const native = (path: string) => resolve(path);
 
 const base = (): Project =>
   check({
@@ -64,7 +67,11 @@ describe("apply", () => {
     expect(project.texts).toEqual([]);
     expect(notes).toEqual(["removed t1, t2 with c1"]);
     // b1 was 1 s into c2, which now starts the video.
-    expect(compile(project, "/p").inserts[0]).toEqual({ path: "/p/broll.jpg", from: 1, to: 3 });
+    expect(compile(project, "/p").inserts[0]).toEqual({
+      path: native("/p/broll.jpg"),
+      from: 1,
+      to: 3,
+    });
   });
 
   test("split moves what starts in the second half onto the new clip", () => {
@@ -118,7 +125,10 @@ describe("apply", () => {
     expect(project.size).toBe("1920x1080");
     expect(project.captions).toEqual({ perCue: 2 });
     // The whoosh lands where c1 now starts: after the 1 s intro and c2's 4 s.
-    expect(compile(project, "/p").sounds.at(-1)).toMatchObject({ path: "/p/whoosh.wav", at: 5 });
+    expect(compile(project, "/p").sounds.at(-1)).toMatchObject({
+      path: native("/p/whoosh.wav"),
+      at: 5,
+    });
   });
 
   test("all or nothing: a bad op names itself and leaves the project as it was", () => {
@@ -138,14 +148,17 @@ describe("apply", () => {
 describe("compile and outline", () => {
   test("times everything in the finished video", () => {
     const c = compile(base(), "/proj");
-    expect(c.clips.map((x) => x.path)).toEqual(["/proj/talk.mp4", "/abs/take2.mov"]);
+    expect(c.clips.map((x) => x.path)).toEqual([
+      native("/proj/talk.mp4"),
+      native("/abs/take2.mov"),
+    ]);
     expect(c.texts).toEqual([
       { text: "Title", from: 0, to: 2, y: 0.2 },
       { text: "Later", from: 4, to: 5 },
     ]);
-    expect(c.inserts).toEqual([{ path: "/proj/broll.jpg", from: 7, to: 9 }]);
+    expect(c.inserts).toEqual([{ path: native("/proj/broll.jpg"), from: 7, to: 9 }]);
     expect(c.sounds).toEqual([
-      { path: "/proj/music.m4a", at: 0, volume: 0.15, loop: true, duck: true },
+      { path: native("/proj/music.m4a"), at: 0, volume: 0.15, loop: true, duck: true },
     ]);
   });
 

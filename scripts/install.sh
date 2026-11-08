@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Sets up mockingbird in one go: the tools (Bun, whisper-cpp, ffmpeg), the
-# code and the speech models. Safe to run again:
-# anything already done is skipped, and an existing install is updated to the
-# latest release.
+# Sets up mockingbird in one go on macOS or Linux (Windows: install.ps1): the
+# tools (Bun, whisper-cpp, ffmpeg), the code and the speech models. Safe to
+# run again: anything already done is skipped, and an existing install is
+# updated to the latest release.
 #
 #   curl -fsSL https://github.com/NirjharBhattacharjee/mockingbird/releases/latest/download/install.sh | bash
 #
@@ -28,48 +28,74 @@ main() {
     exit 1
   }
 
-  if [ "$(uname -s)" != "Darwin" ] || [ "$(uname -m)" != "arm64" ]; then
-    fail "mockingbird needs a Mac with Apple Silicon."
+  # The Go command's release asset for this system: mockingbird-<os>-<arch>.
+  local os arch
+  case "$(uname -s)" in
+    Darwin) os=darwin ;;
+    Linux) os=linux ;;
+    *) fail "mockingbird runs on macOS, Linux and Windows (install.ps1), not $(uname -s)." ;;
+  esac
+  case "$(uname -m)" in
+    arm64 | aarch64) arch=arm64 ;;
+    x86_64 | amd64) arch=x64 ;;
+    *) fail "mockingbird needs a 64-bit Intel/AMD or ARM processor, not $(uname -m)." ;;
+  esac
+  sha256_check() { if command -v sha256sum >/dev/null 2>&1; then sha256sum -c - >/dev/null; else shasum -a 256 -c - >/dev/null; fi; }
+
+  # Linux has no Homebrew to lean on: git and ffmpeg come from the system's
+  # package manager, Bun from its own release (below), and whisper-server
+  # from `models pull`.
+  if [ "$os" = linux ]; then
+    local need=() tool
+    for tool in git ffmpeg unzip curl; do
+      command -v "$tool" >/dev/null 2>&1 || need+=("$tool")
+    done
+    if [ ${#need[@]} -gt 0 ]; then
+      fail "mockingbird needs ${need[*]}. Install them with your package manager (e.g. \`sudo apt install ${need[*]}\`), then run this again."
+    fi
   fi
   local brew_bin=/opt/homebrew/bin/brew
-  # Homebrew's own installer, after asking. Its prompts (the Mac password,
-  # "Press RETURN") read the keyboard: under `curl | bash` this script is on
-  # stdin. With no terminal to ask on, the error below stands.
-  install_brew() {
-    (: </dev/tty) 2>/dev/null || return 0
-    id -Gn | grep -qw admin ||
-      fail "Homebrew needs an administrator account, and $(id -un) isn't one. Ask an administrator to install it (https://brew.sh), then run this again."
-    printf "mockingbird needs Homebrew, which isn't installed.\n"
-    printf "Install it now? It asks for your Mac password, and on a new Mac it also\n"
-    printf "installs Apple's command line tools (about 5-15 minutes). [Y/n] "
-    local answer
-    read -r answer </dev/tty || answer=n
-    case "$answer" in [nN]*) return 0 ;; esac
-    # Downloaded first: a failed download would hand bash an empty script,
-    # which "succeeds".
-    local brew_script
-    brew_script="$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" ||
-      fail "Couldn't download Homebrew's installer. Check the connection, then run this again."
-    /bin/bash -c "$brew_script" </dev/tty ||
-      fail "Homebrew's installer stopped; its output is above. Run this again to retry."
-    # Homebrew ends by asking the user to add this to .zprofile, in ZDOTDIR
-    # if zsh has one.
-    if [ "$(basename "${SHELL:-}")" = zsh ]; then
-      local zprofile
-      zprofile="$(zsh -c 'printf %s "${ZDOTDIR:-$HOME}"' 2>/dev/null)/.zprofile" || zprofile="$HOME/.zprofile"
-      grep -qF 'brew shellenv' "$zprofile" 2>/dev/null ||
-        printf '\n# Added by the mockingbird installer\neval "$(%s shellenv)"\n' "$brew_bin" >>"$zprofile"
+  [ "$arch" = x64 ] && brew_bin=/usr/local/bin/brew
+  if [ "$os" = darwin ]; then
+    # Homebrew's own installer, after asking. Its prompts (the Mac password,
+    # "Press RETURN") read the keyboard: under `curl | bash` this script is on
+    # stdin. With no terminal to ask on, the error below stands.
+    install_brew() {
+      (: </dev/tty) 2>/dev/null || return 0
+      id -Gn | grep -qw admin ||
+        fail "Homebrew needs an administrator account, and $(id -un) isn't one. Ask an administrator to install it (https://brew.sh), then run this again."
+      printf "mockingbird needs Homebrew, which isn't installed.\n"
+      printf "Install it now? It asks for your Mac password, and on a new Mac it also\n"
+      printf "installs Apple's command line tools (about 5-15 minutes). [Y/n] "
+      local answer
+      read -r answer </dev/tty || answer=n
+      case "$answer" in [nN]*) return 0 ;; esac
+      # Downloaded first: a failed download would hand bash an empty script,
+      # which "succeeds".
+      local brew_script
+      brew_script="$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" ||
+        fail "Couldn't download Homebrew's installer. Check the connection, then run this again."
+      /bin/bash -c "$brew_script" </dev/tty ||
+        fail "Homebrew's installer stopped; its output is above. Run this again to retry."
+      # Homebrew ends by asking the user to add this to .zprofile, in ZDOTDIR
+      # if zsh has one.
+      if [ "$(basename "${SHELL:-}")" = zsh ]; then
+        local zprofile
+        zprofile="$(zsh -c 'printf %s "${ZDOTDIR:-$HOME}"' 2>/dev/null)/.zprofile" || zprofile="$HOME/.zprofile"
+        grep -qF 'brew shellenv' "$zprofile" 2>/dev/null ||
+          printf '\n# Added by the mockingbird installer\neval "$(%s shellenv)"\n' "$brew_bin" >>"$zprofile"
+      fi
+    }
+    if ! command -v brew >/dev/null 2>&1 && [ ! -x "$brew_bin" ]; then
+      install_brew
     fi
-  }
-  if ! command -v brew >/dev/null 2>&1 && [ ! -x "$brew_bin" ]; then
-    install_brew
+    # Homebrew's installer leaves adding itself to PATH to the user, so a
+    # Homebrew that's installed can still be missing from this shell.
+    if ! command -v brew >/dev/null 2>&1 && [ -x "$brew_bin" ]; then
+      eval "$("$brew_bin" shellenv)"
+    fi
+    command -v brew >/dev/null 2>&1 || fail "Homebrew is needed first: see https://brew.sh, then run this again."
   fi
-  # Homebrew's installer leaves adding itself to PATH to the user, so a
-  # Homebrew that's installed can still be missing from this shell.
-  if ! command -v brew >/dev/null 2>&1 && [ -x "$brew_bin" ]; then
-    eval "$("$brew_bin" shellenv)"
-  fi
-  command -v brew >/dev/null 2>&1 || fail "Homebrew is needed first: see https://brew.sh, then run this again."
 
   # Everything a step prints goes to its own log, not the terminal: steps run
   # side by side, and one shared log could push a failed step's reason out of
@@ -154,14 +180,14 @@ main() {
   # tag builds it instead, if Go is installed.
   get_cli() {
     local d="$1" out="$2" tag tmp
-    local asset="mockingbird-darwin-arm64"
+    local asset="mockingbird-$os-$arch"
     tag="$(git -C "$d" describe --tags --exact-match 2>/dev/null)" || tag=""
     if [ -n "$tag" ]; then
       local url="https://github.com/NirjharBhattacharjee/mockingbird/releases/download/$tag"
       tmp="$(mktemp -d)"
       if curl -fsL -o "$tmp/$asset" "$url/$asset" &&
         curl -fsL -o "$tmp/checksums.txt" "$url/checksums.txt" &&
-        (cd "$tmp" && grep " $asset\$" checksums.txt | shasum -a 256 -c - >/dev/null); then
+        (cd "$tmp" && grep " $asset\$" checksums.txt | sha256_check); then
         chmod +x "$tmp/$asset"
         mv "$tmp/$asset" "$out"
       fi
@@ -176,6 +202,10 @@ main() {
   # call. Homebrew checks each download against its formula's sha256, and a
   # tool already on the PATH (say, bun from bun.sh) is used as it is.
   tools() {
+    if [ "$os" = linux ]; then
+      linux_bun
+      return
+    fi
     local missing=() formula
     for formula in bun whisper-cpp ffmpeg; do
       command -v "$formula" >/dev/null 2>&1 || brew list --formula "$formula" >/dev/null 2>&1 || missing+=("$formula")
@@ -183,6 +213,37 @@ main() {
     if [ ${#missing[@]} -gt 0 ]; then
       quietly brew install "${missing[@]}"
     fi
+  }
+
+  # Bun on Linux: its own release, pinned and checked, into ~/.mockingbird/bin.
+  # One already on the PATH is used as it is.
+  local bun_version=1.4.2
+  local bun_dir="${MOCKINGBIRD_HOME:-$HOME/.mockingbird}/bin/bun-$bun_version"
+  linux_bun() {
+    command -v bun >/dev/null 2>&1 && return
+    [ -x "$bun_dir/bun" ] && return
+    # Bun's Linux builds need glibc; on musl (Alpine) the download wouldn't run.
+    # ldd exits 1 on musl after printing its banner, so its status is ignored.
+    if { ldd --version 2>&1 || true; } | grep -qi musl; then
+      echo "Bun's Linux build needs glibc, and this system uses musl. Install a Bun that runs here (or glibc), put it on the PATH, and run this again." >&2
+      return 1
+    fi
+    local zip="bun-linux-x64.zip" sum="36368faef7527875d5ffa52e53cd48021741f2a83eb6208a8dd64068d422a913"
+    if [ "$arch" = arm64 ]; then
+      zip="bun-linux-aarch64.zip" sum="54328bbc2d9c8e0c9f892c544d66c57a83b84139e34909e5ee81758f1ac8fda7"
+    fi
+    local tmp
+    tmp="$(mktemp -d)"
+    curl -fsSL -o "$tmp/$zip" "https://github.com/oven-sh/bun/releases/download/bun-v$bun_version/$zip"
+    (cd "$tmp" && echo "$sum  $zip" | sha256_check) || {
+      rm -rf "$tmp"
+      echo "$zip didn't match its pinned checksum" >&2
+      return 1
+    }
+    unzip -q -o "$tmp/$zip" -d "$tmp"
+    mkdir -p "$bun_dir"
+    mv "$tmp/${zip%.zip}/bun" "$bun_dir/bun"
+    rm -rf "$tmp"
   }
 
   local dir here before=""
@@ -242,7 +303,13 @@ main() {
   (STEP=code && get_code) &
   local code_pid=$!
   await tools "$tools_pid" code "$code_pid"
-  done_ "tools: Bun, whisper-cpp, ffmpeg"
+  if [ "$os" = linux ]; then
+    # This shell's PATH, for the steps below; the shim carries it after.
+    command -v bun >/dev/null 2>&1 || export PATH="$bun_dir:$PATH"
+    done_ "tools: Bun, ffmpeg (whisper-server comes with the models)"
+  else
+    done_ "tools: Bun, whisper-cpp, ffmpeg"
+  fi
   if [ "$dir" = "$here" ]; then
     done_ "code: this clone as it is, $dir"
   elif [ -z "$before" ]; then
@@ -342,9 +409,10 @@ SHIM
   fi
 
   printf '\n\033[1;32mAll set.\033[0m mockingbird %s is installed.\n\n' "$(version "$dir")"
-  printf 'Give it to your AI agent. For Claude Code:\n\n'
-  printf '    claude mcp add mockingbird -- %s mcp\n\n' "$cmd"
-  printf 'Other agents: docs/AGENT_INSTALL.md. `%s status` checks the install.\n' "$cmd"
+  printf 'Give it to your AI agents:\n\n'
+  printf '    %s setup\n\n' "$cmd"
+  printf 'It adds mockingbird to Claude Code, Cursor, Codex, Gemini CLI and VS Code,\n'
+  printf 'after asking. `%s doctor` checks the install.\n' "$cmd"
   if [ -n "$in_profile" ]; then
     printf 'In a new terminal window, plain `mockingbird` works too.\n'
   fi

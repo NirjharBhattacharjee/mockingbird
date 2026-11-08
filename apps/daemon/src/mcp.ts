@@ -13,11 +13,13 @@ import { basename, dirname, extname, join, resolve } from "node:path";
 import { type AsrWord, stripNonSpeech } from "@mockingbird/asr";
 import { loadAudio, type PcmAudio } from "@mockingbird/audio";
 import { type Cue, drawCaptions, parseSrt } from "@mockingbird/captions";
+import { noNetwork } from "@mockingbird/motion/sandbox";
 import { applyCorrections, correctNames } from "@mockingbird/store";
 import { compile, edit, load } from "@mockingbird/timeline";
 import type { SpeechSegment } from "@mockingbird/vad";
 import { addEntries, formatEntry, readDictionary } from "./dictionary.ts";
 import { guide, INSTRUCTIONS, playbooks } from "./guide.ts";
+import { findChrome } from "./models.ts";
 import { type Engines, requireFile, spokenLanguage, startEngines } from "./runtime.ts";
 
 /**
@@ -1106,17 +1108,15 @@ export function spans(clips: Clip[], pad = 2): { from: number; to: number }[] {
  * Word-by-word captions for the video `clips` make out of `path`, as SRT
  * for render: each clip transcribed with word times, then wordCaptions.
  */
-/** macOS's sandbox, and a profile that allows everything but the network. */
-const SANDBOX = "/usr/bin/sandbox-exec";
-const NO_NETWORK = "(version 1)(allow default)(deny network*)";
 const MOTION_RUNNER = join(import.meta.dir, "motion-run.ts");
 /** Two hours: past any real video, short of a frame count that never ends. */
 const MOTION_MAX_SECONDS = 7200;
 
 /**
- * Runs the motion script at `script`, whose default export draws one frame,
- * over the video at `path` or on its own at `size` for `duration` seconds,
- * and saves the result. The script runs in its own sandboxed process with no network.
+ * Renders `script`, an HTML page drawn in Chrome or a script whose default
+ * export draws one frame on a canvas, over the video at `path` or on its own
+ * at `size` for `duration` seconds, and saves the result. It runs in its own
+ * sandboxed process with no network, Chrome included.
  */
 async function motion(
   script: string,
@@ -1138,6 +1138,15 @@ async function motion(
 ): Promise<string> {
   requireFile(script, "Script");
   if (path) requireFile(path, "File");
+  const page = /\.html?$/i.test(script);
+  const chrome = page ? findChrome() : undefined;
+  if (page && !chrome) {
+    throw new Error(
+      process.env.MOCKINGBIRD_CHROME
+        ? `MOCKINGBIRD_CHROME is ${process.env.MOCKINGBIRD_CHROME}, which isn't a program that can run. Ask the user to fix it, or to unset it and run \`mockingbird models pull chrome\`.`
+        : "An HTML page renders in a headless Chrome that isn't downloaded yet. Ask the user to run `mockingbird models pull chrome` (about 100 MB), or to set MOCKINGBIRD_CHROME to one.",
+    );
+  }
   let seconds = duration;
   let audio = false;
   let picture = size;
@@ -1168,6 +1177,7 @@ async function motion(
   const started = performance.now();
   const options = {
     script,
+    chrome,
     out: target,
     width,
     height,
@@ -1179,10 +1189,19 @@ async function motion(
   };
   // A fresh process per call, sandboxed with no network: the script is the
   // client's code, and mockingbird's only download is `models pull`.
-  const proc = Bun.spawn(
-    [SANDBOX, "-p", NO_NETWORK, process.execPath, MOTION_RUNNER, JSON.stringify(options)],
-    { stdout: "pipe", stderr: "pipe" },
-  );
+  const wall = noNetwork();
+  // The runner imports a canvas script itself, so where there's no OS
+  // sandbox nothing else would stop its network calls. A page is fine:
+  // Chrome blocks those.
+  if (!page && wall.length === 0) {
+    throw new Error(
+      `${basename(script)} is a canvas script, which runs only where the OS can sandbox it (macOS, or Linux with a network namespace). Make it an .html page.`,
+    );
+  }
+  const proc = Bun.spawn([...wall, process.execPath, MOTION_RUNNER, JSON.stringify(options)], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   const [said, why, code] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
@@ -1646,11 +1665,14 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
     {
       name: "motion",
       description:
-        'Motion graphics written as code, drawn on this Mac with Core Graphics (no browser). `script` is a .ts or .js file whose `export default function draw(ctx, t, m)` draws the frame `t` seconds in, with the Canvas 2D API: paths, arc, roundRect, fill, stroke, clip, gradients, shadows, globalAlpha, globalCompositeOperation, save/restore, translate/rotate/scale/setTransform, fillText/strokeText/measureText (font like "900 96px SF Pro"; a family that isn\'t installed is an error, so list fallbacks: "40px SF Mono, Menlo"), drawImage, setLineDash, Path2D (also from SVG path data: new Path2D("M10 10 h80 v80 Z")) for fill/stroke/clip(path), and ctx.filter with CSS filter functions (blur, brightness, contrast, drop-shadow, grayscale, hue-rotate, invert, opacity, saturate, sepia). No DOM. Sound: `export const audio = [{ path, at, volume, loop, duck }]` beside draw (paths from the script\'s folder), or a function of { width, height, fps, duration, cues } returning one, is mixed in as render\'s audio is, ducked under any speech and brought to -14 LUFS. With `path` (usually render\'s output), each frame of that video is drawn first, its sound is kept, and the frame is `m.video` too: draw it again scaled to zoom or move it. `m` has width, height, fps, duration, frame, video, cues (from `captions`, timed to this video), image(path) for a picture file, interpolate(t, [t0, t1], [v0, v1], easing), spring(t, { from, to, start, stiffness, damping }), and ease (linear, in, out, inOut, back, bezier(x1, y1, x2, y2)). Without `path`, give `size` and `duration`. Saves to `out` or <name>-motion-N.mp4 and never overwrites. The script runs in a sandbox with no network access.',
+        "Motion graphics written as code. `script` is an .html page or a .ts/.js canvas script. AN HTML PAGE (recommended) renders in a pinned headless Chrome at the video's size, with a transparent background: any HTML, CSS, SVG, fonts and images by relative path. For each frame at `t` seconds, every CSS animation, transition and Web Animation is set to `t` (stylesheet animations start at 0, so time them with animation-delay; one started later runs from when it started), requestAnimationFrame callbacks run with performance.now() and Date.now() frozen at `t`, and `mockingbird.draw(t, m)`, if the page sets it, is called and awaited. The global `mockingbird` (also `m`) has width, height, fps, duration, frame and cues, and is there before the page's own scripts run, so a page can build captions from cues as it loads. Sound: set `mockingbird.audio = [{ path, at, volume, loop, duck }]` (paths from the page's folder), mixed like a script's audio below. With `path` (usually render's output), the page is laid over each frame of that video, whose sound is kept; or, if the page sets `mockingbird.drawVideo = true`, it gets each frame as `m.video` (an ImageBitmap) before draw and draws the whole picture itself, e.g. ctx.drawImage(m.video, ...) on a <canvas> to zoom, shake, cut between framings or make a picture-in-picture. setTimeout runs in real time, so don't time anything with it; Math.random is seeded, the same every render. A .TS/.JS SCRIPT is drawn with Core Graphics: a file whose `export default function draw(ctx, t, m)` draws the frame `t` seconds in, with the Canvas 2D API: paths, arc, roundRect, fill, stroke, clip, gradients, shadows, globalAlpha, globalCompositeOperation, save/restore, translate/rotate/scale/setTransform, fillText/strokeText/measureText (font like \"900 96px SF Pro\"; a family that isn't installed is an error, so list fallbacks: \"40px SF Mono, Menlo\"), drawImage, setLineDash, Path2D (also from SVG path data: new Path2D(\"M10 10 h80 v80 Z\")) for fill/stroke/clip(path), and ctx.filter with CSS filter functions (blur, brightness, contrast, drop-shadow, grayscale, hue-rotate, invert, opacity, saturate, sepia). No DOM. Sound: `export const audio = [{ path, at, volume, loop, duck }]` beside draw (paths from the script's folder), or a function of { width, height, fps, duration, cues } returning one, is mixed in as render's audio is, ducked under any speech and brought to -14 LUFS. With `path` (usually render's output), each frame of that video is drawn first, its sound is kept, and the frame is `m.video` too: draw it again scaled to zoom or move it. `m` has width, height, fps, duration, frame, video, cues (from `captions`, timed to this video), image(path) for a picture file, interpolate(t, [t0, t1], [v0, v1], easing), spring(t, { from, to, start, stiffness, damping }), and ease (linear, in, out, inOut, back, bezier(x1, y1, x2, y2)). Without `path`, give `size` and `duration`. Saves to `out` or <name>-motion-N.mp4 and never overwrites. The script runs in a sandbox with no network access.",
       inputSchema: {
         type: "object",
         properties: {
-          script: { type: "string", description: "Absolute path to the motion script" },
+          script: {
+            type: "string",
+            description: "Absolute path to the .html page or .ts/.js script",
+          },
           path: { type: "string", description: "Absolute path to a video to draw over" },
           captions: { type: "string", description: "SRT for m.cues, timed to the video" },
           size: { type: "string", description: "WIDTHxHEIGHT without `path` (default 1080x1920)" },

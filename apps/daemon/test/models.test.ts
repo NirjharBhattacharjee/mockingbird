@@ -4,22 +4,32 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  CHROME_VERSION,
+  findChrome,
   listModels,
   MODEL_FILES,
   type ModelFile,
   modelsCommand,
+  pinnedChrome,
   progressLine,
+  pullChrome,
   pullFile,
   pullModels,
+  resolveModel,
   sha256Of,
   speechName,
 } from "../src/models.ts";
+import { savedModelFor } from "../src/runtime.ts";
+
+/** Where pullFile keeps an unfinished download of `model`: named for its checksum. */
+const partOf = (model: ModelFile) => `model.bin.${model.sha256.slice(0, 12)}.part`;
 
 const tempDir = () => mkdtempSync(join(tmpdir(), "mockingbird-pull-"));
 
@@ -74,7 +84,7 @@ describe("pullFile", () => {
       "expected checksum",
     );
     expect(existsSync(join(dir, "model.bin"))).toBe(false);
-    expect(existsSync(join(dir, "model.bin.part"))).toBe(false);
+    expect(existsSync(join(dir, partOf(modelOf("weights"))))).toBe(false);
   });
 
   test("reports the bytes as they arrive, against the size the server gave", async () => {
@@ -90,7 +100,7 @@ describe("pullFile", () => {
 
   test("continues an interrupted download instead of starting over", async () => {
     const dir = tempDir();
-    writeFileSync(join(dir, "model.bin.part"), "wei");
+    writeFileSync(join(dir, partOf(modelOf("weights"))), "wei");
     const asked: (string | null)[] = [];
     const seen: [number, number][] = [];
     const get = (async (_url: string, init?: RequestInit) => {
@@ -111,7 +121,7 @@ describe("pullFile", () => {
 
   test("starts over when the server sends the whole file instead of the rest", async () => {
     const dir = tempDir();
-    writeFileSync(join(dir, "model.bin.part"), "wei");
+    writeFileSync(join(dir, partOf(modelOf("weights"))), "wei");
     const { get } = serving("weights");
     expect(await pullFile(modelOf("weights"), dir, { fetch: get })).toBe(true);
     expect(readFileSync(join(dir, "model.bin"), "utf8")).toBe("weights");
@@ -119,7 +129,7 @@ describe("pullFile", () => {
 
   test("a part too long to continue is thrown away and the file fetched again", async () => {
     const dir = tempDir();
-    writeFileSync(join(dir, "model.bin.part"), "garbage, longer than the model");
+    writeFileSync(join(dir, partOf(modelOf("weights"))), "garbage, longer than the model");
     const asked: (string | null)[] = [];
     const get = (async (_url: string, init?: RequestInit) => {
       const range = new Headers(init?.headers).get("range");
@@ -133,7 +143,7 @@ describe("pullFile", () => {
 
   test("a finished download that was never renamed is kept, not fetched again", async () => {
     const dir = tempDir();
-    writeFileSync(join(dir, "model.bin.part"), "weights");
+    writeFileSync(join(dir, partOf(modelOf("weights"))), "weights");
     const { get, calls } = serving("weights");
     expect(await pullFile(modelOf("weights"), dir, { fetch: get })).toBe(true);
     expect(calls).toEqual([]);
@@ -252,6 +262,32 @@ describe("modelsCommand", () => {
     expect(modelsCommand(["use"], f.deps)).toBe(2);
   });
 
+  test("a model for one language is used for it, and the rest keep the one for all", () => {
+    const f = fake({ MOCKINGBIRD_LANGUAGE: "bn" });
+    expect(modelsCommand(["use", "ggml-base.en.bin"], f.deps)).toBe(0);
+    expect(modelsCommand(["use", "ggml-large-v3-q5_0.bin", "--language", "bn"], f.deps)).toBe(0);
+    expect(savedModelFor("bn", f.deps.home)).toBe("ggml-large-v3-q5_0.bin");
+    expect(savedModelFor("de", f.deps.home)).toBe("ggml-base.en.bin");
+    expect(listModels(f.deps).find((m) => m.inUse)?.file).toBe("ggml-large-v3-q5_0.bin");
+    f.lines.length = 0;
+    modelsCommand([], f.deps);
+    expect(f.lines.join("\n")).toMatch(/By language:\n\s+bn\s+ggml-large-v3-q5_0\.bin/);
+    // --default for bn goes back to the one for every language.
+    expect(modelsCommand(["use", "--default", "--language", "bn"], f.deps)).toBe(0);
+    expect(savedModelFor("bn", f.deps.home)).toBe("ggml-base.en.bin");
+    expect(modelsCommand(["use", "ggml-base.en.bin", "--language", "xx"], f.deps)).toBe(2);
+    expect(modelsCommand(["use", "ggml-base.en.bin", "--language"], f.deps)).toBe(2);
+  });
+
+  test("--language is read like MOCKINGBIRD_LANGUAGE, and a deleted one gives way", () => {
+    const f = fake();
+    expect(modelsCommand(["use", "ggml-base.en.bin", "--language", "DE-de"], f.deps)).toBe(0);
+    expect(savedModelFor("de", f.deps.home)).toBe("ggml-base.en.bin");
+    expect(modelsCommand(["use", "ggml-large-v3-q5_0.bin"], f.deps)).toBe(0);
+    rmSync(join(f.deps.modelsDir, "ggml-base.en.bin"));
+    expect(savedModelFor("de", f.deps.home)).toBe("ggml-large-v3-q5_0.bin");
+  });
+
   test("says when MOCKINGBIRD_ASR_MODEL will win over the choice", () => {
     const f = fake({ MOCKINGBIRD_ASR_MODEL: "ggml-large-v3-q5_0.bin" });
     modelsCommand(["use", "ggml-base.en.bin"], f.deps);
@@ -281,5 +317,149 @@ describe("modelsCommand", () => {
     expect(speechName("ggml-large-v3-turbo-q8_0.bin")).toBe("large-v3-turbo Q8_0");
     expect(speechName("ggml-small.en-q5_1.bin")).toBe("small.en Q5_1");
     expect(speechName("ggml-large-v3.bin")).toBe("large-v3");
+  });
+});
+
+describe("resolveModel", () => {
+  const sha = "a".repeat(64);
+  /** Hugging Face's reply to a HEAD: the file's sha256, size and commit in headers. */
+  const hf = (headers: Record<string, string> = {}, status = 302) => {
+    const seen: { url: string; method?: string; redirect?: string }[] = [];
+    const get = (async (url: string, init?: RequestInit) => {
+      seen.push({ url, method: init?.method, redirect: init?.redirect });
+      return new Response(null, { status, headers });
+    }) as unknown as typeof fetch;
+    return { get, seen };
+  };
+
+  test("a name is whisper.cpp's file, pinned to the commit Hugging Face names", async () => {
+    const { get, seen } = hf({
+      "x-linked-etag": `"${sha}"`,
+      "x-linked-size": "1624555275",
+      "x-repo-commit": "5359861",
+    });
+    const model = await resolveModel("large-v3-turbo", { fetch: get });
+    expect(seen[0]).toEqual({
+      url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
+      method: "HEAD",
+      redirect: "manual",
+    });
+    expect(model).toEqual({
+      name: "large-v3-turbo",
+      file: "ggml-large-v3-turbo.bin",
+      url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861/ggml-large-v3-turbo.bin",
+      sha256: sha,
+      bytes: 1624555275,
+    });
+  });
+
+  test("a URL without a sha256 in its headers needs --sha256, and a wrong one is refused", async () => {
+    const plain = "https://example.com/models/ggml-bangla.bin";
+    await expect(resolveModel(plain, { fetch: hf({}, 200).get })).rejects.toThrow(
+      "give the one its publisher lists with --sha256",
+    );
+    expect((await resolveModel(plain, { sha256: sha, fetch: hf({}, 200).get })).sha256).toBe(sha);
+    await expect(
+      resolveModel("tiny", {
+        sha256: "b".repeat(64),
+        fetch: hf({ "x-linked-etag": `"${sha}"` }).get,
+      }),
+    ).rejects.toThrow(`not the ${"b".repeat(64)} given`);
+  });
+
+  test("only Hugging Face's reply is trusted for a checksum", async () => {
+    const claims = hf({ "x-linked-etag": `"${sha}"`, "x-repo-commit": "abcdef1" }, 200).get;
+    await expect(resolveModel("https://example.com/ggml-x.bin", { fetch: claims })).rejects.toThrow(
+      "--sha256",
+    );
+  });
+
+  test("a page link is the file, and any branch is pinned to the commit checked", async () => {
+    const { get, seen } = hf({ "x-linked-etag": `"${sha}"`, "x-repo-commit": "abcdef1" });
+    const model = await resolveModel("https://huggingface.co/someone/bangla/blob/dev/ggml-bn.bin", {
+      fetch: get,
+    });
+    expect(seen[0]?.url).toBe("https://huggingface.co/someone/bangla/resolve/dev/ggml-bn.bin");
+    expect(model.url).toBe("https://huggingface.co/someone/bangla/resolve/abcdef1/ggml-bn.bin");
+  });
+
+  test("refuses plain http, a file not named like a model, and a missing one", async () => {
+    const ok = hf({ "x-linked-etag": `"${sha}"` }).get;
+    await expect(resolveModel("http://example.com/ggml-x.bin", { fetch: ok })).rejects.toThrow(
+      "only https",
+    );
+    await expect(resolveModel("https://example.com/model.bin", { fetch: ok })).rejects.toThrow(
+      "--as ggml-<name>.bin",
+    );
+    const named = { as: "ggml-bn.bin", sha256: sha, fetch: ok };
+    expect((await resolveModel("https://example.com/model.bin", named)).file).toBe("ggml-bn.bin");
+    await expect(resolveModel("nope", { fetch: hf({}, 404).get })).rejects.toThrow("HTTP 404");
+  });
+});
+
+describe("Chrome", () => {
+  test("is pinned per Mac, in ~/.mockingbird/bin, and not yet anywhere else", () => {
+    const pin = pinnedChrome("/home", "darwin-arm64");
+    expect(pin?.program).toBe(
+      `/home/bin/chrome-headless-shell-${CHROME_VERSION}/chrome-headless-shell-mac-arm64/chrome-headless-shell`,
+    );
+    expect(pin?.zip.url).toContain(`/${CHROME_VERSION}/mac-arm64/`);
+    expect(pin?.zip.sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(pinnedChrome("/home", "darwin-x64")?.zip.sha256).not.toBe(pin?.zip.sha256);
+    expect(pinnedChrome("/home", "linux-x64")?.zip.url).toEndWith(
+      "/linux64/chrome-headless-shell-linux64.zip",
+    );
+    expect(pinnedChrome("/home", "win32-x64")?.program).toEndWith("chrome-headless-shell.exe");
+    expect(pinnedChrome("/home", "linux-arm64")).toBeUndefined();
+  });
+
+  test("MOCKINGBIRD_CHROME wins; the pinned one counts once it's there", () => {
+    const home = tempDir();
+    // A program that runs, standing in for Chrome; a path that isn't one doesn't count.
+    expect(findChrome({ MOCKINGBIRD_CHROME: process.execPath }, home)).toBe(process.execPath);
+    expect(findChrome({ MOCKINGBIRD_CHROME: "/no/chrome" }, home)).toBeUndefined();
+    expect(findChrome({ MOCKINGBIRD_CHROME: home }, home)).toBeUndefined();
+    expect(findChrome({}, home)).toBeUndefined();
+    const program = pinnedChrome(home)?.program;
+    if (!program) return; // a platform with no pin yet
+    mkdirSync(join(program, ".."), { recursive: true });
+    writeFileSync(program, "");
+    expect(findChrome({}, home)).toBe(program);
+  });
+
+  test("pull downloads nothing when it's there, and clears out other versions", async () => {
+    const home = tempDir();
+    const pin = pinnedChrome(home);
+    if (!pin) return;
+    mkdirSync(join(pin.program, ".."), { recursive: true });
+    writeFileSync(pin.program, "");
+    const old = join(home, "bin", "chrome-headless-shell-1.0.0.0");
+    mkdirSync(old);
+    const { get, calls } = serving("");
+    expect(await pullChrome({ home, fetch: get, log: () => {} })).toBe(0);
+    expect(calls).toEqual([]);
+    expect(existsSync(old)).toBe(false);
+    expect(existsSync(pin.program)).toBe(true);
+  });
+
+  test("one pull at a time; a lock left by a pull that died is taken over", async () => {
+    const home = tempDir();
+    const pin = pinnedChrome(home);
+    if (!pin) return;
+    mkdirSync(join(pin.program, ".."), { recursive: true });
+    writeFileSync(pin.program, "");
+    const lock = join(home, "bin", ".chrome-pull.lock");
+    const said: string[] = [];
+    const { get, calls } = serving("");
+    writeFileSync(lock, String(process.pid));
+    expect(await pullChrome({ home, fetch: get, log: (m) => said.push(m) })).toBe(1);
+    expect(said.join("\n")).toContain(`pid ${process.pid}`);
+    expect(existsSync(lock)).toBe(true);
+
+    const gone = Bun.spawnSync(["true"]).pid; // exited, so not running
+    writeFileSync(lock, String(gone));
+    expect(await pullChrome({ home, fetch: get, log: () => {} })).toBe(0);
+    expect(existsSync(lock)).toBe(false);
+    expect(calls).toEqual([]);
   });
 });

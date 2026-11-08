@@ -53,20 +53,43 @@ describe("mockingbird", () => {
 
 test("engineStatus says what's installed", () => {
   const home = mkdtempSync(join(tmpdir(), "mb-status-"));
-  expect(engineStatus(home, () => null)).toEqual({
+  expect(engineStatus(home, () => null, {})).toEqual({
     transcriptionModel: null,
     vadModel: false,
     ffmpeg: false,
+    ffmpegMissing: [],
     whisperServer: false,
+    chrome: false,
     dictionaryWords: 0,
   });
+  expect(engineStatus(home, () => null, { MOCKINGBIRD_CHROME: process.execPath }).chrome).toBe(
+    true,
+  );
+  expect(engineStatus(home, () => null, { MOCKINGBIRD_CHROME: "/no/chrome" }).chrome).toBe(false);
   mkdirSync(join(home, "models"));
   writeFileSync(join(home, "models", "ggml-base.en.bin"), "");
   writeFileSync(join(home, "models", "silero_vad.onnx"), "");
-  expect(engineStatus(home, (n) => `/usr/bin/${n}`)).toMatchObject({
+  expect(
+    engineStatus(
+      home,
+      (n) => `/usr/bin/${n}`,
+      {},
+      () => ["libx264"],
+    ),
+  ).toMatchObject({
     transcriptionModel: "ggml-base.en.bin",
     vadModel: true,
     ffmpeg: true,
+    ffmpegMissing: ["libx264"],
     whisperServer: true,
   });
+  // An override that names nothing isn't a whisper-server.
+  expect(
+    engineStatus(
+      home,
+      () => null,
+      { MOCKINGBIRD_WHISPER_SERVER: "/no/whisper-server" },
+      () => [],
+    ).whisperServer,
+  ).toBe(false);
 });

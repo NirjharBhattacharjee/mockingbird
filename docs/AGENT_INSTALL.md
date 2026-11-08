@@ -11,7 +11,8 @@ https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/docs/AGE
 
 mockingbird is a video editing engine for AI agents: it gives you tools to
 transcribe, cut, caption, animate and render the person's footage, on their
-Mac. The installer and the model download are its only network use.
+Mac. The installer and the model download (by `models pull`, or by `setup`
+after asking) are its only network use.
 
 ## Rules for the agent
 
@@ -97,28 +98,40 @@ still working, even if a step has failed: it waits for every step to end.
 ## 3. Check it
 
 ```sh
-~/.local/bin/mockingbird status
+~/.local/bin/mockingbird doctor
 ```
 
-Every line must say `installed` (the first names a model file). It exits 0
-when everything is there. A `missing:` line names the fix; run it, or run
-step 2 again.
+It exits 0 when everything mockingbird needs is there. A line starting `✗`
+is something missing, with a `fix:` line under it: run that, or run step 2
+again. A line starting `!` is optional. The last lines list the coding agents
+on this Mac and whether each has mockingbird. `--json` gives the same as
+JSON.
 
 ## 4. Connect it to yourself
 
-Register `mockingbird mcp` as an MCP server in your own config. For Claude
-Code:
-
 ```sh
-claude mcp add mockingbird -- ~/.local/bin/mockingbird mcp
+~/.local/bin/mockingbird doctor --json
 ```
 
-For anything else, the server is the command `~/.local/bin/mockingbird` with
-the argument `mcp`, over stdio; [MCP.md](./MCP.md#register-it) has the JSON.
-Write the full path: JSON configs don't expand `~`, so use the output of
-`echo ~/.local/bin/mockingbird`. Ask the person before editing a config file
-of theirs. Most agents load MCP servers at start, so tell the person to
-restart you, then call the `status` tool to check.
+If your own entry under `agents` says `"registered": false`, ask the person
+whether to add mockingbird to the agents it found, then:
+
+```sh
+~/.local/bin/mockingbird setup --yes
+```
+
+It adds the MCP server to each agent's config (Claude Code with `claude mcp
+add`; Cursor, Gemini CLI, VS Code and Codex in their config files, which it
+edits rather than replaces). If you're not in that list, the server is the
+command `~/.local/bin/mockingbird` with the argument `mcp`, over stdio;
+[MCP.md](./MCP.md#register-it) has the JSON. Write the full path: JSON
+configs don't expand `~`. Most agents load MCP servers at start, so tell the
+person to restart you, then call the `status` tool to check.
+
+For Claude Code, the plugin is another way in: `/plugin marketplace add
+NirjharBhattacharjee/mockingbird`, then `/plugin install mockingbird@mockingbird`.
+It brings the skills too. Use one or the other, not both, or every tool shows
+up twice.
 
 ## 5. Hand it over
 
@@ -129,7 +142,8 @@ Tell the person it's ready, and that they can ask for an edit, for example:
 
 | What you see | What to do |
 |---|---|
-| `mockingbird needs a Mac with Apple Silicon.` | Not supported. Stop. |
+| `mockingbird runs on macOS, Linux and Windows` or `needs a 64-bit ... processor` | Not supported. Stop. |
+| `mockingbird needs git ffmpeg ...` (Linux) | **(person)** Ask them to install those with their package manager (it needs their password), then step 2 again. |
 | `Homebrew is needed first` | See step 1's `brew` check. |
 | `... has local changes, so it wasn't updated` | The person edited `~/mockingbird`. Ask before discarding anything. Never run `git checkout` or `git reset` there on your own. |
 | `error: <step> failed` | Read `~/.mockingbird/logs/install-<step>.log`. For a network error, run step 2 again. |
