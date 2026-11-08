@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { agents, codexMentions } from "../src/agents.ts";
 import { PLUGIN } from "../src/guide.ts";
-import { checks, doctor, setup } from "../src/setup.ts";
+import { checks, commandPath, doctor, setup } from "../src/setup.ts";
 
 /** A home with Cursor, Gemini CLI, VS Code and Codex folders, `mockingbird` in .local/bin, and no `claude` command. */
 function home() {
@@ -159,6 +159,16 @@ describe("agents", () => {
       true,
     );
   });
+});
+
+test("setup finds install.ps1's shim when a shell from before the install has no PATH to it", () => {
+  const h = mkdtempSync(join(tmpdir(), "mb-setup-"));
+  const mb = join(h, ".mockingbird");
+  mkdirSync(join(mb, "bin"), { recursive: true });
+  writeFileSync(join(mb, "bin", "mockingbird.cmd"), "");
+  expect(commandPath({ home: h, mbHome: mb, which: none })).toBe(
+    join(mb, "bin", "mockingbird.cmd"),
+  );
 });
 
 test("setup installs missing tools and models after asking, then adds the agents", async () => {
