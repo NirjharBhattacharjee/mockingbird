@@ -1919,7 +1919,8 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
         const from = seconds(a.from) ?? 0;
         const length = (await probe(file)).seconds;
         const end = Math.min(seconds(a.to) ?? length, length);
-        if (!(end > from)) throw new Error(`Nothing to look at from ${from}s: ${file} is ${length}s.`);
+        if (!(end > from))
+          throw new Error(`Nothing to look at from ${from}s: ${file} is ${length}s.`);
         const found = await findPauses(file, {
           from,
           to: end,
