@@ -15,6 +15,9 @@ export type Chrome = {
   close: () => Promise<void>;
 };
 
+/** A paused request, as Fetch.requestPaused gives it. */
+type Paused = { requestId: string; request: { url: string } };
+
 /** Long enough for a heavy page to load, short of a page that never answers. */
 const COMMAND_TIMEOUT_MS = 60_000;
 
@@ -24,6 +27,13 @@ const COMMAND_TIMEOUT_MS = 60_000;
  * NUL), so it opens no port. Chrome's own sandbox is off, since it can't
  * start inside another one: run this under an OS sandbox, as
  * `apps/daemon/src/motion-run.ts` does with `sandbox-exec`.
+ *
+ * It can't reach the network on any OS (#157), whatever page or script any
+ * tab runs: no host name resolves; everything else, an IP address or
+ * loopback included, goes to a proxy on the discard port, where nothing
+ * answers; WebRTC may send UDP only through that proxy; and every request
+ * any tab makes stops at the browser for `gate`, which lets through only a
+ * file on this computer.
  */
 export async function launchChrome(path: string): Promise<Chrome> {
   const profile = mkdtempSync(join(tmpdir(), "mockingbird-chrome-"));
@@ -42,6 +52,13 @@ export async function launchChrome(path: string): Promise<Chrome> {
       "--disable-background-timer-throttling",
       "--disable-renderer-backgrounding",
       "--disable-backgrounding-occluded-windows",
+      "--host-resolver-rules=MAP * ~NOTFOUND",
+      "--proxy-server=127.0.0.1:9",
+      // Loopback goes through the proxy too, rather than straight out.
+      "--proxy-bypass-list=<-loopback>",
+      // WebRTC's UDP doesn't go through a proxy, so without this a page could
+      // reach a STUN server by its IP address.
+      "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
       "about:blank",
     ],
     { stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"] },
@@ -75,8 +92,12 @@ export async function launchChrome(path: string): Promise<Chrome> {
       const message = JSON.parse(Buffer.concat(parts).toString());
       parts = [];
       at = end + 1;
+      if (message.method === "Fetch.requestPaused") {
+        gate(message.params as Paused);
+        continue;
+      }
       const w = waiting.get(message.id);
-      if (!w) continue; // an event: nothing here listens for any
+      if (!w) continue; // another event: nothing here listens for it
       waiting.delete(message.id);
       if (message.error) w.reject(new Error(message.error.message));
       else w.resolve(message.result);
@@ -108,17 +129,41 @@ export async function launchChrome(path: string): Promise<Chrome> {
     });
   };
 
+  // Only a file here goes through. A file URL with a host is another
+  // machine's share on Windows (UNC, read over SMB), so it fails like http.
+  const gate = ({ requestId, request }: Paused) => {
+    let local = false;
+    try {
+      const url = new URL(request.url);
+      local = url.protocol === "file:" && url.host === "";
+    } catch {
+      // unparseable: failed
+    }
+    const [method, params] = local
+      ? ["Fetch.continueRequest", { requestId }]
+      : ["Fetch.failRequest", { requestId, errorReason: "BlockedByClient" }];
+    send(method as string, params).catch(() => {});
+  };
+
   const close = async () => {
     if (proc.exitCode === null && proc.signalCode === null) {
       const exited = new Promise((r) => proc.once("exit", r));
       proc.kill("SIGKILL");
       await exited;
     }
-    rmSync(profile, { recursive: true, force: true });
+    // On Windows, Chrome's child processes hold the profile for a moment
+    // after it's killed. A temp folder left behind mustn't fail the render.
+    try {
+      rmSync(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    } catch {
+      // the OS clears temp folders
+    }
   };
 
   try {
     await send("Browser.getVersion");
+    // On the browser, not a tab: every tab and worker it opens is covered.
+    await send("Fetch.enable", { patterns: [{ urlPattern: "*" }] });
   } catch (error) {
     await close();
     throw error;
