@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   closeSync,
   copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   openSync,
@@ -1183,6 +1184,7 @@ async function render(
     out,
     named = path,
     kind = "short",
+    draft = false,
   }: {
     vertical?: boolean;
     fit?: boolean;
@@ -1199,6 +1201,8 @@ async function render(
     named?: string;
     /** The default output is `<named>-<kind>-N.mp4`. */
     kind?: string;
+    /** Half the size, encoded as fast as x264 goes: a preview to check the edit with. */
+    draft?: boolean;
   },
 ): Promise<string> {
   requireFile(path, "File");
@@ -1261,6 +1265,7 @@ async function render(
         out,
         named,
         kind,
+        draft,
       });
     } finally {
       rmSync(batches, { recursive: true, force: true });
@@ -1318,7 +1323,11 @@ async function render(
         ...["-nostdin", "-y", "-loglevel", "error", ...seekClips(path, clips)],
         ...extras,
         ...(sidecar ? ["-i", CAPTIONS] : []),
-        ...["-filter_complex", graph, "-map", "[v]"],
+        // A draft is the finished picture at half the size, captions and all.
+        ...(draft
+          ? ["-filter_complex", `${graph};[v]scale=trunc(iw/4)*2:trunc(ih/4)*2,setsar=1[small]`]
+          : ["-filter_complex", graph]),
+        ...["-map", draft ? "[small]" : "[v]"],
         // Uncompressed until `level` sets the volume, and in floating point:
         // music and effects mixed over speech can go past full scale, which
         // 16-bit samples would clip before the limiter could hold it.
@@ -1326,7 +1335,8 @@ async function render(
         // The subtitle file is the input after the clips and the extras.
         ...(sidecar ? ["-map", `${clips.length + extras.filter((a) => a === "-i").length}:s`] : []),
         ...(sidecar ? ["-c:s", "srt"] : []),
-        ...["-c:v", "libx264", "-crf", "18", "-preset", "veryfast", "-pix_fmt", "yuv420p"],
+        ...["-c:v", "libx264", "-crf", draft ? "23" : "18"],
+        ...["-preset", draft ? "ultrafast" : "veryfast", "-pix_fmt", "yuv420p"],
         unlevelled,
       ],
       { cwd: dir, stderr: "pipe" },
@@ -1932,12 +1942,72 @@ async function captions(
   return wordCaptions(clips, words, options) || "No speech in those clips.";
 }
 
+/** A source bigger than this on its short side is drafted from a proxy. */
+const PROXY_OVER = 1080;
+
+/**
+ * `clips` with any from a source bigger than PROXY_OVER read from a proxy of
+ * just the stretch it opens: 720 lines of H.264, made once and kept in
+ * ~/.mockingbird/cache/proxies/. 4K HEVC decodes so slowly that a half-size
+ * draft of a minute of it took 20.7 s from the source and 2.1 s from a proxy,
+ * which took 22.2 s to make. Only the stretches used are proxied, so an
+ * hour-long source isn't converted for a two-minute edit (#167).
+ */
+async function proxied(clips: Clip[]): Promise<Clip[]> {
+  const sides = new Map<string, number>();
+  const out: Clip[] = [];
+  for (const c of clips) {
+    const path = c.path as string;
+    if (!sides.has(path)) sides.set(path, (await probe(path)).side);
+    if ((sides.get(path) ?? 0) <= PROXY_OVER) {
+      out.push(c);
+      continue;
+    }
+    const { from, to } = opened(c);
+    const { size, mtimeMs } = statSync(path);
+    const key = createHash("sha256")
+      .update(JSON.stringify([1, path, size, mtimeMs, from, to]))
+      .digest("hex")
+      .slice(0, 32);
+    const file = join(mockingbirdHome(), "cache", "proxies", `${key}.mp4`);
+    if (!existsSync(file)) {
+      mkdirSync(dirname(file), { recursive: true });
+      const temp = `${file}.${process.pid}.tmp.mp4`;
+      await ffmpeg(
+        [
+          ...["-hwaccel", "auto", "-ss", String(from), "-t", String(to - from), "-i", path],
+          ...[
+            "-map",
+            "0:v:0",
+            "-map",
+            "0:a:0?",
+            "-vf",
+            "scale='if(lt(iw,ih),720,-2)':'if(lt(iw,ih),-2,720)'",
+          ],
+          ...["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-g", "15"],
+          ...["-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k", temp],
+        ],
+        `make a draft proxy of ${path}`,
+      );
+      renameSync(temp, file);
+    }
+    // The proxy starts where the clip's input opened, and can end a frame short of it.
+    const length = (await probe(file)).seconds;
+    const moved = (r: { from: number; to: number }) => ({
+      from: r.from - from,
+      to: Math.min(r.to - from, length),
+    });
+    out.push({ ...c, path: file, ...moved(c), ...(c.sound && { sound: moved(c.sound) }) });
+  }
+  return out;
+}
+
 /**
  * The project in `file` rendered: its clips from their sources, framed to
  * its size, with captions made for the cut as it is now and everything on
  * it timed from its clips. Saved beside the project as `<name>-render-N.mp4`.
  */
-async function renderProject(file: string, log: (m: string) => void, out?: string) {
+async function renderProject(file: string, log: (m: string) => void, out?: string, draft = false) {
   const { project, created } = load(file);
   if (created) throw new Error(`No project at ${file}; make one with \`edit\`.`);
   const cut = compile(project, dirname(file));
@@ -1973,9 +2043,11 @@ async function renderProject(file: string, log: (m: string) => void, out?: strin
         },
       )
     : undefined;
-  return render(first, cut.clips, {
+  // A draft reads 4K from proxies; its size is still the source's, not the proxy's.
+  const clips = draft ? await proxied(cut.clips) : cut.clips;
+  return render(clips[0]?.path ?? first, clips, {
     fit: true,
-    size: cut.size,
+    size: cut.size ?? (draft ? (await probe(first)).size : undefined),
     fps: cut.fps,
     split: cut.split,
     captions: said,
@@ -1985,7 +2057,8 @@ async function renderProject(file: string, log: (m: string) => void, out?: strin
     sounds: cut.sounds,
     out,
     named: file,
-    kind: "render",
+    kind: draft ? "draft" : "render",
+    draft,
   });
 }
 
@@ -2148,6 +2221,11 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
       inputSchema: {
         type: "object",
         properties: {
+          draft: {
+            type: "boolean",
+            description:
+              "A quick preview at half the size, to check the cut before the real render: a project's 4K sources are read from small proxies of the stretches it uses, made once and kept",
+          },
           project: {
             type: "string",
             description:
@@ -2248,7 +2326,9 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
       // Absolute paths, since ffmpeg runs in a temp folder.
       run: (a) => {
         const out = a.out === undefined ? undefined : resolve(String(a.out));
-        if (a.project !== undefined) return renderProject(resolve(String(a.project)), log, out);
+        if (a.project !== undefined) {
+          return renderProject(resolve(String(a.project)), log, out, !!a.draft);
+        }
         if (a.path === undefined) throw new Error("Give a `project`, or a `path` and `clips`.");
         return render(
           resolve(String(a.path)),
@@ -2293,6 +2373,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
               duck: !!t.duck,
             })),
             out,
+            draft: !!a.draft,
           },
         );
       },
