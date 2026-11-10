@@ -996,8 +996,12 @@ export function wordCaptions(
     .flatMap(({ words: page, cut }, p, all) => {
       const next = all[p + 1]?.words[0]?.start ?? Number.POSITIVE_INFINITY;
       const last = page.at(-1) as Said;
-      // Stays up into a short pause rather than flickering off.
-      const until = Math.min(cut, next - last.end <= 0.5 ? next : last.end + 0.2);
+      // Stays up into a short pause rather than flickering off. Across a
+      // transition the next page can start before this one ends: end with it.
+      const until = Math.min(
+        cut,
+        next <= last.end ? last.end : next - last.end <= 0.5 ? next : last.end + 0.2,
+      );
       if (!lit)
         return [
           { start: page[0]?.start ?? 0, end: until, text: page.map((w) => w.text).join(" ") },
