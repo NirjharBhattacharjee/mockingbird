@@ -312,6 +312,9 @@ function findClip(p: Project, id: unknown): Clip {
   return p.clips[index] as Clip;
 }
 
+/** To the millisecond, so a file the agent reads says 2.7 and not 2.6999999999999997. */
+const ms = (t: number) => Math.round(t * 1000) / 1000;
+
 /**
  * Moves what's on `clip` by `by` seconds (a trim off its start moves it
  * earlier), so it stays on the same picture. Anything that then starts
@@ -322,14 +325,14 @@ function shift(p: Project, clip: string, by: number, notes: string[]) {
   const gone = new Set<string>();
   for (const t of [...p.texts, ...p.inserts]) {
     if (t.clip !== clip) continue;
-    t.from += by;
-    t.to += by;
+    t.from = ms(t.from + by);
+    t.to = ms(t.to + by);
     if (t.to <= 0) gone.add(t.id);
     t.from = Math.max(0, t.from);
   }
   for (const s of p.audio) {
     if (s.clip !== clip) continue;
-    s.at += by;
+    s.at = ms(s.at + by);
     if (s.at < 0) gone.add(s.id);
   }
   if (!gone.size) return;
@@ -356,12 +359,209 @@ function dropPast(p: Project, clip: string, length: number, notes: string[]) {
   notes.push(`removed ${[...gone].join(", ")}: what they were on was cut`);
 }
 
-const OPS = ["add", "remove", "split", "trim", "move", "set"];
+/** A word heard in a source: its start and end, in seconds in that source. */
+export type Word = { word: string; start: number; end: number };
+
+/** A source's words, in order, by the path the project gives it. */
+export type Words = (path: string) => Word[];
+
+/** A source's silences, in seconds, by the path the project gives it: where a cut can land unheard. */
+export type Gaps = (path: string) => { from: number; to: number }[];
+
+/**
+ * How far from Whisper's guess a cut looks for a silence. Whisper's word
+ * times run up to about half a second off (0.45 s late on a recorded talk),
+ * so a cut placed by them alone can clip a word kept or leave half of one cut.
+ */
+const SNAP = 0.6;
+
+/** The silence in clip `c` nearest `at`, within SNAP of it. */
+function silenceNear(gaps: { from: number; to: number }[], at: number, c: Clip) {
+  const off = (g: { from: number; to: number }) => Math.abs((g.from + g.to) / 2 - at);
+  return gaps
+    .filter((g) => g.from >= c.from && g.to <= c.to && off(g) <= SNAP)
+    .sort((a, b) => off(a) - off(b))[0];
+}
+
+/** The words said in clip `c`: those whose middle is inside it, as captions count them. */
+export const wordsIn = (c: { from: number; to: number }, words: Word[]) =>
+  words.filter((w) => {
+    const middle = (w.start + w.end) / 2;
+    return middle >= c.from && middle < c.to;
+  });
+
+/**
+ * How far past the last word kept a cut lands, and how far before the next:
+ * auto-editor's margin. Less where the words are closer than that.
+ */
+const MARGIN = 0.2;
+
+/** A word for matching: no case, no punctuation, and ’ the same as ' ("I’m" is "i'm"). */
+const plain = (w: string) =>
+  w
+    .toLocaleLowerCase()
+    .replace(/’/g, "'")
+    .replace(/[^\p{L}\p{N}']/gu, "");
+const plainWords = (text: string) => text.split(/\s+/).map(plain).filter(Boolean);
+
+/** Every word said in the cut, in order, with its clip. */
+function spoken(p: Project, words: Words) {
+  return p.clips.flatMap((clip) =>
+    wordsIn(clip, words(clip.path)).map((word, i, all) => ({ clip, word, i, all })),
+  );
+}
+
+type Spoken = ReturnType<typeof spoken>;
+
+/** Where `query` is said in `said`, as the first word's position, in clip `scope` if given. */
+function places(said: Spoken, query: string[], scope?: string): number[] {
+  const found: number[] = [];
+  for (let at = 0; at + query.length <= said.length; at++) {
+    const run = said.slice(at, at + query.length);
+    if (scope && run.some((s) => s.clip.id !== scope)) continue;
+    if (run.every((s, k) => plain(s.word.word) === query[k])) found.push(at);
+  }
+  return found;
+}
+
+/**
+ * Cuts the words `said[first..last]` out of their clips, a clip at a time:
+ * from just after the word before them to just before the word after,
+ * MARGIN either side where the pause allows. Each edge moves into the
+ * silence nearest it if `gaps` has one, since silence is measured to the
+ * millisecond and Whisper's word times aren't. A clip left with nothing goes.
+ */
+function cutSaid(
+  p: Project,
+  said: Spoken,
+  first: number,
+  last: number,
+  notes: string[],
+  gaps?: Gaps,
+) {
+  const cuts: { id: string; from: number; to: number }[] = [];
+  for (let k = first; k <= last; k++) {
+    const s = said[k] as Spoken[number];
+    const cut = cuts.at(-1);
+    if (cut && cut.id === s.clip.id) continue;
+    // The last of this clip's words in the run.
+    let end = k;
+    while (end < last && (said[end + 1] as Spoken[number]).clip.id === s.clip.id) end++;
+    const { clip, all } = s;
+    const before = all[s.i - 1];
+    const after = all[(said[end] as Spoken[number]).i + 1];
+    const lastWord = (said[end] as Spoken[number]).word;
+    let from = before
+      ? Math.max(before.end, Math.min(before.end + MARGIN, s.word.start))
+      : clip.from;
+    let to = after ? Math.min(after.start, Math.max(after.start - MARGIN, lastWord.end)) : clip.to;
+    const silences = gaps?.(clip.path) ?? [];
+    const a = before && silenceNear(silences, (before.end + s.word.start) / 2, clip);
+    const b = after && silenceNear(silences, (lastWord.end + after.start) / 2, clip);
+    const snapped = [
+      a ? Math.min(a.from + MARGIN, (a.from + a.to) / 2) : from,
+      b ? Math.max(b.to - MARGIN, (b.from + b.to) / 2) : to,
+    ] as const;
+    // Both edges in one silence would cut nothing: keep Whisper's then.
+    if (snapped[1] - snapped[0] >= 0.05) [from, to] = snapped;
+    const span = {
+      id: clip.id,
+      from: ms(Math.max(clip.from, from)),
+      to: ms(Math.min(clip.to, to)),
+    };
+    // Overlapping word times can leave nothing to remove: say so rather than keep it.
+    if (!(span.to > span.from)) {
+      throw new Error(`cut_words: couldn't place a cut around "${s.word.word}" in ${clip.id}`);
+    }
+    cuts.push(span);
+  }
+  for (const { id, from, to } of cuts) {
+    const c = findClip(p, id);
+    const whole = from <= c.from + 1e-6;
+    const end = to >= c.to - 1e-6;
+    if (whole && end) step(p, { op: "remove", id }, `cut_words`, notes);
+    else if (whole) step(p, { op: "trim", id, from: to }, `cut_words`, notes);
+    else if (end) step(p, { op: "trim", id, to: from }, `cut_words`, notes);
+    else {
+      const second = freeId(p, "c");
+      step(p, { op: "split", id, at: from, newId: second }, `cut_words`, notes);
+      step(p, { op: "trim", id: second, from: to }, `cut_words`, notes);
+    }
+  }
+  const length = cuts.reduce((sum, c) => sum + c.to - c.from, 0);
+  const words = said.slice(first, last + 1).map((s) => s.word.word.trim());
+  const shown =
+    words.length > 8
+      ? `${words.slice(0, 4).join(" ")} … ${words.slice(-3).join(" ")}`
+      : words.join(" ");
+  notes.push(
+    `cut "${shown}" (${words.length} word${words.length === 1 ? "" : "s"}, ${length.toFixed(2)} s)`,
+  );
+}
+
+/** cut_words: the words given as `text`, or from `from` to `to`, cut out of the cut. */
+function cutWords(p: Project, a: Obj, what: string, notes: string[], words?: Words, gaps?: Gaps) {
+  obj(a, what, ["text", "from", "to", "clip", "all"]);
+  if (!words) return fail(`${what}: cut_words needs the transcript, which only the engine has`);
+  const scope = maybe(a.clip, (c) => findClip(p, c).id);
+  const all = maybe(a.all, (b) => bool(b, `${what}.all`)) ?? false;
+  const where = scope ?? "the cut";
+  const query = (v: unknown, key: string) => {
+    const q = plainWords(str(v, `${what}.${key}`));
+    if (!q.length) fail(`${what}.${key} has no words`);
+    return q;
+  };
+  const listed = (said: Spoken, found: number[]) =>
+    found
+      .slice(0, 5)
+      .map((at) => (said[at] as Spoken[number]).clip.id)
+      .join(", ");
+  const missing = (text: unknown) =>
+    `${what}: "${text}" isn't said in ${where}. Words match without case or punctuation; \`transcribe\` with the project shows the cut's words.`;
+  if (a.text !== undefined) {
+    if (a.from !== undefined || a.to !== undefined)
+      fail(`${what}: give text, or from and to, not both`);
+    const q = query(a.text, "text");
+    const said = spoken(p, words);
+    const found = places(said, q, scope);
+    if (!found.length) fail(missing(a.text));
+    if (found.length > 1 && !all) {
+      fail(
+        `${what}: "${a.text}" is said ${found.length} times (in ${listed(said, found)}); add words around it, give its clip, or all: true`,
+      );
+    }
+    // One at a time, since each cut changes the clips the next is found in.
+    for (let n = 0; n < found.length; n++) {
+      const now = spoken(p, words);
+      const at = places(now, q, scope)[0];
+      if (at === undefined) break;
+      cutSaid(p, now, at, at + q.length - 1, notes, gaps);
+    }
+    return;
+  }
+  if (all) fail(`${what}: all works with text, not from and to`);
+  const [start, end] = [query(a.from, "from"), query(a.to, "to")];
+  const said = spoken(p, words);
+  const begins = places(said, start, scope);
+  if (!begins.length) fail(missing(a.from));
+  if (begins.length > 1) {
+    fail(
+      `${what}: "${a.from}" is said ${begins.length} times (in ${listed(said, begins)}); add words to it or give its clip`,
+    );
+  }
+  const first = begins[0] as number;
+  // The first place `to` is said from there on, so a range can run across clips.
+  const stop = places(said, end).find((at) => at >= first);
+  if (stop === undefined) fail(`${what}: "${a.to}" isn't said after "${a.from}"`);
+  cutSaid(p, said, first, (stop as number) + end.length - 1, notes, gaps);
+}
+
+const OPS = ["add", "remove", "split", "trim", "move", "set", "cut_words"];
 const READ = { clip, text, insert, audio: sound } as const;
 const LIST = { clip: "clips", text: "texts", insert: "inserts", audio: "audio" } as const;
 
 /** One op applied to `p` in place. */
-function step(p: Project, raw: unknown, what: string, notes: string[]) {
+function step(p: Project, raw: unknown, what: string, notes: string[], words?: Words, gaps?: Gaps) {
   if (typeof raw !== "object" || raw === null) fail(`${what} must be an object`);
   const { op, ...a } = raw as Obj;
   switch (op) {
@@ -406,11 +606,12 @@ function step(p: Project, raw: unknown, what: string, notes: string[]) {
       c.to = at;
       for (const t of [...p.texts, ...p.inserts]) {
         if (t.clip === c.id && t.from >= offset) {
-          Object.assign(t, { clip: id, from: t.from - offset, to: t.to - offset });
+          Object.assign(t, { clip: id, from: ms(t.from - offset), to: ms(t.to - offset) });
         }
       }
       for (const s of p.audio) {
-        if (s.clip === c.id && s.at >= offset) Object.assign(s, { clip: id, at: s.at - offset });
+        if (s.clip === c.id && s.at >= offset)
+          Object.assign(s, { clip: id, at: ms(s.at - offset) });
       }
       return;
     }
@@ -453,6 +654,9 @@ function step(p: Project, raw: unknown, what: string, notes: string[]) {
       merge((p[key] as unknown as Obj[])[index] as Obj);
       return;
     }
+    case "cut_words":
+      cutWords(p, a, what, notes, words, gaps);
+      return;
     default:
       fail(`${what}: op must be one of ${OPS.join(", ")}; got ${JSON.stringify(op)}`);
   }
@@ -462,13 +666,19 @@ function step(p: Project, raw: unknown, what: string, notes: string[]) {
  * `ops` applied to a copy of `p`, all of them or none: the first that fails
  * throws, naming it, and `p` is left as it was. `notes` says what an op did
  * besides what was asked, like removing a text whose words were cut.
+ * `words` gives a source's words, for cut_words, and `gaps` its silences.
  */
-export function apply(p: Project, ops: unknown[]): { project: Project; notes: string[] } {
+export function apply(
+  p: Project,
+  ops: unknown[],
+  words?: Words,
+  gaps?: Gaps,
+): { project: Project; notes: string[] } {
   const next = structuredClone(p);
   const notes: string[] = [];
   ops.forEach((op, i) => {
     const what = `ops[${i}]${typeof (op as Obj)?.op === "string" ? ` (${(op as Obj).op})` : ""}`;
-    step(next, op, what, notes);
+    step(next, op, what, notes, words, gaps);
   });
   return { project: check(next), notes };
 }
@@ -589,13 +799,58 @@ export function compile(p: Project, dir: string): Compiled {
 }
 
 /**
- * `ops` applied to the project in `file` (made if it isn't there) and saved,
- * then its outline. No ops only reads it.
+ * The cut as text, for reading the edit and choosing what to cut: each clip
+ * at its place in the finished video, then its words, a line a sentence,
+ * each line at the time it starts in the finished video.
  */
-export function edit(file: string, ops: unknown[]): string {
+export function transcript(p: Project, file: string, words: Words): string {
+  const { at, length } = starts(p);
+  const lines = [`${file}: the words in the cut (${stamp(length)})`];
+  for (const c of p.clips) {
+    const start = at.get(c.id) ?? 0;
+    lines.push(`${c.id}  ${stamp(start)}  ${basename(c.path)} ${short(c.from)}-${short(c.to)}`);
+    const said = wordsIn(c, words(c.path));
+    if (!said.length) lines.push("    (no speech)");
+    let line: string[] = [];
+    let when = 0;
+    for (const w of said) {
+      if (!line.length) when = start + Math.max(w.start, c.from) - c.from;
+      line.push(w.word.trim());
+      if (/[.?!]["')\]]?$/.test(w.word) || line.length >= 25) {
+        lines.push(`    [${stamp(when)}] ${line.join(" ")}`);
+        line = [];
+      }
+    }
+    if (line.length) lines.push(`    [${stamp(when)}] ${line.join(" ")}`);
+  }
+  return lines.join("\n");
+}
+
+/** The sources a project and its ops ask for, and the stretches of each: what cut_words needs heard. */
+export function wanted(p: Project, ops: unknown[]): Map<string, { from: number; to: number }[]> {
+  const out = new Map<string, { from: number; to: number }[]>();
+  const add = (path: string, from: number, to: number) =>
+    out.set(path, [...(out.get(path) ?? []), { from, to }]);
+  for (const c of p.clips) add(c.path, c.from, c.to);
+  for (const op of ops) {
+    const o = op as Obj;
+    if (o?.op === "add" && o.type === "clip" && typeof o.path === "string") {
+      const [from, to] = [Number(o.from), Number(o.to)];
+      if (from < to) add(o.path, from, to);
+    }
+  }
+  return out;
+}
+
+/**
+ * `ops` applied to the project in `file` (made if it isn't there) and saved,
+ * then its outline. No ops only reads it. `words` is needed for cut_words,
+ * and `gaps` lets its cuts land in the silences.
+ */
+export function edit(file: string, ops: unknown[], words?: Words, gaps?: Gaps): string {
   const { project, created } = load(file);
   // ponytail: no lock, so two edits of one file at once keep the last one's; a lock file if agents start doing that.
-  const { project: next, notes } = apply(project, ops);
+  const { project: next, notes } = apply(project, ops, words, gaps);
   if (ops.length || created) save(file, next);
   return [...(created ? [`Made ${file}.`] : []), ...notes, outline(next, file)].join("\n");
 }

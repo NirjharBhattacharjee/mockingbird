@@ -43,6 +43,7 @@ after the curl install, or `/opt/homebrew/bin/mockingbird` with Homebrew.
 
 | Tool | What it does |
 |---|---|
+| `transcribe(project)` | The words in a project's cut, clip by clip, each line at its time in the finished video: the edit as text, to choose what `cut_words` cuts. See [Text-based editing](#text-based-editing). |
 | `transcribe(path, from, to, words, model, language)` | An audio or video file (anything ffmpeg reads: m4a, mp3, wav, mp4, mov, mkv) as text, in lines timestamped `[mm:ss]`, with names fixed from your dictionary (a `heard => term` entry first, then anything that sounds like a term). Each call starts its own whisper-server, so two can run at once. The client's model does any cleanup or summarising. `from` and `to` (seconds) take one stretch of the file. `words: true` gives one line per word with its start and end, `[01:23.48-01:23.71] Catppuccin`, to cut a clip on; names are fixed one word at a time there, so a name misheard as two words stays as heard. `model` (a file in `models/`) and `language` (a Whisper code, or `auto`) pick the model and language for this call only; given neither, with the language on `auto` and a model mapped to a language (`models use --language`), it detects the language from the first speech and uses that model. The first line then names the language and model. |
 | `audio_stats(path, from, to)` | What a file's sound measures, since the agent can't listen: see [Measuring sound](#measuring-sound). |
 | `scenes(path, from, to, threshold)` | The shot changes in a video, from ffmpeg's `scdet` over frames shrunk to 180 lines: each one's `[mm:ss.cc]` time and how big a change it is (0 to 100), and cuts a minute and seconds a shot. `threshold` (default 10) is how big a change counts. It finds changes of shot, such as a cut to b-roll, a new slide or another camera, not jump cuts within one shot: in the first minute of the v2 edit, the two cuts that changed the framing scored 5.9 and 7.5, and eight jump cuts scored under 1 or not at all, below ordinary movement. Decoded with the hardware where there's a decoder: a minute of 4K HEVC phone video took 21.6 s, against 165.6 s in software; a 4-minute 1080p60 screen recording took 29.5 s. |
@@ -135,6 +136,7 @@ call and changing the cut doesn't break the timing of what's laid over it
 | `{op: "split", id, at}` | Splits a clip in two at `at` seconds in its source. What starts on the second half moves to the new clip. |
 | `{op: "trim", id, from?, to?}` | Changes a clip's source times. What's on it moves with the picture: trimming 2 s off the start moves its texts 2 s earlier, and drops any that were only on what's gone. |
 | `{op: "move", id, index}` | Moves a clip to another place in the cut. |
+| `{op: "cut_words", text, clip?, all?}` or `{op: "cut_words", from, to, clip?}` | Cuts words out of the cut by quoting them; see [Text-based editing](#text-based-editing). |
 | `{op: "set", id?, …fields}` | Sets fields of an item (`null` clears one), or without `id` the project's `size`, `fps`, `split` and `captions`. Unlike `trim`, setting a clip's `from`/`to` leaves what's on it where it is. |
 
 New items get ids like `c1`, `t1`, `b1` and `a1` unless given one. A field
@@ -152,6 +154,69 @@ c3  0:10.00-0:15.50  talk.mp4 40-45.5
     t2  0:10.00-0:11.50  text "Back to the *talk*" y 0.2
 a2  0:00.00  audio music.m4a volume 0.15 loop duck
 ```
+
+A project's captions come from the same word cache as text-based editing,
+so a render only hears what no call has heard before.
+
+### Text-based editing
+
+`transcribe` with a `project` gives the cut as text:
+
+```
+talk.json: the words in the cut (4:11.40)
+c1  0:00.00  talk.mp4 0-251.4
+    [0:12.36] So for our first prompt we gave Gemini 3 a very generic prompt which was generate a YouTube thumbnail for YouTube where a fox is
+    [1:32.16] But we had to refine it so we used the same create framework in Gemini Pro, Gemini 3 Pro, with deep research and thinking enabled
+```
+
+and `cut_words` cuts by quoting it, the way an editor edits a document:
+
+- `{op: "cut_words", text: "Gemini Pro,"}` cuts those words. Matching ignores
+  case and punctuation. The words must be said once in the cut; if they're
+  said more often, quote more of the sentence, give the `clip`, or add
+  `all: true` to cut every time they're said (`{text: "like", all: true}`).
+- `{op: "cut_words", from: "This is actually how most", to: "from AI models"}`
+  cuts from the first words through the last, a sentence or a whole tangent,
+  across as many clips as it spans.
+
+Each cut is made by splitting, trimming or removing clips, so the project
+stays plain clips; what's on a clip that's cut away goes with it, and the
+outline lists what each cut took.
+
+Where the cut lands matters more than the words: a cut through a word is
+what makes an edit sound chopped. Whisper's own word times drift by up to
+half a second over its 30-second window, so the words are placed again
+before they're kept:
+
+1. Whisper runs with DTW timestamps (`--dtw` with the model's preset, which
+   needs flash attention off): a point inside each word from the model's
+   attention, which doesn't drift.
+2. ffmpeg's `silencedetect` measures the pauses (under −35 dB for 80 ms or
+   more).
+3. A word starts where the last pause before its point ends, and ends where
+   the first pause after it starts.
+
+A cut then runs from 0.2 s into the pause after the last word kept to 0.2 s
+before the next word kept (less where the pause is shorter), moved into the
+measured pause nearest each edge. On a recorded talk, Whisper's times put
+"create" 0.5 s early, inside the pause before it; cutting "Gemini Pro," took
+"framework in" with it until the words were placed by DTW and the pauses.
+After, seven cuts (three phrases, a stray "I'm", every "like" and a
+20-word sentence) all came out clean, checked by transcribing the render.
+
+Each source is heard once and kept in `~/.mockingbird/cache/words/`, keyed by
+the file's path, size and modified time, the model and the language, so a
+changed file or another model is heard again. Only the stretches a project
+uses are heard: a short from an hour-long podcast hears the minute it uses.
+The first `transcribe` of a 4-minute talk took 37.0 s on an M3 (28.2 s
+without DTW); after that, the transcript and every `cut_words` take no time,
+and a render's captions don't run Whisper.
+
+Whisper writes down what was meant more than what was said: it often
+leaves out "um", stammers and repeated words ("create, create framework"
+came out "create framework"). It can't cut what it didn't write, so pauses
+and fillers are better cut from `pauses.sh` in the **retention-editing**
+playbook.
 
 A project renders to the same video the same edit gives as `render`'s
 parameters: on a 17.5 s vertical edit of three clips with a title and
