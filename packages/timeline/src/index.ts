@@ -464,7 +464,12 @@ function cutSaid(
     ] as const;
     // Both edges in one silence would cut nothing: keep Whisper's then.
     if (snapped[1] - snapped[0] >= 0.05) [from, to] = snapped;
-    cuts.push({ id: clip.id, from: ms(Math.max(clip.from, from)), to: ms(Math.min(clip.to, to)) });
+    const span = { id: clip.id, from: ms(Math.max(clip.from, from)), to: ms(Math.min(clip.to, to)) };
+    // Overlapping word times can leave nothing to remove: say so rather than keep it.
+    if (!(span.to > span.from)) {
+      throw new Error(`cut_words: couldn't place a cut around "${s.word.word}" in ${clip.id}`);
+    }
+    cuts.push(span);
   }
   for (const { id, from, to } of cuts) {
     const c = findClip(p, id);

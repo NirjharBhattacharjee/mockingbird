@@ -1617,7 +1617,7 @@ function heardFile(source: string, model: string, language: string): string {
   const { size, mtimeMs } = statSync(source);
   const key = createHash("sha256")
     // "3": words placed by DTW and the silences between them.
-    .update(JSON.stringify([3, source, size, mtimeMs, basename(model), language]))
+    .update(JSON.stringify([3, source, size, mtimeMs, resolve(model), language]))
     .digest("hex")
     .slice(0, 32);
   return join(mockingbirdHome(), "cache", "words", `${key}.json`);
@@ -1907,7 +1907,13 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
         },
       },
       run: (a) => {
-        if (a.project !== undefined) return projectTranscript(resolve(String(a.project)), log);
+        if (a.project !== undefined) {
+          // A project's words come from the word cache, heard with the user's settings.
+          if (a.model !== undefined || a.language !== undefined) {
+            throw new Error("`model` and `language` work with `path`, not with `project` yet.");
+          }
+          return projectTranscript(resolve(String(a.project)), log);
+        }
         if (a.path === undefined) throw new Error("Give a `path`, or a `project`.");
         return transcribe(
           String(a.path),
