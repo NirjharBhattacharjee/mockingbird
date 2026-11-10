@@ -725,6 +725,62 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
       rmSync(dir, { recursive: true, force: true });
     }
   }, 60_000);
+
+  test("text-based editing: a project's transcript, then cut_words, with the words heard once", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mb-words-"));
+    const saved = { home: process.env.MOCKINGBIRD_HOME, model: process.env.MOCKINGBIRD_ASR_MODEL };
+    try {
+      // The real models in a home of its own, so the user's data.db and cache are never touched.
+      const home = join(dir, "home");
+      mkdirSync(home);
+      symlinkSync(
+        join(saved.home ?? join(homedir(), ".mockingbird"), "models"),
+        join(home, "models"),
+      );
+      process.env.MOCKINGBIRD_HOME = home;
+      process.env.MOCKINGBIRD_ASR_MODEL = "ggml-base.en.bin";
+      const hello = join(import.meta.dir, "../../../bench/fixtures/hello.wav");
+      Bun.spawnSync([
+        ...["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=30"],
+        ...["-i", hello, "-shortest", "-pix_fmt", "yuv420p", join(dir, "hello.mp4")],
+      ]);
+      const tools = mcpTools(
+        async () => ({}),
+        () => {},
+      );
+      const tool = (name: string) =>
+        tools.find((t) => t.name === name) as {
+          run: (a: Record<string, unknown>) => Promise<string>;
+        };
+      const project = join(dir, "edit.json");
+      await tool("edit").run({
+        project,
+        ops: [{ op: "add", type: "clip", path: "hello.mp4", from: 0, to: 5 }],
+      });
+      const said = await tool("transcribe").run({ project });
+      expect(said.toLowerCase()).toContain("hello world");
+      expect(readdirSync(join(home, "cache", "words"))).toHaveLength(1);
+      // Heard already: with a model by the same name that can't load, a call that
+      // started whisper-server would fail, so this passes only from the cache.
+      mkdirSync(join(dir, "fake"));
+      writeFileSync(join(dir, "fake", "ggml-base.en.bin"), "");
+      process.env.MOCKINGBIRD_ASR_MODEL = join(dir, "fake", "ggml-base.en.bin");
+      const outline = await tool("edit").run({
+        project,
+        ops: [{ op: "cut_words", text: "hello world" }],
+      });
+      expect(outline).toMatch(/cut "hello world,?" \(2 words/);
+      expect((await tool("transcribe").run({ project })).toLowerCase()).not.toContain(
+        "hello world",
+      );
+    } finally {
+      process.env.MOCKINGBIRD_HOME = saved.home;
+      process.env.MOCKINGBIRD_ASR_MODEL = saved.model;
+      if (saved.home === undefined) delete process.env.MOCKINGBIRD_HOME;
+      if (saved.model === undefined) delete process.env.MOCKINGBIRD_ASR_MODEL;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 180_000);
 });
 
 test("motion takes only an HTML page, and says where canvas scripts went", async () => {
@@ -810,60 +866,4 @@ describe("music", () => {
     },
     120_000,
   );
-
-  test("text-based editing: a project's transcript, then cut_words, with the words heard once", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "mb-words-"));
-    const saved = { home: process.env.MOCKINGBIRD_HOME, model: process.env.MOCKINGBIRD_ASR_MODEL };
-    try {
-      // The real models in a home of its own, so the user's data.db and cache are never touched.
-      const home = join(dir, "home");
-      mkdirSync(home);
-      symlinkSync(
-        join(saved.home ?? join(homedir(), ".mockingbird"), "models"),
-        join(home, "models"),
-      );
-      process.env.MOCKINGBIRD_HOME = home;
-      process.env.MOCKINGBIRD_ASR_MODEL = "ggml-base.en.bin";
-      const hello = join(import.meta.dir, "../../../bench/fixtures/hello.wav");
-      Bun.spawnSync([
-        ...["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=30"],
-        ...["-i", hello, "-shortest", "-pix_fmt", "yuv420p", join(dir, "hello.mp4")],
-      ]);
-      const tools = mcpTools(
-        async () => ({}),
-        () => {},
-      );
-      const tool = (name: string) =>
-        tools.find((t) => t.name === name) as {
-          run: (a: Record<string, unknown>) => Promise<string>;
-        };
-      const project = join(dir, "edit.json");
-      await tool("edit").run({
-        project,
-        ops: [{ op: "add", type: "clip", path: "hello.mp4", from: 0, to: 5 }],
-      });
-      const said = await tool("transcribe").run({ project });
-      expect(said.toLowerCase()).toContain("hello world");
-      expect(readdirSync(join(home, "cache", "words"))).toHaveLength(1);
-      // Heard already: with a model by the same name that can't load, a call that
-      // started whisper-server would fail, so this passes only from the cache.
-      mkdirSync(join(dir, "fake"));
-      writeFileSync(join(dir, "fake", "ggml-base.en.bin"), "");
-      process.env.MOCKINGBIRD_ASR_MODEL = join(dir, "fake", "ggml-base.en.bin");
-      const outline = await tool("edit").run({
-        project,
-        ops: [{ op: "cut_words", text: "hello world" }],
-      });
-      expect(outline).toMatch(/cut "hello world,?" \(2 words/);
-      expect((await tool("transcribe").run({ project })).toLowerCase()).not.toContain(
-        "hello world",
-      );
-    } finally {
-      process.env.MOCKINGBIRD_HOME = saved.home;
-      process.env.MOCKINGBIRD_ASR_MODEL = saved.model;
-      if (saved.home === undefined) delete process.env.MOCKINGBIRD_HOME;
-      if (saved.model === undefined) delete process.env.MOCKINGBIRD_ASR_MODEL;
-      rmSync(dir, { recursive: true, force: true });
-    }
-  }, 180_000);
 });
