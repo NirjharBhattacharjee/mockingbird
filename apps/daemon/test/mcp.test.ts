@@ -376,11 +376,29 @@ test("a transition joins clips with xfade and acrossfade on one timebase, the re
   // The third clip at 2x: half the frames, the sound sped up to match.
   expect(graph).toContain("[2:v]setpts=PTS-STARTPTS,setpts=PTS/2,");
   expect(graph).toContain("[2:a]asetpts=PTS-STARTPTS,atempo=2[a2]");
+  // Picture and sound join apart: a J or L cut can make a clip's sound longer than its picture.
   expect(graph).toContain(
-    "[jv1][ja1][v2][a2]concat=n=2:v=1:a=1[cv2][ca2];[cv2]settb=1/30[joined];[ca2]anull[speech]",
+    "[jv1][v2]concat=n=2:v=1:a=0,settb=1/30[joined];[ja1][a2]concat=n=2:v=0:a=1[speech]",
   );
   // 2 + 2 - 0.5 + 1 = 4.5 s of sound.
   expect(graph).toEndWith("[speech]atrim=duration=4.5[a]");
+});
+
+test("a J cut opens the clip early enough for its sound, and joins picture and sound apart", () => {
+  const clips = [
+    { from: 10, to: 13.5, path: "/a.mp4", sound: { from: 10, to: 13 } },
+    { from: 20, to: 24, path: "/b.mp4", sound: { from: 19.5, to: 24 } },
+  ];
+  // The second clip's input opens at 19.5, for the half second of sound before its picture.
+  expect(seekClips("/x", clips)).toEqual([
+    ...["-ss", "10", "-t", "3.5", "-i", "/a.mp4"],
+    ...["-ss", "19.5", "-t", "4.5", "-i", "/b.mp4"],
+  ]);
+  const graph = renderGraph(clips, { audio: true, vertical: false, size: "640x360", fps: 30 });
+  expect(graph).toContain("[1:v]trim=start=0.5:duration=4,setpts=PTS-STARTPTS,");
+  expect(graph).toContain("[1:a]atrim=start=0:duration=4.5,asetpts=PTS-STARTPTS[a1]");
+  expect(graph).toContain("[0:a]atrim=start=0:duration=3,asetpts=PTS-STARTPTS[a0]");
+  expect(graph).toContain("[v0][v1]concat=n=2:v=1:a=0[joined];[a0][a1]concat=n=2:v=0:a=1[speech]");
 });
 
 test("moves frame each frame with perspective, eased between them", () => {
@@ -880,6 +898,74 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
       for (const line of streams.trim().split("\n")) {
         expect(Number(line.split(",").at(-1))).toBeCloseTo(4.5, 1);
       }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  test("a J cut's sound plays before its picture, and an L cut's after", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mb-jcut-"));
+    try {
+      const make = (file: string, picture: string, hz: number) =>
+        Bun.spawnSync([
+          ...[
+            "ffmpeg",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            `${picture}=size=320x240:rate=30:duration=6`,
+          ],
+          ...["-f", "lavfi", "-i", `sine=frequency=${hz}:duration=6`, "-pix_fmt", "yuv420p", file],
+        ]);
+      make(join(dir, "low.mp4"), "testsrc2", 440);
+      make(join(dir, "high.mp4"), "smptebars", 1760);
+      const tool = (name: string) =>
+        mcpTools(
+          async () => ({}),
+          () => {},
+        ).find((t) => t.name === name) as { run: (a: Record<string, unknown>) => Promise<string> };
+      const project = join(dir, "edit.json");
+      // low 0-2, high 2-4 with a J cut of 0.5 s, low again 4-6 with an L cut of 0.5 s.
+      await tool("edit").run({
+        project,
+        ops: [
+          { op: "set", fps: 30 },
+          { op: "add", type: "clip", path: "low.mp4", from: 1, to: 3 },
+          { op: "add", type: "clip", path: "high.mp4", from: 1, to: 3, lead: 0.5 },
+          { op: "add", type: "clip", path: "low.mp4", from: 3, to: 5, lead: -0.5 },
+        ],
+      });
+      await tool("render").run({ project });
+      const out = join(dir, "edit-render-1.mp4");
+      // How loud the high tone is over a stretch: under -40 dB, it isn't playing.
+      const high = (at: number) => {
+        const said = Bun.spawnSync([
+          ...["ffmpeg", "-nostats", "-ss", String(at), "-t", "0.2", "-i", out],
+          ...[
+            "-af",
+            "highpass=f=1200,highpass=f=1200,astats=measure_overall=RMS_level",
+            "-f",
+            "null",
+            "-",
+          ],
+        ]).stderr.toString();
+        return Number(
+          said
+            .match(/RMS level dB: (-?[\d.inf]+)/g)
+            ?.at(-1)
+            ?.split(": ")[1],
+        );
+      };
+      expect(seconds(out)).toBeCloseTo(6, 1);
+      expect(high(1.0)).toBeLessThan(-40);
+      // The high clip's picture starts at 2 s; its sound at 1.5 s.
+      expect(high(1.65)).toBeGreaterThan(-30);
+      expect(high(3.0)).toBeGreaterThan(-30);
+      // Its sound carries on 0.5 s over the next clip's picture, then stops.
+      expect(high(4.2)).toBeGreaterThan(-30);
+      expect(high(4.8)).toBeLessThan(-40);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
