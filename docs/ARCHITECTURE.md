@@ -18,6 +18,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
+| 2026-11-06 | `render` copies the groups of pictures that need no change and encodes only the clip edges and reframed clips: 4.6x faster on a talk cut into 35 s clips, about 1.6x on the 96-clip v2 edit, with copied frames bit-identical to the source (#166). |
 | 2026-11-05 | Fonts ship with Chrome (#156): `models pull chrome` also downloads Inter, Charis SIL, JetBrains Mono and Noto for Bengali, Devanagari, Arabic, Hebrew, Thai, Tamil and CJK (OFL, pinned, [NOTICE.md](../NOTICE.md)); captions and pages use them by name, so a Bengali caption or a CJK title is drawn the same with or without the system's fonts. |
 | 2026-11-05 | Linux and Windows, first part (pivot step 4): CI runs the checks on all three (#151); `models pull` downloads a pinned whisper-server on Linux and Windows (#153); releases build the command for five targets, `install.sh` runs on Linux, and `install.ps1` installs on Windows (#152). ffmpeg stays the system's, and `status` names any encoder or filter the engine needs that it was built without (#154). |
 | 2026-11-05 | A motion page can't reach the network on Linux or Windows either (#157): Chrome resolves no host name and sends the rest to a dead proxy, every request any tab makes is failed at the browser unless it's a file on this computer, and on Linux the runner starts in a network namespace where one can be made. Chrome is pinned for Linux x64 and Windows x64. |
@@ -246,6 +247,25 @@ other LGPL option, isn't in Homebrew's build and wasn't measured. The cost of
 using the system ffmpeg is that its version differs between machines, so
 `doctor` has to check for the encoder and filters the engine uses
 (`libx264`, `sidechaincompress`, `aevalsrc`, `ebur128`, `alimiter`).
+
+**Stream copy (#166).** When nothing is drawn over the picture (no
+captions, text or inserts), there's no split or draft, and no clip has a
+transition, a J or L cut or a speed, `render` copies what it can instead
+of encoding it. That needs a source in H.264 yuv420p at the output's size
+and rate, with every frame on that rate's grid. Each unzoomed clip keeps
+the whole groups of pictures inside it: from its first closed keyframe to
+its last, copied as they are. Only the frames before the first and after
+the last are encoded, with zoomed clips encoded whole. All of those are one
+x264 stream with an IDR forced at each piece, split there with the segment
+muxer. x264 numbers its parameter sets 1 (`sps-id=1`), so they never
+overwrite the source's 0 where pieces meet. ffmpeg and AVFoundation both
+decode every frame. The sound is cut to the same whole frames, mixed and
+levelled as before. Each piece's frame count is checked, and any failure
+falls back to encoding everything. Copies come from the first clip's source
+only. On the v2 edit (96 clips averaging 4 s, keyframes every 1.95 s), 57%
+of frames are copied: 72.5 to 90.9 s became 49.7 to 51.5 s on a loaded M3.
+Ten 35 s clips from the same recording went from 57.4 s to 12.4 s.
+Copied frames are bit-identical to the source.
 
 A project (`packages/timeline`) compiles into the same inputs: each clip
 with its own source, everything laid over the cut timed in the finished
