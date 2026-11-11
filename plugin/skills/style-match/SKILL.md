@@ -25,8 +25,8 @@ With mockingbird's tools:
 
 Then with mockingbird:
 
-- **Speaking pace**: `transcribe` the reference; words divided by minutes of
-  speech. Lecturers in the edX study averaged 156, and the fastest held
+- **Speaking pace**: `transcribe` the reference. Its first line gives the
+  words and words a minute over the stretch heard, pauses included. Lecturers in the edX study averaged 156, and the fastest held
   viewers longest, likely because speed went with enthusiasm.
 - **Look**: `frames` every 1–2 s over the first 15 s and two other stretches.
   Note words per caption, case, colour of the spoken word, caption height,

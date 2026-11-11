@@ -17,6 +17,15 @@ test("reads silencedetect's log, offset to where the scan started", () => {
   ]);
 });
 
+test("a scan that ends in silence closes its pause at the end (ffmpeg 3.4 prints no silence_end)", () => {
+  const open = LOG.split("\n").slice(0, 3).join("\n");
+  expect(parseSilence(open, 0.5, 5.5)).toEqual([
+    { start: 1.44, end: 2.88, length: 1.44 },
+    { start: 4.3, end: 5.5, length: 1.2 },
+  ]);
+  expect(parseSilence(open, 0.5)).toHaveLength(1);
+});
+
 describe("clipsFrom", () => {
   test("keeps what's between pauses, a margin into each, as clips.sh did", () => {
     // clips.sh's output for these pauses from 0.5 s to 5.5 s, at its defaults.

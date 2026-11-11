@@ -310,11 +310,14 @@ export async function transcribe(
   const spell = speller(log, picked.language);
   try {
     const lines: string[] = [];
+    let count = 0;
     for await (const { heard, offsetMs } of hear(audio, startMs, engines)) {
+      const timed = timedWords(heard, offsetMs);
+      count += timed.length;
       if (words) {
         // ponytail: names are fixed one word at a time, so a name misheard as
         // two words stays as heard; the line transcript fixes those.
-        for (const w of timedWords(heard, offsetMs)) {
+        for (const w of timed) {
           const word = spell(w.word);
           lines.push(`[${fineClock(w.startMs)}-${fineClock(w.endMs)}] ${word}`);
         }
@@ -334,8 +337,11 @@ export async function transcribe(
       choice.model || choice.language || picked.detected
         ? `, ${WHISPER_LANGUAGES.get(picked.language) ?? picked.language}${picked.detected ? " (detected)" : ""} with ${picked.model}`
         : "";
+    // Speaking pace over the whole stretch, pauses included, as style-match compares it.
+    const minutes = audio.samples.length / rate / 60;
+    const pace = `, ${count} words, ${Math.round(count / minutes)} a minute`;
     return lines.length
-      ? `${path} (${span}${how})\n\n${lines.join("\n")}`
+      ? `${path} (${span}${how}${pace})\n\n${lines.join("\n")}`
       : `${path} (${span}${how}): no speech found.`;
   } finally {
     await engines.close();
