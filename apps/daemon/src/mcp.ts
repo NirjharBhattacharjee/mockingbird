@@ -403,9 +403,15 @@ async function frames(
  * a seek starts its times at 0: `lavfi.scd.score: 29.3, lavfi.scd.time: 2`.
  */
 export function parseScenes(log: string, from = 0): { at: number; score: number }[] {
-  return [...log.matchAll(/lavfi\.scd\.score: ([\d.]+), lavfi\.scd\.time: ([\d.]+)/g)]
-    .map(([, score, at]) => ({ at: from + Number(at), score: Number(score) }))
-    .filter((c) => c.score > 0); // At threshold 0, an unchanged frame is logged too.
+  return (
+    [...log.matchAll(/lavfi\.scd\.score: ([\d.]+), lavfi\.scd\.time: ([\d.]+)/g)]
+      // To the millisecond, so a seek that started a frame early doesn't read 3.9999 as 3.99.
+      .map(([, score, at]) => ({
+        at: Math.round((from + Number(at)) * 1000) / 1000,
+        score: Number(score),
+      }))
+      .filter((c) => c.score > 0)
+  ); // At threshold 0, an unchanged frame is logged too.
 }
 
 /**
@@ -423,14 +429,21 @@ async function scenes(
   requireFile(path, "File");
   const source = await probe(path);
   if (!source.video) return `${path} has no video, only audio.`;
-  const end = Math.min(to ?? source.seconds, source.seconds);
-  if (!(end > from))
+  // ffprobe can't always tell a length (some streams and broken files): 0 then
+  // means unknown, so the asked-for range is scanned, or to the end.
+  const known = source.seconds > 0;
+  const end = known ? Math.min(to ?? source.seconds, source.seconds) : to;
+  if (end !== undefined && !(end > from))
     throw new Error(`Nothing to look at from ${from}s: ${path} is ${source.seconds}s.`);
+  // scdet compares each frame with the one before, so a cut on the first frame
+  // needs a frame before it: start one early and drop cuts before `from`.
+  const start = Math.max(0, from - 1 / source.fps);
   const run = async (hw: boolean) => {
     const proc = Bun.spawn(
       [
         ...["ffmpeg", "-nostdin", "-nostats", ...(hw ? ["-hwaccel", "auto"] : [])],
-        ...["-ss", String(from), "-t", String(end - from), "-i", path, "-an"],
+        ...["-ss", String(start), ...(end === undefined ? [] : ["-t", String(end - start)])],
+        ...["-i", path, "-an"],
         ...["-vf", `scale=-2:180,scdet=threshold=${threshold}`, "-f", "null", "-"],
       ],
       { stderr: "pipe" },
@@ -446,10 +459,14 @@ async function scenes(
       `ffmpeg couldn't look for cuts in ${path}: ${said.trim().split("\n").slice(-3).join("\n")}`,
     );
   }
-  const cuts = parseScenes(said, from);
-  const length = end - from;
-  const pace = `, ${((cuts.length / length) * 60).toFixed(1)} a minute, ${(length / (cuts.length + 1)).toFixed(1)} s a shot`;
-  const head = `${path}: ${cuts.length} cut${cuts.length === 1 ? "" : "s"} from ${fineClock(from * 1000)} to ${fineClock(end * 1000)}${pace}`;
+  const half = 1 / source.fps / 2;
+  const cuts = parseScenes(said, start).filter((c) => c.at >= from - half);
+  const length = end === undefined ? 0 : end - from;
+  const pace = length
+    ? `, ${((cuts.length / length) * 60).toFixed(1)} a minute, ${(length / (cuts.length + 1)).toFixed(1)} s a shot`
+    : "";
+  const until = end === undefined ? "the end (its length is unknown)" : fineClock(end * 1000);
+  const head = `${path}: ${cuts.length} cut${cuts.length === 1 ? "" : "s"} from ${fineClock(from * 1000)} to ${until}${pace}`;
   return [head, ...cuts.map((c) => `[${fineClock(c.at * 1000)}] ${c.score.toFixed(1)}`)].join("\n");
 }
 

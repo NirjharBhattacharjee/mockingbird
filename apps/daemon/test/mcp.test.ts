@@ -329,7 +329,7 @@ test("scdet's log reads as cuts, timed from the seek", () => {
   ].join("\n");
   expect(parseScenes(log, 60)).toEqual([
     { at: 62, score: 29.301 },
-    { at: 64.0333, score: 20.581 },
+    { at: 64.033, score: 20.581 },
   ]);
   expect(parseScenes("nothing here")).toEqual([]);
   expect(parseScenes("lavfi.scd.score: 0.000, lavfi.scd.time: 1")).toEqual([]);
@@ -1432,6 +1432,29 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
       const later = (await tool?.run({ path: file, from: 3 })) ?? "";
       expect(later).toContain(": 1 cut from 00:03.00 to 00:06.00");
       expect(later).toMatch(/\[00:04\.0\d\]/);
+      // A cut on the first frame looked at counts (#226).
+      const onCut = (await tool?.run({ path: file, from: 2, to: 3 })) ?? "";
+      expect(onCut).toContain(": 1 cut from 00:02.00 to 00:03.00");
+      // A file whose length ffprobe can't tell is scanned over the range asked for.
+      // Matroska written to a pipe has no duration.
+      const raw = join(dir, "cuts.mkv");
+      const piped = Bun.spawnSync([
+        "ffmpeg",
+        "-loglevel",
+        "error",
+        "-i",
+        file,
+        "-c",
+        "copy",
+        "-f",
+        "matroska",
+        "-",
+      ]);
+      writeFileSync(raw, piped.stdout);
+      const unknown = (await tool?.run({ path: raw, from: 1, to: 5 })) ?? "";
+      expect(unknown).toContain(": 2 cuts from 00:01.00 to 00:05.00");
+      const toEnd = (await tool?.run({ path: raw })) ?? "";
+      expect(toEnd).toContain(": 2 cuts from 00:00.00 to the end (its length is unknown)");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
