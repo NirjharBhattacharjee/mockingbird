@@ -248,6 +248,24 @@ export function pinnedWhisper(
 }
 
 /**
+ * Why a whisper-server won't start, or undefined when `--help` runs: a build
+ * for a newer glibc than this Linux has is there but can't load (#223).
+ */
+export function wontStart(program: string): string | undefined {
+  try {
+    const r = Bun.spawnSync([program, "--help"], {
+      stdout: "ignore",
+      stderr: "pipe",
+      timeout: 10_000,
+    });
+    if (r.exitCode === 0) return undefined;
+    return r.stderr.toString().trim().split("\n").at(-1) || `exit ${r.exitCode}`;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
+/**
  * The whisper-server to run: MOCKINGBIRD_WHISPER_SERVER, the pinned one once
  * it's pulled, or whichever is on the PATH.
  */
@@ -255,9 +273,10 @@ export function findWhisperServer(
   env = process.env,
   home = mockingbirdHome(env),
   which = (name: string) => Bun.which(name),
+  system = `${process.platform}-${process.arch}`,
 ): string | undefined {
   if (env.MOCKINGBIRD_WHISPER_SERVER) return env.MOCKINGBIRD_WHISPER_SERVER;
-  const program = pinnedWhisper(home)?.program;
+  const program = pinnedWhisper(home, system)?.program;
   if (program && existsSync(program)) return program;
   return which("whisper-server") ?? undefined;
 }

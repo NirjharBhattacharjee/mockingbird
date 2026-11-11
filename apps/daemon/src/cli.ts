@@ -7,13 +7,12 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { main as dictionaryMain, readDictionary } from "./dictionary.ts";
 import { mcpTools, serve } from "./mcp.ts";
 import {
   findChrome,
-  listModels,
   type ModelFile,
   modelsCommand,
   pullChrome,
@@ -23,7 +22,16 @@ import {
 } from "./models.ts";
 import { main as recordMain } from "./record.ts";
 import { retireDictation } from "./retire.ts";
-import { ffmpegMissing, findWhisperServer, mockingbirdHome, pinnedWhisper } from "./runtime.ts";
+import {
+  ffmpegMissing,
+  findAsrModel,
+  findWhisperServer,
+  mockingbirdHome,
+  pinnedWhisper,
+  savedModelFor,
+  spokenLanguage,
+  wontStart,
+} from "./runtime.ts";
 import { doctor, OLD_PLUGIN_FIX, oldPlugin, setup } from "./setup.ts";
 import { main as transcribeMain, UsageError } from "./transcribe.ts";
 import { uninstall } from "./uninstall.ts";
@@ -147,14 +155,30 @@ function runnable(path: string): boolean {
   }
 }
 
+/** The Whisper model transcription would load, as a name in models/ or the path it's at. */
+function activeModel(home: string, env: Record<string, string | undefined>): string | null {
+  const models = join(home, "models");
+  try {
+    const saved = savedModelFor(spokenLanguage(env), home);
+    const file = findAsrModel(models, env.MOCKINGBIRD_ASR_MODEL, () => {}, saved);
+    // MOCKINGBIRD_ASR_MODEL can name a file anywhere, which listModels can't see.
+    return dirname(file) === models ? basename(file) : file;
+  } catch {
+    return null;
+  }
+}
+
 /** What `status` and the MCP `status` tool report. */
 export function engineStatus(
   home = mockingbirdHome(),
   which = (name: string) => Bun.which(name),
   env = process.env,
   missing = ffmpegMissing,
+  starts = wontStart,
 ) {
   const server = findWhisperServer(env, home, which);
+  const found = server !== undefined && (runnable(server) || which(server) !== null);
+  const serverError = found ? (starts(server) ?? null) : null;
   let words = 0;
   try {
     words = readDictionary(home).length;
@@ -162,12 +186,14 @@ export function engineStatus(
     // An unreadable data.db shows as an empty dictionary here; transcribe says why.
   }
   return {
-    transcriptionModel: listModels({ home }).find((m) => m.inUse)?.file ?? null,
+    transcriptionModel: activeModel(home, env),
     vadModel: existsSync(join(home, "models", "silero_vad.onnx")),
     ffmpeg: which("ffmpeg") !== null,
     /** What the system's ffmpeg was built without, of what the engine uses. */
     ffmpegMissing: which("ffmpeg") !== null ? missing() : [],
-    whisperServer: server !== undefined && (runnable(server) || which(server) !== null),
+    whisperServer: found && serverError === null,
+    /** Why the whisper-server found won't start, if it won't. */
+    whisperServerError: serverError,
     chrome: findChrome(env, home) !== undefined,
     dictionaryWords: words,
     /** The mockingbird-studio plugin from before v0.4.2 is installed: tell the user to switch (#256). */
@@ -193,7 +219,10 @@ function status(): number {
     : yes(s.ffmpeg, getFfmpeg);
   console.log(`ffmpeg:              ${ffmpegLine}`);
   const getWhisper = pinnedWhisper() ? "`mockingbird models pull`" : "`brew install whisper-cpp`";
-  console.log(`whisper-server:      ${yes(s.whisperServer, getWhisper)}`);
+  const whisperLine = s.whisperServerError
+    ? `installed, but it won't start (${s.whisperServerError}): build whisper.cpp's whisper-server for this system and set MOCKINGBIRD_WHISPER_SERVER to it`
+    : yes(s.whisperServer, getWhisper);
+  console.log(`whisper-server:      ${whisperLine}`);
   console.log(`chrome:              ${yes(s.chrome, "`mockingbird models pull chrome`")}`);
   console.log(`dictionary:          ${s.dictionaryWords} words`);
   if (s.oldPlugin)

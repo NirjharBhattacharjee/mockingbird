@@ -14,8 +14,18 @@ import { join } from "node:path";
 import { agents, codexMentions } from "../src/agents.ts";
 import { PLUGIN } from "../src/guide.ts";
 import { pinnedChrome } from "../src/models.ts";
-import { DEFAULT_ASR_MODEL } from "../src/runtime.ts";
+import { DEFAULT_ASR_MODEL, FFMPEG_NEEDS, pinnedWhisper } from "../src/runtime.ts";
 import { checks, commandPath, doctor, oldPlugin, setup } from "../src/setup.ts";
+
+/** What a full ffmpeg prints for `-encoders` and `-filters`, less `without`. */
+const ffmpegLists = (without: string[] = []) =>
+  [...FFMPEG_NEEDS.encoders, ...FFMPEG_NEEDS.filters]
+    .filter((n) => !without.includes(n))
+    .map((n) => ` V..... ${n}  something`)
+    .join("\n");
+
+/** A Mac, so Homebrew's whisper-cpp is the one asked for, whatever runs the tests. */
+const mac = { platform: "darwin", arch: "arm64" };
 
 /** A home with Cursor, Gemini CLI, VS Code and Codex folders, `mockingbird` in .local/bin, and no `claude` command. */
 function home() {
@@ -210,6 +220,7 @@ test("setup installs missing tools and models after asking, then adds the agents
   let chromePulled = false;
   const tools = new Set(["brew"]);
   const code = await setup([], {
+    ...mac,
     home: h,
     mbHome: mb,
     env: {},
@@ -217,7 +228,7 @@ test("setup installs missing tools and models after asking, then adds the agents
     run: (argv) => {
       ran.push(argv.join(" "));
       if (argv[0] === "brew") for (const t of ["ffmpeg", "whisper-server"]) tools.add(t);
-      return { code: 0, out: argv[0] === "ffmpeg" ? "libx264" : "" };
+      return { code: 0, out: argv[0] === "ffmpeg" ? ffmpegLists() : "" };
     },
     ask: (q) => {
       asked.push(q);
@@ -261,8 +272,9 @@ test("a no to the download still adds the agents, and setup exits 1 for the miss
   const code = await setup([], {
     home: h,
     mbHome: join(h, ".mockingbird"),
+    ...mac,
     which: (n) => `/opt/homebrew/bin/${n}`,
-    run: () => ({ code: 0, out: "libx264" }),
+    run: () => ({ code: 0, out: ffmpegLists() }),
     ask: (q) => !q.startsWith("Download"),
     log: () => {},
   });
@@ -342,7 +354,7 @@ test("an empty or cut-short pinned speech model counts as damaged", () => {
 
 test("doctor's needed checks name a fix", () => {
   const h = home();
-  const broken = checks({ home: h, mbHome: join(h, "mb"), which: none }).filter(
+  const broken = checks({ ...mac, home: h, mbHome: join(h, "mb"), which: none }).filter(
     (c) => !c.ok && c.needed,
   );
   expect(broken.map((c) => [c.name, c.fix])).toEqual([
@@ -354,6 +366,57 @@ test("doctor's needed checks name a fix", () => {
     ],
     ["speech detection model", "`mockingbird models pull`"],
   ]);
+});
+
+test("doctor names every encoder and filter ffmpeg lacks, not only libx264 (#223)", () => {
+  const h = home();
+  const ffmpeg = checks({
+    home: h,
+    mbHome: join(h, "mb"),
+    which: (n) => (n === "ffmpeg" ? "/usr/bin/ffmpeg" : null),
+    run: () => ({ code: 0, out: ffmpegLists(["sidechaincompress"]) }),
+  }).find((c) => c.name === "ffmpeg");
+  expect(ffmpeg).toMatchObject({
+    ok: false,
+    detail: "/usr/bin/ffmpeg is built without sidechaincompress, which the engine uses",
+  });
+});
+
+test("on Linux with no Homebrew, setup downloads the pinned whisper-server and doctor sees it (#223)", async () => {
+  const h = home();
+  const mb = join(h, ".mockingbird");
+  const linux = { platform: "linux", arch: "x64" };
+  const pin = pinnedWhisper(mb, "linux-x64");
+  if (!pin) throw new Error("no pinned whisper-server for linux-x64");
+  const asked: string[] = [];
+  const which = (n: string) => (n === "ffmpeg" ? "/usr/bin/ffmpeg" : null);
+  const before = checks({ ...linux, home: h, mbHome: mb, which, env: {} });
+  expect(before.find((c) => c.name === "whisper-server")?.fix).toContain("mockingbird models pull");
+  await setup([], {
+    ...linux,
+    home: h,
+    mbHome: mb,
+    env: {},
+    which,
+    run: () => ({ code: 0, out: ffmpegLists() }),
+    ask: (q) => {
+      asked.push(q);
+      return true;
+    },
+    pull: async () => {
+      mkdirSync(join(pin.program, ".."), { recursive: true });
+      writeFileSync(pin.program, "", { mode: 0o755 });
+      return 0;
+    },
+    log: () => {},
+  });
+  expect(asked.some((q) => q.includes("Homebrew"))).toBe(false);
+  expect(asked[0]).toMatch(/^Download the speech models and whisper-server \(up to/);
+  expect(
+    checks({ ...linux, home: h, mbHome: mb, which, env: {} }).find(
+      (c) => c.name === "whisper-server",
+    ),
+  ).toMatchObject({ ok: true, detail: pin.program });
 });
 
 test("a model MOCKINGBIRD_ASR_MODEL points at outside models/ counts", () => {

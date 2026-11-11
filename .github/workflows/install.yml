@@ -54,6 +54,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & "$HOME\.mockingbird\bin\mockingbird.cmd" --version
         shell: powershell
+      # A home whose path has letters outside the console's code page (#223):
+      # the shim must still find it. The models come over by a junction.
+      - name: A home with a non-ASCII path
+        run: |
+          $mb = Join-Path $env:RUNNER_TEMP "mb-$([char]0x00E9)$([char]0x09AC)"
+          New-Item -ItemType Directory -Force $mb | Out-Null
+          New-Item -ItemType Junction (Join-Path $mb "models") -Target "$HOME\.mockingbird\models" | Out-Null
+          $env:MOCKINGBIRD_HOME = $mb
+          .\scripts\install.ps1
+          Remove-Item Env:MOCKINGBIRD_HOME
+          & (Join-Path $mb "bin\mockingbird.cmd") status
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        shell: powershell
       # SmartScreen only steps in for a file with the Mark of the Web, which
       # browsers add and Invoke-WebRequest doesn't (#159): what the installer
       # downloaded, Bun here, must carry none.

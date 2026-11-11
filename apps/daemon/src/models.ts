@@ -33,6 +33,7 @@ import {
   spokenLanguage,
   WHISPER_BUILD,
   WHISPER_LANGUAGES,
+  wontStart,
 } from "./runtime.ts";
 
 /** `name` is what the progress line calls it; `bytes` is its size, shown before a download. */
@@ -568,7 +569,9 @@ async function installChrome(
  * and unpacks it into `~/.mockingbird/bin`. Returns 0 where there's no pin
  * (macOS: Homebrew's).
  */
-export async function pullWhisper(deps: PullDeps & { force?: boolean } = {}): Promise<number> {
+export async function pullWhisper(
+  deps: PullDeps & { force?: boolean; starts?: typeof wontStart } = {},
+): Promise<number> {
   const log = deps.log ?? ((m: string) => console.error(m));
   const home = deps.home ?? mockingbirdHome();
   const pin = pinnedWhisper(home);
@@ -619,6 +622,19 @@ export async function pullWhisper(deps: PullDeps & { force?: boolean } = {}): Pr
     }
     rmSync(old, { recursive: true, force: true });
     rmSync(archive, { force: true });
+    // whisper.cpp's Ubuntu build needs a newer glibc than Bun does: on glibc
+    // 2.28-2.33 it unpacks but can't load (#223). Kept, it would hide a
+    // whisper-server on the PATH that works.
+    const why = (deps.starts ?? wontStart)(pin.program);
+    if (why) {
+      rmSync(pin.dir, { recursive: true, force: true });
+      log(
+        `whisper.cpp's whisper-server ${WHISPER_BUILD} doesn't run on this computer: ${why}\n` +
+          "Install one built for it (`brew install whisper-cpp`, or build whisper.cpp from source) " +
+          "and put it on your PATH, or set MOCKINGBIRD_WHISPER_SERVER to it.",
+      );
+      return 1;
+    }
   } finally {
     rmSync(lock, { force: true });
   }

@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { engineStatus, main } from "../src/cli.ts";
+import { wontStart } from "../src/runtime.ts";
 
 /** Runs the router with stdout captured, so help text doesn't pollute the run. */
 async function run(argv: string[]): Promise<{ code: number; out: string }> {
@@ -59,6 +60,7 @@ test("engineStatus says what's installed", () => {
     ffmpeg: false,
     ffmpegMissing: [],
     whisperServer: false,
+    whisperServerError: null,
     chrome: false,
     dictionaryWords: 0,
     oldPlugin: null,
@@ -76,6 +78,7 @@ test("engineStatus says what's installed", () => {
       (n) => `/usr/bin/${n}`,
       {},
       () => ["libx264"],
+      () => undefined,
     ),
   ).toMatchObject({
     transcriptionModel: "ggml-base.en.bin",
@@ -84,6 +87,27 @@ test("engineStatus says what's installed", () => {
     ffmpegMissing: ["libx264"],
     whisperServer: true,
   });
+  // One that's there but can't load (a build for a newer glibc) says why (#223).
+  expect(
+    engineStatus(
+      home,
+      (n) => `/usr/bin/${n}`,
+      {},
+      () => [],
+      () => "GLIBC_2.38 not found",
+    ),
+  ).toMatchObject({ whisperServer: false, whisperServerError: "GLIBC_2.38 not found" });
+  expect(wontStart(process.execPath)).toBeUndefined();
+  expect(wontStart("/no/whisper-server")).toBeString();
+  // A model named by path, outside models/, is the one in use (#223).
+  const elsewhere = join(home, "ggml-small.bin");
+  writeFileSync(elsewhere, "");
+  expect(
+    engineStatus(home, () => null, { MOCKINGBIRD_ASR_MODEL: elsewhere }).transcriptionModel,
+  ).toBe(elsewhere);
+  expect(
+    engineStatus(home, () => null, { MOCKINGBIRD_ASR_MODEL: "/no/ggml-x.bin" }).transcriptionModel,
+  ).toBeNull();
   // An override that names nothing isn't a whisper-server.
   expect(
     engineStatus(
