@@ -147,6 +147,28 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("renderHtml (integration)"
             video,
           }),
         ).rejects.toThrow("move labelAt clear of the target");
+        const captioned = join(dir, "product-captioned.mp4");
+        await renderHtml(script, {
+          chrome: chrome(),
+          out: captioned,
+          width,
+          height,
+          fps: 10,
+          duration: 6,
+          video,
+          cues: [{ start: 0, end: 6, text: "*Proof*" }],
+        });
+        const withCaptions = pixels(captioned, width, height);
+        // Supplied captions draw before, during and after the callout.
+        for (const frame of [5, 25, 52]) {
+          const plain = frames[frame] as Uint8Array;
+          const caption = withCaptions[frame] as Uint8Array;
+          let changed = 0;
+          for (let i = Math.floor(height * 0.9) * width * 3; i < plain.length; i += 3) {
+            if (Math.abs((plain[i] ?? 0) - (caption[i] ?? 0)) > 70) changed++;
+          }
+          expect(changed).toBeGreaterThan(20);
+        }
       }
     },
     60_000,

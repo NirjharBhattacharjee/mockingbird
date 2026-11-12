@@ -40,6 +40,8 @@ plain HTML, CSS, SVG or canvas when it does not. For a product demo, load
      screen targets. Its `STYLE` sets the box and label independently. Its
      `CALLOUTS` hold target rectangles, timing, camera zoom and label position.
      It starts with a plain outline, no drift, no music and no decorative card.
+     Supplied speech captions draw near the bottom throughout the cut. Adjust
+     that `k.captions` call to suit the brief and keep controls readable.
 4. **Fill in the settings from the transcript or shot ledger.** Times are seconds into the
    cut. Pick the hook, the keywords, the callouts or the scenes. That's the
    creative work; the template does the rest.

@@ -66,6 +66,8 @@
           drift: 0,
           moves,
         });
+        // Supplied speech captions remain visible between callouts too.
+        if (m.cues?.length) k.captions({ y: H * 0.94, size: 32, upper: false });
         if (!active || !m.video) return;
 
         const s = { ...STYLE, ...active.style };
