@@ -1,5 +1,10 @@
 export { decodePngFrames, decodeScaledFrames } from "./frames.ts";
 export { hasEncodedPixelCoordinates } from "./geometry.ts";
+export {
+  type NormalizationOptions,
+  type NormalizationSource,
+  normalizeScreen,
+} from "./normalize.ts";
 export { runBoundedProcess } from "./process.ts";
 export {
   MAX_VIDEO_SECONDS,

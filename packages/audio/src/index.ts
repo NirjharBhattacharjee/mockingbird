@@ -13,6 +13,7 @@ export {
   sections,
   windowLevels,
 } from "./stats.ts";
+export { tempo } from "./tempo.ts";
 export {
   decodeWav,
   durationMs,
