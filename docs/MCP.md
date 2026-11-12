@@ -43,6 +43,10 @@ after the curl install, or `/opt/homebrew/bin/mockingbird` with Homebrew.
 
 | Tool | What it does |
 |---|---|
+| `screen_frames(path, outDir, times)` | Full-resolution frames displayed at exact playback times, including held variable-rate frames. Returns requested time and selected source PTS. See [Screen inspection](SCREEN_INSPECTION.md). |
+| `screen_changes(path, from, to, every, threshold)` | Sampled RGB screen-change events, with timestamps and scores. These are changes, not detected clicks. See [Screen inspection](SCREEN_INSPECTION.md). |
+| `screen_privacy(path, from, to, every, names)` | Local optional OCR for email, file-path and supplied-name rows. Returns input-pixel rectangles and sampled coverage, not privacy clearance. See [Screen inspection](SCREEN_INSPECTION.md). |
+| `screen_watch(path, out, from, to, every, columns)` | Timestamped contact sheet plus section loudness, with explicit silence and no-audio states. See [Screen inspection](SCREEN_INSPECTION.md). |
 | `transcribe(project)` | The words in a project's cut, clip by clip, each line at its time in the finished video: the edit as text, to choose what `cut_words` cuts. See [Text-based editing](#text-based-editing). |
 | `transcribe(path, from, to, words, model, language)` | An audio or video file (anything ffmpeg reads: m4a, mp3, wav, mp4, mov, mkv) as text, in lines timestamped `[mm:ss]`, with names fixed from your dictionary (a `heard => term` entry first, then anything that sounds like a term). Each call starts its own whisper-server, so two can run at once. The client's model does any cleanup or summarising. `from` and `to` (seconds) take one stretch of the file. `words: true` gives one line per word with its start and end, `[01:23.48-01:23.71] Catppuccin`, to cut a clip on; names are fixed one word at a time there, so a name misheard as two words stays as heard. `model` (a file in `models/`) and `language` (a Whisper code, or `auto`) pick the model and language for this call only; given neither, with the language on `auto` and a model mapped to a language (`models use --language`), it detects the language from the first speech and uses that model. The first line then names the language and model. |
 | `audio_stats(path, from, to)` | What a file's sound measures, since the agent can't listen: see [Measuring sound](#measuring-sound). |
@@ -60,6 +64,11 @@ after the curl install, or `/opt/homebrew/bin/mockingbird` with Homebrew.
 | `status` | Whether mockingbird is ready: the transcription model in use, the speech detection model, ffmpeg, whisper-server, the Chrome that `motion` renders HTML in, and how many words the dictionary has. |
 | `dictionary_list` | Your dictionary: the names, places and jargon mockingbird spells a particular way. |
 | `dictionary_add(entry)` | Adds a word, like `mockingbird dictionary add`: `"Catppuccin"`, `"Catppuccin (a colour theme)"`, or `"cat puck => Catppuccin"`. |
+
+The four screen inspection tools report the supplied file and pixel coordinate
+space. They reject rotation, non-square pixels and unknown geometry. Normalize
+first and inspect the normalized file when needed; apply its rectangles only
+to that file unless a coordinate transform has been verified.
 
 Measured on an M3 MacBook Pro with the default `large-v3` model: a
 27-minute recording took about 4½ minutes, including starting whisper-server.

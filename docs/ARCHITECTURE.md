@@ -18,6 +18,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
+| 2026-11-12 | Screen inspection shares source metadata, exact frame timing and decoding through `packages/video`. It rejects incompatible or unknown pixel geometry and reports the input coordinate space. |
 | 2026-11-06 | `render` copies the groups of pictures that need no change and encodes only the clip edges and reframed clips: 4.6x faster on a talk cut into 35 s clips, about 1.6x on the 96-clip v2 edit, with copied frames bit-identical to the source (#166). |
 | 2026-11-05 | Fonts ship with Chrome (#156): `models pull chrome` also downloads Inter, Charis SIL, JetBrains Mono and Noto for Bengali, Devanagari, Arabic, Hebrew, Thai, Tamil and CJK (OFL, pinned, [NOTICE.md](../NOTICE.md)); captions and pages use them by name, so a Bengali caption or a CJK title is drawn the same with or without the system's fonts. |
 | 2026-11-05 | Linux and Windows, first part (pivot step 4): CI runs the checks on all three (#151); `models pull` downloads a pinned whisper-server on Linux and Windows (#153); releases build the command for five targets, `install.sh` runs on Linux, and `install.ps1` installs on Windows (#152). ffmpeg stays the system's, and `status` names any encoder or filter the engine needs that it was built without (#154). |
@@ -382,6 +383,7 @@ mockingbird/
 │   ├── motion/              HTML pages and Web Audio music in headless Chrome,
 │   │                        to MP4 and WAV
 │   ├── timeline/            project files: format, checks, edit ops, outline
+│   ├── video/               source metadata, frame timing and decoding
 │   └── store/               data.db, the dictionary's parsing and name matching
 ├── plugin/                  the Claude Code plugin: skills, the reviewer agent,
 │                            the motion kit, templates, sound effects, research

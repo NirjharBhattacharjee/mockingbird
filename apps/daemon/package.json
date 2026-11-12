@@ -9,6 +9,7 @@
     "@mockingbird/motion": "workspace:*",
     "@mockingbird/store": "workspace:*",
     "@mockingbird/timeline": "workspace:*",
-    "@mockingbird/vad": "workspace:*"
+    "@mockingbird/vad": "workspace:*",
+    "@mockingbird/video": "workspace:*"
   }
 }

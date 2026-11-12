@@ -48,6 +48,7 @@ import {
   startEngines,
   WHISPER_LANGUAGES,
 } from "./runtime.ts";
+import { screenTools } from "./screen-inspect.ts";
 
 /**
  * `mockingbird mcp` (#88): mockingbird's local functions as Model Context
@@ -2402,6 +2403,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
     required: ["x", "y", "w", "h"],
   };
   return [
+    ...screenTools(),
     {
       name: "transcribe",
       description:
