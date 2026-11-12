@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -43,6 +43,115 @@ function pixels(video: string, width: number, height: number): Uint8Array[] {
 }
 
 describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("renderHtml (integration)", () => {
+  test.each([
+    { name: "landscape", width: 640, height: 360, x: 435, y: 130, w: 141, h: 36 },
+    { name: "edge", width: 640, height: 360, x: 435, y: 2, w: 141, h: 36 },
+    { name: "portrait", width: 360, height: 450, x: 245, y: 162, w: 79, h: 45 },
+  ])(
+    "product-demo boxes follow the rendered target: $name",
+    async ({ name, width, height, x, y, w, h }) => {
+      const folder = join(import.meta.dir, "../../../plugin/skills/motion-graphics");
+      const html = readFileSync(join(folder, "templates/product-demo.html"), "utf8")
+        .replace('"KIT"', JSON.stringify(pathToFileURL(join(folder, "kit.js")).href))
+        .replace('stroke: "#167a60"', 'stroke: "#ff0000"')
+        .replace("lineWidth: 3", "lineWidth: 6")
+        .replace(
+          "{ x: 0.68, y: 0.36, w: 0.22, h: 0.1 }",
+          JSON.stringify({ x: x / width, y: y / height, w: w / width, h: h / height }),
+        );
+      const script = page(`product-demo-${name}.html`, html);
+      const video = join(dir, `product-target-${name}.mp4`);
+      const source = Bun.spawnSync([
+        "ffmpeg",
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        `color=white:s=${width}x${height}:r=10:d=6`,
+        "-vf",
+        `drawbox=x=${x}:y=${y}:w=${w}:h=${h}:color=blue:t=fill`,
+        "-pix_fmt",
+        "yuv420p",
+        video,
+      ]);
+      expect(source.exitCode).toBe(0);
+      const out = join(dir, `product-demo-${name}.mp4`);
+      expect(
+        await renderHtml(script, {
+          chrome: chrome(),
+          out,
+          width,
+          height,
+          fps: 10,
+          duration: 6,
+          video,
+          tabs: 2,
+        }),
+      ).toBe(60);
+      const frames = pixels(out, width, height);
+      const bounds = (p: Uint8Array, channel: number) => {
+        const b: { left: number; top: number; right: number; bottom: number } = {
+          left: width,
+          top: height,
+          right: -1,
+          bottom: -1,
+        };
+        for (let i = 0; i < p.length; i += 3) {
+          if (
+            (p[i + channel] ?? 0) < 150 ||
+            (p[i + ((channel + 1) % 3)] ?? 0) > 100 ||
+            (p[i + ((channel + 2) % 3)] ?? 0) > 100
+          )
+            continue;
+          const x = (i / 3) % width;
+          const y = Math.floor(i / 3 / width);
+          b.left = Math.min(b.left, x);
+          b.right = Math.max(b.right, x);
+          b.top = Math.min(b.top, y);
+          b.bottom = Math.max(b.bottom, y);
+        }
+        return b;
+      };
+      // Actual rendered pixels, not the projection formula repeated in a test.
+      for (const frame of [12, 25, 48]) {
+        const p = frames[frame] as Uint8Array;
+        const target = bounds(p, 2);
+        const box = bounds(p, 0);
+        expect(target.right).toBeGreaterThan(target.left);
+        for (const gap of [
+          target.left - box.left,
+          target.top - box.top,
+          box.right - target.right,
+          box.bottom - target.bottom,
+        ]) {
+          expect(gap).toBeGreaterThanOrEqual(0);
+          expect(gap).toBeLessThanOrEqual(6);
+        }
+      }
+      expect(bounds(frames[5] as Uint8Array, 0).right).toBe(-1);
+      expect(bounds(frames[52] as Uint8Array, 0).right).toBe(-1);
+      if (name === "landscape") {
+        const overlap = page(
+          "product-overlap.html",
+          html.replace("x: 0.5, y: 0.84", "x: 0.79, y: 0.41"),
+        );
+        await expect(
+          renderHtml(overlap, {
+            chrome: chrome(),
+            out: join(dir, "product-overlap.mp4"),
+            width,
+            height,
+            fps: 10,
+            duration: 2,
+            video,
+          }),
+        ).rejects.toThrow("move labelAt clear of the target");
+      }
+    },
+    60_000,
+  );
+
   test("every frame is at its own time, in order, whichever tab drew it", async () => {
     // Red from draw, green from a stylesheet animation, blue from one draw starts at frame 4.
     const path = page(

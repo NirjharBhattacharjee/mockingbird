@@ -5,6 +5,9 @@ description: Edit a full-length horizontal video for YouTube, rendered on this M
 
 # Long-form
 
+For a product demo, feature launch or short software walkthrough, use
+**product-demo** first, even when the output is horizontal.
+
 A long-form edit keeps the whole story and removes everything that makes
 people leave: dead air, false starts, repeats, tangents, a slow opening. It
 doesn't reshape the video into something else. The evidence is in

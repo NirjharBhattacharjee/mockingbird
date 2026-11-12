@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+  <body style="margin: 0">
+    <script type="module">
+      // Copy beside the cut. Replace KIT with the absolute path to kit.js.
+      // Measure targets on the video passed to motion, after earlier crops.
+      // Coordinates are fractions of that frame, not of the original recording.
+      import { kit, page } from "KIT";
+
+      // Plain outline by default. Change these independently of target geometry.
+      const STYLE = {
+        stroke: "#167a60",
+        lineWidth: 3,
+        radius: 4,
+        padding: 6,
+        fill: "transparent",
+        shadow: "transparent",
+        shadowBlur: 0,
+        shadowOffsetY: 0,
+        labelFill: "#ffffff",
+        labelInk: "#15251f",
+        labelRadius: 4,
+        labelPadding: 14,
+        labelStroke: "transparent",
+        labelLineWidth: 0,
+        // Load a brand font with a local @font-face before naming it here.
+        font: "system-ui",
+        fontWeight: 500,
+        fontSize: 28,
+      };
+      // Example coordinates only. Replace them with measured targets.
+      // Keep one callout active at a time. Split at scrolls, cuts or UI movement
+      // and measure again. The camera projection does not track moving controls.
+      const CALLOUTS = [
+        {
+          at: 1,
+          out: 5,
+          target: { x: 0.68, y: 0.36, w: 0.22, h: 0.1 },
+          zoom: 1.2,
+          label: "Open the result",
+          labelAt: { x: 0.5, y: 0.84 },
+        },
+      ];
+
+      CALLOUTS.sort((a, b) => a.at - b.at);
+      for (const [i, c] of CALLOUTS.entries()) {
+        if (c.out <= c.at || (i > 0 && c.at < CALLOUTS[i - 1].out)) {
+          throw new Error(`Callout at ${c.at}: use a positive duration without overlap`);
+        }
+      }
+
+      function draw(ctx, t, m) {
+        const k = kit(ctx, t, m);
+        const { W, H, u } = k;
+        const active = CALLOUTS.find((c) => t >= c.at && t < c.out);
+        const moves = CALLOUTS.map((c) => ({
+          at: c.at,
+          out: c.out,
+          x: c.target.x + c.target.w / 2,
+          y: c.target.y + c.target.h / 2,
+          zoom: c.zoom,
+        }));
+        const cam = k.camera({
+          focus: { x: 0.5, y: 0.5 },
+          framings: [1],
+          drift: 0,
+          moves,
+        });
+        if (!active || !m.video) return;
+
+        const s = { ...STYLE, ...active.style };
+        const b = active.target;
+        const a = cam.project(b.x, b.y);
+        const z = cam.project(b.x + b.w, b.y + b.h);
+        const pad = s.padding * u;
+        // Hide a clipped target rather than drawing a misleading partial box.
+        if (a.x < 0 || a.y < 0 || z.x > W || z.y > H) return;
+        const x = Math.max(0, a.x - pad);
+        const y = Math.max(0, a.y - pad);
+        const w = Math.min(W, z.x + pad) - x;
+        const h = Math.min(H, z.y + pad) - y;
+
+        k.layer(() => {
+          ctx.globalAlpha *= Math.min(1, (t - active.at) / 0.15, (active.out - t) / 0.15);
+          ctx.fillStyle = s.fill;
+          ctx.strokeStyle = s.stroke;
+          ctx.lineWidth = s.lineWidth * u;
+          ctx.shadowColor = s.shadow;
+          ctx.shadowBlur = s.shadowBlur * u;
+          ctx.shadowOffsetY = s.shadowOffsetY * u;
+          ctx.beginPath();
+          ctx.roundRect(x, y, w, h, Math.min(s.radius * u, w / 2, h / 2));
+          ctx.fill();
+          ctx.stroke();
+          ctx.shadowBlur = 0;
+          ctx.shadowOffsetY = 0;
+
+          if (!active.label) return;
+          ctx.font = `${s.fontWeight} ${s.fontSize * u}px ${s.font}`;
+          const lp = s.labelPadding * u;
+          const lw = ctx.measureText(active.label).width + lp * 2;
+          const lh = s.fontSize * u * 1.3 + lp * 2;
+          const margin = 24 * u;
+          if (lw > W - margin * 2 || lh > H - margin * 2) {
+            throw new Error(`Callout at ${active.at}: shorten the label or reduce its style size`);
+          }
+          const lx = Math.max(margin, Math.min(W - margin - lw, active.labelAt.x * W - lw / 2));
+          const ly = Math.max(margin, Math.min(H - margin - lh, active.labelAt.y * H - lh / 2));
+          // Keep the label clear of the target. Move labelAt if they overlap.
+          if (lx < x + w && lx + lw > x && ly < y + h && ly + lh > y) {
+            throw new Error(`Callout at ${active.at}: move labelAt clear of the target`);
+          }
+          ctx.fillStyle = s.labelFill;
+          ctx.strokeStyle = s.labelStroke;
+          ctx.lineWidth = s.labelLineWidth * u;
+          ctx.beginPath();
+          ctx.roundRect(lx, ly, lw, lh, Math.min(s.labelRadius * u, lh / 2));
+          ctx.fill();
+          if (s.labelLineWidth > 0) ctx.stroke();
+          ctx.fillStyle = s.labelInk;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(active.label, lx + lw / 2, ly + lh / 2);
+        });
+      }
+
+      page(draw);
+    </script>
+  </body>
+</html>

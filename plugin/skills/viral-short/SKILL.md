@@ -5,6 +5,9 @@ description: Turn a video into vertical shorts for YouTube Shorts, Instagram Ree
 
 # Viral short
 
+For a product demo, feature launch or software walkthrough, use
+**product-demo** first, even when the output is vertical.
+
 You pick the moments, cut them tight, hook the first second, caption every
 word, frame the speaker, add only the graphics and sound that earn their place,
 render, and have the result checked before calling it done. mockingbird's MCP
