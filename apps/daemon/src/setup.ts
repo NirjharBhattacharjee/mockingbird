@@ -66,7 +66,12 @@ const runIt = (argv: string[]) => {
 export function commandPath(deps: SetupDeps = {}): string | undefined {
   const which = deps.which ?? ((name: string) => Bun.which(name));
   const home = deps.home ?? homedir();
-  const known = [join(home, ".local", "bin", "mockingbird"), "/opt/homebrew/bin/mockingbird"];
+  // install.ps1's shim is on the user PATH, which a shell opened before the install doesn't see.
+  const known = [
+    join(home, ".local", "bin", "mockingbird"),
+    join(deps.mbHome ?? mockingbirdHome(), "bin", "mockingbird.cmd"),
+    "/opt/homebrew/bin/mockingbird",
+  ];
   // Undefined when there's none: an agent's own PATH may not have a bare `mockingbird`.
   return which("mockingbird") ?? known.find((p) => existsSync(p));
 }
