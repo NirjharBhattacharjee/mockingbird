@@ -316,30 +316,34 @@ test("--help shows help, and an unknown option stops before anything runs", asyn
   expect(() => doctor(["--jsno"], deps)).toThrow('unknown option "--jsno"');
 });
 
-test("the plugin's launcher answers MCP itself when mockingbird isn't installed", () => {
-  const requests = [
-    { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18" } },
-    { jsonrpc: "2.0", method: "notifications/initialized" },
-    { jsonrpc: "2.0", id: "b", method: "tools/list" },
-    { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "install_mockingbird" } },
-    { jsonrpc: "2.0", id: 4, method: "resources/list", params: { method: "ping" } },
-    { jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "transcribe" } },
-  ];
-  const r = Bun.spawnSync(["sh", join(PLUGIN, "launch.sh")], {
-    stdin: Buffer.from(`${requests.map((m) => JSON.stringify(m)).join("\n")}\n`),
-    env: { HOME: mkdtempSync(join(tmpdir(), "mb-setup-")), PATH: "/usr/bin:/bin" },
-  });
-  const replies = r.stdout
-    .toString()
-    .trim()
-    .split("\n")
-    .map((l) => JSON.parse(l));
-  expect(replies.map((m) => m.id)).toEqual([1, "b", 3, 4, 5]);
-  expect(replies[0].result.protocolVersion).toBe("2025-06-18");
-  expect(replies[0].result.instructions).toContain("isn't installed");
-  expect(replies[1].result.tools[0].name).toBe("install_mockingbird");
-  expect(replies[2].result.content[0].text).toContain("AGENT_INSTALL.md");
-  // The method is the request's, not one inside its params.
-  expect(replies[3].error.code).toBe(-32601);
-  expect(replies[4].error.code).toBe(-32602);
-});
+// launch.sh is a shell script, and Windows has no sh to run it with.
+test.skipIf(process.platform === "win32")(
+  "the plugin's launcher answers MCP itself when mockingbird isn't installed",
+  () => {
+    const requests = [
+      { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18" } },
+      { jsonrpc: "2.0", method: "notifications/initialized" },
+      { jsonrpc: "2.0", id: "b", method: "tools/list" },
+      { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "install_mockingbird" } },
+      { jsonrpc: "2.0", id: 4, method: "resources/list", params: { method: "ping" } },
+      { jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "transcribe" } },
+    ];
+    const r = Bun.spawnSync(["sh", join(PLUGIN, "launch.sh")], {
+      stdin: Buffer.from(`${requests.map((m) => JSON.stringify(m)).join("\n")}\n`),
+      env: { HOME: mkdtempSync(join(tmpdir(), "mb-setup-")), PATH: "/usr/bin:/bin" },
+    });
+    const replies = r.stdout
+      .toString()
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l));
+    expect(replies.map((m) => m.id)).toEqual([1, "b", 3, 4, 5]);
+    expect(replies[0].result.protocolVersion).toBe("2025-06-18");
+    expect(replies[0].result.instructions).toContain("isn't installed");
+    expect(replies[1].result.tools[0].name).toBe("install_mockingbird");
+    expect(replies[2].result.content[0].text).toContain("AGENT_INSTALL.md");
+    // The method is the request's, not one inside its params.
+    expect(replies[3].error.code).toBe(-32601);
+    expect(replies[4].error.code).toBe(-32602);
+  },
+);
