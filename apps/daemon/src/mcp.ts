@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, type Hash, randomUUID } from "node:crypto";
 import {
   closeSync,
   copyFileSync,
@@ -14,7 +14,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, extname, join, resolve } from "node:path";
+import { basename, dirname, extname, join, relative, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { type AsrWord, stripNonSpeech } from "@mockingbird/asr";
 import { loadAudio, type PcmAudio } from "@mockingbird/audio";
 import { type Cue, drawCaptions, parseSrt } from "@mockingbird/captions";
@@ -35,7 +36,8 @@ import {
 import type { SpeechSegment } from "@mockingbird/vad";
 import { audioStats } from "./audio-stats.ts";
 import { addEntries, formatEntry, readDictionary } from "./dictionary.ts";
-import { guide, INSTRUCTIONS, playbooks } from "./guide.ts";
+import { catalog, checkEffects, type Effect, effectFilters } from "./effects.ts";
+import { guide, INSTRUCTIONS, PLUGIN, playbooks } from "./guide.ts";
 import { findChrome, fontFaces } from "./models.ts";
 import { clipsFrom, findPauses, measure } from "./pauses.ts";
 import {
@@ -48,6 +50,7 @@ import {
   startEngines,
   WHISPER_LANGUAGES,
 } from "./runtime.ts";
+import { scopes } from "./scopes.ts";
 
 /**
  * `mockingbird mcp` (#88): mockingbird's local functions as Model Context
@@ -454,6 +457,8 @@ export type Clip = {
   transition?: { type: string; duration: number };
   /** Where its sound comes from in the source, when a J or L cut moves it off the picture's stretch. */
   sound?: { from: number; to: number };
+  /** From the effects catalog (#197), on its picture and its sound. */
+  effects?: Effect[];
 };
 
 /** The stretch of the source a clip's input opens: its picture's and its sound's together. */
@@ -658,7 +663,8 @@ export function renderGraph(
     const cut = clip.sound
       ? `trim=start=${clip.from - start}:duration=${clip.to - clip.from},`
       : "";
-    const v = `[${i}:v]${cut}setpts=PTS-STARTPTS${speed},${SQUARE}${look}${tb}[v${i}]`;
+    const fx = effectFilters(clip.effects);
+    const v = `[${i}:v]${cut}setpts=PTS-STARTPTS${speed},${SQUARE}${look}${fx.video ? `,${fx.video}` : ""}${tb}[v${i}]`;
     if (!audio) return v;
     const heard = clip.sound ?? clip;
     const acut = clip.sound
@@ -666,7 +672,7 @@ export function renderGraph(
       : "";
     const a = clip.silent
       ? `aevalsrc=0:c=stereo:s=48000:d=${(heard.to - heard.from) / (clip.speed ?? 1)}[a${i}]`
-      : `[${i}:a]${acut}asetpts=PTS-STARTPTS${speed ? `,${tempo(clip.speed as number)}` : ""}[a${i}]`;
+      : `[${i}:a]${acut}asetpts=PTS-STARTPTS${speed ? `,${tempo(clip.speed as number)}` : ""}${fx.audio ? `,${fx.audio}` : ""}[a${i}]`;
     return `${v};${a}`;
   });
   const inputs = clips.map((_, i) => (audio ? `[v${i}][a${i}]` : `[v${i}]`)).join("");
@@ -917,12 +923,13 @@ function claimAll(video: string, sidecar: boolean): boolean {
   return both;
 }
 
-/** `out`, or `<name>-<kind>-N.mp4` next to the source with the first N that's free; claimed. */
+/** `out`, or `<name>-<kind>-N.mp4` (or `ext`) next to the source with the first N that's free; claimed. */
 function outputFor(
   path: string,
   out: string | undefined,
   sidecar: boolean,
   kind = "short",
+  ext = ".mp4",
 ): string {
   if (out) {
     if (!claimAll(out, sidecar)) {
@@ -934,7 +941,7 @@ function outputFor(
   }
   const base = join(dirname(path), basename(path, extname(path)));
   for (let n = 1; ; n++) {
-    if (claimAll(`${base}-${kind}-${n}.mp4`, sidecar)) return `${base}-${kind}-${n}.mp4`;
+    if (claimAll(`${base}-${kind}-${n}${ext}`, sidecar)) return `${base}-${kind}-${n}${ext}`;
   }
 }
 
@@ -1049,6 +1056,29 @@ export const seekClips = (path: string, clips: Clip[]) =>
  */
 export const CLIPS_PER_PASS = 100;
 
+/**
+ * ffmpeg's `-filter_complex graph`, read from a file in `dir`: 100 clips make
+ * a graph longer than a Windows command line can be (32,767 characters, #202).
+ */
+function graphFile(graph: string, dir: string, name = "graph"): string[] {
+  const file = join(dir, `${name}.txt`);
+  writeFileSync(file, graph);
+  // `-/option file` arrived in ffmpeg 7.0; 6.x (Ubuntu 24.04's) only knows
+  // -filter_complex_script, which newer releases dropped (9.0 has none).
+  return [ffmpegMajor() >= 7 ? "-/filter_complex" : "-filter_complex_script", file];
+}
+
+/** The system ffmpeg's major version, read once; 99 for a git build, which is newer than any release. */
+let major: number | undefined;
+export const ffmpegMajor = () => {
+  major ??= (() => {
+    const r = Bun.spawnSync(["ffmpeg", "-hide_banner", "-version"], { stderr: "ignore" });
+    const n = Number(r.stdout.toString().match(/^ffmpeg version n?(\d+)\./)?.[1]);
+    return Number.isFinite(n) && n > 0 ? n : 99;
+  })();
+  return major;
+};
+
 /** Runs ffmpeg with `args`, throwing its error output if it fails. */
 async function ffmpeg(args: string[], what: string): Promise<void> {
   const proc = Bun.spawn(["ffmpeg", "-nostdin", "-y", "-loglevel", "error", ...args], {
@@ -1130,7 +1160,9 @@ async function joinBatches(
     await ffmpeg(
       [
         ...seekClips(path, batch),
-        ...["-filter_complex", renderGraph(batch, { ...look, whole: true }), "-map", "[v]"],
+        ...graphFile(renderGraph(batch, { ...look, whole: true }), dir),
+        "-map",
+        "[v]",
         ...(look.audio ? ["-map", "[a]", "-c:a", "pcm_f32le"] : []),
         // Encoded once more in the last pass, so near-lossless here.
         ...["-c:v", "libx264", "-crf", "10", "-preset", "veryfast", "-pix_fmt", "yuv420p"],
@@ -1282,7 +1314,9 @@ async function copyRender(
         // Decoded in software: a source in the output's codec and size decodes
         // fast anyway, and setting up 100 hardware decoders took longer (#166).
         ...seekClips(path, parts).filter((arg) => arg !== "-hwaccel" && arg !== "auto"),
-        ...["-filter_complex", renderGraph(parts, { audio: false, size, fps }), "-map", "[v]"],
+        ...graphFile(renderGraph(parts, { audio: false, size, fps }), dir),
+        "-map",
+        "[v]",
         ...["-c:v", "libx264", "-crf", "18", "-preset", "veryfast", "-pix_fmt", "yuv420p"],
         ...["-x264-params", "sps-id=1", "-forced-idr", "1"],
         // A quarter frame early: a time a hair past frame s would force the keyframe onto s + 1.
@@ -1358,7 +1392,8 @@ async function copyRender(
       [
         ...seekClips(path, cut),
         ...sounds.flatMap((s) => [...(s.loop ? ["-stream_loop", "-1"] : []), "-i", s.path]),
-        ...["-filter_complex", graph, "-map", "[a]", "-c:a", "pcm_f32le", sound],
+        ...graphFile(graph, dir, "sound"),
+        ...["-map", "[a]", "-c:a", "pcm_f32le", sound],
       ],
       `cut ${path}'s sound`,
     );
@@ -1392,6 +1427,268 @@ async function packets(file: string): Promise<number> {
 /** Files ffmpeg reads as one still picture, which then has to be repeated to last. */
 const STILL = /\.(png|jpe?g|webp|heic|bmp|tiff?)$/i;
 
+/** How long a segment runs before the cache may start another (#165). */
+const SEGMENT_SECONDS = 10;
+
+/**
+ * Where a project's render is cut into cached segments (#165): runs of
+ * clips, as [first, end) indexes. A segment ends at a clip edge once it's
+ * SEGMENT_SECONDS long or CLIPS_PER_PASS clips, but never where a transition
+ * joins two clips or an insert plays across the edge: the insert, a video,
+ * would start over. Captions and texts are still pictures, so each segment
+ * draws its part of one that crosses.
+ */
+export function segments(
+  clips: Clip[],
+  inserts: { from: number; to: number }[],
+): [number, number][] {
+  const { starts } = timeline(clips);
+  const runs: [number, number][] = [];
+  let first = 0;
+  for (let i = 1; i < clips.length; i++) {
+    const t = starts[i] as number;
+    const long = t - (starts[first] as number) >= SEGMENT_SECONDS || i - first >= CLIPS_PER_PASS;
+    // A J or L cut moves the sound's edge off the picture's, and concat would
+    // start the next file's sound after this one's: keep that edge inside a segment.
+    const next = clips[i];
+    const before = clips[i - 1];
+    const moved =
+      (next?.sound && next.sound.from !== next.from) ||
+      (before?.sound && before.sound.to !== before.to);
+    const crossed = next?.transition || moved || inserts.some((s) => s.from < t && s.to > t);
+    if (long && !crossed) {
+      runs.push([first, i]);
+      first = i;
+    }
+  }
+  runs.push([first, clips.length]);
+  return runs;
+}
+
+/** What a file is, for a cache key: a file changed on disk gets a new key. */
+const stamp = (file: string) => {
+  const s = statSync(file);
+  return `${resolve(file)}:${s.size}:${s.mtimeMs}`;
+};
+
+/**
+ * Every file under `dir` that `keep` accepts, by path, size and time, into a
+ * cache key: a page's image in assets/, or lib/harmony.js a generator
+ * imports, changes the key when it changes. Hidden entries (a kit copy being
+ * rendered, a temp file) and node_modules are left out.
+ */
+// ponytail: at most 5,000 files, so a page kept in a big folder can't stall a render; past that the rest go unnoticed.
+function stampFolder(hash: Hash, dir: string, keep: (name: string) => boolean = () => true) {
+  let left = 5000;
+  const walk = (at: string) => {
+    for (const f of readdirSync(at).sort()) {
+      if (left <= 0 || f.startsWith(".") || f === "node_modules") continue;
+      const full = join(at, f);
+      const s = statSync(full);
+      if (s.isDirectory()) walk(full);
+      else if (s.isFile() && keep(f)) {
+        left--;
+        hash.update(`${relative(dir, full)}:${s.size}:${s.mtimeMs}\n`);
+      }
+    }
+  };
+  walk(dir);
+}
+
+/** The engine's own code, so a segment drawn by an older engine isn't used again. */
+// ponytail: the files that build the picture, not everything they import; add any whose change goes unnoticed.
+const ENGINE = createHash("sha256")
+  .update(readFileSync(import.meta.path))
+  .update(readFileSync(join(import.meta.dir, "effects.ts")))
+  .update(readFileSync(Bun.resolveSync("@mockingbird/captions", import.meta.dir)))
+  .digest("hex");
+
+/**
+ * A project's render from segments kept under ~/.mockingbird/cache/segments/
+ * (#165): each run of clips from `segments` is rendered with the captions,
+ * texts and inserts over it, keyed by all of those, the look and the engine,
+ * so an edit renders again only the segments it touches. The segments are
+ * joined without encoding again, then the sounds are mixed and levelled over
+ * the whole video. Undefined, having made nothing, if the captions or texts
+ * can't be drawn as pictures here: render's own way handles those.
+ */
+async function segmented(
+  path: string,
+  clips: (Clip & { silent?: boolean })[],
+  {
+    audio,
+    size,
+    fps,
+    split,
+    cues,
+    captionsY,
+    texts,
+    inserts,
+    sounds,
+    out,
+    named,
+    kind,
+  }: {
+    audio: boolean;
+    size: string;
+    fps: number;
+    split?: { top: Area; bottom: Area };
+    cues: Cue[];
+    captionsY: number;
+    texts: Text[];
+    inserts: Insert[];
+    sounds: (Sound & { path: string })[];
+    out?: string;
+    named: string;
+    kind: string;
+  },
+): Promise<string | undefined> {
+  const dir = mkdtempSync(join(tmpdir(), "mockingbird-segments-"));
+  let target: string | undefined;
+  let made = false;
+  try {
+    const lines = [...cues.map((c) => c.text), ...texts.map((t) => t.text)];
+    const [width, height] = (split ? "1080x1920" : size).split("x").map(Number);
+    const chrome = lines.length ? findChrome() : undefined;
+    const wrap = noNetwork();
+    const fonts = fontFaces();
+    const images = lines.length
+      ? await drawCaptions(lines, dir, width ?? 1080, height, { chrome, wrap, fonts })
+      : [];
+    if (!images) return undefined;
+    const layers = [
+      ...cues.map(({ start, end }) => ({ start, end, y: captionsY })),
+      ...texts.map(({ from, to, y }) => ({ start: from, end: to, y })),
+    ].map((l, i) => ({ ...l, image: images[i] as string, text: lines[i] }));
+    const put = inserts.map((i) => ({ path: i.path, start: i.from, end: i.to }));
+    const { starts, length } = timeline(clips);
+    const cache = join(mockingbirdHome(), "cache", "segments");
+    mkdirSync(cache, { recursive: true });
+    const runs = segments(clips, inserts);
+    // ponytail: one segment at a time, since each is timed from the ones before; a first render is ~10% slower than one pass. Render the segments with nothing over them in parallel if that matters.
+    const files: string[] = [];
+    let reused = 0;
+    // Where this segment starts in the joined video: concat puts each file after
+    // the ones before by their length, sound included, which rounding to whole
+    // frames leaves a little off the timeline's time.
+    let t0 = 0;
+    for (const [a, b] of runs) {
+      const part = clips.slice(a, b);
+      const t1 = t0 + (b < clips.length ? (starts[b] as number) : length) - (starts[a] as number);
+      // What lies over this segment, timed from its first frame; a frame to spare at its end.
+      const over = <T extends { start: number; end: number }>(xs: T[]) =>
+        xs
+          .filter((x) => x.start < t1 + 1 / fps && x.end > t0)
+          .map((x) => ({ ...x, start: Math.max(0, x.start - t0), end: x.end - t0 }));
+      const laid = over(layers);
+      const shown = over(put);
+      const key = createHash("sha256")
+        .update(
+          JSON.stringify([
+            ENGINE,
+            audio,
+            size,
+            fps,
+            split ?? null,
+            // A LUT edited in place changes the grade, so effects' files are stamped too.
+            part.map((c) => ({
+              ...c,
+              path: stamp(c.path ?? path),
+              ...(c.effects && {
+                effects: c.effects.map((e) =>
+                  typeof e.file === "string" ? { ...e, file: stamp(e.file) } : e,
+                ),
+              }),
+            })),
+            // By its words, not its pixels: Chrome's antialiasing varies a little with the line drawn before.
+            chrome ?? null,
+            // The fonts are pinned, so which are there says what they draw.
+            fonts.map((f) => f.url),
+            laid.map((l) => [l.start, l.end, l.y, l.text]),
+            shown.map((s) => [s.start, s.end, stamp(s.path)]),
+          ]),
+        )
+        .digest("hex")
+        .slice(0, 32);
+      const file = join(cache, `${key}.mkv`);
+      files.push(file);
+      if (existsSync(file)) {
+        reused++;
+        t0 += (await probe(file)).seconds;
+        continue;
+      }
+      // Its own temp name, so two renders of the same segment don't write one file.
+      const tmp = join(cache, `${key}.${process.pid}-${randomUUID()}.part.mkv`);
+      try {
+        await ffmpeg(
+          [
+            ...seekClips(path, part),
+            ...laid.flatMap((l) => ["-i", l.image]),
+            ...shown.flatMap((s) => [...(STILL.test(s.path) ? ["-loop", "1"] : []), "-i", s.path]),
+            ...graphFile(
+              renderGraph(part, {
+                audio,
+                size,
+                fps,
+                split,
+                overlays: laid,
+                inserts: shown,
+                whole: true,
+              }),
+              dir,
+              "segment",
+            ),
+            ...["-map", "[v]", ...(audio ? ["-map", "[a]", "-c:a", "pcm_f32le"] : [])],
+            ...["-c:v", "libx264", "-crf", "18", "-preset", "veryfast", "-pix_fmt", "yuv420p", tmp],
+          ],
+          `render clips ${a + 1}-${b} of ${named}`,
+        );
+        renameSync(tmp, file);
+      } finally {
+        rmSync(tmp, { force: true });
+      }
+      t0 += (await probe(file)).seconds;
+    }
+    const list = join(dir, "segments.txt");
+    writeFileSync(list, files.map((f) => `file '${f.replaceAll("'", "'\\''")}'`).join("\n"));
+    const joined = join(dir, "joined.mkv");
+    await ffmpeg(
+      ["-f", "concat", "-safe", "0", "-i", list, "-c", "copy", joined],
+      `join ${named}'s segments`,
+    );
+    target = outputFor(named, out, false, kind);
+    if (audio || sounds.length) {
+      const unlevelled = join(dir, "unlevelled.mkv");
+      const graph = [
+        ...(audio ? ["[0:a]anull[speech]"] : []),
+        ...mixGraph(sounds, { speech: audio, length, first: 1 }),
+      ].join(";");
+      await ffmpeg(
+        [
+          "-i",
+          joined,
+          ...sounds.flatMap((s) => [...(s.loop ? ["-stream_loop", "-1"] : []), "-i", s.path]),
+          ...["-filter_complex", graph, "-map", "0:v", "-map", "[a]"],
+          ...["-c:v", "copy", "-c:a", "pcm_f32le", unlevelled],
+        ],
+        `mix ${target}'s sound`,
+      );
+      await level(unlevelled, target);
+    } else {
+      await ffmpeg(
+        ["-i", joined, "-map", "0", "-c", "copy", "-movflags", "+faststart", target],
+        `save ${target}`,
+      );
+    }
+    made = true;
+    const kept = `${reused} of ${runs.length} segments reused`;
+    return `${target} (${fineClock((await probe(target)).seconds * 1000)}), ${kept}${cues.length ? ", captions drawn on the picture" : ""}`;
+  } finally {
+    if (!made && target) rmSync(target, { force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 /**
  * Cuts `clips` out of a video and joins them into one MP4, optionally 9:16
  * or split, with captions, text, inserts and sounds. The client chooses all
@@ -1419,6 +1716,8 @@ async function render(
     named = path,
     kind = "short",
     draft = false,
+    soundOnly = false,
+    cache = false,
   }: {
     size?: string;
     fps?: number;
@@ -1435,13 +1734,20 @@ async function render(
     kind?: string;
     /** Half the size, encoded as fast as x264 goes: a preview to check the edit with. */
     draft?: boolean;
+    /** The sound alone, as an .m4a: the picture is built but not encoded (#170). */
+    soundOnly?: boolean;
+    /** A project's: rendered from cached segments, so an edit renders only what it changed (#165). */
+    cache?: boolean;
   },
 ): Promise<string> {
   requireFile(path, "File");
   if (!clips.length) throw new Error("No clips: give at least one { from, to } in seconds.");
-  for (const c of clips) {
+  for (const [i, c] of clips.entries()) {
     if (!(Number.isFinite(c.from) && Number.isFinite(c.to) && c.from >= 0 && c.to > c.from)) {
       throw new Error(`A clip needs 0 <= from < to, in seconds; got ${JSON.stringify(c)}.`);
+    }
+    for (const e of checkEffects(c.effects, `clips[${i}].effects`)) {
+      if (typeof e.file === "string") requireFile(e.file, "LUT");
     }
   }
   const files = [...new Set([path, ...clips.map((c) => c.path ?? path)])];
@@ -1474,6 +1780,32 @@ async function render(
   // A split takes its areas from one picture, so its clips are brought to the first's size.
   const frameSize = split ? source.size : (size ?? source.size);
   const rate = fps ?? source.fps;
+  const bare =
+    !soundOnly &&
+    !captions?.trim() &&
+    !texts.length &&
+    !split &&
+    !draft &&
+    !inserts.length &&
+    clips.every((c) => !c.transition && !c.sound && (c.speed ?? 1) === 1 && !c.effects?.length);
+  // Nothing drawn and every clip as recorded: copying (#166) beats encoding segments to cache.
+  if (cache && !draft && !soundOnly && !bare) {
+    const made = await segmented(path, shaped, {
+      audio,
+      size: frameSize,
+      fps: rate,
+      split,
+      cues: captions?.trim() ? parseSrt(captions.trim()) : [],
+      captionsY,
+      texts,
+      inserts,
+      sounds,
+      out,
+      named,
+      kind,
+    });
+    if (made) return made;
+  }
   if (clips.length > CLIPS_PER_PASS) {
     // ponytail: a transition can't cross two batches; join batches with xfade if long edits need them.
     if (clips.some((c, i) => i > 0 && c.transition)) {
@@ -1498,6 +1830,7 @@ async function render(
         named,
         kind,
         draft,
+        soundOnly,
       });
     } finally {
       rmSync(batches, { recursive: true, force: true });
@@ -1515,16 +1848,13 @@ async function render(
     const [width, height] = (split ? "1080x1920" : frameSize).split("x").map(Number);
     // Drawn in the pinned Chrome, started under the no-network sandbox where there is one (#157).
     const chrome = lines.length ? findChrome() : undefined;
+    const wrap = noNetwork();
     const images = chrome
-      ? await drawCaptions(lines, dir, width ?? 1080, height, {
-          chrome,
-          wrap: noNetwork(),
-          fonts: fontFaces(),
-        })
+      ? await drawCaptions(lines, dir, width ?? 1080, height, { chrome, wrap, fonts: fontFaces() })
       : undefined;
     const burn = !!text && !images && (await canBurn());
     sidecar = !!text && !images && !burn;
-    target = outputFor(named, out, sidecar, kind);
+    target = outputFor(named, out, sidecar, kind, soundOnly ? ".m4a" : ".mp4");
     const srt = text && !images ? join(dir, CAPTIONS) : undefined;
     if (srt) writeFileSync(srt, `${text}\n`);
     const graph = renderGraph(shaped, {
@@ -1547,20 +1877,17 @@ async function render(
       ...sounds.flatMap((s) => [...(s.loop ? ["-stream_loop", "-1"] : []), "-i", s.path]),
     ];
     const hasSound = audio || sounds.length > 0;
+    if (soundOnly && !hasSound) throw new Error("This edit has no sound to render on its own.");
     const unlevelled = join(dir, "unlevelled.mkv");
     // Nothing drawn over the picture, no split, and every clip played as it
     // was recorded: the stretches already in the output's codec, size and rate
     // can be copied (#166). If copying fails, the whole picture is encoded.
-    const plain =
-      !lines.length &&
-      !burn &&
-      !sidecar &&
-      !split &&
-      !draft &&
-      !inserts.length &&
-      clips.every((c) => !c.transition && !c.sound && (c.speed ?? 1) === 1);
+    // The sound alone still runs the picture's graph, into ffmpeg's null output: unencoded, it costs little.
+    const picture = soundOnly
+      ? ["-map", "[a]", "-c:a", "pcm_f32le", unlevelled, "-map", "[v]", "-f", "null", "-"]
+      : undefined;
     const copied =
-      plain &&
+      bare &&
       (await copyRender(path, shaped, dir, unlevelled, {
         audio,
         size: frameSize,
@@ -1576,22 +1903,25 @@ async function render(
           ...extras,
           ...(sidecar ? ["-i", CAPTIONS] : []),
           // A draft is the finished picture at half the size, captions and all.
-          ...(draft
-            ? ["-filter_complex", `${graph};[v]scale=trunc(iw/4)*2:trunc(ih/4)*2,setsar=1[small]`]
-            : ["-filter_complex", graph]),
-          ...["-map", draft ? "[small]" : "[v]"],
-          // Uncompressed until `level` sets the volume, and in floating point:
-          // music and effects mixed over speech can go past full scale, which
-          // 16-bit samples would clip before the limiter could hold it.
-          ...(hasSound ? ["-map", "[a]", "-c:a", "pcm_f32le"] : []),
-          // The subtitle file is the input after the clips and the extras.
-          ...(sidecar
-            ? ["-map", `${clips.length + extras.filter((a) => a === "-i").length}:s`]
-            : []),
-          ...(sidecar ? ["-c:s", "srt"] : []),
-          ...["-c:v", "libx264", "-crf", draft ? "23" : "18"],
-          ...["-preset", draft ? "ultrafast" : "veryfast", "-pix_fmt", "yuv420p"],
-          unlevelled,
+          // The sound alone maps [v] to the null output, so it's never scaled.
+          ...(draft && !soundOnly
+            ? graphFile(`${graph};[v]scale=trunc(iw/4)*2:trunc(ih/4)*2,setsar=1[small]`, dir)
+            : graphFile(graph, dir)),
+          ...(picture ?? [
+            ...["-map", draft ? "[small]" : "[v]"],
+            // Uncompressed until `level` sets the volume, and in floating point:
+            // music and effects mixed over speech can go past full scale, which
+            // 16-bit samples would clip before the limiter could hold it.
+            ...(hasSound ? ["-map", "[a]", "-c:a", "pcm_f32le"] : []),
+            // The subtitle file is the input after the clips and the extras.
+            ...(sidecar
+              ? ["-map", `${clips.length + extras.filter((a) => a === "-i").length}:s`]
+              : []),
+            ...(sidecar ? ["-c:s", "srt"] : []),
+            ...["-c:v", "libx264", "-crf", draft ? "23" : "18"],
+            ...["-preset", draft ? "ultrafast" : "veryfast", "-pix_fmt", "yuv420p"],
+            unlevelled,
+          ]),
         ],
         { cwd: dir, stderr: "pipe" },
       );
@@ -1697,6 +2027,24 @@ function needChrome(): string {
   );
 }
 
+/** The motion kit, as the URL a page imports it from. */
+export const KIT_URL = pathToFileURL(join(PLUGIN, "skills", "motion-graphics", "kit.js")).href;
+
+/**
+ * A template imports the kit `from "KIT"`, and motion fills it in (#213): an
+ * agent replacing it by hand hit the template's comment first, and a Windows
+ * path isn't a URL. The filled-in copy goes beside the page, so the page's own
+ * files are where it says. Returns the page to load: `script` itself when it
+ * doesn't import "KIT".
+ */
+export function withKit(script: string): string {
+  const html = readFileSync(script, "utf8");
+  if (!html.includes('from "KIT"')) return script;
+  const copy = join(dirname(script), `.${basename(script)}.${process.pid}-${Date.now()}.html`);
+  writeFileSync(copy, html.replaceAll('from "KIT"', `from ${JSON.stringify(KIT_URL)}`));
+  return copy;
+}
+
 /**
  * Renders `script`, an HTML page, in Chrome, over the video at `path` or on
  * its own at `size` for `duration` seconds, and saves the result. It runs in its own
@@ -1756,8 +2104,9 @@ async function motion(
   }
   const target = outputFor(path ?? script, out, false, "motion");
   const started = performance.now();
+  const page = withKit(script);
   const options = {
-    script,
+    script: page,
     chrome,
     out: target,
     width,
@@ -1775,6 +2124,8 @@ async function motion(
   } catch (error) {
     rmSync(target, { force: true });
     throw error;
+  } finally {
+    if (page !== script) rmSync(page, { force: true });
   }
   let frames = 0;
   let work: string | undefined;
@@ -2297,28 +2648,180 @@ async function proxied(clips: Clip[]): Promise<Clip[]> {
  * its size, with captions made for the cut as it is now and everything on
  * it timed from its clips. Saved beside the project as `<name>-render-N.mp4`.
  */
-async function renderProject(file: string, log: (m: string) => void, out?: string, draft = false) {
+/**
+ * A project's overlays (#163), inserts whose picture is an HTML page: each
+ * rendered alone with its transparency (ProRes 4444) at the project's size
+ * and rate for its stretch, kept under ~/.mockingbird/cache/overlays/ by the
+ * page's folder and the look, and laid over the cut like b-roll. A page's
+ * `mockingbird.audio` joins the project's sound, timed from the overlay.
+ */
+async function overlays(
+  inserts: Insert[],
+  look: { size: string; fps: number },
+  log: (m: string) => void,
+): Promise<{ inserts: Insert[]; sounds: (Sound & { path: string })[] }> {
+  const laid: Insert[] = [];
+  const heard: (Sound & { path: string })[] = [];
+  for (const insert of inserts) {
+    if (!/\.html?$/i.test(insert.path)) {
+      laid.push(insert);
+      continue;
+    }
+    const page = requireFile(insert.path, "Page");
+    const [width = 0, height = 0] = look.size.split("x").map(Number);
+    const duration = Math.round((insert.to - insert.from) * 1000) / 1000;
+    // A page loads its neighbours (CSS, images, the kit), so their sizes and times are in the key.
+    // The pinned fonts are in it too, since the page draws with them.
+    const fonts = fontFaces();
+    const hash = createHash("sha256").update(
+      JSON.stringify([2, basename(page), look, duration, fonts.map((f) => f.url)]),
+    );
+    stampFolder(hash, dirname(page));
+    const key = hash.digest("hex").slice(0, 32);
+    const cache = join(mockingbirdHome(), "cache", "overlays");
+    const mov = join(cache, `${key}.mov`);
+    const listed = join(cache, `${key}.json`);
+    if (existsSync(mov) && existsSync(listed)) {
+      log(`${basename(page)}: reusing the overlay rendered before`);
+    } else {
+      mkdirSync(cache, { recursive: true });
+      log(`${basename(page)}: rendering ${duration.toFixed(1)} s of overlay`);
+      // Temp names of its own, so two renders of one overlay don't write the same file.
+      const part = join(cache, `${key}.${process.pid}-${randomUUID()}.part`);
+      // A page copied from the templates imports "KIT", which motion fills in; so does this.
+      const filled = withKit(page);
+      try {
+        const said = await sandboxed(
+          {
+            script: filled,
+            chrome: needChrome(),
+            out: `${part}.mov`,
+            width,
+            height,
+            fps: look.fps,
+            duration,
+            alpha: true,
+            fonts,
+          },
+          "the overlay page",
+        );
+        const result = JSON.parse(said.trim().split("\n").at(-1) || "{}") ?? {};
+        writeFileSync(`${part}.json`, JSON.stringify(result.sounds ?? []));
+        // The sounds first: a reader goes by the .mov, and finds its list there.
+        renameSync(`${part}.json`, listed);
+        renameSync(`${part}.mov`, mov);
+      } finally {
+        rmSync(`${part}.mov`, { force: true });
+        rmSync(`${part}.json`, { force: true });
+        if (filled !== page) rmSync(filled, { force: true });
+      }
+    }
+    laid.push({ ...insert, path: mov });
+    const sounds = JSON.parse(readFileSync(listed, "utf8")) as unknown;
+    for (const [i, t] of items(sounds).entries()) {
+      heard.push({
+        path: requireFile(String(t.path), `${basename(page)}'s audio[${i}]`),
+        at: insert.from + within(t.at, 0, Number.MAX_VALUE, `audio[${i}].at`, 0),
+        volume: within(t.volume, 0, 4, `audio[${i}].volume`, 1),
+        loop: !!t.loop,
+        duck: !!t.duck,
+      });
+    }
+  }
+  return { inserts: laid, sounds: heard };
+}
+
+/**
+ * A project's generated sounds made into WAVs (#170), each as long as the
+ * video from where it starts, and kept under ~/.mockingbird/cache/music/ by
+ * the generator's folder of modules and its arguments, so a render after an
+ * edit doesn't generate the same bed again.
+ */
+async function beds(
+  cut: ReturnType<typeof compile>,
+  log: (m: string) => void,
+): Promise<(Sound & { path: string })[]> {
+  const out: (Sound & { path: string })[] = [];
+  for (const { generator: g, path: file, ...rest } of cut.sounds) {
+    if (!g) {
+      out.push({ ...rest, path: file ?? "" });
+      continue;
+    }
+    const script = requireFile(g.generator, "Generator");
+    const params = {
+      duration: Math.min(
+        MOTION_MAX_SECONDS,
+        Math.max(1, Math.round((cut.length - rest.at) * 1000) / 1000),
+      ),
+      seed: g.seed ?? 1,
+      tempo: g.tempo,
+      key: g.key,
+      energy: g.energy,
+    };
+    // The generator imports its neighbours (lib.js, lib/harmony.js), so all of them are in the key.
+    const hash = createHash("sha256").update(JSON.stringify([2, params]));
+    stampFolder(hash, dirname(script), (f) => /\.m?js$/i.test(f));
+    hash.update(basename(script));
+    const wav = join(mockingbirdHome(), "cache", "music", `${hash.digest("hex").slice(0, 32)}.wav`);
+    if (existsSync(wav)) {
+      log(`${basename(script)}: reusing the bed made before`);
+    } else {
+      mkdirSync(dirname(wav), { recursive: true });
+      log(`${basename(script)}: generating ${params.duration.toFixed(1)} s of music`);
+      // Made under a temp name and renamed when whole: music() claims its out
+      // file at the start, and another render would mix that empty file.
+      const part = `${wav.slice(0, -4)}.${process.pid}-${randomUUID()}.part.wav`;
+      try {
+        await music(script, part, params);
+        renameSync(part, wav);
+      } finally {
+        rmSync(part, { force: true });
+      }
+    }
+    out.push({ ...rest, path: wav });
+  }
+  return out;
+}
+
+async function renderProject(
+  file: string,
+  log: (m: string) => void,
+  out?: string,
+  draft = false,
+  soundOnly = false,
+) {
   const { project, created } = load(file);
   if (created) throw new Error(`No project at ${file}; make one with \`edit\`.`);
   const cut = compile(project, dirname(file));
   const first = cut.clips[0]?.path;
   if (!first) throw new Error(`${file} has no clips yet; add some with \`edit\`.`);
-  const said = cut.captions ? await cutCaptions(cut, log, cut.captions) : undefined;
+  // The sound alone needs nothing drawn, so nothing is transcribed for captions.
+  const said = cut.captions && !soundOnly ? await cutCaptions(cut, log, cut.captions) : undefined;
   // A draft reads 4K from proxies; its size is still the source's, not the proxy's.
   const clips = draft ? await proxied(cut.clips) : cut.clips;
+  const source = await probe(first);
+  const laid = soundOnly
+    ? { inserts: [], sounds: [] }
+    : await overlays(
+        cut.inserts,
+        { size: cut.size ?? source.size, fps: cut.fps ?? source.fps },
+        log,
+      );
   return render(clips[0]?.path ?? first, clips, {
-    size: cut.size ?? (draft ? (await probe(first)).size : undefined),
+    size: cut.size ?? (draft ? source.size : undefined),
     fps: cut.fps,
     split: cut.split,
     captions: said,
     captionsY: cut.captions?.y ?? CAPTIONS_Y,
-    texts: cut.texts,
-    inserts: cut.inserts,
-    sounds: cut.sounds,
+    texts: soundOnly ? [] : cut.texts,
+    inserts: laid.inserts,
+    sounds: [...(await beds(cut, log)), ...laid.sounds],
     out,
     named: file,
-    kind: draft ? "draft" : "render",
+    kind: soundOnly ? "sound" : draft ? "draft" : "render",
     draft,
+    soundOnly,
+    cache: true,
   });
 }
 
@@ -2450,7 +2953,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
 - {op:"add", type:"clip", path, from, to, focus?:{x,y}, zoom?, speed?, moves?, transition?, lead?, index?}: on the main track, which plays in order with no gaps (default at the end). speed: 0.25-4. moves: [{at, focus?, zoom?, ease?}], the framing by \`at\` seconds into the clip, eased ("smooth", or "linear") from the one before: a slow push-in, a move to the other speaker. transition: {type, duration}, how the clip comes in over the end of the one before: ffmpeg xfade's fade, fadeblack, fadewhite, dissolve, wipe*, slide*, smooth*, circleopen, zoomin and others. lead: a J cut (positive: the clip's sound starts that many seconds before its picture) or an L cut (negative: the clip before's sound carries on over its picture)
 - {op:"add", type:"text", text, from, to, clip?, y?}: drawn like the captions, *words* yellow
 - {op:"add", type:"insert", path, from, to, clip?}: a picture or video over the whole frame (b-roll)
-- {op:"add", type:"audio", path, at?, clip?, volume?, loop?, duck?}: music or a sound effect under the speech
+- {op:"add", type:"audio", path, at?, clip?, volume?, loop?, duck?}: music or a sound effect under the speech. Or generated music in place of path: generator:{generator:"/abs/lofi.js", tempo?, key?, energy?, seed?} (a music generator; the bed is made at render time, as long as the video from at, and kept, so it isn't made again)
 - {op:"remove", id}: a clip goes with everything on it, and the cut closes up
 - {op:"split", id, at}: a clip in two at a source time; what's on the second half moves with it
 - {op:"trim", id, from?, to?}: a clip's source times; what's on it stays on the same picture
@@ -2481,6 +2984,11 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
       inputSchema: {
         type: "object",
         properties: {
+          sound: {
+            type: "boolean",
+            description:
+              "A project's sound alone, as <name>-sound-N.m4a at -14 LUFS, to check the mix (speech, music, effects) without rendering the picture",
+          },
           draft: {
             type: "boolean",
             description:
@@ -2510,6 +3018,11 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
                   type: "number",
                   description:
                     "Punch in on the focus, 1-4 (default 1). 1.1-1.2 on alternate jump cuts hides them.",
+                },
+                effects: {
+                  type: "array",
+                  items: { type: "object" },
+                  description: "Effects from the catalog (`effects` lists them), in order",
                 },
               },
               required: ["from", "to"],
@@ -2587,7 +3100,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
       run: (a) => {
         const out = a.out === undefined ? undefined : resolve(String(a.out));
         if (a.project !== undefined) {
-          return renderProject(resolve(String(a.project)), log, out, !!a.draft);
+          return renderProject(resolve(String(a.project)), log, out, !!a.draft, !!a.sound);
         }
         if (a.path === undefined) throw new Error("Give a `project`, or a `path` and `clips`.");
         return render(
@@ -2604,6 +3117,9 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
                 },
               }),
               zoom: within(c.zoom, 1, 4, `clips[${i}].zoom`, 1),
+              ...(c.effects === undefined
+                ? {}
+                : { effects: checkEffects(c.effects, `clips[${i}].effects`) }),
             };
           }),
           {
@@ -2740,6 +3256,39 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
           captions: a.captions === undefined ? undefined : String(a.captions),
           out: a.out === undefined ? undefined : resolve(String(a.out)),
         }),
+    },
+    {
+      name: "effects",
+      description:
+        "The effects catalog: each effect's name, whether it's on the picture or the sound, and its settings with their ranges and defaults. Put effects on a project's clip with edit's {op:\"set\", id, effects:[{name:\"color\", exposure:0.5}, {name:\"denoise\", amount:0.4}]}, or on render's clips (effects: [...]). They apply in order, after the clip's framing; check a grade with `scopes`.",
+      inputSchema: { type: "object", properties: {} },
+      run: async () => catalog(),
+    },
+    {
+      name: "scopes",
+      description:
+        "Measure a video's picture, as a colourist reads the scopes, since you can't judge a grade from a few stills: mean and 5th to 95th percentile luma, the histogram's shadows, mids and highlights, crushed blacks and clipped whites, mean saturation, and how far skin sits from the skin-tone line. Each number comes with what a graded picture usually shows. `from`/`to` (seconds) measure one stretch; it samples up to 60 frames. Grade with `effect`s, render, and measure again.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path,
+          from: { type: "number", description: "Start, in seconds from the start of the file" },
+          to: { type: "number", description: "End, in seconds (default the end)" },
+          every: { type: "number", description: "Seconds between frames (default 1)" },
+        },
+        required: ["path"],
+      },
+      run: async (a) => {
+        const file = requireFile(resolve(String(a.path)), "File");
+        const info = await probe(file);
+        if (!info.video) throw new Error(`${file} has no video, only audio.`);
+        const from = seconds(a.from) ?? 0;
+        return scopes(file, info.size, {
+          from,
+          to: Math.min(seconds(a.to) ?? info.seconds, info.seconds),
+          every: within(a.every, 0.04, 600, "every", 1),
+        });
+      },
     },
     {
       name: "audio_stats",

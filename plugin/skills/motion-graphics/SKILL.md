@@ -23,8 +23,8 @@ settings, not from a blank file.
 2. **Caption it.** `captions` with the same clips and `perCue: 3` gives SRT
    timed to the cut with the spoken word `*marked*`. It's `motion`'s
    `captions`, and the pages read it as `m.cues`.
-3. **Copy a template** next to the video and replace `"KIT"` in its import
-   with this skill's absolute path plus `/kit.js`:
+3. **Copy a template** next to the video. Leave its `from "KIT"` import as it
+   is: `motion` swaps in this skill's `kit.js`.
    - [templates/short.html](./templates/short.html) for 9:16. A slammed hook
      with an italic sub-line; a new framing every ~2.2 s on word starts so
      one take reads as an edit; punch-ins and a pop on your `KEYWORDS`; two

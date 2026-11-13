@@ -26,7 +26,8 @@ const COMMAND_TIMEOUT_MS = 60_000;
  * (`--remote-debugging-pipe`: fd 3 in, fd 4 out, each message ending in a
  * NUL), so it opens no port. Chrome's own sandbox is off, since it can't
  * start inside another one: run this under an OS sandbox, as
- * `apps/daemon/src/motion-run.ts` does with `sandbox-exec`.
+ * `apps/daemon/src/motion-run.ts` does with `sandbox-exec`, or start Chrome
+ * in one with `wrap`, a command Chrome's own is appended to.
  *
  * It can't reach the network on any OS (#157), whatever page or script any
  * tab runs: no host name resolves; everything else, an IP address or
@@ -34,9 +35,6 @@ const COMMAND_TIMEOUT_MS = 60_000;
  * answers; WebRTC may send UDP only through that proxy; and every request
  * any tab makes stops at the browser for `gate`, which lets through only a
  * file on this computer.
- *
- * To start Chrome inside an OS sandbox, pass `wrap`, a command Chrome's own
- * is appended to.
  */
 export async function launchChrome(
   path: string,

@@ -30,17 +30,16 @@ Both come out at −14 LUFS, the loudness the platforms play at.
 
 ## Install
 
-You need a Mac with Apple silicon and mockingbird v0.4.2 or newer.
-mockingbird's Homebrew formula is for Apple silicon only:
+You need mockingbird installed on macOS, Linux or Windows. Its installers
+are in [mockingbird's README](https://github.com/NirjharBhattacharjee/mockingbird#install):
+`install.sh` for macOS and Linux, `install.ps1` for Windows. On an Apple
+silicon Mac, Homebrew works too:
 
 ```sh
 brew install nirjharbhattacharjee/mockingbird/mockingbird
-mockingbird models pull   # the speech model, once; the only download
+mockingbird models pull         # the speech model, once
+mockingbird models pull chrome  # the Chrome that motion and captions draw in
 ```
-
-Its curl installer (in [mockingbird's README](https://github.com/NirjharBhattacharjee/mockingbird#install))
-also runs on an Intel Mac. Cutting, captions and sound work there; `motion`
-doesn't.
 
 Then in Claude Code:
 
@@ -57,8 +56,8 @@ Other agents (Codex, Cursor, Gemini CLI and the rest) don't need the plugin:
 mockingbird's MCP server hands them the same playbooks through its `guide`
 tool. See [mockingbird's MCP.md](../docs/MCP.md).
 
-The plugin starts `mockingbird mcp` itself (`launch.sh`). Installed before
-mockingbird is, it offers Claude one tool, `install_mockingbird`, that says
+The plugin starts `mockingbird mcp` itself (`launch`, or `launch.cmd` on
+Windows). Installed before mockingbird is, it offers Claude one tool, `install_mockingbird`, that says
 how to install it. If you already added mockingbird with `claude mcp add` (or
 `mockingbird setup` did), remove that one (`claude mcp remove mockingbird`)
 so Claude doesn't see every tool twice.
@@ -97,8 +96,9 @@ else you show Claude. See [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md).
 
 ## Limits
 
-- macOS only, because mockingbird is.
-- Motion graphics need Apple silicon, as does mockingbird's Homebrew formula.
+- The Homebrew formula is for Apple silicon only; elsewhere, use the installers.
+- Off Apple silicon, Whisper runs on the CPU, so the default model is the
+  smaller `small` and transcription is slower.
 - It edits what you recorded. It can move your best line to the front; it
   can't add a point you didn't make.
 - Music, b-roll and sound effects are yours to supply, with the rights to

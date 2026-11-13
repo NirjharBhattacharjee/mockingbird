@@ -12,13 +12,28 @@ export function requireFile(path: string, what: string, hint = ""): string {
 }
 
 /**
- * Whisper `large-v3`. Measured against the distilled `large-v3-turbo`: turbo
+ * Whisper `large-v3` on an Apple Silicon Mac, where it runs on the GPU.
+ * Measured against the distilled `large-v3-turbo`: turbo
  * writes South Asian and East Asian names phonetically ("Nurj Harbada
  * Charjee"), large-v3 spells them ("Nirjhar Bhattacharjee") with no help.
  * It's slower, which matters less for a file than it did for dictation
  * (docs/MODELS.md).
  */
-export const DEFAULT_ASR_MODEL = "ggml-large-v3-q5_0.bin";
+export const MAC_ASR_MODEL = "ggml-large-v3-q5_0.bin";
+
+/**
+ * Whisper `small`, Q5_1, wherever whisper-server runs on the CPU: Windows,
+ * Linux and Intel Macs. On a 2-core Windows runner, 60 s of speech took 30 s
+ * with it and 157 s with large-v3, which would make an hour of video take
+ * 2.6 hours (#202). It's 190 MB, multilingual, and about 3 points of WER
+ * behind; names lean on the dictionary more. A faster PC can `models use`
+ * a larger one.
+ */
+export const CPU_ASR_MODEL = "ggml-small-q5_1.bin";
+
+/** The model `models pull` downloads and a call uses when none is chosen. */
+export const DEFAULT_ASR_MODEL =
+  `${process.platform}-${process.arch}` === "darwin-arm64" ? MAC_ASR_MODEL : CPU_ASR_MODEL;
 
 const SETUP_HINT = "\nRun `mockingbird models pull` to download it.";
 
@@ -28,6 +43,7 @@ const SETUP_HINT = "\nRun `mockingbird models pull` to download it.";
  * `mockingbird models pull` is run, rather than not starting at all.
  */
 const FALLBACK_ASR_MODELS = [
+  MAC_ASR_MODEL,
   "ggml-large-v3-turbo-q8_0.bin",
   "ggml-large-v3-turbo-q5_0.bin",
   "ggml-medium.en-q5_0.bin",

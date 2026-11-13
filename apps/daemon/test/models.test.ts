@@ -26,7 +26,7 @@ import {
   sha256Of,
   speechName,
 } from "../src/models.ts";
-import { savedModelFor } from "../src/runtime.ts";
+import { DEFAULT_ASR_MODEL, savedModelFor } from "../src/runtime.ts";
 
 /** Where pullFile keeps an unfinished download of `model`: named for its checksum. */
 const partOf = (model: ModelFile) => `model.bin.${model.sha256.slice(0, 12)}.part`;
@@ -218,13 +218,16 @@ test("sha256Of matches a known digest", async () => {
 });
 
 describe("modelsCommand", () => {
+  /** This platform's default: large-v3 on an Apple Silicon Mac, small elsewhere (#202). */
+  const D = DEFAULT_ASR_MODEL;
+  const esc = (s: string) => s.replaceAll(".", "\\.");
   /** A home with two Whisper files and the VAD model, which isn't one. */
   function fake(env: Record<string, string | undefined> = {}) {
     const lines: string[] = [];
     const home = tempDir();
     const modelsDir = join(home, "models");
     mkdirSync(modelsDir);
-    writeFileSync(join(modelsDir, "ggml-large-v3-q5_0.bin"), "x".repeat(30));
+    writeFileSync(join(modelsDir, D), "x".repeat(30));
     writeFileSync(join(modelsDir, "ggml-base.en.bin"), "x".repeat(10));
     writeFileSync(join(modelsDir, "silero_vad.onnx"), "x");
     const deps = {
@@ -241,7 +244,7 @@ describe("modelsCommand", () => {
     const f = fake();
     expect(modelsCommand([], f.deps)).toBe(0);
     const all = f.lines.join("\n");
-    expect(all).toMatch(/ggml-large-v3-q5_0\.bin\s+0\.0 GB\s+in use, default/);
+    expect(all).toMatch(new RegExp(`${esc(D)}\\s+0\\.0 GB\\s+in use, default`));
     expect(all).toContain("ggml-base.en.bin");
     expect(all).not.toContain("silero_vad");
   });
@@ -251,7 +254,7 @@ describe("modelsCommand", () => {
     expect(modelsCommand(["use", "ggml-base.en.bin"], f.deps)).toBe(0);
     expect(listModels(f.deps).find((m) => m.inUse)?.file).toBe("ggml-base.en.bin");
     expect(modelsCommand(["use", "--default"], f.deps)).toBe(0);
-    expect(listModels(f.deps).find((m) => m.inUse)?.file).toBe("ggml-large-v3-q5_0.bin");
+    expect(listModels(f.deps).find((m) => m.inUse)?.file).toBe(D);
   });
 
   test("refuses a file that isn't a Whisper model in models/", () => {
@@ -265,13 +268,13 @@ describe("modelsCommand", () => {
   test("a model for one language is used for it, and the rest keep the one for all", () => {
     const f = fake({ MOCKINGBIRD_LANGUAGE: "bn" });
     expect(modelsCommand(["use", "ggml-base.en.bin"], f.deps)).toBe(0);
-    expect(modelsCommand(["use", "ggml-large-v3-q5_0.bin", "--language", "bn"], f.deps)).toBe(0);
-    expect(savedModelFor("bn", f.deps.home)).toBe("ggml-large-v3-q5_0.bin");
+    expect(modelsCommand(["use", D, "--language", "bn"], f.deps)).toBe(0);
+    expect(savedModelFor("bn", f.deps.home)).toBe(D);
     expect(savedModelFor("de", f.deps.home)).toBe("ggml-base.en.bin");
-    expect(listModels(f.deps).find((m) => m.inUse)?.file).toBe("ggml-large-v3-q5_0.bin");
+    expect(listModels(f.deps).find((m) => m.inUse)?.file).toBe(D);
     f.lines.length = 0;
     modelsCommand([], f.deps);
-    expect(f.lines.join("\n")).toMatch(/By language:\n\s+bn\s+ggml-large-v3-q5_0\.bin/);
+    expect(f.lines.join("\n")).toMatch(new RegExp(`By language:\\n\\s+bn\\s+${esc(D)}`));
     // --default for bn goes back to the one for every language.
     expect(modelsCommand(["use", "--default", "--language", "bn"], f.deps)).toBe(0);
     expect(savedModelFor("bn", f.deps.home)).toBe("ggml-base.en.bin");
@@ -283,34 +286,28 @@ describe("modelsCommand", () => {
     const f = fake();
     expect(modelsCommand(["use", "ggml-base.en.bin", "--language", "DE-de"], f.deps)).toBe(0);
     expect(savedModelFor("de", f.deps.home)).toBe("ggml-base.en.bin");
-    expect(modelsCommand(["use", "ggml-large-v3-q5_0.bin"], f.deps)).toBe(0);
+    expect(modelsCommand(["use", D], f.deps)).toBe(0);
     rmSync(join(f.deps.modelsDir, "ggml-base.en.bin"));
-    expect(savedModelFor("de", f.deps.home)).toBe("ggml-large-v3-q5_0.bin");
+    expect(savedModelFor("de", f.deps.home)).toBe(D);
   });
 
   test("says when MOCKINGBIRD_ASR_MODEL will win over the choice", () => {
-    const f = fake({ MOCKINGBIRD_ASR_MODEL: "ggml-large-v3-q5_0.bin" });
+    const f = fake({ MOCKINGBIRD_ASR_MODEL: D });
     modelsCommand(["use", "ggml-base.en.bin"], f.deps);
     expect(f.lines.join("\n")).toContain("wins over this choice");
   });
 
   test("in another language the .en models are left out, unless one is in use", () => {
     const f = fake({ MOCKINGBIRD_LANGUAGE: "de" });
-    expect(listModels(f.deps).map((m) => m.file)).toEqual(["ggml-large-v3-q5_0.bin"]);
+    expect(listModels(f.deps).map((m) => m.file)).toEqual([D]);
     modelsCommand(["use", "ggml-base.en.bin"], f.deps);
-    expect(listModels(f.deps).map((m) => m.file)).toEqual([
-      "ggml-large-v3-q5_0.bin",
-      "ggml-base.en.bin",
-    ]);
+    expect(listModels(f.deps).map((m) => m.file)).toEqual([D, "ggml-base.en.bin"]);
   });
 
   test("a Whisper entry that can't be read is left out, not the whole list", () => {
     const f = fake();
     symlinkSync(join(f.deps.modelsDir, "nowhere"), join(f.deps.modelsDir, "ggml-broken.bin"));
-    expect(listModels(f.deps).map((m) => m.file)).toEqual([
-      "ggml-large-v3-q5_0.bin",
-      "ggml-base.en.bin",
-    ]);
+    expect(listModels(f.deps).map((m) => m.file)).toEqual([D, "ggml-base.en.bin"]);
   });
 
   test("names Whisper files the way a person would", () => {
@@ -398,7 +395,7 @@ describe("resolveModel", () => {
 });
 
 describe("Chrome", () => {
-  test("is pinned per Mac, in ~/.mockingbird/bin, and not yet anywhere else", () => {
+  test("is pinned per OS in ~/.mockingbird/bin, and not for Linux on Arm", () => {
     const pin = pinnedChrome("/home", "darwin-arm64");
     // join, so the expected path has the separators of the OS running the test.
     expect(pin?.program).toBe(
