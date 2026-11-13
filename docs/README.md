@@ -158,8 +158,17 @@ xattr -d com.apple.quarantine mockingbird-darwin-arm64
 Or open **System Settings → Privacy & Security** and click **Open Anyway**
 next to the message about mockingbird.
 
-There are no Windows builds yet. When they arrive unsigned, SmartScreen will
-show "Windows protected your PC": click **More info**, then **Run anyway**.
+The Windows binary isn't signed either. The PowerShell install command never
+shows a warning, because a file PowerShell downloads isn't marked as coming
+from the internet. If you download `mockingbird-windows-x64.exe` in a browser,
+SmartScreen says "Windows protected your PC". Check it against
+`checksums.txt`, then click **More info** and **Run anyway**, or remove the
+mark in PowerShell:
+
+```powershell
+Get-FileHash mockingbird-windows-x64.exe   # compare with checksums.txt
+Unblock-File mockingbird-windows-x64.exe
+```
 
 ## Privacy
 
