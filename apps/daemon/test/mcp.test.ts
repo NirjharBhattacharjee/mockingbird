@@ -1,13 +1,24 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   align,
   CLIPS_PER_PASS,
   chunks,
   fineClock,
   handle,
+  KIT_URL,
   mcpTools,
   mixGraph,
   moving,
@@ -16,6 +27,7 @@ import {
   pieces,
   renderGraph,
   seekClips,
+  segments,
   spans,
   tempo,
   timedLines,
@@ -23,8 +35,10 @@ import {
   timeline,
   uncovered,
   union,
+  withKit,
   wordCaptions,
 } from "../src/mcp.ts";
+import { findChrome } from "../src/models.ts";
 
 const echo = {
   name: "echo",
@@ -675,6 +689,43 @@ describe("pieces", () => {
   });
 });
 
+describe("segments", () => {
+  // Twelve 4 s clips: a segment may end once it's 10 s long, so every third clip.
+  const clips = Array.from({ length: 12 }, (_, i) => ({ from: i * 4, to: i * 4 + 4 }));
+
+  test("ends a segment at the first clip edge 10 s in", () => {
+    expect(segments(clips, [])).toEqual([
+      [0, 3],
+      [3, 6],
+      [6, 9],
+      [9, 12],
+    ]);
+  });
+
+  test("never where a transition joins two clips or an insert plays across", () => {
+    const faded = clips.map((c, i) =>
+      i === 3 ? { ...c, transition: { type: "fade", duration: 0.5 } } : c,
+    );
+    expect(segments(faded, [])[0]).toEqual([0, 4]);
+    expect(segments(clips, [{ from: 11, to: 13 }])[0]).toEqual([0, 4]);
+    // A J cut on clip 3 (its sound starts 0.5 s early) keeps that edge in one segment.
+    const jcut = clips.map((c, i) =>
+      i === 3 ? { ...c, sound: { from: c.from - 0.5, to: c.to } } : c,
+    );
+    expect(segments(jcut, [])[0]).toEqual([0, 4]);
+    // An insert that ends on the edge doesn't cross it.
+    expect(segments(clips, [{ from: 10, to: 12 }])[0]).toEqual([0, 3]);
+  });
+
+  test("a segment holds at most CLIPS_PER_PASS clips", () => {
+    const short = Array.from({ length: CLIPS_PER_PASS + 5 }, (_, i) => ({
+      from: i * 0.05,
+      to: i * 0.05 + 0.05,
+    }));
+    expect(segments(short, [])[0]).toEqual([0, CLIPS_PER_PASS]);
+  });
+});
+
 describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", () => {
   const run = (args: Record<string, unknown>) => {
     const tool = mcpTools(
@@ -691,6 +742,151 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
         ...["-of", "csv=p=0", file],
       ]).stdout.toString(),
     );
+
+  // Needs the pinned Chrome (or MOCKINGBIRD_CHROME), which generates the bed.
+  test.skipIf(!findChrome())(
+    "a project's generated bed is made once and kept, and its sound renders alone (#170)",
+    async () => {
+      const dir = mkdtempSync(join(tmpdir(), "mb-bed-"));
+      const home = process.env.MOCKINGBIRD_HOME;
+      const chrome = process.env.MOCKINGBIRD_CHROME;
+      try {
+        // The Chrome found in the real home, which the empty one below doesn't have.
+        process.env.MOCKINGBIRD_CHROME = findChrome();
+        process.env.MOCKINGBIRD_HOME = join(dir, "home");
+        const talk = join(dir, "talk.mp4");
+        Bun.spawnSync([
+          ...[
+            "ffmpeg",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=320x240:rate=30:d=4",
+          ],
+          ...["-f", "lavfi", "-i", "sine=frequency=220:duration=4", "-pix_fmt", "yuv420p", talk],
+        ]);
+        const project = join(dir, "edit.json");
+        const generator = join(import.meta.dir, "../../../plugin/skills/music/generators/lofi.js");
+        const edit = mcpTools(
+          async () => ({}),
+          () => {},
+        ).find((t) => t.name === "edit");
+        await edit?.run({
+          project,
+          ops: [
+            { op: "add", type: "clip", path: talk, from: 0, to: 4 },
+            { op: "add", type: "audio", generator: { generator, tempo: 90 }, volume: 0.2 },
+          ],
+        });
+        const sound = String(await run({ project, sound: true }));
+        expect(sound).toContain("edit-sound-1.m4a");
+        const streams = Bun.spawnSync([
+          ...["ffprobe", "-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0"],
+          join(dir, "edit-sound-1.m4a"),
+        ]).stdout.toString();
+        expect(streams.trim()).toBe("audio");
+        const beds = join(dir, "home", "cache", "music");
+        expect(readdirSync(beds)).toHaveLength(1);
+        await run({ project });
+        expect(readdirSync(beds)).toHaveLength(1);
+        expect(seconds(join(dir, "edit-render-1.mp4"))).toBeCloseTo(4, 1);
+      } finally {
+        if (home === undefined) delete process.env.MOCKINGBIRD_HOME;
+        else process.env.MOCKINGBIRD_HOME = home;
+        if (chrome === undefined) delete process.env.MOCKINGBIRD_CHROME;
+        else process.env.MOCKINGBIRD_CHROME = chrome;
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+    120_000,
+  );
+
+  test.skipIf(!findChrome())(
+    "an overlay page is laid over its clip with its transparency (#163)",
+    async () => {
+      const dir = mkdtempSync(join(tmpdir(), "mb-overlay-"));
+      const home = process.env.MOCKINGBIRD_HOME;
+      const chrome = process.env.MOCKINGBIRD_CHROME;
+      try {
+        // The Chrome found in the real home, which the empty one below doesn't have.
+        process.env.MOCKINGBIRD_CHROME = findChrome();
+        process.env.MOCKINGBIRD_HOME = join(dir, "home");
+        const talk = join(dir, "talk.mp4");
+        // Solid blue under a page that paints only its top half red.
+        Bun.spawnSync([
+          ...[
+            "ffmpeg",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=blue:s=320x240:r=30:d=3",
+          ],
+          ...["-pix_fmt", "yuv420p", talk],
+        ]);
+        const page = join(dir, "card.html");
+        writeFileSync(
+          page,
+          // Imports the kit the way the templates do: render fills in "KIT", as motion does.
+          '<body style="margin:0"><div id="card" style="position:fixed;left:0;top:0;width:100%;height:50%"></div><script type="module">import { THEMES } from "KIT"; if (THEMES) document.getElementById("card").style.background = "red";</script></body>',
+        );
+        const project = join(dir, "edit.json");
+        await mcpTools(
+          async () => ({}),
+          () => {},
+        )
+          .find((t) => t.name === "edit")
+          ?.run({
+            project,
+            ops: [
+              { op: "add", type: "clip", path: talk, from: 0, to: 3 },
+              { op: "add", type: "overlay", page, clip: "c1", from: 1, to: 2 },
+            ],
+          });
+        await run({ project });
+        const pixel = (t: number, y: number) => [
+          ...Bun.spawnSync([
+            ...[
+              "ffmpeg",
+              "-loglevel",
+              "error",
+              "-ss",
+              String(t),
+              "-i",
+              join(dir, "edit-render-1.mp4"),
+            ],
+            ...[
+              "-frames:v",
+              "1",
+              "-vf",
+              `format=rgb24,crop=1:1:160:${y}`,
+              "-f",
+              "rawvideo",
+              "-pix_fmt",
+              "rgb24",
+              "-",
+            ],
+          ]).stdout,
+        ];
+        const red = (rgb: number[]) => (rgb[0] ?? 0) > 200 && (rgb[2] ?? 255) < 60;
+        const blue = (rgb: number[]) => (rgb[2] ?? 0) > 200 && (rgb[0] ?? 255) < 60;
+        expect(red(pixel(1.5, 40))).toBe(true);
+        expect(blue(pixel(1.5, 200))).toBe(true);
+        expect(blue(pixel(0.5, 40))).toBe(true);
+        expect(blue(pixel(2.5, 40))).toBe(true);
+      } finally {
+        if (home === undefined) delete process.env.MOCKINGBIRD_HOME;
+        else process.env.MOCKINGBIRD_HOME = home;
+        if (chrome === undefined) delete process.env.MOCKINGBIRD_CHROME;
+        else process.env.MOCKINGBIRD_CHROME = chrome;
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+    120_000,
+  );
 
   test("a quiet recording comes out at -14 LUFS, its peaks under -1.5 dBTP", async () => {
     const dir = mkdtempSync(join(tmpdir(), "mb-render-"));
@@ -863,44 +1059,13 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
     }
   }, 120_000);
 
-  test("scenes finds each cut to within a frame, timed in the file even after a seek", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "mb-scenes-"));
-    try {
-      const file = join(dir, "cuts.mp4");
-      // Three shots of 2 s at 30 fps: cuts at 2 s and 4 s.
-      Bun.spawnSync([
-        ...[
-          "ffmpeg",
-          "-loglevel",
-          "error",
-          "-f",
-          "lavfi",
-          "-i",
-          "testsrc2=size=320x240:rate=30:d=2",
-        ],
-        ...["-f", "lavfi", "-i", "smptebars=size=320x240:rate=30:d=2"],
-        ...["-f", "lavfi", "-i", "color=c=red:size=320x240:rate=30:d=2"],
-        ...["-filter_complex", "[0][1][2]concat=n=3:v=1:a=0", "-pix_fmt", "yuv420p", file],
-      ]);
-      const tool = mcpTools(
-        async () => ({}),
-        () => {},
-      ).find((t) => t.name === "scenes");
-      const all = (await tool?.run({ path: file })) ?? "";
-      expect(all).toContain(": 2 cuts from 00:00.00 to 00:06.00, 20.0 a minute, 2.0 s a shot");
-      expect(all).toMatch(/\[00:02\.0\d\] \d/);
-      expect(all).toMatch(/\[00:04\.0\d\] \d/);
-      const later = (await tool?.run({ path: file, from: 3 })) ?? "";
-      expect(later).toContain(": 1 cut from 00:03.00 to 00:06.00");
-      expect(later).toMatch(/\[00:04\.0\d\]/);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  }, 60_000);
-
   test("text-based editing: a project's transcript, then cut_words, with the words heard once", async () => {
     const dir = mkdtempSync(join(tmpdir(), "mb-words-"));
-    const saved = { home: process.env.MOCKINGBIRD_HOME, model: process.env.MOCKINGBIRD_ASR_MODEL };
+    const saved = {
+      home: process.env.MOCKINGBIRD_HOME,
+      model: process.env.MOCKINGBIRD_ASR_MODEL,
+      server: process.env.MOCKINGBIRD_WHISPER_SERVER,
+    };
     try {
       // The real models in a home of its own, so the user's data.db and cache are never touched.
       const home = join(dir, "home");
@@ -932,11 +1097,9 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
       const said = await tool("transcribe").run({ project });
       expect(said.toLowerCase()).toContain("hello world");
       expect(readdirSync(join(home, "cache", "words"))).toHaveLength(1);
-      // Heard already: with a model by the same name that can't load, a call that
-      // started whisper-server would fail, so this passes only from the cache.
-      mkdirSync(join(dir, "fake"));
-      writeFileSync(join(dir, "fake", "ggml-base.en.bin"), "");
-      process.env.MOCKINGBIRD_ASR_MODEL = join(dir, "fake", "ggml-base.en.bin");
+      // Heard already: with no whisper-server that can start, a call that heard
+      // the source again would fail, so this passes only from the cache.
+      process.env.MOCKINGBIRD_WHISPER_SERVER = join(dir, "no-whisper-server");
       const outline = await tool("edit").run({
         project,
         ops: [{ op: "cut_words", text: "hello world" }],
@@ -950,6 +1113,8 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
       process.env.MOCKINGBIRD_ASR_MODEL = saved.model;
       if (saved.home === undefined) delete process.env.MOCKINGBIRD_HOME;
       if (saved.model === undefined) delete process.env.MOCKINGBIRD_ASR_MODEL;
+      if (saved.server === undefined) delete process.env.MOCKINGBIRD_WHISPER_SERVER;
+      else process.env.MOCKINGBIRD_WHISPER_SERVER = saved.server;
       rmSync(dir, { recursive: true, force: true });
     }
   }, 180_000);
@@ -1127,6 +1292,8 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
       expect(readdirSync(proxies)).toHaveLength(1);
       await tool("render").run({ project, draft: true });
       expect(readdirSync(proxies)).toHaveLength(1);
+      // The sound alone, asked for as a draft too: there's no picture to make smaller.
+      expect(await tool("render").run({ project, draft: true, sound: true })).toContain(".m4a");
     } finally {
       if (saved === undefined) delete process.env.MOCKINGBIRD_HOME;
       else process.env.MOCKINGBIRD_HOME = saved;
@@ -1183,6 +1350,41 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
       rmSync(dir, { recursive: true, force: true });
     }
   }, 180_000);
+
+  test("scenes finds each cut to within a frame, timed in the file even after a seek", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mb-scenes-"));
+    try {
+      const file = join(dir, "cuts.mp4");
+      // Three shots of 2 s at 30 fps: cuts at 2 s and 4 s.
+      Bun.spawnSync([
+        ...[
+          "ffmpeg",
+          "-loglevel",
+          "error",
+          "-f",
+          "lavfi",
+          "-i",
+          "testsrc2=size=320x240:rate=30:d=2",
+        ],
+        ...["-f", "lavfi", "-i", "smptebars=size=320x240:rate=30:d=2"],
+        ...["-f", "lavfi", "-i", "color=c=red:size=320x240:rate=30:d=2"],
+        ...["-filter_complex", "[0][1][2]concat=n=3:v=1:a=0", "-pix_fmt", "yuv420p", file],
+      ]);
+      const tool = mcpTools(
+        async () => ({}),
+        () => {},
+      ).find((t) => t.name === "scenes");
+      const all = (await tool?.run({ path: file })) ?? "";
+      expect(all).toContain(": 2 cuts from 00:00.00 to 00:06.00, 20.0 a minute, 2.0 s a shot");
+      expect(all).toMatch(/\[00:02\.0\d\] \d/);
+      expect(all).toMatch(/\[00:04\.0\d\] \d/);
+      const later = (await tool?.run({ path: file, from: 3 })) ?? "";
+      expect(later).toContain(": 1 cut from 00:03.00 to 00:06.00");
+      expect(later).toMatch(/\[00:04\.0\d\]/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
 });
 
 test("motion takes only an HTML page, and says where canvas scripts went", async () => {
@@ -1268,4 +1470,27 @@ describe("music", () => {
     },
     120_000,
   );
+});
+
+test("motion fills in a page's `from \"KIT\"` with the kit's file URL, beside the page (#213)", () => {
+  expect(existsSync(fileURLToPath(KIT_URL))).toBe(true);
+  const dir = mkdtempSync(join(tmpdir(), "mb-kit-"));
+  try {
+    const page = join(dir, "short.html");
+    // The comment comes first, as in the templates: it stays as written.
+    writeFileSync(
+      page,
+      '<script type="module">\n// replace "KIT"? no\nimport { kit } from "KIT";\n</script>',
+    );
+    const copy = withKit(page);
+    expect(dirname(copy)).toBe(dir);
+    expect(readFileSync(copy, "utf8")).toBe(
+      `<script type="module">\n// replace "KIT"? no\nimport { kit } from ${JSON.stringify(KIT_URL)};\n</script>`,
+    );
+    const plain = join(dir, "plain.html");
+    writeFileSync(plain, '<script type="module">import { kit } from "./kit.js";</script>');
+    expect(withKit(plain)).toBe(plain);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

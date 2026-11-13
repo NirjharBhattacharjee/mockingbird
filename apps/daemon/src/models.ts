@@ -20,11 +20,13 @@ import { pathToFileURL } from "node:url";
 import { withStore } from "./dictionary.ts";
 import {
   ASR_MODEL_SETTING,
+  CPU_ASR_MODEL,
   DEFAULT_ASR_MODEL,
   englishOnly,
   findAsrModel,
   isWhisperFile,
   languageModels,
+  MAC_ASR_MODEL,
   mockingbirdHome,
   pinnedWhisper,
   savedModelFor,
@@ -41,14 +43,25 @@ export type ModelFile = { name: string; file: string; url: string; sha256: strin
  * version and checked against its sha256, so a changed, truncated or corrupt
  * file is downloaded again rather than loaded.
  */
-export const MODEL_FILES: ModelFile[] = [
+const WHISPER_PINS: ModelFile[] = [
   {
     name: "Whisper",
-    file: DEFAULT_ASR_MODEL,
+    file: MAC_ASR_MODEL,
     url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-large-v3-q5_0.bin",
     sha256: "d75795ecff3f83b5faa89d1900604ad8c780abd5739fae406de19f23ecd98ad1",
     bytes: 1_081_140_203,
   },
+  {
+    name: "Whisper",
+    file: CPU_ASR_MODEL,
+    url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-small-q5_1.bin",
+    sha256: "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb",
+    bytes: 190_085_487,
+  },
+];
+
+export const MODEL_FILES: ModelFile[] = [
+  WHISPER_PINS.find((m) => m.file === DEFAULT_ASR_MODEL) as ModelFile,
   {
     name: "VAD",
     file: "silero_vad.onnx",

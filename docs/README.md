@@ -21,7 +21,8 @@ curl -fsSL https://github.com/NirjharBhattacharjee/mockingbird/releases/latest/d
 
 This installs Bun, whisper-cpp and ffmpeg with Homebrew, clones mockingbird
 into `~/mockingbird` at the latest release, and runs `mockingbird models pull`
-for the speech models (about 1.1 GB, each checked against its sha256). It
+for the speech models (about 1.1 GB on an Apple Silicon Mac, 0.2 GB
+elsewhere, each checked against its sha256). It
 skips anything you already have, so it's safe to run again.
 [Read the script](../scripts/install.sh) first if you like.
 
@@ -63,6 +64,13 @@ To test what's coming before it's released, install the beta:
 
 ```sh
 curl -fsSL https://github.com/NirjharBhattacharjee/mockingbird/releases/latest/download/install.sh | MOCKINGBIRD_CHANNEL=beta bash
+```
+
+Or the `staging` branch, where finished work waits to be tried before it
+reaches `main` (rebuilt on every push to it):
+
+```sh
+curl -fsSL https://github.com/NirjharBhattacharjee/mockingbird/releases/latest/download/install.sh | MOCKINGBIRD_CHANNEL=staging bash
 ```
 
 ### Uninstalling
@@ -107,10 +115,10 @@ export PATH="$HOME/.local/bin:$PATH"
 | `mockingbird record <file>` | Records the microphone until Enter or Ctrl-C (or `--for <seconds>`), for a voiceover your agent builds a video around. `.wav` is 48 kHz mono, `.m4a` AAC. `--devices` lists the inputs, `--device` picks one. |
 | `mockingbird transcribe <file>` | Prints a file's speech as `[mm:ss]` lines. `--words` gives each word's start and end, `--from`/`--to` (seconds) one stretch, `--model`/`--language` the model and language for this file. |
 | `mockingbird dictionary` | Lists the words it spells a particular way. `add "Nirjhar Bhattacharjee"`, `add "cat puck => Catppuccin"` (what it hears => what to write), `remove <term>`. |
-| `mockingbird models` | Lists the Whisper models you have. `models use <file>` picks one, `--language <code>` for one language only, `--default` goes back. |
-| `mockingbird models pull` | Downloads the speech models. `models pull <name or URL>` downloads any Whisper model, checked against its sha256 (a name like `large-v3-turbo`, a Hugging Face link, or any https link with `--sha256`). With `setup`, the only commands that use the network. |
 | `mockingbird setup` | Installs what's missing (ffmpeg, whisper-cpp, the models), then adds mockingbird to your coding agents. Asks before each step; `--yes` doesn't. |
 | `mockingbird doctor` | Checks every part, names what's broken and how to fix it, and lists which agents have mockingbird. `--json` for agents. |
+| `mockingbird models` | Lists the Whisper models you have. `models use <file>` picks one, `--language <code>` for one language only, `--default` goes back. |
+| `mockingbird models pull` | Downloads the speech models. `models pull <name or URL>` downloads any Whisper model, checked against its sha256 (a name like `large-v3-turbo`, a Hugging Face link, or any https link with `--sha256`). With `setup`, the only commands that use the network. |
 | `mockingbird status` | Whether the models, ffmpeg and whisper-server are installed. |
 | `mockingbird uninstall` | Removes mockingbird, after asking. |
 

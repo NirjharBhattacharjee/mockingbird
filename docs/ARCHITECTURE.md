@@ -18,19 +18,24 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
+| 2026-11-06 | `motion` swaps a page's `from "KIT"` for the kit's file URL in a copy beside the page (#213), so agents leave the templates' import alone: replacing it by hand hit a comment first, and a Windows path isn't a URL. |
+| 2026-11-06 | Windows (#202): the plugin starts there (`launch.cmd`, `launch.ps1`); filter graphs go to ffmpeg in a file, since one for 100 clips is longer than a Windows command line; off Apple Silicon the default Whisper model is `small` Q5_1, as `large-v3` took 2.6x real time on a 2-core CPU (MODELS.md §6). |
+| 2026-11-06 | Segment cache (#165): a project renders from segments of about 10 s kept in `~/.mockingbird/cache/segments/`, each keyed by its clips, what's drawn over it, the look and the engine, so an edit renders again only the segments it touches. On the v2 edit with four texts, changing one text took 16.4 s instead of 72.8 to 78.2 s. |
+| 2026-11-06 | Effects catalog, phase 1 (#197): one `effects` catalog (`apps/daemon/src/effects.ts`) instead of a tool per effect, put on a clip's picture or sound after its framing; color, LUT, vignette, sharpen, blur, denoise, high-pass, compressor, de-esser; `scopes` measures a picture for grading. |
+| 2026-11-06 | A project's overlays (#163): an HTML page on a clip, rendered alone with its transparency (ProRes 4444) and laid over the cut, cached in `~/.mockingbird/cache/overlays/`. A project sound can be a music generator (#170), its bed made at render time and cached in `~/.mockingbird/cache/music/`; `render(project, sound: true)` saves the mix alone as an .m4a. |
 | 2026-11-06 | `render` copies the groups of pictures that need no change and encodes only the clip edges and reframed clips: 4.6x faster on a talk cut into 35 s clips, about 1.6x on the 96-clip v2 edit, with copied frames bit-identical to the source (#166). |
 | 2026-11-05 | Fonts ship with Chrome (#156): `models pull chrome` also downloads Inter, Charis SIL, JetBrains Mono and Noto for Bengali, Devanagari, Arabic, Hebrew, Thai, Tamil and CJK (OFL, pinned, [NOTICE.md](../NOTICE.md)); captions and pages use them by name, so a Bengali caption or a CJK title is drawn the same with or without the system's fonts. |
-| 2026-11-05 | Linux and Windows, first part (pivot step 4): CI runs the checks on all three (#151); `models pull` downloads a pinned whisper-server on Linux and Windows (#153); releases build the command for five targets, `install.sh` runs on Linux, and `install.ps1` installs on Windows (#152). ffmpeg stays the system's, and `status` names any encoder or filter the engine needs that it was built without (#154). |
 | 2026-11-05 | A motion page can't reach the network on Linux or Windows either (#157): Chrome resolves no host name and sends the rest to a dead proxy, every request any tab makes is failed at the browser unless it's a file on this computer, and on Linux the runner starts in a network namespace where one can be made. Chrome is pinned for Linux x64 and Windows x64. |
 | 2026-11-05 | Which ffmpeg (#154): the system one, not a pinned LGPL build; VideoToolbox measured slower, bigger and worse than x264 on the v2 edit ([§7](#7-rendering)). |
+| 2026-11-05 | Linux and Windows, first part (pivot step 4): CI runs the checks on all three (#151); `models pull` downloads a pinned whisper-server on Linux and Windows (#153); releases build the command for five targets, `install.sh` runs on Linux, and `install.ps1` installs on Windows (#152). ffmpeg stays the system's, and `status` names any encoder or filter the engine needs that it was built without (#154). |
 | 2026-11-04 | `transcribe` and `captions` take `model` and `language` per call; with the language on `auto` and a per-language map, the language is detected from the first speech and its model used (`enginesFor` in `runtime.ts`, #143). |
 | 2026-11-04 | `models pull <name or URL>` downloads any Whisper model against the sha256 Hugging Face gives (or `--sha256`), pinned to its commit; `models use <file> --language <code>` saves a model per language (#143). |
-| 2026-11-04 | The playbooks' shell scripts became engine tools, so they run on every OS: `pauses` (silencedetect, and the clips between pauses) and `measure` (size, length, loudness), with cuts from `scenes` (#158). |
 | 2026-11-04 | One framing path: `render`'s parameters frame clips the way a project does, so the separate `vertical` graph is gone (same frames, measured); `captions` takes a project (#162). |
 | 2026-11-04 | Every clip input and still is decoded with the hardware where it can be (`-hwaccel auto`: 4K HEVC rendered in 34.0 s against 91.1 s); `render(draft: true)` makes a half-size preview, reading 4K from proxies of just the stretches used (#167). |
 | 2026-11-04 | J and L cuts: a project clip's `lead` moves its sound's cut off its picture's; each clip's input opens both stretches, and picture and sound are joined apart (#161). |
 | 2026-11-04 | A project's clips can have a `speed`, `moves` (focus and zoom over time, drawn with `perspective` to a fraction of a pixel) and a `transition` in (`xfade` and `acrossfade`) (#161). |
 | 2026-11-04 | Text-based editing (#160): a project's sources are heard once into a word cache (`~/.mockingbird/cache/words/`), with words placed by Whisper's DTW points and measured pauses; `transcribe(project)` gives the cut as text and `cut_words` cuts by quoting it; a project's captions come from the cache. |
+| 2026-11-04 | The playbooks' shell scripts became engine tools, so they run on every OS: `pauses` (silencedetect, and the clips between pauses) and `measure` (size, length, loudness), with cuts from `scenes` (#158). |
 | 2026-11-04 | Timeline, first part (#148): `packages/timeline` keeps an edit in a project file; the `edit` tool changes it with ops; `render` renders one, with clips from several sources framed to one size and rate, and captions made for the cut. |
 | 2026-11-04 | The Canvas motion engine is gone (#169): `packages/motion`'s Canvas 2D over Core Graphics, Core Text and vImage, and `motion`'s `.ts`/`.js` scripts. `motion` renders HTML pages only, and the kit runs in them (#168). |
 | 2026-11-04 | Captions and `render`'s texts are drawn as HTML in the pinned Chrome instead of with Core Text (#155), started under the no-network sandbox where there is one; the Core Text code is gone. Without Chrome, `render` falls back to libass or an `.srt`. |
@@ -170,7 +175,8 @@ tool, with its options, is documented in [MCP.md](./MCP.md):
 | `captions` | word-by-word SRT timed to the video `render` will make |
 | `edit` | changes a project file with ops (add, remove, split, trim, move, set) and returns an outline |
 | `render` | a project, or cuts from one video: framing, 9:16 or split layout, captions, text, b-roll, music and sound effects, loudness to −14 LUFS |
-| `motion` | an HTML page in the pinned Chrome, rendered to MP4 |
+| `motion` | an HTML page rendered in a pinned headless Chrome, frame by frame, to MP4 |
+| `music` | background music written as code, rendered with Web Audio in the same Chrome |
 | `status` | what's installed |
 | `dictionary_list`, `dictionary_add` | names to spell right |
 
@@ -267,6 +273,41 @@ of frames are copied: 72.5 to 90.9 s became 49.7 to 51.5 s on a loaded M3.
 Ten 35 s clips from the same recording went from 57.4 s to 12.4 s.
 Copied frames are bit-identical to the source.
 
+**Segment cache (#165).** A project's render (`segmented` in `mcp.ts`) is
+cut into segments of whole clips: one ends at the first clip edge once it's
+10 s long or holds `CLIPS_PER_PASS` clips, but never where a transition
+joins two clips or an insert plays across the edge (`segments`). Each
+segment is rendered on its own with its part of the captions and texts over
+it, in x264 CRF 18 with float sound, and kept in
+`~/.mockingbird/cache/segments/` under a key made of its clips (each
+source by path, size and modified time), the captions and texts by their
+words and times, the inserts, the size, rate and split, the Chrome that
+draws the text, and the code of `mcp.ts`, `effects.ts` and the captions
+package. Text is keyed by its words, not its pixels: Chrome's antialiasing
+varies a little with the line it drew before. The segments are joined by the
+concat demuxer without encoding again. A segment's overlays are timed from
+where concat puts it, the lengths of the segments before it, not the
+timeline's time. The sounds are then mixed under the joined speech, and the
+loudness is levelled over the whole video, as before. A project with nothing
+drawn over it and every clip as recorded keeps #166's stream copy instead,
+since copying beats encoding. Drafts and `sound: true` don't use the cache.
+
+Measured on a loaded M3 (load 5 to 10) with the v2 edit (96 clips, 389 s
+of 1080p60) and four texts:
+
+| Render | Time |
+|---|---|
+| Today's render, no cache | 72.8 s, 78.2 s |
+| First render, filling the cache (28 segments) | 81.9 s |
+| Again, nothing changed (28 of 28 reused) | 11.3 s |
+| One text changed (26 of 28 reused) | 16.4 s |
+
+Against today's render of the changed project, compared frame by frame,
+every frame matches at 44 dB PSNR or better except one at 31 dB; both have
+23,311 frames, the text appears and goes on the same frames, and loudness is
+−14.4 against −14.3 LUFS. The cache took 214 MB for this edit, most of it
+the float sound. Nothing is evicted yet; deleting the folder is safe.
+
 A project (`packages/timeline`) compiles into the same inputs: each clip
 with its own source, everything laid over the cut timed in the finished
 video from the clip it's on, and captions made with `wordCaptions` from each
@@ -279,8 +320,17 @@ project file; probing and rendering stay in the engine.
 `motion` runs in a separate Bun process with the network denied
 (`apps/daemon/src/motion-run.ts`): under `sandbox-exec` on macOS, in a
 network namespace (`unshare -rn`) on Linux where one can be made, and with
-Chrome's own blocking alone on Windows (`noNetwork` in `mcp.ts`). The page
-is rendered by `packages/motion/src/html.ts` in the pinned
+Chrome's own blocking alone on Windows (`noNetwork` in
+`packages/motion/src/sandbox.ts`).
+
+`music` uses the same sandboxed process and Chrome:
+`packages/motion/src/music.ts` opens the generator module as a file page,
+seeds `Math.random`, has the module schedule its sound on an
+`OfflineAudioContext`, renders it, and reads the samples back over the
+DevTools pipe ten seconds at a time into a float WAV. The engine then
+levels it to −14 LUFS.
+
+An HTML page is rendered by `packages/motion/src/html.ts` in the pinned
 chrome-headless-shell, started from that sandboxed process, so the sandbox
 covers Chrome too. It's driven over the DevTools protocol on a pipe
 (`--remote-debugging-pipe`), so no port is opened. Each tab gets a script
@@ -290,14 +340,6 @@ transparency, and ffmpeg gets the frames in order and lays them over the
 video or over black. Every tab steps through every frame and captures only
 its own, so all tabs have the same history: an animation a page starts at
 frame 40 starts at frame 40 in every tab.
-
-`music` uses the same sandboxed process and Chrome:
-`packages/motion/src/music.ts` opens the generator module as a file page,
-seeds `Math.random`, has the module schedule its sound on an
-`OfflineAudioContext`, renders it, and reads the samples back over the
-DevTools pipe ten seconds at a time into a float WAV. The engine then
-levels it to −14 LUFS.
-
 A project's clips can also change speed (`setpts`, `atempo`), move
 (`perspective`, evaluated every frame from the frame number, after `fps`),
 and come in with a transition: then the clips are joined one at a time,
@@ -317,6 +359,9 @@ MCP server is its own short-lived process.
 | Headless Chrome | `~/.mockingbird/bin/chrome-headless-shell-<version>/` | `mockingbird models pull chrome` |
 | Word cache: each source's words and pauses | `~/.mockingbird/cache/words/` | `transcribe(project)`, `edit`'s `cut_words`, `render(project)` with captions |
 | Draft proxies: 720-line copies of the stretches of 4K sources a project uses | `~/.mockingbird/cache/proxies/` | `render(project, draft: true)` |
+| Overlays: a project's HTML pages rendered with their transparency | `~/.mockingbird/cache/overlays/` | `render(project)` with an overlay |
+| Music beds: a project's generated sounds | `~/.mockingbird/cache/music/` | `render(project)` with a generator |
+| Segments: a project's render in pieces of about 10 s | `~/.mockingbird/cache/segments/` | `render(project)` |
 | Renders, stills | beside the source, or a temp folder for stills | `render`, `motion`, `frames` |
 
 `MOCKINGBIRD_HOME` moves `~/.mockingbird`.
@@ -332,12 +377,12 @@ MCP server is its own short-lived process.
 - **No account, no login, no license server.**
 - **The only network activity is a download the user runs**
   (`mockingbird models pull`, and `models pull chrome` for the headless
-  Chrome and its fonts), which names each URL and checks each file's sha256. `mockingbird
-  setup` runs the same download only after showing its size and hosts and
-  getting a yes, and asks before `brew install` for a missing ffmpeg or
-  whisper-cpp (Homebrew fetches and checks those itself). On Linux and
+  Chrome and its fonts), which names each URL and checks each file's sha256. On Linux and
   Windows `models pull` also downloads whisper.cpp's own whisper-server
   build (release b5454, pinned sha256) into `~/.mockingbird/bin`.
+  `mockingbird setup` runs the same downloads only after showing their size
+  and hosts and getting a yes, and asks before `brew install` for a missing
+  ffmpeg or whisper-cpp (Homebrew fetches and checks those itself).
   mockingbird never checks for updates.
 - **`mockingbird mcp` opens no port.** It speaks over stdin and stdout to the
   agent that started it.
@@ -486,9 +531,10 @@ last `rm`, a later 0.x install would put the old Fn setting back over it.
 5. `dco` (pull requests): every commit carries a `Signed-off-by` line for
    its author ([CONTRIBUTING.md §11](../CONTRIBUTING.md#11-contributor-licensing--dco-not-a-cla)).
 
-**`release.yml`**, on a `v*.*.*` tag:
+**`release.yml`**, on a `v*.*.*` tag (the `production` environment) or a
+push to the `staging` branch (the `staging` environment, #205):
 
-1. Refuse a tag that isn't on `main`.
+1. Refuse a tag that isn't on `main` (tags only).
 2. Rerun the checks on the tagged commit.
 3. Build `apps/cli` for macOS (arm64, x64), Linux (x64, arm64) and
    Windows (x64), as `mockingbird-<os>-<arch>`, with the tag built in.
@@ -498,13 +544,24 @@ last `rm`, a later 0.x install would put the old Fn setting back over it.
    prerelease, which the installer only takes with `MOCKINGBIRD_CHANNEL=beta`
    and the tap never does.
 6. Open a PR on `NirjharBhattacharjee/homebrew-mockingbird` with the new
-   `url` and `sha256` (needs the `TAP_TOKEN` secret).
+   `url` and `sha256` (needs the `TAP_TOKEN` secret; not for prereleases or
+   staging).
+
+A push to `staging` publishes steps 2 to 5 as a prerelease tagged
+`staging-<sha>`, never marked latest, and deletes the staging prerelease
+before it. `MOCKINGBIRD_CHANNEL=staging` makes the installers check out the
+head of `staging` and download its command by that tag (or build it with Go
+while the build is still running). Each build has its own tag because moving
+one tag would make `git fetch --tags` fail in every clone that has it. Each
+environment deploys only from its own refs: `production` from `v*` tags,
+`staging` from the `staging` branch.
 
 **`install.yml`**, on a pull request that changes an installer or what it
 runs: `install.sh` on clean Linux x64 and arm64 runners and `install.ps1`
 on Windows (PowerShell 5.1), from the clone, then `mockingbird status`.
 
-**`main` is staging, releases are production.** Rulesets require a pull
+**Production is a release from `main`; staging is the `staging` branch,**
+where open PRs are merged together to be tried for a few days. Rulesets require a pull
 request, squash merges, green `check` and `cli`, and resolved threads on
 `main`, and let only an admin create a `v*` tag.
 

@@ -11,7 +11,8 @@
 # MOCKINGBIRD_DIR      where to clone the code (default ~\mockingbird; ignored
 #                      when run from inside a clone)
 # MOCKINGBIRD_HOME     where models\ goes (default ~\.mockingbird)
-# MOCKINGBIRD_CHANNEL  "beta" to also install prereleases
+# MOCKINGBIRD_CHANNEL  "beta" to also install prereleases, "staging" for the
+#                      head of the staging branch
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue" # Invoke-WebRequest is many times slower drawing its bar.
@@ -100,7 +101,11 @@ if ($contributor) {
     Where-Object { ($env:MOCKINGBIRD_CHANNEL -eq "beta" -or $_ -notmatch "-") } |
     Where-Object { git -C $dir merge-base --is-ancestor "$_^{commit}" origin/main; $LASTEXITCODE -eq 0 } |
     Select-Object -First 1
-  if ($tag) {
+  # On the staging channel, the head of the staging branch instead.
+  if ($env:MOCKINGBIRD_CHANNEL -eq "staging") {
+    Run git -C $dir fetch --quiet origin staging
+    Run git -C $dir -c advice.detachedHead=false checkout --quiet FETCH_HEAD
+  } elseif ($tag) {
     Run git -C $dir -c advice.detachedHead=false checkout --quiet $tag
   } else {
     Run git -C $dir checkout --quiet main

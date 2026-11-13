@@ -9,7 +9,10 @@
 // stops, soft staggered reveals, and a sound on every beat.
 
 /** This file's folder, in Bun and in the page alike. */
-const DIR = decodeURIComponent(new URL(".", import.meta.url).pathname).replace(/\/$/, "");
+// A file URL's path is "/D:/..." on Windows; the drive letter starts a path there (#202).
+const DIR = decodeURIComponent(new URL(".", import.meta.url).pathname)
+  .replace(/^\/([A-Za-z]:)/, "$1")
+  .replace(/\/$/, "");
 
 /** A sound effect that ships with the kit: whoosh, pop, tick, impact, riser, shimmer, click. */
 export const sfx = (name: string) => `${DIR}/assets/sfx/${name}.wav`;
@@ -203,7 +206,8 @@ export function spring(
 
 // ---------------------------------------------------------------- the page
 
-const GRAIN = `${DIR}/assets/grain.png`;
+// The page loads it as a URL: a native "D:/..." path reads as a URL scheme on Windows.
+const GRAIN = new URL("assets/grain.png", import.meta.url).href;
 const pictures = new Map<string, any>();
 
 /**

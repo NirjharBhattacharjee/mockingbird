@@ -49,7 +49,8 @@ You need about 3 GB of free space, plus one of these:
 - Linux with git, curl, ffmpeg and unzip from your package manager
 - Windows x64
 
-Captions and motion graphics work on macOS only for now.
+The speech model is Whisper `large-v3` on Apple Silicon (1.1 GB) and the
+smaller `small` elsewhere (0.2 GB), which a CPU keeps up with.
 
 On a Mac or Linux, run this in a terminal:
 
@@ -63,11 +64,26 @@ On Windows, run this in PowerShell:
 irm https://github.com/NirjharBhattacharjee/mockingbird/releases/latest/download/install.ps1 | iex
 ```
 
-It's safe to run again. You can also install with Homebrew:
+Then download the headless Chrome that captions and motion graphics are
+drawn in (about 100 MB, with the fonts they use). The terminal you installed
+from only finds `mockingbird` once you open a new one, so there use
+`~/.local/bin/mockingbird` on a Mac or Linux, or
+`~\.mockingbird\bin\mockingbird.cmd` on Windows:
+
+```sh
+mockingbird models pull chrome
+```
+
+There's no Chrome build for Linux on ARM yet. Skip it there, and set
+`MOCKINGBIRD_CHROME` to a Chrome that runs, for motion graphics. Captions
+fall back to ffmpeg without one.
+
+It's all safe to run again. You can also install with Homebrew:
 
 ```sh
 brew install nirjharbhattacharjee/mockingbird/mockingbird
 mockingbird models pull
+mockingbird models pull chrome
 ```
 
 Or install [by hand](docs/README.md#manual-install).
@@ -132,10 +148,13 @@ mockingbird never checks for updates by itself. To remove it, follow
 | `frames` | Pulls stills from a video so the agent can see what's on screen |
 | `scenes` | Finds where the shot changes, like a cut to b-roll or a new slide |
 | `audio_stats` | Measures the sound, since the agent can't listen |
+| `pauses`, `measure` | Finds the pauses in the sound, and measures a finished video's size, length and loudness |
 | `captions` | Makes word-by-word captions timed to the finished cut |
 | `edit` | Keeps an edit in a project file the agent can change step by step |
 | `render` | Cuts, frames and joins the clips, adds captions, titles, b-roll, music and sound effects, and sets the loudness |
+| `effects`, `scopes` | Lists the color and audio effects a clip can take, and measures the picture so the agent can grade by numbers |
 | `motion` | Renders animated titles and graphics, written as code |
+| `music` | Writes background music as code, with no samples to license |
 | `guide` | Hands the agent a playbook for one job, like a short, a long-form video or a final review |
 | `status`, `dictionary_list`, `dictionary_add` | Shows what's installed, and keeps the names it should spell right |
 
@@ -153,5 +172,11 @@ explains why. Updating from v0.3.2 or earlier removes dictation's background
 agent and keeps your dictionary.
 
 ## License
+
+- [User guide](docs/README.md): every command, troubleshooting, privacy
+- [MCP.md](docs/MCP.md): every tool and option
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md), [MODELS.md](docs/MODELS.md),
+  [PHILOSOPHY.md](docs/PHILOSOPHY.md)
+- [CONTRIBUTING.md](CONTRIBUTING.md)
 
 [MIT](LICENSE). Use it, change it, share it.

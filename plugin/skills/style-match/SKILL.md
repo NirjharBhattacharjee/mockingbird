@@ -17,10 +17,11 @@ With mockingbird's tools:
 
 - `measure` on the reference gives its size, length, integrated loudness and
   true peak.
-- `scenes` on it gives when each cut happens, and the pace. Cuts per minute is their count
-  over the length in minutes, and seconds per shot is the length over the
-  cuts plus one. A punch-in on the same shot often doesn't count as a cut, so
-  look at the stills too.
+- `scenes` on it gives when each cut happens and the pace. Cuts per minute
+  is their count over the length in minutes, and seconds per shot is the
+  length over the cuts plus one. It finds changes of shot, not jump cuts
+  within one shot, and a punch-in on the same shot often doesn't count as a
+  cut, so look at the stills too.
 
 Then with mockingbird:
 

@@ -62,6 +62,9 @@ grants, dictation history) is in git: `git show v0.3.2:docs/SECURITY_PRIVACY.md`
 | Transcripts and word times | High | returned to the agent | no, unless the agent saves them |
 | Draft proxies: small copies of the stretches of large sources a project uses | High | `~/.mockingbird/cache/proxies/` | yes, until `~/.mockingbird` is deleted or the cache folder is |
 | A project's words and pauses (the word cache) | High | `~/.mockingbird/cache/words/`, one file per source, model and language | yes, until `~/.mockingbird` is deleted or the cache folder is |
+| Rendered segments of a project: its footage and sound, cut and encoded | High | `~/.mockingbird/cache/segments/` | yes, until `~/.mockingbird` is deleted or the cache folder is; deleting a source or a render doesn't remove them |
+| A project's overlays, rendered (what its pages draw) | Medium | `~/.mockingbird/cache/overlays/` | yes, until `~/.mockingbird` is deleted or the cache folder is |
+| A project's generated music beds | Low | `~/.mockingbird/cache/music/` | yes, until `~/.mockingbird` is deleted or the cache folder is |
 | Stills (`frames`) | High | a new temp folder per call | yes, until the OS clears temp |
 | Renders | High | beside the source, or where `out` says | yes, they're the point |
 | Dictionary (names, jargon) | Medium | `data.db`, `dictionary` | yes, until removed |
@@ -83,17 +86,17 @@ Enforced by [ARCHITECTURE.md §9](./ARCHITECTURE.md#9-everything-is-local):
 - **No telemetry, analytics or crash reporting.** Any future opt-in stats
   are off by default and asked for on their own.
 - **No account, login or license server.**
-- **The only download is one you run:** `mockingbird models pull`, and
-  `models pull chrome` for the headless Chrome `motion` renders HTML in and
-  `render` draws captions in, with the open-licensed fonts pages and
-  captions use, from google/fonts on GitHub ([NOTICE.md](../NOTICE.md)).
-  Each prints its URL and checks the file against a pinned sha256. On
-  Linux and Windows `models pull` includes whisper.cpp's whisper-server
-  build.
-  `mockingbird setup` runs the same download after showing its size and
-  hosts, and `brew install` for a missing ffmpeg or whisper-cpp after naming
-  them; each only on a yes (or `--yes`). Homebrew fetches and checks its
-  own downloads. No update checks.
+- **The only download is one you run:** `mockingbird models pull`, which
+  prints each URL and checks each file against a pinned sha256: the speech
+  models, and on Linux and Windows whisper.cpp's whisper-server build.
+  `models pull chrome` fetches the headless Chrome that `motion`, `music`
+  and captions render in, with the open-licensed fonts pages and captions
+  use, from google/fonts on GitHub ([NOTICE.md](../NOTICE.md)), checked
+  the same way. `mockingbird setup` runs
+  the same downloads after showing their size and hosts, and `brew install`
+  for a missing ffmpeg or whisper-cpp after naming them; each only on a yes
+  (or `--yes`). Homebrew fetches and checks its own downloads. No update
+  checks.
 - **`mockingbird mcp` opens no port.** The agent starts it and talks over
   stdin and stdout.
 - **The stack rule is a security control.** Every dependency is code in

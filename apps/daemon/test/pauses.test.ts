@@ -53,7 +53,7 @@ describe.skipIf(!Bun.which("ffmpeg"))("on a file (needs ffmpeg)", () => {
   const dir = mkdtempSync(join(tmpdir(), "mb-pauses-"));
   const gaps = join(dir, "gaps.wav");
   const video = join(dir, "v.mp4");
-  // Made here, not in the describe body, which runs even when it skips.
+  // In beforeAll: a skipped describe's body still runs, and ffmpeg isn't there to spawn.
   beforeAll(() => {
     Bun.spawnSync([
       ...["ffmpeg", "-loglevel", "error", "-f", "lavfi"],
