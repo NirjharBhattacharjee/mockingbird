@@ -16,7 +16,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { type AsrWord, stripNonSpeech } from "@mockingbird/asr";
-import { loadAudio, type PcmAudio } from "@mockingbird/audio";
+import { loadAudio, type PcmAudio, tempo } from "@mockingbird/audio";
 import { type Cue, drawCaptions, parseSrt } from "@mockingbird/captions";
 import type { MusicParams } from "@mockingbird/motion";
 import { noNetwork } from "@mockingbird/motion/sandbox";
@@ -33,6 +33,11 @@ import {
   wanted,
 } from "@mockingbird/timeline";
 import type { SpeechSegment } from "@mockingbird/vad";
+import {
+  hasEncodedPixelCoordinates,
+  probeVideoMetadata,
+  probeVideoSource,
+} from "@mockingbird/video";
 import { audioStats } from "./audio-stats.ts";
 import { addEntries, formatEntry, readDictionary } from "./dictionary.ts";
 import { guide, INSTRUCTIONS, playbooks } from "./guide.ts";
@@ -48,6 +53,8 @@ import {
   startEngines,
   WHISPER_LANGUAGES,
 } from "./runtime.ts";
+import { screenTools } from "./screen-inspect.ts";
+import { screenNormalizeTool, screenRenderTool } from "./screen-render.ts";
 
 /**
  * `mockingbird mcp` (#88): mockingbird's local functions as Model Context
@@ -478,21 +485,7 @@ export function timeline(clips: Clip[]): { starts: number[]; length: number } {
   return { starts, length };
 }
 
-/** atempo steps for `speed`: each step can only be 0.5 to 2. */
-export function tempo(speed: number): string {
-  const steps: number[] = [];
-  let left = speed;
-  while (left > 2) {
-    steps.push(2);
-    left /= 2;
-  }
-  while (left < 0.5) {
-    steps.push(0.5);
-    left /= 0.5;
-  }
-  steps.push(Number(left.toFixed(6)));
-  return steps.map((s) => `atempo=${s}`).join(",");
-}
+export { tempo };
 
 /**
  * The perspective filter that frames a clip with moves: each frame, a window
@@ -2402,6 +2395,15 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
     required: ["x", "y", "w", "h"],
   };
   return [
+    ...screenTools(),
+    screenRenderTool(motion, async (input) => {
+      const video = await probeVideoMetadata(input, Date.now() + 5 * 60_000);
+      return { sourcePixels: hasEncodedPixelCoordinates(video.geometry) };
+    }),
+    screenNormalizeTool(async (input) => {
+      const source = await probeVideoSource(input, Date.now() + 5 * 60_000);
+      return { video: true, audio: source.audio, seconds: source.duration };
+    }),
     {
       name: "transcribe",
       description:
