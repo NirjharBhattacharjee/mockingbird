@@ -74,11 +74,11 @@ Or install [by hand](docs/README.md#manual-install).
 
 ### Let your agent install it
 
-On a Mac, paste this into your agent and it runs the installer, checks it,
-and connects mockingbird to itself:
+Paste this into your agent and it runs the installer, checks it, and
+connects mockingbird to itself:
 
 ```text
-Set up mockingbird on this Mac by following
+Set up mockingbird on this computer by following
 https://raw.githubusercontent.com/NirjharBhattacharjee/mockingbird/main/docs/AGENT_INSTALL.md
 ```
 
