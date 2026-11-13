@@ -31,7 +31,7 @@ Both come out at −14 LUFS, the loudness the platforms play at.
 ## Install
 
 You need mockingbird installed on macOS, Linux or Windows. Its installers
-are in [mockingbird's README](https://github.com/NirjharBhattacharjee/mockingbird#install):
+are in [mockingbird's README](https://github.com/NirjharBhattacharjee/mockingbird#-install):
 `install.sh` for macOS and Linux, `install.ps1` for Windows. On an Apple
 silicon Mac, Homebrew works too:
 
