@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, type Hash, randomUUID } from "node:crypto";
 import {
   closeSync,
   copyFileSync,
@@ -14,7 +14,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, extname, join, resolve } from "node:path";
+import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { type AsrWord, stripNonSpeech } from "@mockingbird/asr";
 import { loadAudio, type PcmAudio } from "@mockingbird/audio";
@@ -47,7 +47,6 @@ import {
   type ModelChoice,
   mockingbirdHome,
   requireFile,
-  spokenLanguage,
   startEngines,
   WHISPER_LANGUAGES,
 } from "./runtime.ts";
@@ -233,14 +232,14 @@ export const fineClock = (ms: number) =>
  * matched by sound, which only works for English (as dictation's cleanup
  * did). If data.db can't be read, words come out as heard.
  */
-function speller(log: (m: string) => void): (text: string) => string {
+function speller(log: (m: string) => void, language: string): (text: string) => string {
   let dictionary: ReturnType<typeof readDictionary> = [];
   try {
     dictionary = readDictionary();
   } catch (error) {
     log(`warning: couldn't read the dictionary from data.db: ${error}`);
   }
-  const english = spokenLanguage() === "en";
+  const english = language === "en";
   return (text) => {
     const fixed = applyCorrections(text, dictionary);
     return english ? correctNames(fixed, dictionary) : fixed;
@@ -290,10 +289,10 @@ export async function transcribe(
   }
   const audio = { sampleRate: rate, samples: file.samples.subarray(first, last) };
   const startMs = (first / rate) * 1000;
-  const spell = speller(log);
   // A whisper-server per call, since two requests can run at once.
   const picked = await enginesFor(audio, choice, log);
   const { engines } = picked;
+  const spell = speller(log, picked.language);
   try {
     const lines: string[] = [];
     for await (const { heard, offsetMs } of hear(audio, startMs, engines)) {
@@ -387,9 +386,9 @@ async function frames(
  * a seek starts its times at 0: `lavfi.scd.score: 29.3, lavfi.scd.time: 2`.
  */
 export function parseScenes(log: string, from = 0): { at: number; score: number }[] {
-  return [...log.matchAll(/lavfi\.scd\.score: ([\d.]+), lavfi\.scd\.time: ([\d.]+)/g)].map(
-    ([, score, at]) => ({ at: from + Number(at), score: Number(score) }),
-  );
+  return [...log.matchAll(/lavfi\.scd\.score: ([\d.]+), lavfi\.scd\.time: ([\d.]+)/g)]
+    .map(([, score, at]) => ({ at: from + Number(at), score: Number(score) }))
+    .filter((c) => c.score > 0); // At threshold 0, an unchanged frame is logged too.
 }
 
 /**
@@ -410,25 +409,29 @@ async function scenes(
   const end = Math.min(to ?? source.seconds, source.seconds);
   if (!(end > from))
     throw new Error(`Nothing to look at from ${from}s: ${path} is ${source.seconds}s.`);
-  const proc = Bun.spawn(
-    [
-      ...["ffmpeg", "-nostdin", "-nostats", "-hwaccel", "auto"],
-      ...["-ss", String(from), "-t", String(end - from), "-i", path, "-an"],
-      ...["-vf", `scale=-2:180,scdet=threshold=${threshold}`, "-f", "null", "-"],
-    ],
-    { stderr: "pipe" },
-  );
-  const said = await new Response(proc.stderr).text();
-  if ((await proc.exited) !== 0) {
+  const run = async (hw: boolean) => {
+    const proc = Bun.spawn(
+      [
+        ...["ffmpeg", "-nostdin", "-nostats", ...(hw ? ["-hwaccel", "auto"] : [])],
+        ...["-ss", String(from), "-t", String(end - from), "-i", path, "-an"],
+        ...["-vf", `scale=-2:180,scdet=threshold=${threshold}`, "-f", "null", "-"],
+      ],
+      { stderr: "pipe" },
+    );
+    const said = await new Response(proc.stderr).text();
+    return { said, code: await proc.exited };
+  };
+  // A hardware decoder that can't hand its frames over fails; software then.
+  let { said, code } = await run(true);
+  if (code !== 0) ({ said, code } = await run(false));
+  if (code !== 0) {
     throw new Error(
       `ffmpeg couldn't look for cuts in ${path}: ${said.trim().split("\n").slice(-3).join("\n")}`,
     );
   }
   const cuts = parseScenes(said, from);
   const length = end - from;
-  const pace = cuts.length
-    ? `, ${((cuts.length / length) * 60).toFixed(1)} a minute, ${(length / (cuts.length + 1)).toFixed(1)} s a shot`
-    : "";
+  const pace = `, ${((cuts.length / length) * 60).toFixed(1)} a minute, ${(length / (cuts.length + 1)).toFixed(1)} s a shot`;
   const head = `${path}: ${cuts.length} cut${cuts.length === 1 ? "" : "s"} from ${fineClock(from * 1000)} to ${fineClock(end * 1000)}${pace}`;
   return [head, ...cuts.map((c) => `[${fineClock(c.at * 1000)}] ${c.score.toFixed(1)}`)].join("\n");
 }
@@ -1007,8 +1010,12 @@ export function wordCaptions(
     .flatMap(({ words: page, cut }, p, all) => {
       const next = all[p + 1]?.words[0]?.start ?? Number.POSITIVE_INFINITY;
       const last = page.at(-1) as Said;
-      // Stays up into a short pause rather than flickering off.
-      const until = Math.min(cut, next - last.end <= 0.5 ? next : last.end + 0.2);
+      // Stays up into a short pause rather than flickering off. Across a
+      // transition the next page can start before this one ends: end with it.
+      const until = Math.min(
+        cut,
+        next <= last.end ? last.end : next - last.end <= 0.5 ? next : last.end + 0.2,
+      );
       if (!lit)
         return [
           { start: page[0]?.start ?? 0, end: until, text: page.map((w) => w.text).join(" ") },
@@ -1056,8 +1063,21 @@ export const CLIPS_PER_PASS = 100;
 function graphFile(graph: string, dir: string, name = "graph"): string[] {
   const file = join(dir, `${name}.txt`);
   writeFileSync(file, graph);
-  return ["-/filter_complex", file];
+  // `-/option file` arrived in ffmpeg 7.0; 6.x (Ubuntu 24.04's) only knows
+  // -filter_complex_script, which newer releases dropped (9.0 has none).
+  return [ffmpegMajor() >= 7 ? "-/filter_complex" : "-filter_complex_script", file];
 }
+
+/** The system ffmpeg's major version, read once; 99 for a git build, which is newer than any release. */
+let major: number | undefined;
+export const ffmpegMajor = () => {
+  major ??= (() => {
+    const r = Bun.spawnSync(["ffmpeg", "-hide_banner", "-version"], { stderr: "ignore" });
+    const n = Number(r.stdout.toString().match(/^ffmpeg version n?(\d+)\./)?.[1]);
+    return Number.isFinite(n) && n > 0 ? n : 99;
+  })();
+  return major;
+};
 
 /** Runs ffmpeg with `args`, throwing its error output if it fails. */
 async function ffmpeg(args: string[], what: string): Promise<void> {
@@ -1428,7 +1448,14 @@ export function segments(
   for (let i = 1; i < clips.length; i++) {
     const t = starts[i] as number;
     const long = t - (starts[first] as number) >= SEGMENT_SECONDS || i - first >= CLIPS_PER_PASS;
-    const crossed = clips[i]?.transition || inserts.some((s) => s.from < t && s.to > t);
+    // A J or L cut moves the sound's edge off the picture's, and concat would
+    // start the next file's sound after this one's: keep that edge inside a segment.
+    const next = clips[i];
+    const before = clips[i - 1];
+    const moved =
+      (next?.sound && next.sound.from !== next.from) ||
+      (before?.sound && before.sound.to !== before.to);
+    const crossed = next?.transition || moved || inserts.some((s) => s.from < t && s.to > t);
     if (long && !crossed) {
       runs.push([first, i]);
       first = i;
@@ -1443,6 +1470,30 @@ const stamp = (file: string) => {
   const s = statSync(file);
   return `${resolve(file)}:${s.size}:${s.mtimeMs}`;
 };
+
+/**
+ * Every file under `dir` that `keep` accepts, by path, size and time, into a
+ * cache key: a page's image in assets/, or lib/harmony.js a generator
+ * imports, changes the key when it changes. Hidden entries (a kit copy being
+ * rendered, a temp file) and node_modules are left out.
+ */
+// ponytail: at most 5,000 files, so a page kept in a big folder can't stall a render; past that the rest go unnoticed.
+function stampFolder(hash: Hash, dir: string, keep: (name: string) => boolean = () => true) {
+  let left = 5000;
+  const walk = (at: string) => {
+    for (const f of readdirSync(at).sort()) {
+      if (left <= 0 || f.startsWith(".") || f === "node_modules") continue;
+      const full = join(at, f);
+      const s = statSync(full);
+      if (s.isDirectory()) walk(full);
+      else if (s.isFile() && keep(f)) {
+        left--;
+        hash.update(`${relative(dir, full)}:${s.size}:${s.mtimeMs}\n`);
+      }
+    }
+  };
+  walk(dir);
+}
 
 /** The engine's own code, so a segment drawn by an older engine isn't used again. */
 // ponytail: the files that build the picture, not everything they import; add any whose change goes unnoticed.
@@ -1539,7 +1590,16 @@ async function segmented(
             size,
             fps,
             split ?? null,
-            part.map((c) => ({ ...c, path: stamp(c.path ?? path) })),
+            // A LUT edited in place changes the grade, so effects' files are stamped too.
+            part.map((c) => ({
+              ...c,
+              path: stamp(c.path ?? path),
+              ...(c.effects && {
+                effects: c.effects.map((e) =>
+                  typeof e.file === "string" ? { ...e, file: stamp(e.file) } : e,
+                ),
+              }),
+            })),
             // By its words, not its pixels: Chrome's antialiasing varies a little with the line drawn before.
             chrome ?? null,
             // The fonts are pinned, so which are there says what they draw.
@@ -1557,7 +1617,8 @@ async function segmented(
         t0 += (await probe(file)).seconds;
         continue;
       }
-      const tmp = join(cache, `${key}.part.mkv`);
+      // Its own temp name, so two renders of the same segment don't write one file.
+      const tmp = join(cache, `${key}.${process.pid}-${randomUUID()}.part.mkv`);
       try {
         await ffmpeg(
           [
@@ -1842,7 +1903,8 @@ async function render(
           ...extras,
           ...(sidecar ? ["-i", CAPTIONS] : []),
           // A draft is the finished picture at half the size, captions and all.
-          ...(draft
+          // The sound alone maps [v] to the null output, so it's never scaled.
+          ...(draft && !soundOnly
             ? graphFile(`${graph};[v]scale=trunc(iw/4)*2:trunc(ih/4)*2,setsar=1[small]`, dir)
             : graphFile(graph, dir)),
           ...(picture ?? [
@@ -1937,7 +1999,7 @@ const MOTION_MAX_SECONDS = 7200;
 
 /**
  * Runs MOTION_RUNNER with `options` in a fresh process, sandboxed with no
- * network: the script is the client's code, and mockingbird's only download
+ * network where the OS can (Chrome blocks it everywhere): the script is the client's code, and mockingbird's only download
  * is `models pull`. Returns what it printed.
  */
 async function sandboxed(options: object, what: string): Promise<string> {
@@ -2013,14 +2075,7 @@ async function motion(
       `motion renders an HTML page; ${script} isn't one. Canvas scripts went with the Canvas engine (#169): draw on a <canvas> in a page, with the kit's page() (guide("motion-graphics")).`,
     );
   }
-  const chrome = findChrome();
-  if (!chrome) {
-    throw new Error(
-      process.env.MOCKINGBIRD_CHROME
-        ? `MOCKINGBIRD_CHROME is ${process.env.MOCKINGBIRD_CHROME}, which isn't a program that can run. Ask the user to fix it, or to unset it and run \`mockingbird models pull chrome\`.`
-        : "An HTML page renders in a headless Chrome that isn't downloaded yet. Ask the user to run `mockingbird models pull chrome` (about 100 MB), or to set MOCKINGBIRD_CHROME to one.",
-    );
-  }
+  const chrome = needChrome();
   let seconds = duration;
   let audio = false;
   let picture = size;
@@ -2142,7 +2197,6 @@ async function clipWords(
   log: (m: string) => void,
   choice: ModelChoice = {},
 ) {
-  const spell = speller(log);
   const words: AsrWord[][] = clips.map(() => []);
   // The first clip's source, loaded once: the language is detected from that
   // clip (what's captioned first), and the loop below reuses the file.
@@ -2163,7 +2217,8 @@ async function clipWords(
     };
   }
   // A whisper-server per call, since two requests can run at once.
-  const { engines } = await enginesFor(sample, choice, log);
+  const { engines, language } = await enginesFor(sample, choice, log);
+  const spell = speller(log, language);
   try {
     for (const source of new Set(clips.map((c) => c.path ?? path))) {
       const mine = clips.flatMap((c, i) => ((c.path ?? path) === source ? [{ c, i }] : []));
@@ -2365,7 +2420,7 @@ function heardFile(source: string, model: string, language: string): string {
   const { size, mtimeMs } = statSync(source);
   const key = createHash("sha256")
     // "3": words placed by DTW and the silences between them.
-    .update(JSON.stringify([3, source, size, mtimeMs, basename(model), language]))
+    .update(JSON.stringify([3, source, size, mtimeMs, resolve(model), language]))
     .digest("hex")
     .slice(0, 32);
   return join(mockingbirdHome(), "cache", "words", `${key}.json`);
@@ -2384,7 +2439,7 @@ export async function sourceWords(
   log: (m: string) => void,
 ): Promise<Map<string, { words: Word[]; gaps: Span[] }>> {
   const { whisperModel, language } = asrChoice(log);
-  const spell = speller(log);
+  const spell = speller(log, language);
   const out = new Map<string, { words: Word[]; gaps: Span[] }>();
   let engines: Engines | undefined;
   try {
@@ -2616,12 +2671,12 @@ async function overlays(
     const [width = 0, height = 0] = look.size.split("x").map(Number);
     const duration = Math.round((insert.to - insert.from) * 1000) / 1000;
     // A page loads its neighbours (CSS, images, the kit), so their sizes and times are in the key.
-    const hash = createHash("sha256").update(JSON.stringify([1, basename(page), look, duration]));
-    const folder = dirname(page);
-    for (const f of readdirSync(folder).sort()) {
-      const stat = statSync(join(folder, f));
-      if (stat.isFile()) hash.update(`${f}:${stat.size}:${stat.mtimeMs}`);
-    }
+    // The pinned fonts are in it too, since the page draws with them.
+    const fonts = fontFaces();
+    const hash = createHash("sha256").update(
+      JSON.stringify([2, basename(page), look, duration, fonts.map((f) => f.url)]),
+    );
+    stampFolder(hash, dirname(page));
     const key = hash.digest("hex").slice(0, 32);
     const cache = join(mockingbirdHome(), "cache", "overlays");
     const mov = join(cache, `${key}.mov`);
@@ -2631,26 +2686,34 @@ async function overlays(
     } else {
       mkdirSync(cache, { recursive: true });
       log(`${basename(page)}: rendering ${duration.toFixed(1)} s of overlay`);
-      const part = join(cache, `${key}.part.mov`);
+      // Temp names of its own, so two renders of one overlay don't write the same file.
+      const part = join(cache, `${key}.${process.pid}-${randomUUID()}.part`);
+      // A page copied from the templates imports "KIT", which motion fills in; so does this.
+      const filled = withKit(page);
       try {
         const said = await sandboxed(
           {
-            script: page,
+            script: filled,
             chrome: needChrome(),
-            out: part,
+            out: `${part}.mov`,
             width,
             height,
             fps: look.fps,
             duration,
             alpha: true,
+            fonts,
           },
           "the overlay page",
         );
         const result = JSON.parse(said.trim().split("\n").at(-1) || "{}") ?? {};
-        writeFileSync(listed, JSON.stringify(result.sounds ?? []));
-        renameSync(part, mov);
+        writeFileSync(`${part}.json`, JSON.stringify(result.sounds ?? []));
+        // The sounds first: a reader goes by the .mov, and finds its list there.
+        renameSync(`${part}.json`, listed);
+        renameSync(`${part}.mov`, mov);
       } finally {
-        rmSync(part, { force: true });
+        rmSync(`${part}.mov`, { force: true });
+        rmSync(`${part}.json`, { force: true });
+        if (filled !== page) rmSync(filled, { force: true });
       }
     }
     laid.push({ ...insert, path: mov });
@@ -2695,14 +2758,9 @@ async function beds(
       key: g.key,
       energy: g.energy,
     };
-    // The generator imports its neighbours (lib.js), so all of them are in the key.
-    const hash = createHash("sha256").update(JSON.stringify([1, params]));
-    const folder = dirname(script);
-    for (const f of readdirSync(folder)
-      .filter((f) => /\.m?js$/i.test(f))
-      .sort()) {
-      hash.update(f).update(readFileSync(join(folder, f)));
-    }
+    // The generator imports its neighbours (lib.js, lib/harmony.js), so all of them are in the key.
+    const hash = createHash("sha256").update(JSON.stringify([2, params]));
+    stampFolder(hash, dirname(script), (f) => /\.m?js$/i.test(f));
     hash.update(basename(script));
     const wav = join(mockingbirdHome(), "cache", "music", `${hash.digest("hex").slice(0, 32)}.wav`);
     if (existsSync(wav)) {
@@ -2710,7 +2768,15 @@ async function beds(
     } else {
       mkdirSync(dirname(wav), { recursive: true });
       log(`${basename(script)}: generating ${params.duration.toFixed(1)} s of music`);
-      await music(script, wav, params);
+      // Made under a temp name and renamed when whole: music() claims its out
+      // file at the start, and another render would mix that empty file.
+      const part = `${wav.slice(0, -4)}.${process.pid}-${randomUUID()}.part.wav`;
+      try {
+        await music(script, part, params);
+        renameSync(part, wav);
+      } finally {
+        rmSync(part, { force: true });
+      }
     }
     out.push({ ...rest, path: wav });
   }
@@ -2864,7 +2930,13 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
         },
       },
       run: (a) => {
-        if (a.project !== undefined) return projectTranscript(resolve(String(a.project)), log);
+        if (a.project !== undefined) {
+          // A project's words come from the word cache, heard with the user's settings.
+          if (a.model !== undefined || a.language !== undefined) {
+            throw new Error("`model` and `language` work with `path`, not with `project` yet.");
+          }
+          return projectTranscript(resolve(String(a.project)), log);
+        }
         if (a.path === undefined) throw new Error("Give a `path`, or a `project`.");
         return transcribe(
           String(a.path),
@@ -3122,6 +3194,9 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
       },
       run: async (a) => {
         if (a.project !== undefined) {
+          if (a.model !== undefined || a.language !== undefined) {
+            throw new Error("`model` and `language` work with `path`, not with `project` yet.");
+          }
           const file = resolve(String(a.project));
           const { project, created } = load(file);
           if (created) throw new Error(`No project at ${file}; make one with \`edit\`.`);
@@ -3296,7 +3371,12 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
           path,
           from: { type: "number", description: "Start, in seconds from the start of the file" },
           to: { type: "number", description: "End, in seconds from the start of the file" },
-          threshold: { type: "number", description: "0-100 (default 10)" },
+          threshold: {
+            type: "number",
+            minimum: 0,
+            maximum: 100,
+            description: "0-100 (default 10)",
+          },
         },
         required: ["path"],
       },
@@ -3339,14 +3419,17 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
       run: async (a) => {
         const file = requireFile(String(a.path), "File");
         const from = seconds(a.from) ?? 0;
+        const length = (await probe(file)).seconds;
+        const end = Math.min(seconds(a.to) ?? length, length);
+        if (!(end > from))
+          throw new Error(`Nothing to look at from ${from}s: ${file} is ${length}s.`);
         const found = await findPauses(file, {
           from,
-          to: seconds(a.to),
+          to: end,
           noise: within(a.noise, -90, 0, "noise", -35),
           shortest: within(a.shortest, 0.01, 10, "shortest", 0.25),
         });
-        const to = seconds(a.to) ?? (await probe(file)).seconds;
-        const clips = clipsFrom(found, from, to, {
+        const clips = clipsFrom(found, from, end, {
           min: within(a.minPause, 0.05, 30, "minPause", 0.4),
           margin: within(a.margin, 0, 5, "margin", 0.15),
         });
@@ -3359,7 +3442,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
     {
       name: "measure",
       description:
-        "A finished video's size, length and loudness (EBU R128 integrated LUFS and true peak), to match a reference's style or check a render. Its cuts come from `scenes`.",
+        "A finished video's picture size (WxH), length and loudness (EBU R128 integrated LUFS and true peak), to match a reference's style or check a render. Its cuts come from `scenes`.",
       inputSchema: { type: "object", properties: { path }, required: ["path"] },
       run: (a) => measure(requireFile(String(a.path), "File")),
     },

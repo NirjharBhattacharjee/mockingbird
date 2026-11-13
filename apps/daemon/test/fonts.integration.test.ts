@@ -33,11 +33,13 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("shipped fonts (integratio
   // (a bare Linux), without is boxes; the pictures are kept as before/after.
   test("a Bengali caption is drawn in the shipped Noto, not boxes or a system font", async () => {
     const line = ["আমার সোনার বাংলা"];
+    // Both keep Inter, so only the Bengali face differs between them.
+    const noBengali = fonts.filter((f) => f.family !== "Noto Sans Bengali");
     const draw = async (with_: boolean) => {
       const dir = mkdtempSync(join(tmpdir(), "fonts-caption-"));
       const [file] = (await drawCaptions(line, dir, 1080, 1920, {
         chrome,
-        fonts: with_ ? fonts : [],
+        fonts: with_ ? fonts : noBengali,
       })) ?? [""];
       keep(file as string, `caption-bengali-${with_ ? "after" : "before"}.png`);
       return readFileSync(file as string);

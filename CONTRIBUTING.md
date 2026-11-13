@@ -219,13 +219,13 @@ only macOS has skip elsewhere, until the issue that ports that part lands:
 
 | Skipped | Linux | Windows | Why | Ported by |
 |---|---|---|---|---|
-| `canvas`, `Path2D and filter on the canvas` (20) | yes | yes | the Canvas engine draws with Core Graphics | the HTML engine (pivot step 7) |
 | `drawCaptions` (5) | yes | yes | captions are drawn with Core Text | #155 |
 | `startWhisperServer flags` (7) | no | yes | they fake whisper-server with a shell script | #153 |
 
 The integration tests (`MOCKINGBIRD_INTEGRATION=1`: VAD, whisper-server,
-ffmpeg renders, the transcribe CLI) skip on every OS in CI, since they need
-local models. With every check green, macOS runs 213 tests, Linux 188 and
+ffmpeg renders, the transcribe CLI) skip in the `bun test` jobs, since they
+need local models. `transcribe-other` runs the whisper-server and transcribe
+CLI ones on Linux and Windows, with base.en. With every check green, macOS runs 213 tests, Linux 188 and
 Windows 182 (229 in all).
 
 The repo keeps LF line endings on every OS (`.gitattributes`): Biome and

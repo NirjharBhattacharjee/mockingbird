@@ -18,8 +18,13 @@ type Entry = {
 /** An effect as a project keeps it: its name and its settings. */
 export type Effect = { name: string } & Record<string, unknown>;
 
-/** A path inside a filter graph: `\`, `'` and `:` are escaped. */
-const quoted = (path: string) => `'${path.replace(/[\\':]/g, (c) => `\\${c}`)}'`;
+/**
+ * A path as a filter option inside a graph, escaped at both levels ffmpeg
+ * parses: the option value (`\`, `'`, `:`), then the graph (`\`, `'`, `[`, `]`,
+ * `,`, `;`). Quoting it instead breaks on an apostrophe: `O'Brien.cube`.
+ */
+const quoted = (path: string) =>
+  path.replace(/[\\':]/g, (c) => `\\${c}`).replace(/[\\'[\],;]/g, (c) => `\\${c}`);
 
 const f = (n: number) => String(Math.round(n * 10000) / 10000);
 

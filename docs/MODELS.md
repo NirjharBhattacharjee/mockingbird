@@ -154,8 +154,9 @@ fixed one name and bent two others the model had right ("Bhattacharjee" →
 - **Per call:** `transcribe` and `captions` take `model` and `language`
   (and `mockingbird transcribe --model --language`). They win over the
   settings and the environment, for that call only.
-- **Detection:** with the language on `auto`, no `model` given, and at least
-  one model mapped to a language, the call transcribes the first stretch of
+- **Detection:** with the language on `auto`, no `model` given,
+  `MOCKINGBIRD_ASR_MODEL` unset, and at least one model mapped to a
+  language, the call transcribes the first stretch of
   speech (up to 30 s) with the default model, reads the language Whisper
   names ("german"), and, if the map has another model for it, restarts on
   that one. That costs one extra model load, only when the model changes.
@@ -277,12 +278,11 @@ The spike's script is on #109.
   (`MODEL_FILES` in `apps/daemon/src/models.ts`). An interrupted download is
   continued, and one that doesn't match is deleted. `models pull <name or
   URL>` downloads one more model the same way, against the sha256 Hugging
-  Face gives or `--sha256` (§5).
+  Face gives or `--sha256` (§5). whisper-server's build is pinned the same
+  way (`pinnedWhisper` in `apps/daemon/src/runtime.ts`).
 - They're plain files in `~/.mockingbird/models/`. `data.db` keeps only file
   names: the one chosen for every language (`asr_model`), and one per
   language picked with `--language` (`asr_model.<code>`).
-- whisper-server's build for Linux and Windows is pinned the same way
-  (`pinnedWhisper` in `apps/daemon/src/runtime.ts`).
 
 ## 9. Licensing
 

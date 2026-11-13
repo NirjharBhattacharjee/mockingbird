@@ -45,18 +45,20 @@ export default function ambient(ctx, { duration, tempo = 60, key = "D major", en
         release: beat * 3,
       });
     }
-    // Bells: a few notes from the scale, more as the energy rises.
-    const count = Math.round(1 + e * 4);
-    for (let b = 0; b < count; b++) {
-      const at = t + Math.floor(Math.random() * 16) * (beat / 2);
+    // Bells: a few notes from the scale, more as the energy rises. Each slot
+    // of the span (16 half-beats) rings with a chance from the energy there.
+    for (let s = 0; s < 16; s++) {
+      const at = t + (s * beat) / 2;
+      if (Math.random() >= (1 + energyAt(energy, at) * 4) / 16) continue;
       const step = scale[Math.floor(Math.random() * scale.length)];
       bell(ctx, bells, at, degree(k, step, 5), 0.035 + Math.random() * 0.02, 4);
     }
-    if (e > 0.6) {
-      for (let s = 0; s < 16; s++) {
-        const note = degree(k, d + (s % 4 === 3 ? 4 : 0), 3);
-        pluck(ctx, pulse, t + (s * beat) / 2, note, beat * 0.4, 0.05 * (e - 0.5));
-      }
+    for (let s = 0; s < 16; s++) {
+      const at = t + (s * beat) / 2;
+      const es = energyAt(energy, at);
+      if (es <= 0.6) continue;
+      const note = degree(k, d + (s % 4 === 3 ? 4 : 0), 3);
+      pluck(ctx, pulse, at, note, beat * 0.4, 0.05 * (es - 0.5));
     }
   }
 }

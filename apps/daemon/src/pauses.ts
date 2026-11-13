@@ -145,7 +145,8 @@ async function probeFile(path: string): Promise<{ seconds: number; size?: string
 /** A finished video's size, length and loudness (EBU R128 integrated, true peak), for `style-match`. */
 export async function measure(path: string): Promise<string> {
   const { seconds, size } = await probeFile(path);
-  const { err } = await run(
+  // A video with no sound still has a size and a length.
+  const heard = await run(
     [
       "ffmpeg",
       "-hide_banner",
@@ -155,20 +156,21 @@ export async function measure(path: string): Promise<string> {
       path,
       "-vn",
       "-af",
-      "ebur128=peak=true",
+      "ebur128=peak=true:framelog=quiet",
       "-f",
       "null",
       "-",
     ],
     `ffmpeg couldn't read the sound in ${path}`,
-  );
+  ).catch(() => undefined);
+  const err = heard?.err ?? "";
   const summary = err.slice(err.lastIndexOf("Summary:"));
   const integrated = summary.match(/I:\s+(-?[\d.]+|-inf) LUFS/)?.[1] ?? "?";
   const peak = summary.match(/Peak:\s+(-?[\d.]+|-inf) dBFS/)?.[1] ?? "?";
   return [
     `size ${size ?? "no picture"}`,
     `length ${seconds.toFixed(1)}s`,
-    `loudness ${integrated} LUFS, true peak ${peak} dBTP`,
+    heard ? `loudness ${integrated} LUFS, true peak ${peak} dBTP` : "loudness: no sound",
     "cuts: call `scenes` on the same file",
   ].join("\n");
 }

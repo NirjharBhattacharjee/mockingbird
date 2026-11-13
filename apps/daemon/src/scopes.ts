@@ -125,7 +125,13 @@ export async function scopes(
   const proc = Bun.spawn(
     [
       ...["ffmpeg", "-nostdin", "-loglevel", "error", "-ss", String(from), "-t", String(span)],
-      ...["-i", path, "-an", "-vf", `fps=1/${step},scale=${width}:${height},format=yuv444p`],
+      ...[
+        "-i",
+        path,
+        "-an",
+        "-vf",
+        `fps=1/${step},scale=${width}:${height}:out_range=tv,format=yuv444p`,
+      ],
       ...["-f", "rawvideo", "-pix_fmt", "yuv444p", "-"],
     ],
     { stdout: "pipe", stderr: "pipe" },

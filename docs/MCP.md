@@ -37,7 +37,9 @@ Any other client takes the same command. In a JSON config (Claude Desktop's
 If the client can't find `mockingbird`, give the full path. A JSON config
 won't expand `~` or `$(...)`, so write it out: `/Users/<you>/.local/bin/mockingbird`
 after the curl install, or `/opt/homebrew/bin/mockingbird` with Homebrew.
-`command -v mockingbird` prints it.
+`command -v mockingbird` prints it. On Windows the command is a `.cmd` file,
+which many clients can't start directly, so `setup` writes `"command": "cmd"`
+with `"args": ["/c", "C:\\Users\\<you>\\.mockingbird\\bin\\mockingbird.cmd", "mcp"]`.
 
 ## Tools
 
@@ -53,7 +55,7 @@ after the curl install, or `/opt/homebrew/bin/mockingbird` with Homebrew.
 | `captions(path, clips, perCue, lit, upper, model, language)` | Word-by-word captions for the video `render` will make from `clips`, as SRT timed to the finished video: up to `perCue` words a cue (default 3), the word being said written `*like this*` (`lit`, default on), in capitals if `upper`. A new cue starts at each clip, after a sentence, after half a second's pause, or when its words span 1.2 seconds. Each clip is transcribed with two seconds either side, clips whose padded stretches overlap are transcribed together as one, and a word belongs to the clip its middle falls in. `model` and `language` work as in `transcribe`; detection listens to the first clip. |
 | `captions(project)` | The same word-by-word SRT for an `edit` project's cut, timed to its finished video with speed, transitions and J and L cuts, from the word cache; `perCue`, `lit` and `upper` default to the project's captions. Pass it to `motion` as `captions` over the project's render. |
 | `pauses(path, from, to, noise, shortest, minPause, margin)` | The pauses in a file's sound (ffmpeg's `silencedetect`, quieter than `noise` dB, default −35, for at least `shortest` s, default 0.25), one `start end length` line each, then `render`'s `clips` as JSON: what's between pauses of at least `minPause` s (default 0.4), `margin` s (default 0.15) kept into each, a stretch of 0.3 s or less joined to the next. |
-| `measure(path)` | A finished video's size, length, integrated loudness and true peak; its cuts come from `scenes`. |
+| `measure(path)` | A finished video's picture size (WxH), length, integrated loudness and true peak; its cuts come from `scenes`. |
 | `edit(project, ops)` | Changes a project file, an edit kept between calls; see [Projects](#projects). Applies `ops` in order, all of them or none, saves the file, and returns an outline of the cut. Makes the file if it isn't there; with no ops it only reads it. |
 | `render(project)` or `render(path, clips, …)` | Renders a project, or cuts `clips` out of one video and joins them, into one MP4 with ffmpeg; see [Render options](#render-options). Saves to `out`, or `<name>-render-N.mp4` beside the project (`<name>-short-N.mp4` beside the source), and never overwrites a file. |
 | `motion(script, path, captions, size, duration, fps, out)` | Motion graphics written as code: an HTML page rendered in a pinned headless Chrome; see [Motion graphics](#motion-graphics). Saves to `out`, or `<name>-motion-N.mp4` beside the video or script, and never overwrites a file. |
@@ -496,8 +498,10 @@ file URL, and deletes the copy after (#213). Leave `"KIT"` as it is.
   `motion` says so and does nothing.
 - **Fonts** come with Chrome (about 43 MB, [NOTICE.md](../NOTICE.md)), so
   text looks the same on every machine: a page can name `Inter`,
-  `Charis SIL`, `JetBrains Mono`, and `Noto Sans Bengali`, `Devanagari`,
-  `Arabic`, `Hebrew`, `Thai`, `Tamil`, `SC`, `JP` and `KR` in CSS, and
+  `Charis SIL`, `JetBrains Mono`, `Noto Sans Bengali`, `Noto Sans
+  Devanagari`, `Noto Sans Arabic`, `Noto Sans Hebrew`, `Noto Sans Thai`,
+  `Noto Sans Tamil`, `Noto Sans SC`, `Noto Sans JP` and `Noto Sans KR` in
+  CSS (the full names), and
   each loads the first time text needs it. Captions use Inter, then the Noto
   family for the script.
 - **The page** is the size of the video, with a transparent background.
@@ -589,8 +593,8 @@ export default function (ctx, { duration, tempo = 80, key, energy, seed }) {
 - **The WAV** is 16-bit stereo at 48 kHz, brought to −14 LUFS with its peaks
   held under −1.5 dBTP, like everything mockingbird makes. Under speech,
   give it to `render` as `{ path, volume: 0.15, loop: true, duck: true }`.
-- It runs like a `motion` page: in Chrome, started from a process under
-  macOS's sandbox with the network denied.
+- It runs like a `motion` page: in Chrome, which can't reach the network,
+  started under the OS sandbox where there is one.
 
 The plugin's generators are in `plugin/skills/music/generators/`, with the
 instruments they share in `lib.js`: `lofi.js`, `ambient.js`,

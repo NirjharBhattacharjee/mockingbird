@@ -93,6 +93,34 @@ const runIt = (argv: string[]) => {
   return { code: r.exitCode, out: `${r.stdout}${r.stderr}` };
 };
 
+/**
+ * How an agent starts `command` with `mcp`. A `.cmd` (install.ps1's shim on
+ * Windows) goes through `cmd /c`: Node's spawn, which many agents use,
+ * refuses a .cmd without a shell.
+ */
+export function launch(command: string): { command: string; args: string[] } {
+  return /\.cmd$/i.test(command)
+    ? { command: "cmd", args: ["/c", command, "mcp"] }
+    : { command, args: ["mcp"] };
+}
+
+/**
+ * Whether a config entry runs a mockingbird that's there. A path (either
+ * separator: Windows writes C:\...) must exist; a bare name, be on the PATH.
+ * One that runs a .cmd directly doesn't count, so setup repairs it.
+ */
+function runsMockingbird(entry: unknown, which: (name: string) => string | null): boolean {
+  const { command, args } = (entry ?? {}) as { command?: unknown; args?: unknown };
+  const viaCmd =
+    typeof command === "string" &&
+    /^cmd(\.exe)?$/i.test(command) &&
+    Array.isArray(args) &&
+    String(args[0]).toLowerCase() === "/c";
+  const target = viaCmd ? (args as unknown[])[1] : command;
+  if (typeof target !== "string" || (!viaCmd && /\.cmd$/i.test(target))) return false;
+  return /[\\/]/.test(target) ? existsSync(target) : !!which(target);
+}
+
 /** A JSON config with servers under `key`: Cursor's and Gemini CLI's `mcpServers`, VS Code's `servers`. */
 function jsonConfig(
   name: string,
@@ -116,11 +144,7 @@ function jsonConfig(
   // An entry whose command has gone (moved, or uninstalled) doesn't count, so setup repairs it.
   let registered = false;
   try {
-    const command = (read()[key]?.mockingbird as { command?: unknown } | undefined)?.command;
-    registered =
-      typeof command === "string" &&
-      // A path (either separator: Windows writes C:\...) must exist; a bare name, be on the PATH.
-      (/[\\/]/.test(command) ? existsSync(command) : !!which(command));
+    registered = runsMockingbird(read()[key]?.mockingbird, which);
   } catch {}
   return {
     name,
@@ -140,7 +164,7 @@ export function agents(command: string, deps: AgentDeps = {}): Agent[] {
   const which = deps.which ?? ((name: string) => Bun.which(name));
   const run = deps.run ?? runIt;
   const found: Agent[] = [];
-  const stdio = { command, args: ["mcp"] };
+  const stdio = launch(command);
 
   if (which("claude")) {
     // `mcp list` shows servers from `claude mcp add` and from plugins alike.
@@ -158,8 +182,8 @@ export function agents(command: string, deps: AgentDeps = {}): Agent[] {
           "user",
           "mockingbird",
           "--",
-          command,
-          "mcp",
+          stdio.command,
+          ...stdio.args,
         ]);
         if (r.code !== 0) throw new Error(`claude mcp add failed: ${r.out.trim()}`);
       },
@@ -203,11 +227,11 @@ export function agents(command: string, deps: AgentDeps = {}): Agent[] {
         if (codexMentions(before)) {
           throw new Error(
             `${file} already mentions mockingbird in a form this doesn't read, so it was left alone. ` +
-              `Check that its [mcp_servers.mockingbird] runs ${JSON.stringify(command)} with args ["mcp"].`,
+              `Check that its [mcp_servers.mockingbird] runs ${JSON.stringify(stdio.command)} with args ${JSON.stringify(stdio.args)}.`,
           );
         }
         // A JSON string is a TOML basic string, quotes and backslashes alike.
-        const table = `[mcp_servers.mockingbird]\ncommand = ${JSON.stringify(command)}\nargs = ["mcp"]\n`;
+        const table = `[mcp_servers.mockingbird]\ncommand = ${JSON.stringify(stdio.command)}\nargs = ${JSON.stringify(stdio.args)}\n`;
         const gap =
           before === "" || before.endsWith("\n\n") ? "" : before.endsWith("\n") ? "\n" : "\n\n";
         replace(file, `${before}${gap}${table}`);

@@ -124,7 +124,7 @@ export function spring(t, { from = 0, to = 1, start = 0, stiffness = 100, dampin
   }
   return from + (to - from) * done;
 }
-const GRAIN = `${DIR}/assets/grain.png`;
+const GRAIN = new URL("assets/grain.png", import.meta.url).href;
 const pictures = new Map;
 export function picture(path) {
   let img = pictures.get(path);

@@ -15,7 +15,7 @@ import {
   writeFileSync,
   writeSync,
 } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { withStore } from "./dictionary.ts";
 import {
@@ -452,11 +452,7 @@ export async function pullChrome(deps: PullDeps = {}): Promise<number> {
   const log = deps.log ?? ((m: string) => console.error(m));
   const home = deps.home ?? mockingbirdHome();
   const pin = pinnedChrome(home);
-  if (!pin) {
-    log(`There's no pinned Chrome for ${process.platform}-${process.arch} yet.`);
-    return 1;
-  }
-  const bin = dirname(pin.dir);
+  const bin = join(home, "bin");
   mkdirSync(bin, { recursive: true });
   // One pull at a time: two would share the download and the unpacking folder.
   const lock = join(bin, ".chrome-pull.lock");
@@ -466,10 +462,17 @@ export async function pullChrome(deps: PullDeps = {}): Promise<number> {
     return 1;
   }
   try {
-    await installChrome(pin, bin, deps);
+    if (pin) await installChrome(pin, bin, deps);
+    // The fonts even with no pin, for a MOCKINGBIRD_CHROME to use.
     await pullFiles(deps.fonts ?? FONT_FILES, join(home, "fonts"), deps);
   } finally {
     rmSync(lock, { force: true });
+  }
+  if (!pin) {
+    log(
+      `The fonts are downloaded, but there's no pinned Chrome for ${process.platform}-${process.arch} yet: set MOCKINGBIRD_CHROME to one that runs here.`,
+    );
+    return 1;
   }
   log(`Chrome ${CHROME_VERSION} and its fonts are downloaded.`);
   return 0;
@@ -565,37 +568,60 @@ async function installChrome(
  * and unpacks it into `~/.mockingbird/bin`. Returns 0 where there's no pin
  * (macOS: Homebrew's).
  */
-export async function pullWhisper(deps: PullDeps = {}): Promise<number> {
+export async function pullWhisper(deps: PullDeps & { force?: boolean } = {}): Promise<number> {
   const log = deps.log ?? ((m: string) => console.error(m));
   const home = deps.home ?? mockingbirdHome();
   const pin = pinnedWhisper(home);
   if (!pin) return 0;
-  if (existsSync(pin.program)) {
+  // A plain `models pull` keeps one that's there; `models pull whisper-server`
+  // unpacks it again, to repair a damaged one.
+  if (existsSync(pin.program) && !deps.force) {
     log(`whisper-server ${WHISPER_BUILD} is downloaded`);
     return 0;
   }
   const bin = join(home, "bin");
-  await pullFile(pin.archive, bin, { fetch: deps.fetch, log });
-  const archive = join(bin, pin.archive.file);
-  // Unpacked beside the target and renamed into place, so a half-unpacked one
-  // is never found. tar reads .zip too on Windows (bsdtar, since Windows 10).
-  const unpacking = `${pin.dir}.part`;
-  rmSync(unpacking, { recursive: true, force: true });
-  mkdirSync(unpacking, { recursive: true });
-  // Windows' own tar.exe: Git Bash's GNU tar, often first on the PATH, takes
-  // "D:" for a remote host.
-  const tarExe =
-    process.platform === "win32"
-      ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
-      : "tar";
-  const tar = Bun.spawnSync([tarExe, "-xf", archive, "-C", unpacking], { stderr: "pipe" });
-  if (tar.exitCode !== 0) {
-    rmSync(unpacking, { recursive: true, force: true });
-    throw new Error(`couldn't unpack ${archive}: ${tar.stderr.toString().trim()}`);
+  mkdirSync(bin, { recursive: true });
+  // One pull at a time: two would share the download and the unpacking folder.
+  const lock = join(bin, ".whisper-pull.lock");
+  const holder = takeLock(lock);
+  if (holder) {
+    log(`Another \`mockingbird models pull\` (pid ${holder}) is running; wait for it.`);
+    return 1;
   }
-  rmSync(pin.dir, { recursive: true, force: true });
-  renameSync(unpacking, pin.dir);
-  rmSync(archive, { force: true });
+  try {
+    await pullFiles([pin.archive], bin, deps);
+    const archive = join(bin, pin.archive.file);
+    // Unpacked beside the target and renamed into place, so a half-unpacked one
+    // is never found. tar reads .zip too on Windows (bsdtar, since Windows 10).
+    const unpacking = `${pin.dir}.part`;
+    rmSync(unpacking, { recursive: true, force: true });
+    mkdirSync(unpacking, { recursive: true });
+    // Windows' own tar.exe: Git Bash's GNU tar, often first on the PATH, takes
+    // "D:" for a remote host.
+    const tarExe =
+      process.platform === "win32"
+        ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
+        : "tar";
+    const tar = Bun.spawnSync([tarExe, "-xf", archive, "-C", unpacking], { stderr: "pipe" });
+    if (tar.exitCode !== 0) {
+      rmSync(unpacking, { recursive: true, force: true });
+      throw new Error(`couldn't unpack ${archive}: ${tar.stderr.toString().trim()}`);
+    }
+    // The one there stays until the new one is in place.
+    const old = `${pin.dir}.old`;
+    rmSync(old, { recursive: true, force: true });
+    if (existsSync(pin.dir)) renameSync(pin.dir, old);
+    try {
+      renameSync(unpacking, pin.dir);
+    } catch (error) {
+      if (existsSync(old)) renameSync(old, pin.dir);
+      throw error;
+    }
+    rmSync(old, { recursive: true, force: true });
+    rmSync(archive, { force: true });
+  } finally {
+    rmSync(lock, { force: true });
+  }
   log(`whisper-server ${WHISPER_BUILD} is downloaded.`);
   return 0;
 }

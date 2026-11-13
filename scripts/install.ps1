@@ -28,7 +28,8 @@ function Run {
   if ($LASTEXITCODE -ne 0) { Fail "$($args -join ' ') failed (exit $LASTEXITCODE)." }
 }
 function Refresh-Path {
-  $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
+  # The new entries, keeping this session's own (a Git only on it, say).
+  $env:Path = $env:Path + ";" + [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
 }
 
 if ($env:PROCESSOR_ARCHITECTURE -ne "AMD64") {
@@ -87,6 +88,10 @@ if ($contributor) {
     if (Test-Path $dir) { Fail "$dir already exists and isn't a clone of mockingbird. Set MOCKINGBIRD_DIR to use another folder." }
     Run git clone --quiet https://github.com/NirjharBhattacharjee/mockingbird.git $dir
   }
+  $origin = try { git -C $dir remote get-url origin 2>$null } catch { "" }
+  if ($origin -notmatch 'NirjharBhattacharjee/mockingbird(\.git)?$') {
+    Fail "$dir is a git clone of something else ($origin). Set MOCKINGBIRD_DIR to another folder."
+  }
   if (git -C $dir status --porcelain --untracked-files=no) {
     Fail "$dir has local changes, so it wasn't updated. Commit or discard them, then run this again."
   }
@@ -124,7 +129,11 @@ try {
 # the clone is on and checked against its checksums.txt; built with Go when
 # there's no release for it.
 $cli = Join-Path $dir "apps\cli\mockingbird.exe"
-Remove-Item -Force $cli -ErrorAction SilentlyContinue
+# A running `mockingbird mcp` holds the old one open: stop rather than keep it.
+if (Test-Path $cli) {
+  try { Remove-Item -Force $cli -ErrorAction Stop }
+  catch { throw "Couldn't replace $cli, probably because mockingbird is running (an agent's MCP server). Close it and run the installer again." }
+}
 # Windows PowerShell turns a native command's stderr into an error under "Stop".
 $tag = try { git -C $dir describe --tags --exact-match 2>$null } catch { $null }
 if ($tag) {
@@ -154,6 +163,7 @@ $run = if (Test-Path $cli) { "`"$cli`" %*" } else { "`"$bun`" `"$dir\apps\daemon
 Set-Content -Encoding ASCII (Join-Path $binDir "mockingbird.cmd") @"
 @echo off
 rem Written by scripts\install.ps1. Run it again after moving the clone.
+if not defined MOCKINGBIRD_HOME set "MOCKINGBIRD_HOME=$mbHome"
 set "PATH=$(Split-Path -Parent $bun);%PATH%"
 $run
 "@

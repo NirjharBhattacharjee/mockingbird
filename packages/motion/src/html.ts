@@ -100,7 +100,14 @@ export function pageClock(scene: PageScene, epoch: number, fonts: PageFont[] = [
         const due = [...callbacks.values()];
         callbacks.clear();
         for (const cb of due) cb(now);
-        if (typeof m.draw === "function") await m.draw(now / 1000, m);
+        if (typeof m.draw === "function") {
+          await m.draw(now / 1000, m);
+          // A canvas drawn with a font still loading kept the fallback: draw it again.
+          if ([...document.fonts].some((f) => f.status === "loading")) {
+            await document.fonts.ready;
+            await m.draw(now / 1000, m);
+          }
+        }
         seek();
         // A font draw used for the first time loads now; the frame waits for it.
         await document.fonts.ready;
@@ -110,6 +117,10 @@ export function pageClock(scene: PageScene, epoch: number, fonts: PageFont[] = [
     // An error the page caught nowhere, from a frame or from work it left running.
     check() {
       if (errors.length) throw new Error(errors[0]);
+      // A font that failed to load would be drawn as fallback glyphs or boxes.
+      for (const f of document.fonts) {
+        if (f.status === "error") throw new Error("couldn't load the font " + f.family);
+      }
     },
     // After the last frame: anything still running gets a turn to fail.
     async done() {

@@ -25,9 +25,13 @@ test("each effect builds its filter, the picture's and the sound's apart, in ord
     ]),
   ).toEqual({
     video:
-      "exposure=exposure=0.5,eq=contrast=1:saturation=1.2:gamma=1,vignette=angle=0.5027,lut3d=file='/looks/teal\\:orange.cube'",
+      "exposure=exposure=0.5,eq=contrast=1:saturation=1.2:gamma=1,vignette=angle=0.5027,lut3d=file=/looks/teal\\\\:orange.cube",
     audio: "afftdn=nr=26:nf=-45:tn=1,highpass=f=80",
   });
+  // An apostrophe is escaped for the option and again for the graph; quoting broke it.
+  expect(effectFilters([{ name: "lut", file: "/looks/O'Brien.cube" }]).video).toBe(
+    "lut3d=file=/looks/O\\\\\\'Brien.cube",
+  );
   // Defaults that change nothing add nothing.
   expect(effectFilters([{ name: "color" }])).toEqual({ video: "", audio: "" });
   expect(catalog()).toContain("denoise (audio)");

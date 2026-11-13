@@ -206,7 +206,8 @@ export function spring(
 
 // ---------------------------------------------------------------- the page
 
-const GRAIN = `${DIR}/assets/grain.png`;
+// The page loads it as a URL: a native "D:/..." path reads as a URL scheme on Windows.
+const GRAIN = new URL("assets/grain.png", import.meta.url).href;
 const pictures = new Map<string, any>();
 
 /**

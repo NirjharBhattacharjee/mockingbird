@@ -286,6 +286,20 @@ test("a project's clips from different sources are framed to one size and rate, 
   ]);
 });
 
+test("scdet's log reads as cuts, timed from the seek", () => {
+  const log = [
+    "[Parsed_scdet_1 @ 0x9590] lavfi.scd.score: 29.301, lavfi.scd.time: 2",
+    "frame=  180 fps=0.0 q=-0.0 size=N/A",
+    "[Parsed_scdet_1 @ 0x9590] lavfi.scd.score: 20.581, lavfi.scd.time: 4.0333",
+  ].join("\n");
+  expect(parseScenes(log, 60)).toEqual([
+    { at: 62, score: 29.301 },
+    { at: 64.0333, score: 20.581 },
+  ]);
+  expect(parseScenes("nothing here")).toEqual([]);
+  expect(parseScenes("lavfi.scd.score: 0.000, lavfi.scd.time: 1")).toEqual([]);
+});
+
 test("words are placed by their DTW points and the silences, not Whisper's drifting times", () => {
   // The talk at 1:35 (#160), heard in a 30-second window: Whisper's times run
   // about 0.5 s early; DTW's points and silencedetect's pauses are measured.
@@ -436,19 +450,6 @@ test("moves frame each frame with perspective, eased between them", () => {
   expect(filter).toStartWith("perspective=x0='clip(if(lt((in/30),2),(0.5+-0.2*");
   expect(filter).toContain("(min(W,H*9/16)/if(lt((in/30),2),(1+0.5*(clip(((in/30)-0)/2,0,1)*");
   expect(filter).toEndWith(":interpolation=linear:eval=frame,scale=1080:1920,setsar=1");
-});
-
-test("scdet's log reads as cuts, timed from the seek", () => {
-  const log = [
-    "[Parsed_scdet_1 @ 0x9590] lavfi.scd.score: 29.301, lavfi.scd.time: 2",
-    "frame=  180 fps=0.0 q=-0.0 size=N/A",
-    "[Parsed_scdet_1 @ 0x9590] lavfi.scd.score: 20.581, lavfi.scd.time: 4.0333",
-  ].join("\n");
-  expect(parseScenes(log, 60)).toEqual([
-    { at: 62, score: 29.301 },
-    { at: 64.0333, score: 20.581 },
-  ]);
-  expect(parseScenes("nothing here")).toEqual([]);
 });
 
 test("a split stacks two areas of the picture into 1080x1920", () => {
@@ -707,6 +708,11 @@ describe("segments", () => {
     );
     expect(segments(faded, [])[0]).toEqual([0, 4]);
     expect(segments(clips, [{ from: 11, to: 13 }])[0]).toEqual([0, 4]);
+    // A J cut on clip 3 (its sound starts 0.5 s early) keeps that edge in one segment.
+    const jcut = clips.map((c, i) =>
+      i === 3 ? { ...c, sound: { from: c.from - 0.5, to: c.to } } : c,
+    );
+    expect(segments(jcut, [])[0]).toEqual([0, 4]);
     // An insert that ends on the edge doesn't cross it.
     expect(segments(clips, [{ from: 10, to: 12 }])[0]).toEqual([0, 3]);
   });
@@ -824,7 +830,8 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
         const page = join(dir, "card.html");
         writeFileSync(
           page,
-          '<body style="margin:0"><div style="position:fixed;left:0;top:0;width:100%;height:50%;background:red"></div></body>',
+          // Imports the kit the way the templates do: render fills in "KIT", as motion does.
+          '<body style="margin:0"><div id="card" style="position:fixed;left:0;top:0;width:100%;height:50%"></div><script type="module">import { THEMES } from "KIT"; if (THEMES) document.getElementById("card").style.background = "red";</script></body>',
         );
         const project = join(dir, "edit.json");
         await mcpTools(
@@ -1054,7 +1061,11 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
 
   test("text-based editing: a project's transcript, then cut_words, with the words heard once", async () => {
     const dir = mkdtempSync(join(tmpdir(), "mb-words-"));
-    const saved = { home: process.env.MOCKINGBIRD_HOME, model: process.env.MOCKINGBIRD_ASR_MODEL };
+    const saved = {
+      home: process.env.MOCKINGBIRD_HOME,
+      model: process.env.MOCKINGBIRD_ASR_MODEL,
+      server: process.env.MOCKINGBIRD_WHISPER_SERVER,
+    };
     try {
       // The real models in a home of its own, so the user's data.db and cache are never touched.
       const home = join(dir, "home");
@@ -1086,11 +1097,9 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
       const said = await tool("transcribe").run({ project });
       expect(said.toLowerCase()).toContain("hello world");
       expect(readdirSync(join(home, "cache", "words"))).toHaveLength(1);
-      // Heard already: with a model by the same name that can't load, a call that
-      // started whisper-server would fail, so this passes only from the cache.
-      mkdirSync(join(dir, "fake"));
-      writeFileSync(join(dir, "fake", "ggml-base.en.bin"), "");
-      process.env.MOCKINGBIRD_ASR_MODEL = join(dir, "fake", "ggml-base.en.bin");
+      // Heard already: with no whisper-server that can start, a call that heard
+      // the source again would fail, so this passes only from the cache.
+      process.env.MOCKINGBIRD_WHISPER_SERVER = join(dir, "no-whisper-server");
       const outline = await tool("edit").run({
         project,
         ops: [{ op: "cut_words", text: "hello world" }],
@@ -1104,6 +1113,8 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
       process.env.MOCKINGBIRD_ASR_MODEL = saved.model;
       if (saved.home === undefined) delete process.env.MOCKINGBIRD_HOME;
       if (saved.model === undefined) delete process.env.MOCKINGBIRD_ASR_MODEL;
+      if (saved.server === undefined) delete process.env.MOCKINGBIRD_WHISPER_SERVER;
+      else process.env.MOCKINGBIRD_WHISPER_SERVER = saved.server;
       rmSync(dir, { recursive: true, force: true });
     }
   }, 180_000);
@@ -1281,6 +1292,8 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
       expect(readdirSync(proxies)).toHaveLength(1);
       await tool("render").run({ project, draft: true });
       expect(readdirSync(proxies)).toHaveLength(1);
+      // The sound alone, asked for as a draft too: there's no picture to make smaller.
+      expect(await tool("render").run({ project, draft: true, sound: true })).toContain(".m4a");
     } finally {
       if (saved === undefined) delete process.env.MOCKINGBIRD_HOME;
       else process.env.MOCKINGBIRD_HOME = saved;

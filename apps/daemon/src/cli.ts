@@ -1,4 +1,12 @@
-import { existsSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import {
+  accessSync,
+  constants,
+  existsSync,
+  realpathSync,
+  renameSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { main as dictionaryMain, readDictionary } from "./dictionary.ts";
@@ -29,7 +37,7 @@ export const COMMANDS: { name: string; summary: string }[] = [
   {
     name: "models pull",
     summary:
-      "download the speech models (and whisper-server on Linux and\nWindows), `models pull <name or URL>` any Whisper model,\n`models pull chrome` the Chrome motion renders HTML in (it\nand `setup` are the only commands that use the network)",
+      "download the speech models, and whisper-server on Linux and\nWindows; `models pull <name or URL>` any Whisper model;\n`models pull chrome` the Chrome motion renders HTML in\n(these and `setup` are the only commands that use the network)",
   },
   {
     name: "setup",
@@ -57,14 +65,18 @@ Run a command with --help for its own options, e.g. \`mockingbird transcribe --h
 
 const log = (message: string) => console.error(message);
 
+/** The plain `models pull`: the speech models, then whisper-server where it's pinned. */
+const pullAll: typeof pullModels = async (deps) => {
+  const code = await pullModels(deps);
+  return code !== 0 ? code : pullWhisper(deps);
+};
+
 /**
  * `models pull`, with the downloads drawn on one line that redraws in place
  * on a terminal. When the installer sets MOCKINGBIRD_PROGRESS, the same line
  * also goes to that file, which the install shows in place of its clock.
  */
-async function pullWithProgress(
-  what: "models" | "whisper-server" | "chrome" | ModelFile[] = "models",
-): Promise<number> {
+async function pullWithProgress(pull = pullAll, files?: ModelFile[]): Promise<number> {
   let file = process.env.MOCKINGBIRD_PROGRESS;
   let drawn = false;
   const clear = () => {
@@ -73,6 +85,7 @@ async function pullWithProgress(
   };
   try {
     const deps = {
+      files,
       log: (message: string) => {
         clear();
         log(message);
@@ -95,13 +108,7 @@ async function pullWithProgress(
         }
       },
     };
-    if (what === "chrome") return await pullChrome(deps);
-    if (Array.isArray(what)) return await pullModels({ ...deps, files: what });
-    if (what !== "whisper-server") {
-      const code = await pullModels(deps);
-      if (code !== 0) return code;
-    }
-    return await pullWhisper(deps);
+    return await pull(deps);
   } finally {
     clear();
   }
@@ -122,12 +129,22 @@ async function pullOne(args: string[]): Promise<number> {
   log(
     `${model.file}: ${size}, from ${new URL(model.url).host}, checked against SHA-256 ${model.sha256}`,
   );
-  const code = await pullWithProgress([model]);
+  const code = await pullWithProgress(pullModels, [model]);
   if (code === 0)
     log(
       `Use it with \`mockingbird models use ${model.file}\` (add --language <code> for one language).`,
     );
   return code;
+}
+
+/** Whether `path` is a file this user can run. */
+function runnable(path: string): boolean {
+  try {
+    accessSync(path, constants.X_OK);
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
 }
 
 /** What `status` and the MCP `status` tool report. */
@@ -137,6 +154,7 @@ export function engineStatus(
   env = process.env,
   missing = ffmpegMissing,
 ) {
+  const server = findWhisperServer(env, home, which);
   let words = 0;
   try {
     words = readDictionary(home).length;
@@ -149,7 +167,7 @@ export function engineStatus(
     ffmpeg: which("ffmpeg") !== null,
     /** What the system's ffmpeg was built without, of what the engine uses. */
     ffmpegMissing: which("ffmpeg") !== null ? missing() : [],
-    whisperServer: findWhisperServer(env, home, which) !== undefined,
+    whisperServer: server !== undefined && (runnable(server) || which(server) !== null),
     chrome: findChrome(env, home) !== undefined,
     dictionaryWords: words,
   };
@@ -236,11 +254,13 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
         pull: pullWithProgress,
       });
     case "models":
-      if (rest[0] === "pull" && rest.length === 1) return pullWithProgress();
-      if (rest[0] === "pull" && rest.length === 2 && rest[1] === "whisper-server")
-        return pullWithProgress("whisper-server");
-      if (rest[0] === "pull" && rest.length === 2 && rest[1] === "chrome")
-        return pullWithProgress("chrome");
+      if (rest.length === 1 && rest[0] === "pull") return pullWithProgress();
+      if (rest.length === 2 && rest[0] === "pull" && rest[1] === "chrome") {
+        return pullWithProgress(pullChrome);
+      }
+      if (rest.length === 2 && rest[0] === "pull" && rest[1] === "whisper-server") {
+        return pullWithProgress((deps) => pullWhisper({ ...deps, force: true }));
+      }
       if (rest[0] === "pull") return pullOne(rest.slice(1));
       return modelsCommand(rest);
     case "dictionary":

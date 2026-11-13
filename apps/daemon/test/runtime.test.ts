@@ -103,28 +103,6 @@ test("englishOnly knows the .en Whisper builds", () => {
   expect(englishOnly("ggml-large-v3-turbo-q5_0.bin")).toBe(false);
 });
 
-describe("languages by name", () => {
-  test("Whisper's reply names a language; its code comes back", () => {
-    expect(WHISPER_LANGUAGES.size).toBe(100);
-    expect(WHISPER_LANGUAGES.get("bn")).toBe("bengali");
-    expect(languageCode("german")).toBe("de");
-    expect(languageCode("Haitian Creole")).toBe("ht");
-    expect(languageCode("de")).toBe("de");
-    expect(languageCode("klingon")).toBeUndefined();
-    expect(languageCode(undefined)).toBeUndefined();
-  });
-
-  test("a call's model and language are checked before any engine starts", async () => {
-    const audio = { sampleRate: 16_000, samples: new Int16Array(16) };
-    await expect(enginesFor(audio, { model: "../data.db" }, () => {})).rejects.toThrow(
-      "model takes a file name in models/",
-    );
-    await expect(enginesFor(audio, { language: "xx" }, () => {})).rejects.toThrow(
-      "language takes a code Whisper knows",
-    );
-  });
-});
-
 test("pinnedWhisper: whisper.cpp's build on Linux and Windows, Homebrew's on macOS", () => {
   expect(pinnedWhisper("/h", "darwin-arm64")).toBeUndefined();
   const linux = pinnedWhisper("/h", "linux-x64");
@@ -132,7 +110,13 @@ test("pinnedWhisper: whisper.cpp's build on Linux and Windows, Homebrew's on mac
     `https://github.com/ggml-org/whisper.cpp/releases/download/${WHISPER_BUILD}/whisper-bin-ubuntu-x64.tar.gz`,
   );
   expect(linux?.program).toBe(
-    join("/h", "bin", `whisper-cpp-${WHISPER_BUILD}`, "whisper-bin-ubuntu-x64", "whisper-server"),
+    join(
+      "/h",
+      "bin",
+      `whisper-cpp-${WHISPER_BUILD}-linux-x64`,
+      "whisper-bin-ubuntu-x64",
+      "whisper-server",
+    ),
   );
   expect(pinnedWhisper("/h", "win32-x64")?.program).toEndWith(
     join("Release", "whisper-server.exe"),
@@ -164,6 +148,8 @@ test("ffmpegMissing names what a system ffmpeg was built without", () => {
     " ... amix              N->A       Audio mixing.",
     " ... adelay            A->A       Delay channels.",
     " ... overlay           VV->V      Overlay a video source.",
+    " ... scale             V->V       Scale the input video size.",
+    " ... scdet             V->V       Detect video scene change",
   ].join("\n");
   expect(ffmpegMissing((what) => (what === "-encoders" ? encoders : filters))).toEqual([]);
   // ffmpeg-free: no libx264, and "libx264rgb" alone doesn't count.
@@ -177,6 +163,8 @@ test("ffmpegMissing names what a system ffmpeg was built without", () => {
     "amix",
     "adelay",
     "overlay",
+    "scale",
+    "scdet",
   ]);
 });
 
@@ -191,4 +179,26 @@ test("findAsrModel takes a path with either separator, as Windows writes one", (
   expect(findAsrModel(modelsWith(), join(dir, "ggml-mine.bin"), () => {})).toBe(
     join(dir, "ggml-mine.bin"),
   );
+});
+
+describe("languages by name", () => {
+  test("Whisper's reply names a language; its code comes back", () => {
+    expect(WHISPER_LANGUAGES.size).toBe(100);
+    expect(WHISPER_LANGUAGES.get("bn")).toBe("bengali");
+    expect(languageCode("german")).toBe("de");
+    expect(languageCode("Haitian Creole")).toBe("ht");
+    expect(languageCode("de")).toBe("de");
+    expect(languageCode("klingon")).toBeUndefined();
+    expect(languageCode(undefined)).toBeUndefined();
+  });
+
+  test("a call's model and language are checked before any engine starts", async () => {
+    const audio = { sampleRate: 16_000, samples: new Int16Array(16) };
+    await expect(enginesFor(audio, { model: "../data.db" }, () => {})).rejects.toThrow(
+      "model takes a file name in models/",
+    );
+    await expect(enginesFor(audio, { language: "xx" }, () => {})).rejects.toThrow(
+      "language takes a code Whisper knows",
+    );
+  });
 });

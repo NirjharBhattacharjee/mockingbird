@@ -37,8 +37,7 @@ grants, dictation history) is in git: `git show v0.3.2:docs/SECURITY_PRIVACY.md`
 - A remote party (us, a cloud API, an analytics SDK) seeing your footage,
   transcripts or renders, or learning that you use mockingbird, because of
   anything mockingbird does.
-- A page an agent writes for `motion` reaching the network
-- A script an agent writes for `motion`, or a generator for `music`, reaching the network
+- A page an agent writes for `motion`, or a generator for `music`, reaching the network
   ([§6](#6-process--trust-boundaries)).
 
 **Not defended against:**
@@ -63,6 +62,7 @@ grants, dictation history) is in git: `git show v0.3.2:docs/SECURITY_PRIVACY.md`
 | Transcripts and word times | High | returned to the agent | no, unless the agent saves them |
 | Draft proxies: small copies of the stretches of large sources a project uses | High | `~/.mockingbird/cache/proxies/` | yes, until `~/.mockingbird` is deleted or the cache folder is |
 | A project's words and pauses (the word cache) | High | `~/.mockingbird/cache/words/`, one file per source, model and language | yes, until `~/.mockingbird` is deleted or the cache folder is |
+| Rendered segments of a project: its footage and sound, cut and encoded | High | `~/.mockingbird/cache/segments/` | yes, until `~/.mockingbird` is deleted or the cache folder is; deleting a source or a render doesn't remove them |
 | A project's overlays, rendered (what its pages draw) | Medium | `~/.mockingbird/cache/overlays/` | yes, until `~/.mockingbird` is deleted or the cache folder is |
 | A project's generated music beds | Low | `~/.mockingbird/cache/music/` | yes, until `~/.mockingbird` is deleted or the cache folder is |
 | Stills (`frames`) | High | a new temp folder per call | yes, until the OS clears temp |

@@ -21,8 +21,8 @@ instead.
 - Call `status`. If mockingbird's tools are missing, the user needs mockingbird
   v0.3.0 or newer (`brew install nirjharbhattacharjee/mockingbird/mockingbird`,
   then `mockingbird models pull`). If `render` doesn't list `focus`, `split`,
-  `texts`, `inserts` and `audio`, mockingbird is older: tell the user to
-  update (`brew upgrade mockingbird`) and stop. The `motion` tool is needed
+  `texts`, `inserts` and `audio`, or there's no `pauses` tool, mockingbird
+  is older: tell the user to update (`brew upgrade mockingbird`) and stop. The `motion` tool is needed
   only for step 7; without it (an older mockingbird, or an Intel Mac), make
   a plain captioned short and say why it isn't animated.
 - Use absolute paths. Renders land beside the source as `<name>-short-N.mp4`

@@ -21,29 +21,29 @@ injection, the cleanup model, the launchd agent) is in git:
 | 2026-11-06 | `motion` swaps a page's `from "KIT"` for the kit's file URL in a copy beside the page (#213), so agents leave the templates' import alone: replacing it by hand hit a comment first, and a Windows path isn't a URL. |
 | 2026-11-06 | Windows (#202): the plugin starts there (`launch.cmd`, `launch.ps1`); filter graphs go to ffmpeg in a file, since one for 100 clips is longer than a Windows command line; off Apple Silicon the default Whisper model is `small` Q5_1, as `large-v3` took 2.6x real time on a 2-core CPU (MODELS.md §6). |
 | 2026-11-06 | Segment cache (#165): a project renders from segments of about 10 s kept in `~/.mockingbird/cache/segments/`, each keyed by its clips, what's drawn over it, the look and the engine, so an edit renders again only the segments it touches. On the v2 edit with four texts, changing one text took 16.4 s instead of 72.8 to 78.2 s. |
-| 2026-11-05 | Fonts ship with Chrome (#156): `models pull chrome` also downloads Inter, Charis SIL, JetBrains Mono and Noto for Bengali, Devanagari, Arabic, Hebrew, Thai, Tamil and CJK (OFL, pinned, [NOTICE.md](../NOTICE.md)); captions and pages use them by name, so a Bengali caption or a CJK title is drawn the same with or without the system's fonts. |
-| 2026-11-05 | A motion page can't reach the network on Linux or Windows either (#157): Chrome resolves no host name and sends the rest to a dead proxy, every request any tab makes is failed at the browser unless it's a file on this computer, and on Linux the runner starts in a network namespace where one can be made. Chrome is pinned for Linux x64 and Windows x64. |
 | 2026-11-06 | Effects catalog, phase 1 (#197): one `effects` catalog (`apps/daemon/src/effects.ts`) instead of a tool per effect, put on a clip's picture or sound after its framing; color, LUT, vignette, sharpen, blur, denoise, high-pass, compressor, de-esser; `scopes` measures a picture for grading. |
 | 2026-11-06 | A project's overlays (#163): an HTML page on a clip, rendered alone with its transparency (ProRes 4444) and laid over the cut, cached in `~/.mockingbird/cache/overlays/`. A project sound can be a music generator (#170), its bed made at render time and cached in `~/.mockingbird/cache/music/`; `render(project, sound: true)` saves the mix alone as an .m4a. |
+| 2026-11-06 | `render` copies the groups of pictures that need no change and encodes only the clip edges and reframed clips: 4.6x faster on a talk cut into 35 s clips, about 1.6x on the 96-clip v2 edit, with copied frames bit-identical to the source (#166). |
+| 2026-11-05 | Fonts ship with Chrome (#156): `models pull chrome` also downloads Inter, Charis SIL, JetBrains Mono and Noto for Bengali, Devanagari, Arabic, Hebrew, Thai, Tamil and CJK (OFL, pinned, [NOTICE.md](../NOTICE.md)); captions and pages use them by name, so a Bengali caption or a CJK title is drawn the same with or without the system's fonts. |
+| 2026-11-05 | A motion page can't reach the network on Linux or Windows either (#157): Chrome resolves no host name and sends the rest to a dead proxy, every request any tab makes is failed at the browser unless it's a file on this computer, and on Linux the runner starts in a network namespace where one can be made. Chrome is pinned for Linux x64 and Windows x64. |
+| 2026-11-05 | Which ffmpeg (#154): the system one, not a pinned LGPL build; VideoToolbox measured slower, bigger and worse than x264 on the v2 edit ([§7](#7-rendering)). |
+| 2026-11-05 | Linux and Windows, first part (pivot step 4): CI runs the checks on all three (#151); `models pull` downloads a pinned whisper-server on Linux and Windows (#153); releases build the command for five targets, `install.sh` runs on Linux, and `install.ps1` installs on Windows (#152). ffmpeg stays the system's, and `status` names any encoder or filter the engine needs that it was built without (#154). |
 | 2026-11-04 | `transcribe` and `captions` take `model` and `language` per call; with the language on `auto` and a per-language map, the language is detected from the first speech and its model used (`enginesFor` in `runtime.ts`, #143). |
 | 2026-11-04 | `models pull <name or URL>` downloads any Whisper model against the sha256 Hugging Face gives (or `--sha256`), pinned to its commit; `models use <file> --language <code>` saves a model per language (#143). |
-| 2026-11-06 | `render` copies the groups of pictures that need no change and encodes only the clip edges and reframed clips: 4.6x faster on a talk cut into 35 s clips, about 1.6x on the 96-clip v2 edit, with copied frames bit-identical to the source (#166). |
 | 2026-11-04 | One framing path: `render`'s parameters frame clips the way a project does, so the separate `vertical` graph is gone (same frames, measured); `captions` takes a project (#162). |
 | 2026-11-04 | Every clip input and still is decoded with the hardware where it can be (`-hwaccel auto`: 4K HEVC rendered in 34.0 s against 91.1 s); `render(draft: true)` makes a half-size preview, reading 4K from proxies of just the stretches used (#167). |
 | 2026-11-04 | J and L cuts: a project clip's `lead` moves its sound's cut off its picture's; each clip's input opens both stretches, and picture and sound are joined apart (#161). |
 | 2026-11-04 | A project's clips can have a `speed`, `moves` (focus and zoom over time, drawn with `perspective` to a fraction of a pixel) and a `transition` in (`xfade` and `acrossfade`) (#161). |
 | 2026-11-04 | Text-based editing (#160): a project's sources are heard once into a word cache (`~/.mockingbird/cache/words/`), with words placed by Whisper's DTW points and measured pauses; `transcribe(project)` gives the cut as text and `cut_words` cuts by quoting it; a project's captions come from the cache. |
 | 2026-11-04 | The playbooks' shell scripts became engine tools, so they run on every OS: `pauses` (silencedetect, and the clips between pauses) and `measure` (size, length, loudness), with cuts from `scenes` (#158). |
-| 2026-11-05 | Which ffmpeg (#154): the system one, not a pinned LGPL build; VideoToolbox measured slower, bigger and worse than x264 on the v2 edit ([§7](#7-rendering)). |
-| 2026-11-05 | Linux and Windows, first part (pivot step 4): CI runs the checks on all three (#151); `models pull` downloads a pinned whisper-server on Linux and Windows (#153); releases build the command for five targets, `install.sh` runs on Linux, and `install.ps1` installs on Windows (#152). ffmpeg stays the system's, and `status` names any encoder or filter the engine needs that it was built without (#154). |
 | 2026-11-04 | Timeline, first part (#148): `packages/timeline` keeps an edit in a project file; the `edit` tool changes it with ops; `render` renders one, with clips from several sources framed to one size and rate, and captions made for the cut. |
+| 2026-11-04 | The Canvas motion engine is gone (#169): `packages/motion`'s Canvas 2D over Core Graphics, Core Text and vImage, and `motion`'s `.ts`/`.js` scripts. `motion` renders HTML pages only, and the kit runs in them (#168). |
+| 2026-11-04 | Captions and `render`'s texts are drawn as HTML in the pinned Chrome instead of with Core Text (#155), started under the no-network sandbox where there is one; the Core Text code is gone. Without Chrome, `render` falls back to libass or an `.srt`. |
+| 2026-11-04 | `music` makes background music from a generator module played into `OfflineAudioContext` in the pinned Chrome, under the motion sandbox, saved as a WAV at −14 LUFS (#170). The plugin's first generator is lo-fi. |
+| 2026-11-04 | `motion` renders an HTML page in a pinned headless Chrome (#145): `mockingbird models pull chrome`, a frame clock injected into the page, several tabs capturing at once, Chrome inside the motion sandbox. The Canvas engine stays until the kit is ported. |
 | 2026-11-04 | `mockingbird setup` and `doctor`, and the plugin's `launch.sh`, which answers MCP with an install tool when mockingbird isn't installed (#141). |
 | 2026-11-04 | `mockingbird record`: the microphone through ffmpeg (`avfoundation`, the input System Settings picked) into a file, for a voiceover (#142). |
 | 2026-11-04 | `audio_stats` (#171): loudness, peaks, noise floor, voice against what's between phrases, the 1 to 4 kHz share, tempo and beats, sections. The reviewer playbook checks sound with it. |
-| 2026-11-04 | The Canvas motion engine is gone (#169): `packages/motion`'s Canvas 2D over Core Graphics, Core Text and vImage, and `motion`'s `.ts`/`.js` scripts. `motion` renders HTML pages only, and the kit runs in them (#168). |
-| 2026-11-04 | `music` makes background music from a generator module played into `OfflineAudioContext` in the pinned Chrome, under the motion sandbox, saved as a WAV at −14 LUFS (#170). The plugin's first generator is lo-fi. |
-| 2026-11-04 | Captions and `render`'s texts are drawn as HTML in the pinned Chrome instead of with Core Text (#155), started under the no-network sandbox where there is one; the Core Text code is gone. Without Chrome, `render` falls back to libass or an `.srt`. |
-| 2026-11-04 | `motion` renders an HTML page in a pinned headless Chrome (#145): `mockingbird models pull chrome`, a frame clock injected into the page, several tabs capturing at once, Chrome inside the motion sandbox. The Canvas engine stays until the kit is ported. |
 | 2026-11-04 | `scenes`: shot changes from ffmpeg's `scdet`, decoded with the hardware where it can be (#164). |
 | 2026-11-04 | mockingbird-studio moved into `plugin/` and is now the `mockingbird` plugin; a `guide` tool and server instructions give every MCP client its playbooks (#140). |
 | 2026-11-04 | Long-form fixes (#127): `render` and `motion` reach −14 LUFS with a measured gain and a limiter instead of one pass of `loudnorm` (−15.9 → −14.3 LUFS on the v2 edit); `captions` hears overlapping padded clips as one stretch (171 s → 62 s for 96 clips); captions in a wide video are subtitle-sized. |
@@ -124,8 +124,8 @@ Constraints, not preferences. Check any proposed change against them.
 | Decoding, cutting, mixing, encoding | the system's `ffmpeg` (Homebrew, apt, winget), never a copy we ship: a build with x264 is GPL ([#154](https://github.com/NirjharBhattacharjee/mockingbird/issues/154)) | subprocess |
 | Speech detection | Silero VAD via `onnxruntime-node` | native module in-process |
 | Speech-to-text | `whisper.cpp`'s `whisper-server` (Homebrew's on macOS, a pinned CPU build from `models pull` on Linux and Windows), default model `large-v3` Q5_0 | subprocess, HTTP on a free `127.0.0.1` port per call |
-| Motion graphics | HTML pages in a pinned chrome-headless-shell, driven over the DevTools protocol | subprocess, under `sandbox-exec` |
-| Captions | HTML in the pinned chrome-headless-shell, screenshotted to PNGs that ffmpeg overlays | subprocess, under `sandbox-exec` |
+| Captions | HTML in the pinned chrome-headless-shell, screenshotted to PNGs that ffmpeg overlays | subprocess, under the no-network sandbox |
+| Motion graphics | HTML pages in a pinned chrome-headless-shell, driven over the DevTools protocol | subprocess, under the no-network sandbox |
 | Storage | `bun:sqlite` (`data.db`: the dictionary and settings) | in-process |
 | Agent protocol | MCP, JSON-RPC over stdin/stdout | `mockingbird mcp` |
 | Tests | `bun test`, `go test` | — |
@@ -168,6 +168,8 @@ tool, with its options, is documented in [MCP.md](./MCP.md):
 |---|---|
 | `transcribe` | timestamped lines, or word times, for a file or a stretch of it |
 | `frames` | stills at an interval, for the agent to look at |
+| `pauses` | the pauses in a file's sound, and render's clips between them |
+| `measure` | a video's picture size, length, loudness and true peak |
 | `audio_stats` | loudness, peaks, noise floor, voice against the rest, tempo and beats, sections |
 | `scenes` | shot changes, with how big each is, and the pace (cuts a minute, seconds a shot) |
 | `captions` | word-by-word SRT timed to the video `render` will make |
@@ -423,7 +425,7 @@ mockingbird/
 │   ├── asr/                 whisper-server adapter, word diff (WER)
 │   ├── captions/            SRT parsing, captions drawn as HTML in Chrome
 │   ├── motion/              HTML pages and Web Audio music in headless Chrome,
-│   │                        to MP4
+│   │                        to MP4 and WAV
 │   ├── timeline/            project files: format, checks, edit ops, outline
 │   └── store/               data.db, the dictionary's parsing and name matching
 ├── plugin/                  the Claude Code plugin: skills, the reviewer agent,
@@ -501,11 +503,15 @@ ones included, and the dictation tables go ([DATABASE.md](./DATABASE.md)).
 `install.sh` and `mockingbird uninstall` stay in every 0.x release and are
 deleted in v1.0.0. A Mac that skips straight from v0.3.2 to v1.0.0 would keep
 a launchd agent pointing at a missing file and a changed Fn setting, so the
-v1.0.0 release notes tell anyone still on v0.3.2 to install v0.4.2 first
-(it retires dictation on install), or to run
-`launchctl bootout gui/$(id -u)/com.mockingbird.agent` and
-`rm ~/Library/LaunchAgents/com.mockingbird.agent.plist`, then set
-"Press 🌐 key to" back in System Settings → Keyboard.
+v1.0.0 release notes tell anyone on v0.3.2 or earlier to install v0.4.2
+first (it retires dictation on install), or to run
+`launchctl bootout gui/$(id -u)/com.mockingbird.agent`,
+`rm ~/Library/LaunchAgents/com.mockingbird.agent.plist`,
+`lsregister -u ~/.mockingbird/bin/mockingbird.app` (from
+`/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/`)
+and `rm -rf ~/.mockingbird/bin/mockingbird.app ~/.mockingbird/fn-key.json`,
+then set "Press 🌐 key to" back in System Settings → Keyboard. Without the
+last `rm`, a later 0.x install would put the old Fn setting back over it.
 
 ## 14. CI/CD pipeline
 
@@ -579,9 +585,9 @@ each step shippable on its own:
 
 ## 16. Known gaps
 
-- **No network sandbox off macOS yet.** Chrome (motion, captions, music) is
-  sandboxed with `sandbox-exec`, which Linux and Windows don't have (#157).
-  Transcription, `render` and the commands work on Linux and Windows.
+- **`record` is macOS only for now.** Transcription, `render` (captions and
+  texts included, drawn in Chrome), `motion` and the other commands work on
+  Linux and Windows.
 - **No compiled engine** ([§11](#11-packaging)): Bun has to be installed.
 - **One render call per edit.** Any change re-renders everything (step 5).
 - **The agent sees a few stills, not the video.** Tool outputs stay small so
