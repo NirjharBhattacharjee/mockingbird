@@ -7,10 +7,18 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/NirjharBhattacharjee/mockingbird/stargazers"><img src="https://img.shields.io/github/stars/NirjharBhattacharjee/mockingbird?style=for-the-badge&logo=starship&color=cba6f7&logoColor=cdd6f4&labelColor=313244" alt="stars"></a>
+  <a href="https://github.com/NirjharBhattacharjee/mockingbird/commits/main"><img src="https://img.shields.io/github/last-commit/NirjharBhattacharjee/mockingbird?style=for-the-badge&logo=git&color=a6e3a1&logoColor=cdd6f4&labelColor=313244" alt="last commit"></a>
   <img src="https://img.shields.io/badge/runs%20on-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-89b4fa?style=for-the-badge&logoColor=cdd6f4&labelColor=313244" alt="macOS, Linux and Windows">
   <img src="https://img.shields.io/badge/runs-100%25%20local-fab387?style=for-the-badge&logo=lock&logoColor=cdd6f4&labelColor=313244" alt="runs 100% local">
+  <img src="https://img.shields.io/badge/built%20with-Bun-f5e0dc?style=for-the-badge&logo=bun&logoColor=cdd6f4&labelColor=313244" alt="built with Bun">
   <img src="https://img.shields.io/badge/price-free%20forever-f38ba8?style=for-the-badge&logo=githubsponsors&logoColor=cdd6f4&labelColor=313244" alt="free forever">
+  <img src="https://img.shields.io/badge/for-AI%20agents%20over%20MCP-b4befe?style=for-the-badge&logo=modelcontextprotocol&logoColor=cdd6f4&labelColor=313244" alt="for AI agents over MCP">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-94e2d5?style=for-the-badge&logo=opensourceinitiative&logoColor=cdd6f4&labelColor=313244" alt="MIT license"></a>
+</p>
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/catppuccin/catppuccin/main/assets/palette/macchiato.png" width="400" alt="">
 </p>
 
 You give your AI agent a recording. It gives you back an edited video.
@@ -25,7 +33,7 @@ Your footage never leaves your computer. There's no account, no cloud and no
 usage limit, and nothing is held back for a paid tier
 ([why](docs/PHILOSOPHY.md)).
 
-## What you can ask for
+## 🎬 What you can ask for
 
 Once it's set up, talk to your agent the way you'd brief an editor:
 
@@ -41,7 +49,7 @@ at stills to find the speaker, frames the shot, makes the captions and
 renders. You get an MP4 next to the original. mockingbird never overwrites
 a file.
 
-## Install
+## 🚀 Install
 
 You need about 3 GB of free space, plus one of these:
 
@@ -140,7 +148,7 @@ To update, run the install command again, or `brew upgrade mockingbird`.
 mockingbird never checks for updates by itself. To remove it, follow
 [Uninstalling](docs/README.md#uninstalling).
 
-## What your agent can do with it
+## 🧰 What your agent can do with it
 
 | Tool | What it does |
 |---|---|
@@ -164,14 +172,14 @@ terminal too: `mockingbird transcribe`, `dictionary`, `models` and `status`.
 
 Something not working? See [troubleshooting](docs/README.md#troubleshooting).
 
-## Coming from dictation?
+## 📚 Coming from dictation?
 
 Up to v0.3.2, mockingbird was a voice dictation app. Dictation is gone, and
 [#134](https://github.com/NirjharBhattacharjee/mockingbird/issues/134)
 explains why. Updating from v0.3.2 or earlier removes dictation's background
 agent and keeps your dictionary.
 
-## License
+## 📜 License
 
 - [User guide](docs/README.md): every command, troubleshooting, privacy
 - [MCP.md](docs/MCP.md): every tool and option
