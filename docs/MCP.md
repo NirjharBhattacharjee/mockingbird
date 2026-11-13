@@ -37,7 +37,9 @@ Any other client takes the same command. In a JSON config (Claude Desktop's
 If the client can't find `mockingbird`, give the full path. A JSON config
 won't expand `~` or `$(...)`, so write it out: `/Users/<you>/.local/bin/mockingbird`
 after the curl install, or `/opt/homebrew/bin/mockingbird` with Homebrew.
-`command -v mockingbird` prints it.
+`command -v mockingbird` prints it. On Windows the command is a `.cmd` file,
+which many clients can't start directly, so `setup` writes `"command": "cmd"`
+with `"args": ["/c", "C:\\Users\\<you>\\.mockingbird\\bin\\mockingbird.cmd", "mcp"]`.
 
 ## Tools
 
