@@ -14,6 +14,16 @@ export {
   windowLevels,
 } from "./stats.ts";
 export {
+  auditionVoice,
+  filterVoices,
+  installedVoices,
+  parseVoices,
+  type Voice,
+  type VoiceAudition,
+  type VoiceAuditionResult,
+  type VoiceFilters,
+} from "./voices.ts";
+export {
   decodeWav,
   durationMs,
   encodeWav,
