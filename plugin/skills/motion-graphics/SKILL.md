@@ -8,22 +8,24 @@ description: Animate a mockingbird edit with code so it looks professionally edi
 Motion graphics here are code. A page's `draw(ctx, t, m)` draws one frame
 on a canvas with the Canvas 2D API, mockingbird's `motion` tool renders the
 page in a headless Chrome for every frame of the cut and saves an MP4, and
-**the kit** (`kit.js`, beside this file) does the design: what to draw, how
-it moves, how it sounds. The defaults
+**the kit** (`kit.js`, beside this file) supplies drawing helpers, motion
+and sound. You choose the design. Its defaults
 come from studying twenty professional videos frame by frame
 ([docs/STYLE-STUDY.md](../../docs/STYLE-STUDY.md)). They're meant to look
-finished with no further prompting, so start from a template and change its
-settings, not from a blank file.
+useful as starting points. Choose a template when it fits the brief; use
+plain HTML, CSS, SVG or canvas when it does not. For a product demo, load
+**product-demo** first and follow its audience and style choices.
 
 ## The workflow
 
 1. **Cut first.** `render` makes the cut: clips, framing (`split` for a
    screen and a face), b-roll `inserts`, music. Leave out its `captions` and
    `texts`; the kit draws them.
-2. **Caption it.** `captions` with the same clips and `perCue: 3` gives SRT
+2. **Caption speech when needed.** `captions` with the same clips and `perCue: 3` gives SRT
    timed to the cut with the spoken word `*marked*`. It's `motion`'s
-   `captions`, and the pages read it as `m.cues`.
-3. **Copy a template** next to the video and replace `"KIT"` in its import
+   `captions`, and the pages read it as `m.cues`. Silent product footage
+   uses the shot ledger and brief instead.
+3. **Choose a template or custom page** next to the video. In a template, replace `"KIT"` in its import
    with this skill's absolute path plus `/kit.js`:
    - [templates/short.html](./templates/short.html) for 9:16. A slammed hook
      with an italic sub-line; a new framing every ~2.2 s on word starts so
@@ -34,7 +36,13 @@ settings, not from a blank file.
      anything that explains. Its `SCENES` list is the whole edit: `intro`,
      `chapter`, `name`, `look` (the camera glides to a point, optionally
      ringing it and labelling it), `photo`, `quote`, `checklist`.
-4. **Fill in the settings from the transcript.** Times are seconds into the
+   - [templates/product-demo.html](./templates/product-demo.html) for measured
+     screen targets. Its `STYLE` sets the box and label independently. Its
+     `CALLOUTS` hold target rectangles, timing, camera zoom and label position.
+     It starts with a plain outline, no drift, no music and no decorative card.
+     Supplied speech captions draw near the bottom throughout the cut. Adjust
+     that `k.captions` call to suit the brief and keep controls readable.
+4. **Fill in the settings from the transcript or shot ledger.** Times are seconds into the
    cut. Pick the hook, the keywords, the callouts or the scenes. That's the
    creative work; the template does the rest.
 5. **Check stills before the whole thing.** `motion` with `duration` set to
@@ -88,15 +96,17 @@ lands on.
 
 ## What makes it look professional
 
-These come from the style study; the templates already follow them.
+These are options from the style study, not requirements for every film.
+The brief takes precedence. A product screen can stay still while the viewer
+reads it, and a plain label can work better than a card.
 
 - **Change the picture every 1.2 to 2.5 s in a short.** Cuts, a new
   framing, b-roll, a callout: something. `cutPoints` places framings on
   word starts; alternate framings 1.0 / 1.16 / 1.06 / 1.24 hide jump cuts.
-- **Nothing flat.** Text sits on a scrim, a glass card or a backdrop, never
-  bare on busy footage. Light comes from gradients; grain and a vignette
-  finish every frame.
-- **The camera never stops.** Every shot drifts in a few per cent. On a
+- **Keep text legible.** Use a plain fill, scrim or card when footage needs
+  contrast. Choose border, radius, padding, shadow and opacity from the
+  brief. Gradients, glass, grain and vignettes are optional.
+- **Move the camera with a purpose.** Hold still for reading. On a
   screen recording, `look` scenes (`camera`'s `moves`) glide to what's
   being described and back, and `pip` keeps the webcam in frame.
 - **Reveal in a stagger.** Words about 60 ms apart; a list item at a time;
@@ -117,6 +127,34 @@ These come from the style study; the templates already follow them.
   the eye moving), leave it out.
 
 ## Writing your own pieces
+
+### Place highlights on the actual target
+
+Measure the target on a frame from the exact video passed to `motion`,
+after any earlier crop, resize or letterboxing. Record the frame size and
+target rectangle. Normalize x and width by frame width, y and height by
+frame height. Divide by the still's own size. A scaled still is fine; a
+different crop, aspect ratio or letterbox is not.
+
+When `camera` reframes the footage, project both corners through its
+`project(x, y)` each frame. Draw the box from those projected corners.
+Keep label placement separate so a larger label cannot shift the target.
+In the product-demo template, `target` uses fractions of the motion input;
+`labelAt` uses fractions of the output frame and stays fixed on screen.
+Override `style` on a callout to change its appearance without changing either.
+Padding and stroke width are design choices in output pixels.
+
+Projection follows the camera, not interface changes inside the footage.
+Split callouts at cuts, scrolls and moving controls; remeasure each interval
+or supply measured positions over time. Hide a target when it leaves the
+frame. Do not imply that a static rectangle is automatic tracking.
+
+Render entry, midpoint, exit and every movement boundary at the final size.
+Check the box against the control itself, including its edges, and watch the
+interval when playback is available. Recheck after changing the crop, timing
+or zoom. A box that looks right on one still can drift on the next.
+
+### Custom drawing
 
 - One page: a `<script type="module">` that imports kit.js by absolute path
   and ends with `page(draw, { audio })`. `page()` makes the canvas, draws the

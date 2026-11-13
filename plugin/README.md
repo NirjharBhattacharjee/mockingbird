@@ -11,9 +11,16 @@ The rendering happens on your Mac, with
 > make two shorts from ~/Movies/talk.mp4
 > edit ~/Movies/tutorial.mov for YouTube
 > cut this like ~/Downloads/reference.mp4: ~/Movies/vlog.mov
+> make a 60-second landscape product demo from ~/Movies/screen.mov
 ```
 
 ## What you get
+
+**Product demos**: a brief about the audience and visible result, a shot
+ledger for screen recordings with or without speech, a story cut and a
+10 to 15 second style sample before the full edit. The product-demo playbook
+uses the requested aspect ratio. Its review separates technical checks from
+pacing and sound checks that need playback.
 
 **Shorts**: 1080x1920 MP4s, 15–60 seconds each, with word-by-word captions
 (the spoken word in yellow), the speaker kept in frame, punch-in zooms over
@@ -67,6 +74,7 @@ so Claude doesn't see every tool twice.
 
 | | |
 |---|---|
+| `product-demo` | Screen recordings into product demos: audience, visible actions, readable framing, a short sample and evidence for claims |
 | `viral-short` | The shorts workflow, and the bar a short has to clear |
 | `long-form` | The long-form workflow: cut, opening, chapters, captions file, titles, thumbnails |
 | `hooks` | The first seconds of a short, the first minute of a long video |
