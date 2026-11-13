@@ -400,8 +400,15 @@ describe("resolveModel", () => {
 describe("Chrome", () => {
   test("is pinned per Mac, in ~/.mockingbird/bin, and not yet anywhere else", () => {
     const pin = pinnedChrome("/home", "darwin-arm64");
+    // join, so the expected path has the separators of the OS running the test.
     expect(pin?.program).toBe(
-      `/home/bin/chrome-headless-shell-${CHROME_VERSION}/chrome-headless-shell-mac-arm64/chrome-headless-shell`,
+      join(
+        "/home",
+        "bin",
+        `chrome-headless-shell-${CHROME_VERSION}`,
+        "chrome-headless-shell-mac-arm64",
+        "chrome-headless-shell",
+      ),
     );
     expect(pin?.zip.url).toContain(`/${CHROME_VERSION}/mac-arm64/`);
     expect(pin?.zip.sha256).toMatch(/^[0-9a-f]{64}$/);
