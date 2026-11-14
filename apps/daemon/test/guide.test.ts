@@ -5,6 +5,7 @@ import { handle } from "../src/mcp.ts";
 
 test("every skill in plugin/ and the reviewer are playbooks", () => {
   expect(playbooks().map((p) => p.topic)).toEqual([
+    "brief",
     "captions",
     "hooks",
     "long-form",
@@ -26,7 +27,7 @@ test("a playbook comes with its folder, without its front matter", () => {
 });
 
 test("an unknown topic names the ones there are", () => {
-  expect(() => guide("color")).toThrow('No playbook "color". Topics: captions, hooks,');
+  expect(() => guide("color")).toThrow('No playbook "color". Topics: brief, captions, hooks,');
 });
 
 test("the server tells every client about the playbooks on connect", async () => {
@@ -35,4 +36,5 @@ test("the server tells every client about the playbooks on connect", async () =>
   };
   expect(reply.result.instructions).toBe(INSTRUCTIONS);
   expect(INSTRUCTIONS).toContain('`guide("reviewer")`');
+  expect(INSTRUCTIONS).toContain('`guide("brief")`');
 });

@@ -20,7 +20,8 @@ after.
 
 ## Steps
 
-1. **Read the video.** `transcribe` the whole file. `frames` every 30
+1. **Read the video.** If **brief** already ran, start from its brief and
+   skip what it read. `transcribe` the whole file. `frames` every 30
    seconds, and look: is it a talking head, slides, a screen share with a
    webcam, more than one camera? Measure the source with `measure` and
    `scenes`, as style-match does.

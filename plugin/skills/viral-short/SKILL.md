@@ -27,6 +27,9 @@ instead.
   a plain captioned short and say why it isn't animated.
 - Use absolute paths. Renders land beside the source as `<name>-short-N.mp4`
   unless you pass `out`; mockingbird never overwrites a file.
+- If the user didn't say what kind of video this is or what they want from
+  it, run **brief** first. It reads the transcript, decides the format, and
+  sets the framing, pace, graphics and music this playbook leaves open.
 - If the user gave a reference video they want to match, run **style-match**
   on it first.
 
