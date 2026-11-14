@@ -158,8 +158,8 @@ transcription, WER and time from `bench:models`.
 
 - Runtime: Bun ≥ 1.2 — full stack table in
   [ARCHITECTURE.md §3](./docs/ARCHITECTURE.md#3-technology-stack).
-- Target platform: macOS on Apple Silicon for now; Linux and Windows are
-  pivot step 4 ([#134](https://github.com/NirjharBhattacharjee/mockingbird/issues/134)).
+- Platforms: macOS, Linux (x64, arm64) and Windows (x64). Development and
+  the measured numbers are on an Apple Silicon Mac; CI runs all three.
 - Data dir: `~/.mockingbird/` — `data.db` (schema:
   [DATABASE.md](./docs/DATABASE.md)), `models/`, `logs/` (install logs).
 - **License: MIT** ([LICENSE](./LICENSE)). Don't add per-file license

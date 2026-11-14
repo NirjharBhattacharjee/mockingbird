@@ -45,9 +45,9 @@ ls -l ~/.local/bin/mockingbird 2>/dev/null && ~/.local/bin/mockingbird status
 
 - `uname -sm` must print one of `Darwin arm64`, `Darwin x86_64`,
   `Linux x86_64` or `Linux aarch64`. Anything else isn't supported, so tell
-  the person and stop. Motion graphics need a Mac with Apple Silicon for
-  now, and on Linux captions become a subtitle track instead of being drawn
-  on the video. Tell the person before going on.
+  the person and stop. Chrome has no Linux ARM build, so there motion
+  graphics need a Chrome the person points `MOCKINGBIRD_CHROME` at, and
+  captions become a subtitle track. Tell the person before going on.
 - **On a Mac**, the `brew` line must print a path. If it only lists
   `/opt/homebrew/bin/brew` or `/usr/local/bin/brew`, Homebrew is installed
   but not on your PATH. Start each command below with
@@ -75,9 +75,7 @@ if (Test-Path $mb) { & $mb status }
 ```
 
 - The first line must print `AMD64`. Windows on ARM isn't supported yet, so
-  tell the person and stop. On Windows, mockingbird has no motion graphics
-  yet, and captions become a subtitle track instead of being drawn on the
-  video. Tell the person before going on.
+  tell the person and stop.
 - The list must include `winget`, or both `git` and `ffmpeg`. The installer
   uses winget to get whichever of Git and ffmpeg is missing, and Windows may
   ask the person to allow that. If neither is there, **(person)** ask them to
@@ -204,8 +202,8 @@ Windows:
 
 It exits 0 when everything mockingbird needs is there. A line starting `✗`
 is something missing, with a `fix:` line under it. Run that, or run step 2
-again. A line starting `!` is optional. On Linux and Windows `captions` and
-`motion` show `!`, and on an Intel Mac `motion` does, which is expected. The last lines list
+again. A line starting `!` is optional. `chrome` shows `!` on Linux ARM, where
+there's no Chrome build, which is expected. The last lines list
 the coding agents on this computer and whether each has mockingbird.
 `--json` gives the same as JSON.
 
@@ -246,8 +244,7 @@ then call the `status` tool to check.
 For Claude Code, the plugin is another way in: `/plugin marketplace add
 NirjharBhattacharjee/mockingbird`, then `/plugin install mockingbird@mockingbird`.
 It brings the skills too. Use one or the other, not both, or every tool shows
-up twice. The plugin's launcher is a shell script, so on Windows use
-`setup` instead.
+up twice.
 
 ## 5. Hand it over
 
