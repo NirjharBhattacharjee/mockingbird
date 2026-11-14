@@ -19,6 +19,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
+| 2026-11-14 | The speech is raised to −14 LUFS before music and effects are mixed under it (#212). On a −31 LUFS recording with a bed at volume 0.15, the music sat 2.2 dB under the speech and ducked 0.6 dB; now 16.6 dB under, ducking 12.9 dB. |
 | 2026-11-14 | Chrome for every user (#250): `install.sh` and `install.ps1` download the pinned Chrome and its fonts after the models, warning instead of failing when they can't; `setup` offers it when it's missing; `doctor` checks it instead of the Core Text and Core Graphics lines left from before #155 and #169. |
 | 2026-11-06 | `motion` swaps a page's `from "KIT"` for the kit's file URL in a copy beside the page (#213), so agents leave the templates' import alone: replacing it by hand hit a comment first, and a Windows path isn't a URL. |
 | 2026-11-06 | Windows (#202): the plugin starts there (`launch.cmd`, `launch.ps1`); filter graphs go to ffmpeg in a file, since one for 100 clips is longer than a Windows command line; off Apple Silicon the default Whisper model is `small` Q5_1, as `large-v3` took 2.6x real time on a 2-core CPU (MODELS.md §6). |
@@ -221,7 +222,10 @@ its length (`-t`), so only what's kept is decoded. Then a crop and scale per
 clip for framing and zoom (or two crops stacked for a split), `concat`,
 overlays for b-roll, then the captions and text as PNG overlays drawn by
 `packages/captions` in the pinned Chrome, and an audio graph that mixes music and
-effects under the speech with sidechain ducking. The sound is written
+effects under the speech with sidechain ducking. When there's anything to mix,
+the speech is measured first and raised to −14 LUFS before the mix (#212), so
+a sound's `volume` and the duck's threshold mean the same on a quiet
+recording as on a loud one. The sound is written
 uncompressed, then `level` brings it to −14 LUFS: it measures the file,
 measures again through a 4x-oversampled limiter at −2 dB (peaks stay under
 −1.5 dBTP after AAC), corrects the gain once, and copies the picture into

@@ -657,6 +657,19 @@ test("a motion script's sounds mix over the video's own, from input 1, cut to it
     "[s0][key0]sidechaincompress=threshold=0.04:ratio=8:attack=100:release=500[m0]",
     "[voice][m0]amix=inputs=2:duration=longest:normalize=0,atrim=duration=4[a]",
   ]);
+  // A quiet recording is raised before the duck keys on it (#212).
+  expect(
+    mixGraph([{ at: 0, volume: 0.15, loop: true, duck: true }], {
+      speech: true,
+      length: 4,
+      first: 1,
+      gain: 17.2,
+    }).slice(0, 2),
+  ).toEqual(["[speech]volume=17.20dB[lifted]", "[lifted]asplit=2[voice][key0]"]);
+  // Nothing mixed under it: the speech is left for `level`.
+  expect(mixGraph([], { speech: true, length: 4, first: 1, gain: 17.2 })).toEqual([
+    "[speech]atrim=duration=4[a]",
+  ]);
   // No sound at all: nothing to mix.
   expect(mixGraph([], { speech: false, length: 4, first: 1 })).toEqual([]);
 });

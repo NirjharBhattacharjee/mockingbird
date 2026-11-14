@@ -631,6 +631,7 @@ export function renderGraph(
     inserts = [],
     sounds = [],
     whole = false,
+    gain = 0,
   }: {
     audio: boolean;
     size?: string;
@@ -642,6 +643,8 @@ export function renderGraph(
     inserts?: Omit<Cue, "text">[];
     sounds?: Sound[];
     whole?: boolean;
+    /** The speech's gain in dB before sounds are mixed under it: see mixGraph. */
+    gain?: number;
   },
 ): string {
   const out = split ? "1080x1920" : size;
@@ -734,6 +737,7 @@ export function renderGraph(
       length,
       first: clips.length + overlays.length + inserts.length,
       whole,
+      gain,
     }),
   ].join(";");
 }
@@ -773,7 +777,8 @@ function chain(clips: Clip[], audio: boolean, fps: number): string {
 
 /**
  * The filter steps that mix `sounds` (inputs `first`, `first + 1`, …) under
- * the speech, labelled [speech] if there is any, cut to `length` seconds and
+ * the speech, labelled [speech] if there is any and raised by `gain` dB
+ * when there's something to mix under it, cut to `length` seconds and
  * left for `level` to bring to LUFS; a batch's, with `whole`, isn't cut. Ends
  * in [a] if there's any sound at all.
  */
@@ -784,12 +789,18 @@ export function mixGraph(
     length,
     first,
     whole = false,
-  }: { speech: boolean; length: number; first: number; whole?: boolean },
+    gain = 0,
+  }: { speech: boolean; length: number; first: number; whole?: boolean; gain?: number },
 ): string[] {
   const ducked = sounds.filter((s) => s.duck).length;
   const keyLabels = sounds.flatMap((s, i) => (s.duck ? [`[key${i}]`] : [])).join("");
-  const speech = ducked ? "[voice]" : "[speech]";
-  const keys = audio && ducked ? [`[speech]asplit=${ducked + 1}${speech}${keyLabels}`] : [];
+  // The speech brought to LUFS first (`gain`, from speechGain), so a sound's
+  // volume and the duck's threshold mean the same on any recording (#212).
+  const lift =
+    audio && sounds.length && gain ? [`[speech]volume=${gain.toFixed(2)}dB[lifted]`] : [];
+  const source = lift.length ? "[lifted]" : "[speech]";
+  const speech = ducked ? "[voice]" : source;
+  const keys = audio && ducked ? [`${source}asplit=${ducked + 1}${speech}${keyLabels}`] : [];
   const mixed = sounds.flatMap(({ at, volume, loop, duck }, i) => {
     // A looped sound plays to the end of the video; any other plays once.
     const trim = loop ? `atrim=duration=${Math.max(0, length - at)},` : "";
@@ -815,7 +826,7 @@ export function mixGraph(
           : `${tracks.join("")}amix=inputs=${tracks.length}:duration=longest:normalize=0,${level}`,
       ]
     : [];
-  return [...keys, ...mixed, ...sound];
+  return [...lift, ...keys, ...mixed, ...sound];
 }
 
 /**
@@ -1100,9 +1111,34 @@ async function loudness(file: string, filter = ""): Promise<number> {
   );
   const said = await new Response(proc.stderr).text();
   if ((await proc.exited) !== 0) throw new Error(`ffmpeg couldn't measure ${file}: ${said.trim()}`);
-  // The summary's "I:" line, the last one in the log.
+  return integrated(said);
+}
+
+/** The integrated loudness in an ebur128 log: its summary's "I:" line, the last one. */
+function integrated(said: string): number {
   const found = [...said.matchAll(/^\s*I:\s+(-?[\d.]+|-inf) LUFS/gm)].at(-1)?.[1];
   return found === undefined || found === "-inf" ? -Infinity : Number(found);
+}
+
+/**
+ * The gain in dB that brings the speech to LUFS before sounds are mixed
+ * under it (#212). Without it, a quiet recording (-31 LUFS is common) never
+ * reaches the duck's threshold, and music at a given volume sits far above
+ * it until `level` raises the whole mix. `input` is ffmpeg's inputs and
+ * `streams` the speech in them, joined in order. 0 for silence.
+ */
+async function speechGain(input: string[], streams: string[]): Promise<number> {
+  if (!streams.length) return 0;
+  const graph = `${streams.join("")}concat=n=${streams.length}:v=0:a=1,ebur128=framelog=quiet`;
+  const proc = Bun.spawn(
+    ["ffmpeg", "-nostdin", "-nostats", ...input, "-filter_complex", graph, "-f", "null", "-"],
+    { stderr: "pipe" },
+  );
+  const said = await new Response(proc.stderr).text();
+  if ((await proc.exited) !== 0)
+    throw new Error(`ffmpeg couldn't measure the speech: ${said.trim()}`);
+  const lufs = integrated(said);
+  return lufs > -70 ? Math.min(MAX_GAIN, LUFS - lufs) : 0;
 }
 
 /**
@@ -1274,12 +1310,14 @@ async function copyRender(
     fps,
     sounds,
     probes,
+    gain,
   }: {
     audio: boolean;
     size: string;
     fps: number;
     sounds: (Sound & { path: string })[];
     probes: Map<string, Awaited<ReturnType<typeof probe>>>;
+    gain: number;
   },
 ): Promise<boolean> {
   // ponytail: copies from the first source only, so its parameter sets are the only 0s; one per source if mixed edits need it.
@@ -1386,7 +1424,7 @@ async function copyRender(
     const length = cut.reduce((t, c) => t + c.to - c.from, 0);
     const graph = [
       ...speech,
-      ...mixGraph(sounds, { speech: audio, length, first: cut.length }),
+      ...mixGraph(sounds, { speech: audio, length, first: cut.length, gain }),
     ].join(";");
     await ffmpeg(
       [
@@ -1659,9 +1697,10 @@ async function segmented(
     target = outputFor(named, out, false, kind);
     if (audio || sounds.length) {
       const unlevelled = join(dir, "unlevelled.mkv");
+      const gain = audio && sounds.length ? await speechGain(["-i", joined], ["[0:a]"]) : 0;
       const graph = [
         ...(audio ? ["[0:a]anull[speech]"] : []),
-        ...mixGraph(sounds, { speech: audio, length, first: 1 }),
+        ...mixGraph(sounds, { speech: audio, length, first: 1, gain }),
       ].join(";");
       await ffmpeg(
         [
@@ -1857,6 +1896,13 @@ async function render(
     target = outputFor(named, out, sidecar, kind, soundOnly ? ".m4a" : ".mp4");
     const srt = text && !images ? join(dir, CAPTIONS) : undefined;
     if (srt) writeFileSync(srt, `${text}\n`);
+    const gain =
+      audio && sounds.length
+        ? await speechGain(
+            seekClips(path, clips),
+            shaped.flatMap((c, i) => (c.silent ? [] : [`[${i}:a]`])),
+          )
+        : 0;
     const graph = renderGraph(shaped, {
       audio,
       size: frameSize,
@@ -1870,6 +1916,7 @@ async function render(
       ],
       inserts: inserts.map(({ from, to }) => ({ start: from, end: to })),
       sounds,
+      gain,
     });
     const extras = [
       ...(images ?? []).flatMap((image) => ["-i", image]),
@@ -1894,6 +1941,7 @@ async function render(
         fps: rate,
         sounds,
         probes,
+        gain,
       }).catch(() => false));
     if (!copied) {
       const proc = Bun.spawn(
@@ -2154,9 +2202,10 @@ async function motion(
       work = mkdtempSync(join(dirname(target), ".mockingbird-mix-"));
       const mixing = join(work, "mix.mkv");
       const levelled = join(work, "levelled.mp4");
+      const gain = audio ? await speechGain(["-i", target], ["[0:a]"]) : 0;
       const graph = [
         ...(audio ? ["[0:a]anull[speech]"] : []),
-        ...mixGraph(sounds, { speech: audio, length: frames / fps, first: 1 }),
+        ...mixGraph(sounds, { speech: audio, length: frames / fps, first: 1, gain }),
       ].join(";");
       const mix = Bun.spawn(
         [
