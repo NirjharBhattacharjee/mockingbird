@@ -72,17 +72,9 @@ On Windows, run this in PowerShell:
 irm https://github.com/NirjharBhattacharjee/mockingbird/releases/latest/download/install.ps1 | iex
 ```
 
-Then download the headless Chrome that captions and motion graphics are
-drawn in (about 100 MB, with the fonts they use). The terminal you installed
-from only finds `mockingbird` once you open a new one, so there use
-`~/.local/bin/mockingbird` on a Mac or Linux, or
-`~\.mockingbird\bin\mockingbird.cmd` on Windows:
-
-```sh
-mockingbird models pull chrome
-```
-
-There's no Chrome build for Linux on ARM yet. Skip it there, and set
+The installer also downloads the headless Chrome that captions and motion
+graphics are drawn in (about 150 MB, with the fonts they use). There's no
+Chrome build for Linux on ARM yet, so there it warns and carries on: set
 `MOCKINGBIRD_CHROME` to a Chrome that runs, for motion graphics. Captions
 fall back to ffmpeg without one.
 

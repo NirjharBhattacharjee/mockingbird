@@ -18,6 +18,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
+| 2026-11-14 | Chrome for every user (#250): `install.sh` and `install.ps1` download the pinned Chrome and its fonts after the models, warning instead of failing when they can't; `setup` offers it when it's missing; `doctor` checks it instead of the Core Text and Core Graphics lines left from before #155 and #169. |
 | 2026-11-06 | `motion` swaps a page's `from "KIT"` for the kit's file URL in a copy beside the page (#213), so agents leave the templates' import alone: replacing it by hand hit a comment first, and a Windows path isn't a URL. |
 | 2026-11-06 | Windows (#202): the plugin starts there (`launch.cmd`, `launch.ps1`); filter graphs go to ffmpeg in a file, since one for 100 clips is longer than a Windows command line; off Apple Silicon the default Whisper model is `small` Q5_1, as `large-v3` took 2.6x real time on a 2-core CPU (MODELS.md §6). |
 | 2026-11-06 | Segment cache (#165): a project renders from segments of about 10 s kept in `~/.mockingbird/cache/segments/`, each keyed by its clips, what's drawn over it, the look and the engine, so an edit renders again only the segments it touches. On the v2 edit with four texts, changing one text took 16.4 s instead of 72.8 to 78.2 s. |
@@ -106,8 +107,9 @@ Constraints, not preferences. Check any proposed change against them.
    page in the browser.
 3. **Local-first, no exceptions.** No network call happens in normal
    operation. The only network activity is a download the user asks for:
-   `mockingbird models pull`, or `mockingbird setup`, which runs the same
-   download and `brew install` after asking. See [§9](#9-everything-is-local).
+   `mockingbird models pull` (and `models pull chrome`), the installer, which
+   runs both, or `mockingbird setup`, which runs the same downloads and
+   `brew install` after asking. See [§9](#9-everything-is-local).
 4. **Headless-testable.** Every tool runs and is tested with no GUI, no mic
    and no permission prompt: feed it a file, assert on the output.
 5. **Degrade, don't break.** A missing piece narrows what works instead of
@@ -393,7 +395,9 @@ MCP server is its own short-lived process.
   the runner starts under `sandbox-exec` with `deny network*` on macOS, and
   in a network namespace on Linux where the kernel allows one.
 
-Pivot step 3's `mockingbird setup` will offer the same Chrome download.
+The installers run `models pull chrome` after `models pull`, and
+`mockingbird setup` offers it when Chrome is missing; either way a failed
+Chrome download only warns, since transcribe and render work without it.
 
 ## 10. Repository layout
 

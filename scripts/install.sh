@@ -350,6 +350,22 @@ main() {
   await models "$models_pid" command "$cli_pid"
   done_ "models"
 
+  # The headless Chrome that captions and motion graphics draw in, and its
+  # fonts. Optional: without it captions are plain subtitles, so a failed
+  # download warns instead of stopping the install.
+  local chrome_failed="$log_dir/install-chrome.failed"
+  rm -f "$chrome_failed"
+  WORKING="Chrome"
+  (STEP=chrome && cd "$dir" && export MOCKINGBIRD_PROGRESS="$progress" &&
+    { quietly bun apps/daemon/src/cli.ts models pull chrome || touch "$chrome_failed"; }) &
+  await chrome $!
+  if [ -e "$chrome_failed" ]; then
+    rm -f "$chrome_failed"
+    printf '    \033[1;33m!\033[0m Chrome: not downloaded (%s); captions are plain subtitles until `mockingbird models pull chrome` works\n' "$log_dir/install-chrome.log"
+  else
+    done_ "Chrome"
+  fi
+
   # The command is the Go binary from apps/cli, for the release this clone is
   # on. Without a binary, the shim runs the engine's TypeScript CLI, as before.
   local bin_dir="$HOME/.local/bin"

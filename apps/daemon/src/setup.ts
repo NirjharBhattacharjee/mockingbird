@@ -9,7 +9,7 @@ import { basename, join } from "node:path";
 import { type Agent, agents } from "./agents.ts";
 import { readDictionary } from "./dictionary.ts";
 import { playbooks } from "./guide.ts";
-import { MODEL_FILES } from "./models.ts";
+import { findChrome, MODEL_FILES, pinnedChrome } from "./models.ts";
 import { ASR_MODEL_SETTING, findAsrModel, mockingbirdHome, savedSetting } from "./runtime.ts";
 import { UsageError } from "./transcribe.ts";
 
@@ -24,16 +24,17 @@ export type SetupDeps = {
   ask?: (question: string, fallback: boolean) => boolean;
   /** `models pull`, with its progress shown. */
   pull?: () => Promise<number>;
-  platform?: string;
-  arch?: string;
+  /** `models pull chrome`, with its progress shown. */
+  pullChrome?: () => Promise<number>;
   env?: Record<string, string | undefined>;
 };
 
 export const SETUP_USAGE = `usage: mockingbird setup [--yes]
 
 Installs what's missing (ffmpeg and whisper-cpp with Homebrew, the speech
-models), then adds mockingbird to the coding agents on this computer. It asks
-before each step; --yes answers yes to all of them.`;
+models, the headless Chrome that captions and motion draw in), then adds
+mockingbird to the coding agents on this computer. It asks before each step;
+--yes answers yes to all of them.`;
 
 export const DOCTOR_USAGE = `usage: mockingbird doctor [--json]
 
@@ -182,20 +183,14 @@ export function checks(deps: SetupDeps = {}): Check[] {
     detail: words,
     fix: `move ${join(mb, "data.db")} aside; names are then spelled as heard`,
   });
-  const mac = (deps.platform ?? process.platform) === "darwin";
+  // Captions, `motion` and `music` all draw in the pinned Chrome (#145, #155, #170).
+  const chrome = findChrome(deps.env ?? process.env, mb);
   list.push({
-    name: "captions",
+    name: "chrome",
     needed: false,
-    ok: mac,
-    detail: mac ? "drawn with Core Text" : "need macOS; they become a subtitle track",
-  });
-  // packages/motion's canvas needs Apple silicon.
-  const appleSilicon = mac && (deps.arch ?? process.arch) === "arm64";
-  list.push({
-    name: "motion",
-    needed: false,
-    ok: appleSilicon,
-    detail: appleSilicon ? "drawn with Core Graphics" : "needs a Mac with Apple silicon",
+    ok: !!chrome,
+    detail: chrome ?? "missing: captions become plain subtitles, and motion and music can't run",
+    fix: "`mockingbird models pull chrome`",
   });
   const books = playbooks().length;
   list.push({
@@ -292,6 +287,23 @@ export async function setup(args: string[], deps: SetupDeps = {}): Promise<numbe
     } else {
       // Agents can still be added: the tools that don't transcribe work without the models.
       log("Skipped the models: transcribe and captions need them (`mockingbird models pull`).");
+    }
+  }
+
+  // Not needed to transcribe or cut, so a no or a failed download carries on.
+  if (!findChrome(deps.env ?? process.env, mb) && pinnedChrome(mb)) {
+    if (
+      ask(
+        "Download the headless Chrome that captions and motion graphics draw in, and its fonts (about 150 MB), from storage.googleapis.com and raw.githubusercontent.com? [Y/n]",
+      )
+    ) {
+      if ((await (deps.pullChrome ?? (() => Promise.resolve(1)))()) !== 0) {
+        log("Chrome didn't download: run `mockingbird models pull chrome` to try again.");
+      }
+    } else {
+      log(
+        "Skipped Chrome: captions become plain subtitles, and motion and music can't run (`mockingbird models pull chrome`).",
+      );
     }
   }
 
