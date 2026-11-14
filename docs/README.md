@@ -8,25 +8,37 @@ every command, troubleshooting and privacy. After it, the
 
 ## Quick start
 
-You need a Mac with Apple Silicon, [Homebrew](https://brew.sh), about 3 GB of
-free space, and an AI agent that speaks MCP (Claude Code, Codex, Cursor,
-Gemini CLI, Claude Desktop, …). Without Homebrew, the installer offers to
-install it, which needs an administrator account.
+You need a Mac, Linux (x64 or ARM) or Windows (x64), about 3 GB of free
+space, and an AI agent that speaks MCP (Claude Code, Codex, Cursor, Gemini
+CLI, Claude Desktop, …). On a Mac the installer uses
+[Homebrew](https://brew.sh), and offers to install it if it's missing, which
+needs an administrator account.
 
 **1. Install**
+
+On a Mac or Linux:
 
 ```sh
 curl -fsSL https://github.com/NirjharBhattacharjee/mockingbird/releases/latest/download/install.sh | bash
 ```
 
-This installs Bun, whisper-cpp and ffmpeg with Homebrew, clones mockingbird
-into `~/mockingbird` at the latest release, and runs `mockingbird models pull`
-for the speech models (about 1.1 GB on an Apple Silicon Mac, 0.2 GB
-elsewhere, each checked against its sha256). It
-skips anything you already have, so it's safe to run again.
+On Windows, in PowerShell:
+
+```powershell
+irm https://github.com/NirjharBhattacharjee/mockingbird/releases/latest/download/install.ps1 | iex
+```
+
+On a Mac this installs Bun, whisper-cpp and ffmpeg with Homebrew. On Linux,
+git and ffmpeg come from your package manager (it tells you the command if
+one is missing), and Bun and whisper-server are pinned downloads. On
+Windows, winget gets Git and ffmpeg. Then it clones mockingbird into
+`~/mockingbird` at the latest release, and downloads the speech models
+(about 1.1 GB on an Apple Silicon Mac, 0.2 GB elsewhere) and the headless
+Chrome that captions and motion graphics draw in, each checked against its
+sha256. It skips anything you already have, so it's safe to run again.
 [Read the script](../scripts/install.sh) first if you like.
 
-Or with Homebrew:
+Or with Homebrew on an Apple Silicon Mac:
 
 ```sh
 brew install nirjharbhattacharjee/mockingbird/mockingbird

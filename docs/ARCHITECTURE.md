@@ -1,7 +1,8 @@
 # mockingbird — architecture
 
 > **Status:** pivot step 1 done (#135): dictation is gone, and mockingbird is a
-> video editing engine for AI agents, served over MCP. macOS only so far. The
+> video editing engine for AI agents, served over MCP, on macOS, Linux and
+> Windows. The
 > plan for the rest is [#134](https://github.com/NirjharBhattacharjee/mockingbird/issues/134).
 > **Owner:** bhattacharjeenirjhar26@gmail.com
 > **Last updated:** 2026-11-04
