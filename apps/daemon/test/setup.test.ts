@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { agents, codexMentions } from "../src/agents.ts";
 import { PLUGIN } from "../src/guide.ts";
+import { pinnedChrome } from "../src/models.ts";
 import { DEFAULT_ASR_MODEL } from "../src/runtime.ts";
 import { checks, commandPath, doctor, setup } from "../src/setup.ts";
 
@@ -206,10 +207,12 @@ test("setup installs missing tools and models after asking, then adds the agents
   const ran: string[] = [];
   const asked: string[] = [];
   let pulled = false;
+  let chromePulled = false;
   const tools = new Set(["brew"]);
   const code = await setup([], {
     home: h,
     mbHome: mb,
+    env: {},
     which: (n) => (tools.has(n) ? `/opt/homebrew/bin/${n}` : null),
     run: (argv) => {
       ran.push(argv.join(" "));
@@ -227,6 +230,10 @@ test("setup installs missing tools and models after asking, then adds the agents
       writeFileSync(join(mb, "models", DEFAULT_ASR_MODEL), "");
       return 0;
     },
+    pullChrome: async () => {
+      chromePulled = true;
+      return 0;
+    },
     log: () => {},
   });
   expect(asked[0]).toBe("Install ffmpeg and whisper-cpp with Homebrew? [Y/n]");
@@ -234,7 +241,11 @@ test("setup installs missing tools and models after asking, then adds the agents
     // 1.1 GB on an Apple Silicon Mac, 0.2 GB where the default is small (#202).
     /^Download the speech models \(up to [\d.]+ GB\) from huggingface\.co and github\.com\?/,
   );
-  expect(asked[2]).toBe("Add mockingbird to Cursor, Gemini CLI, VS Code, Codex? [Y/n]");
+  // Chrome is offered wherever there's a pinned build for it.
+  const chromeAsked = !!pinnedChrome(mb);
+  if (chromeAsked) expect(asked[2]).toMatch(/^Download the headless Chrome .* \[Y\/n\]$/);
+  expect(chromePulled).toBe(chromeAsked);
+  expect(asked.at(-1)).toBe("Add mockingbird to Cursor, Gemini CLI, VS Code, Codex? [Y/n]");
   expect(ran).toContain("brew install ffmpeg whisper-cpp");
   expect(pulled).toBe(true);
   expect(existsSync(join(h, ".gemini", "settings.json"))).toBe(true);
@@ -257,6 +268,21 @@ test("a no to the download still adds the agents, and setup exits 1 for the miss
   });
   expect(code).toBe(1);
   expect(existsSync(join(h, ".cursor", "mcp.json"))).toBe(true);
+});
+
+test("doctor checks Chrome, which MOCKINGBIRD_CHROME can stand in for", () => {
+  const h = home();
+  const chrome = (env: Record<string, string>) =>
+    checks({ home: h, mbHome: join(h, "mb"), which: none, env }).find((c) => c.name === "chrome");
+  expect(chrome({})).toMatchObject({
+    ok: false,
+    needed: false,
+    fix: "`mockingbird models pull chrome`",
+  });
+  expect(chrome({ MOCKINGBIRD_CHROME: process.execPath })).toMatchObject({
+    ok: true,
+    detail: process.execPath,
+  });
 });
 
 test("an empty or cut-short pinned speech model counts as damaged", () => {

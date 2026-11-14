@@ -121,6 +121,11 @@ try {
   # The models, and whisper-server: pinned and sha256-checked (apps/daemon/src/models.ts).
   Run $bun apps/daemon/src/cli.ts models pull
   Done "models and whisper-server"
+  # The headless Chrome that captions and motion graphics draw in, and its
+  # fonts. Optional, so a failed download warns instead of stopping the install.
+  & $bun apps/daemon/src/cli.ts models pull chrome
+  if ($LASTEXITCODE -eq 0) { Done "Chrome" }
+  else { Write-Host "    ! Chrome: not downloaded; captions are plain subtitles until 'mockingbird models pull chrome' works" -ForegroundColor Yellow }
 } finally {
   Pop-Location
 }
