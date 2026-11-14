@@ -3,7 +3,7 @@
 > This file governs every agent working in this repository — human-invoked
 > or automated, including the skills in [`agent-skills/`](./agent-skills)
 > (`new-feature`, `code-structure`, `evidence-driven-testing`,
-> `before-and-after`, `greploop`/`greploop-apps`, `unslop`). It's the
+> `before-and-after`, `coderabbit-loop`, `ponytail`, `unslop`). It's the
 > repo-specific fill-in that collection's own template asks for.
 > **Read [docs/PHILOSOPHY.md](./docs/PHILOSOPHY.md) and
 > [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) first**, plus
@@ -31,14 +31,17 @@
    measured: render time, loudness, WER, a frame from the output, or the
    tool's output before and after, not a claim. A change to what a render
    looks like gets stills from the real output.
-4. **Ship — `/before-and-after`, then `/greploop`.** Use `before-and-after`
-   for a change to what a render looks like (two stills); otherwise ship
-   with measured before/after numbers in the PR description. Run `/greploop` (or
-   `/greploop-apps` for huge PRs) until Greptile reports 5/5 with zero
-   unresolved comments — but read [§Hard invariants](#hard-invariants)
-   first: greploop fixes whatever Greptile flags with no awareness of this
-   repo's constraints, so the fixing agent (you) is the actual check
-   against a Greptile suggestion crossing one of them.
+4. **Ship — `/before-and-after`, then `/coderabbit-loop`.** Use
+   `before-and-after` for a change to what a render looks like (two
+   stills); otherwise ship with measured before/after numbers in the PR
+   description. Run `/coderabbit-loop` until CodeRabbit finishes a review of
+   the latest commit with zero actionable comments and zero unresolved
+   threads. Read [§Hard invariants](#hard-invariants) first: CodeRabbit
+   flags things with no awareness of this repo's constraints, so the fixing
+   agent (you) is the actual check against a CodeRabbit suggestion crossing
+   one of them. Every push starts a review and the free plan allows about
+   one an hour across the account, so don't post `@coderabbitai review`
+   after a push.
 
 ## Writing for humans
 
@@ -49,11 +52,11 @@ didn't touch.
 
 ## Hard invariants
 
-Non-negotiable. If a Greptile comment, a feature request, or your own
+Non-negotiable. If a CodeRabbit comment, a feature request, or your own
 judgment call would cross one of these, **stop and flag it — do not
 silently implement it**, regardless of how reasonable the suggestion looks
 in isolation. This list exists specifically so automated loops like
-greploop have something to check a "fix" against.
+coderabbit-loop have something to check a "fix" against.
 
 **Product / philosophy** — from [PHILOSOPHY.md §3](./docs/PHILOSOPHY.md#3-non-negotiables):
 
@@ -127,7 +130,8 @@ greploop have something to check a "fix" against.
    branch, `--force-with-lease`).
 6. Open the PR — body explains what changed, how it was tested, before/after
    proof, and risks/follow-up. Run title and body through `/unslop`.
-7. Run `/greploop` (or `/greploop-apps`) until 5/5, zero unresolved comments.
+7. Run `/coderabbit-loop` until CodeRabbit's latest review has zero
+   actionable comments and zero unresolved threads.
 8. End by presenting the PR URL.
 
 Do not merge the PR unless explicitly instructed. Keep the worktree until
@@ -212,6 +216,6 @@ To move to a newer version of the skills, run
 |---|---|
 | `new-feature`, `code-structure`, `evidence-driven-testing` | the skills repo itself |
 | `before-and-after` | vendored there from `vercel-labs/before-and-after` (PolyForm Shield 1.0.0) |
-| `greploop` | vendored there from `greptileai/skills` (MIT) |
-| `greploop-apps` | local variant there, for huge PRs (MIT) |
+| `coderabbit-loop` | rewritten there for CodeRabbit from `greptileai/skills`' greploop (MIT) |
+| `ponytail` | vendored there from `DietrichGebert/ponytail` (MIT) |
 | `unslop` | vendored there from `cursor/plugins (pstack)` (MIT) |
