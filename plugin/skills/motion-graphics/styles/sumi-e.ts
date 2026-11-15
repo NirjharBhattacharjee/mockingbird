@@ -29,7 +29,8 @@ const INK: Record<Tone, string> = {
   bad: SEAL,
   muted: "#8A857B",
 };
-const SERIF = '"Cormorant Garamond", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif';
+const SERIF =
+  '"Cormorant Garamond", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);
@@ -49,7 +50,14 @@ function make(ctx: any, t: number, m: any): Look {
       c.fillRect(0, 0, W, H);
       for (let i = 0; i < 40; i++) {
         const r = (80 + hash(i * 5.1) * 260) * u;
-        const gr = c.createRadialGradient(hash(i) * W, hash(i + 2) * H, 0, hash(i) * W, hash(i + 2) * H, r);
+        const gr = c.createRadialGradient(
+          hash(i) * W,
+          hash(i + 2) * H,
+          0,
+          hash(i) * W,
+          hash(i + 2) * H,
+          r,
+        );
         gr.addColorStop(0, `rgba(160,140,105,${0.05 + hash(i + 4) * 0.05})`);
         gr.addColorStop(1, "rgba(160,140,105,0)");
         c.fillStyle = gr;
@@ -64,7 +72,12 @@ function make(ctx: any, t: number, m: any): Look {
         c.strokeStyle = `rgba(120,100,70,${0.06 + hash(i) * 0.08})`;
         c.beginPath();
         c.moveTo(x, y);
-        c.quadraticCurveTo(x + Math.cos(a) * l * 0.5 + 3 * u, y + Math.sin(a) * l * 0.5, x + Math.cos(a) * l, y + Math.sin(a) * l);
+        c.quadraticCurveTo(
+          x + Math.cos(a) * l * 0.5 + 3 * u,
+          y + Math.sin(a) * l * 0.5,
+          x + Math.cos(a) * l,
+          y + Math.sin(a) * l,
+        );
         c.stroke();
       }
       // Two ranges of misty hills, darkest at the ridge and fading downward.
@@ -77,7 +90,8 @@ function make(ctx: any, t: number, m: any): Look {
         const pts: Pt[] = [];
         for (let i = 0; i <= 40; i++) {
           const x = (i / 40) * W;
-          const ridge = Math.sin(i * 0.35 + s) * 0.5 + Math.sin(i * 0.9 + s * 2) * 0.3 + hash(i + s) * 0.2;
+          const ridge =
+            Math.sin(i * 0.35 + s) * 0.5 + Math.sin(i * 0.9 + s * 2) * 0.3 + hash(i + s) * 0.2;
           pts.push([x, H * (base - amp * Math.max(0, ridge))]);
         }
         trace(c, [...pts, [W, H], [0, H]], true);
@@ -97,12 +111,15 @@ function make(ctx: any, t: number, m: any): Look {
    * One loaded brush stroke laid down from `at` over `dur`: it presses in, thins,
    * and near its end splits into dry bristle tracks.
    */
-  function brush(points: Pt[], { at = 0, dur = 0.5, tone = "ink" as Tone, width = 10, dry = 0.35 } = {}) {
+  function brush(
+    points: Pt[],
+    { at = 0, dur = 0.5, tone = "ink" as Tone, width = 10, dry = 0.35 } = {},
+  ) {
     seed += 1;
     const p = progress(t, at, dur);
     if (p <= 0) return;
     const ease = 1 - (1 - p) ** 2;
-    const rough = roughen(points, 0.8 * u, seed * 7.3);
+    const rough = roughen(densify(points, 6 * u), 0.8 * u, seed * 7.3);
     const { points: drawn } = along(rough, ease);
     const n = rough.length - 1;
     const col = INK[tone];
@@ -114,7 +131,7 @@ function make(ctx: any, t: number, m: any): Look {
       const a = drawn[i - 1] as Pt;
       const b = drawn[i] as Pt;
       const press = Math.min(1, s * 6);
-      const w = width * u * (0.55 + 0.45 * press) * (1 - 0.45 * s);
+      const w = width * 1.5 * u * (0.55 + 0.45 * press) * (1 - 0.45 * s);
       const nx = -(b[1] - a[1]);
       const ny = b[0] - a[0];
       const nl = Math.hypot(nx, ny) || 1;
@@ -144,7 +161,14 @@ function make(ctx: any, t: number, m: any): Look {
   }
 
   /** A soft grey wash that blooms out from its centre. */
-  function wash(cx: number, cy: number, r: number, at: number, tone: Tone = "ink", strength = 0.18) {
+  function wash(
+    cx: number,
+    cy: number,
+    r: number,
+    at: number,
+    tone: Tone = "ink",
+    strength = 0.18,
+  ) {
     const p = progress(t, at, 0.8);
     if (p <= 0) return;
     const rr = r * (0.4 + 0.6 * (1 - (1 - p) ** 3));
@@ -159,7 +183,13 @@ function make(ctx: any, t: number, m: any): Look {
   }
 
   /** Serif writing that soaks into the paper: revealed left to right, blurred then sharp. */
-  function write(s: string, x: number, y: number, size: number, o: { at?: number; dur?: number; tone?: Tone; align?: Align; italic?: boolean } = {}) {
+  function write(
+    s: string,
+    x: number,
+    y: number,
+    size: number,
+    o: { at?: number; dur?: number; tone?: Tone; align?: Align; italic?: boolean } = {},
+  ) {
     const { at = 0, tone = "ink", align = "left", italic = true } = o;
     const dur = o.dur ?? 0.04 * s.length + 0.2;
     const p = progress(t, at, dur);
@@ -230,20 +260,31 @@ function make(ctx: any, t: number, m: any): Look {
       ctx.restore();
     },
     title(s, o = {}) {
-      const { x = 0.04, y = 0.09, size = 54, at = 0, tone = "ink", align = "left" } = o;
+      const { x = 0.04, y = 0.09, size = 64, at = 0, tone = "ink", align = "left" } = o;
       const dur = o.dur ?? 0.04 * s.length + 0.2;
       const r = write(s, X(x), Y(y), size, { at, dur, tone, align });
       if (r) seal(r.left + r.w + size * 0.5 * u, Y(y) - size * 0.1 * u, size * 0.42 * u, at + dur);
     },
     label(s, x, y, o = {}) {
-      write(s, X(x), Y(y), o.size ?? 30, { at: o.at ?? 0, dur: o.dur, tone: o.tone ?? "ink", align: o.align ?? "center" });
+      write(s, X(x), Y(y), o.size ?? 36, {
+        at: o.at ?? 0,
+        dur: o.dur,
+        tone: o.tone ?? "ink",
+        align: o.align ?? "center",
+      });
     },
     node(x, y, r, o = {}) {
       const { at = 0, dur = 0.35, tone = "ink" } = o;
       const R = r * u;
       wash(X(x), Y(y), R * 1.1, at + dur * 0.5, tone, 0.12);
       const start = -Math.PI * 0.6 + hash(x * 9 + y * 7) * 0.8;
-      brush(ellipse(X(x), Y(y), R, R * 0.96, 30, start, 0.9), { at, dur, tone, width: Math.max(4, r * 0.32), dry: 0.3 });
+      brush(ellipse(X(x), Y(y), R, R * 0.96, 30, start, 0.9), {
+        at,
+        dur,
+        tone,
+        width: Math.max(4, r * 0.32),
+        dry: 0.3,
+      });
     },
     box(x, y, w, h, o = {}) {
       const { at = 0, dur = 0.6, tone = "ink" } = o;
@@ -254,10 +295,34 @@ function make(ctx: any, t: number, m: any): Look {
         ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
       }
       const step = dur / 4;
-      brush([[x0, y0], [x1, y0 + 2 * u]], { at, dur: step, tone, width: 7 });
-      brush([[x1, y0], [x1 - 2 * u, y1]], { at: at + step, dur: step, tone, width: 7 });
-      brush([[x1, y1], [x0, y1 - u]], { at: at + step * 2, dur: step, tone, width: 7 });
-      brush([[x0, y1], [x0 + u, y0]], { at: at + step * 3, dur: step, tone, width: 7 });
+      brush(
+        [
+          [x0, y0],
+          [x1, y0 + 2 * u],
+        ],
+        { at, dur: step, tone, width: 7 },
+      );
+      brush(
+        [
+          [x1, y0],
+          [x1 - 2 * u, y1],
+        ],
+        { at: at + step, dur: step, tone, width: 7 },
+      );
+      brush(
+        [
+          [x1, y1],
+          [x0, y1 - u],
+        ],
+        { at: at + step * 2, dur: step, tone, width: 7 },
+      );
+      brush(
+        [
+          [x0, y1],
+          [x0 + u, y0],
+        ],
+        { at: at + step * 3, dur: step, tone, width: 7 },
+      );
     },
     link(x1, y1, x2, y2, o = {}) {
       const { at = 0, dur = 0.4, bend = 0, head = true, tone = "ink" } = o;
@@ -269,8 +334,20 @@ function make(ctx: any, t: number, m: any): Look {
       const prev = pts.at(-4) as Pt;
       const a = Math.atan2(end[1] - prev[1], end[0] - prev[0]);
       const s = 18 * u;
-      brush([[end[0] - Math.cos(a - 0.55) * s, end[1] - Math.sin(a - 0.55) * s], end], { at: at + dur, dur: 0.1, tone, width: 4, dry: 0.2 });
-      brush([end, [end[0] - Math.cos(a + 0.55) * s, end[1] - Math.sin(a + 0.55) * s]], { at: at + dur + 0.08, dur: 0.1, tone, width: 4, dry: 0.5 });
+      brush([[end[0] - Math.cos(a - 0.55) * s, end[1] - Math.sin(a - 0.55) * s], end], {
+        at: at + dur,
+        dur: 0.1,
+        tone,
+        width: 4,
+        dry: 0.2,
+      });
+      brush([end, [end[0] - Math.cos(a + 0.55) * s, end[1] - Math.sin(a + 0.55) * s]], {
+        at: at + dur + 0.08,
+        dur: 0.1,
+        tone,
+        width: 4,
+        dry: 0.5,
+      });
     },
     store(x, y, w, h, o = {}) {
       // A tall ink jar: a wash body, then the outline in a few strokes.
@@ -279,15 +356,51 @@ function make(ctx: any, t: number, m: any): Look {
       const rx = X(w) / 2;
       const top = Y(y) + rx * 0.25;
       const bottom = Y(y + h) - rx * 0.25;
-      wash(cx, (top + bottom) / 2, Math.max(rx, (bottom - top) / 2) * 1.05, at + dur * 0.3, tone, 0.14);
+      wash(
+        cx,
+        (top + bottom) / 2,
+        Math.max(rx, (bottom - top) / 2) * 1.05,
+        at + dur * 0.3,
+        tone,
+        0.14,
+      );
       const step = dur / 4;
-      brush(ellipse(cx, top, rx, rx * 0.25, 28, Math.PI, 1), { at, dur: step, tone, width: 5, dry: 0.2 });
-      brush([[cx - rx, top], [cx - rx * 0.96, bottom]], { at: at + step, dur: step, tone, width: 8 });
-      brush(ellipse(cx, bottom, rx, rx * 0.25, 20, Math.PI, -0.5), { at: at + step * 2, dur: step, tone, width: 7 });
-      brush([[cx + rx, bottom], [cx + rx * 0.98, top]], { at: at + step * 3, dur: step, tone, width: 7, dry: 0.5 });
+      brush(ellipse(cx, top, rx, rx * 0.25, 28, Math.PI, 1), {
+        at,
+        dur: step,
+        tone,
+        width: 5,
+        dry: 0.2,
+      });
+      brush(
+        [
+          [cx - rx, top],
+          [cx - rx * 0.96, bottom],
+        ],
+        { at: at + step, dur: step, tone, width: 8 },
+      );
+      brush(ellipse(cx, bottom, rx, rx * 0.25, 20, Math.PI, -0.5), {
+        at: at + step * 2,
+        dur: step,
+        tone,
+        width: 7,
+      });
+      brush(
+        [
+          [cx + rx, bottom],
+          [cx + rx * 0.98, top],
+        ],
+        { at: at + step * 3, dur: step, tone, width: 7, dry: 0.5 },
+      );
       for (const f of [0.38, 0.66]) {
         const yy = lerpN(top, bottom, f);
-        brush(ellipse(cx, yy, rx, rx * 0.25, 18, Math.PI, -0.5), { at: at + dur * f, dur: step, tone, width: 3, dry: 0.5 });
+        brush(ellipse(cx, yy, rx, rx * 0.25, 18, Math.PI, -0.5), {
+          at: at + dur * f,
+          dur: step,
+          tone,
+          width: 3,
+          dry: 0.5,
+        });
       }
     },
     stat(s, x, y, o = {}) {
@@ -295,7 +408,12 @@ function make(ctx: any, t: number, m: any): Look {
       if (t < at) return;
       const value = count ? counting(t, at, dur, count) + s : s;
       write(value, X(x), Y(y), size, { at, dur: 0.15, tone, align: "center", italic: false });
-      if (sub) write(sub, X(x), Y(y) + size * 0.72 * u, size * 0.36, { at: at + 0.3, tone: "ink", align: "center" });
+      if (sub)
+        write(sub, X(x), Y(y) + size * 0.72 * u, size * 0.36, {
+          at: at + 0.3,
+          tone: "ink",
+          align: "center",
+        });
       if (count && sub) {
         ctx.save();
         ctx.font = `500 ${Math.round(size * u)}px ${SERIF}`;
@@ -309,11 +427,36 @@ function make(ctx: any, t: number, m: any): Look {
       const [cx, cy] = [X(x), Y(y)];
       const at = o.at ?? 0;
       if (kind === "check") {
-        brush([[cx - s * 0.5, cy - s * 0.05], [cx - s * 0.15, cy + s * 0.35]], { at, dur: 0.12, tone: o.tone ?? "ink", width: 7, dry: 0 });
-        brush([[cx - s * 0.15, cy + s * 0.35], [cx + s * 0.25, cy - s * 0.2], [cx + s * 0.6, cy - s * 0.55]], { at: at + 0.12, dur: 0.22, tone: o.tone ?? "ink", width: 6, dry: 0.5 });
+        brush(
+          [
+            [cx - s * 0.5, cy - s * 0.05],
+            [cx - s * 0.15, cy + s * 0.35],
+          ],
+          { at, dur: 0.12, tone: o.tone ?? "ink", width: 7, dry: 0 },
+        );
+        brush(
+          [
+            [cx - s * 0.15, cy + s * 0.35],
+            [cx + s * 0.25, cy - s * 0.2],
+            [cx + s * 0.6, cy - s * 0.55],
+          ],
+          { at: at + 0.12, dur: 0.22, tone: o.tone ?? "ink", width: 6, dry: 0.5 },
+        );
       } else {
-        brush([[cx - s * 0.5, cy - s * 0.5], [cx + s * 0.5, cy + s * 0.5]], { at, dur: 0.15, tone: o.tone ?? "bad", width: 8 });
-        brush([[cx + s * 0.5, cy - s * 0.5], [cx - s * 0.5, cy + s * 0.5]], { at: at + 0.15, dur: 0.15, tone: o.tone ?? "bad", width: 8 });
+        brush(
+          [
+            [cx - s * 0.5, cy - s * 0.5],
+            [cx + s * 0.5, cy + s * 0.5],
+          ],
+          { at, dur: 0.15, tone: o.tone ?? "bad", width: 8 },
+        );
+        brush(
+          [
+            [cx + s * 0.5, cy - s * 0.5],
+            [cx - s * 0.5, cy + s * 0.5],
+          ],
+          { at: at + 0.15, dur: 0.15, tone: o.tone ?? "bad", width: 8 },
+        );
       }
     },
     finish() {
@@ -328,6 +471,19 @@ function make(ctx: any, t: number, m: any): Look {
       void clamp;
     },
   };
+}
+
+/** Split long segments so a two-point line still tapers and dries along its length. */
+function densify(points: Pt[], step: number): Pt[] {
+  const out: Pt[] = [points[0] as Pt];
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1] as Pt;
+    const b = points[i] as Pt;
+    const k = Math.max(1, Math.min(24, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / step)));
+    for (let j = 1; j <= k; j++)
+      out.push([a[0] + ((b[0] - a[0]) * j) / k, a[1] + ((b[1] - a[1]) * j) / k]);
+  }
+  return out;
 }
 
 const lerpN = (a: number, b: number, f: number) => a + (b - a) * f;
