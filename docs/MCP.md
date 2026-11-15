@@ -57,7 +57,7 @@ with `"args": ["/c", "C:\\Users\\<you>\\.mockingbird\\bin\\mockingbird.cmd", "mc
 | `pauses(path, from, to, noise, shortest, minPause, margin)` | The pauses in a file's sound (ffmpeg's `silencedetect`, quieter than `noise` dB, default −35, for at least `shortest` s, default 0.25), one `start end length` line each, then `render`'s `clips` as JSON: what's between pauses of at least `minPause` s (default 0.4), `margin` s (default 0.15) kept into each, a stretch of 0.3 s or less joined to the next. |
 | `measure(path)` | A finished video's picture size (WxH), length, integrated loudness and true peak; its cuts come from `scenes`. |
 | `edit(project, ops)` | Changes a project file, an edit kept between calls; see [Projects](#projects). Applies `ops` in order, all of them or none, saves the file, and returns an outline of the cut. Makes the file if it isn't there; with no ops it only reads it. |
-| `render(project)` or `render(path, clips, …)` | Renders a project, or cuts `clips` out of one video and joins them, into one MP4 with ffmpeg; see [Render options](#render-options). Saves to `out`, or `<name>-render-N.mp4` beside the project (`<name>-short-N.mp4` beside the source), and never overwrites a file. An HDR source (HLG or PQ, which phones record by default) is brought to SDR BT.709 first, and every output is tagged BT.709; see [HDR sources](#hdr-sources). |
+| `render(project)` or `render(path, clips, …)` | Renders a project, or cuts `clips` out of one video and joins them, into one MP4 with ffmpeg; see [Render options](#render-options). Saves to `out`, or `<name>-render-N.mp4` beside the project (`<name>-short-N.mp4` beside the source), and never overwrites a file. An HDR source (HLG or PQ, which phones record by default) is brought to SDR BT.709 first, and a render with one in it is tagged BT.709; see [HDR sources](#hdr-sources). |
 | `motion(script, path, captions, size, duration, fps, out)` | Motion graphics written as code: an HTML page rendered in a pinned headless Chrome; see [Motion graphics](#motion-graphics). Saves to `out`, or `<name>-motion-N.mp4` beside the video or script, and never overwrites a file. |
 | `music(script, duration, out, tempo, key, energy, seed)` | Background music written as code: a generator module played into Web Audio's `OfflineAudioContext` in the pinned headless Chrome, saved as a WAV at −14 LUFS for `render`'s `audio`; see [Music](#music). Never overwrites a file. |
 | `guide(topic)` | A playbook for one job, from [`plugin/`](../plugin/README.md): `viral-short`, `long-form`, `hooks`, `retention-editing`, `captions`, `motion-graphics`, `music`, `style-match`, or `reviewer` (the checks a finished video has to pass). It starts with the folder holding the playbook's scripts, kit and templates. |
@@ -436,7 +436,13 @@ comes out flat and grey, and grading can't bring it back (#252). So
 `render`, `frames` and `scopes` read each source's transfer, and an HLG or
 PQ picture is converted before anything else touches it: BT.2020 YUV to
 RGB, a 3D LUT, then BT.709 YUV, with the frames labelled BT.709 so every
-encode after tags the file SDR. `motion` tags its output BT.709 too.
+encode after tags the file SDR. That covers a render's video `inserts` as
+well as its clips. In an edit that mixes HDR and SDR sources, the SDR clips
+are labelled BT.709 too, so the file is tagged whichever clip comes first.
+An SDR-only render keeps its source's tags, untagged or not.
+
+`motion` converts an HDR `path` the same way before the page sees it or it's
+drawn under, and tags its output BT.709, a transparent `alpha` page included.
 
 The LUT is made by mockingbird (`apps/daemon/src/hdr.ts`), since Homebrew's
 ffmpeg has neither zscale nor libplacebo and every ffmpeg has `lut3d`. It

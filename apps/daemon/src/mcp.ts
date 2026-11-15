@@ -38,7 +38,7 @@ import { audioStats } from "./audio-stats.ts";
 import { addEntries, formatEntry, readDictionary } from "./dictionary.ts";
 import { catalog, checkEffects, type Effect, effectFilters } from "./effects.ts";
 import { guide, INSTRUCTIONS, PLUGIN, playbooks } from "./guide.ts";
-import { type Transfer, toSdrFor, transferOf } from "./hdr.ts";
+import { BT709, type Transfer, toSdrFor, transferOf } from "./hdr.ts";
 import { findChrome, fontFaces } from "./models.ts";
 import { clipsFrom, findPauses, measure } from "./pauses.ts";
 import {
@@ -607,7 +607,8 @@ function frame({ focus = { x: 0.5, y: 0.5 }, zoom = 1 }: Clip, size: string) {
 
 /**
  * A clip as render hands it on: `silent` if its source has no sound, and
- * `sdr`, the filters that bring an HDR source's picture to SDR (#252).
+ * `sdr`, the filters that bring an HDR source's picture to SDR, or label an
+ * SDR clip BT.709 to match in an edit with HDR in it (#252).
  */
 type Shaped = Clip & { silent?: boolean; sdr?: string };
 
@@ -648,7 +649,7 @@ export function renderGraph(
     burn?: boolean;
     captionsY?: number;
     overlays?: (Omit<Cue, "text"> & { y?: number })[];
-    inserts?: Omit<Cue, "text">[];
+    inserts?: (Omit<Cue, "text"> & { sdr?: string })[];
     sounds?: Sound[];
     whole?: boolean;
   },
@@ -713,13 +714,15 @@ export function renderGraph(
     ...overlays.map((cue, i) => ({ ...cue, input: clips.length + i, insert: false })),
   ];
   const label = (i: number) => (i < layers.length ? `[c${i}]` : burn ? "[laid]" : "[v]");
-  const laid = layers.flatMap(({ start, end, y = CAPTIONS_Y, input, insert }, i) => {
+  const laid = layers.flatMap(({ start, end, y = CAPTIONS_Y, input, insert, ...rest }, i) => {
     const when = `enable='gte(t,${start})*lt(t,${end})'`;
     if (!insert) {
       return `${label(i)}[${input}:v]overlay=x=(main_w-overlay_w)/2:y=main_h*${y}-overlay_h/2:${when}${label(i + 1)}`;
     }
     // Its own first frame lands at `start`; once it runs out, the picture underneath shows again.
-    const shaped = `[${input}:v]trim=duration=${end - start},setpts=PTS-STARTPTS+${start}/TB,${fill({ x: 0, y: 0, w: 1, h: 1 }, out)},setsar=1[i${i}]`;
+    // HDR b-roll is brought to SDR like the clips under it (#252).
+    const sdr = "sdr" in rest && rest.sdr ? `${rest.sdr},` : "";
+    const shaped = `[${input}:v]${sdr}trim=duration=${end - start},setpts=PTS-STARTPTS+${start}/TB,${fill({ x: 0, y: 0, w: 1, h: 1 }, out)},setsar=1[i${i}]`;
     return [shaped, `${label(i)}[i${i}]overlay=eof_action=pass:${when}${label(i + 1)}`];
   });
   // libass's captions go on last, over the inserts like the images. An .srt is
@@ -1316,6 +1319,9 @@ async function copyRender(
     (c) => (c.path ?? path) === from && (c.zoom ?? 1) === 1 && !c.moves?.length,
   );
   if (!plan.some((q) => q.copy)) return false;
+  // A copied stretch keeps its source's colour tags, and the file takes the first piece's:
+  // with HDR in the edit, everything is encoded so the file is tagged BT.709.
+  if (clips.some((c) => c.sdr)) return false;
   const at = (q: Piece) => ({ ...q.clip, from: q.a / fps, to: q.b / fps });
   const files: string[] = plan.map((_, i) => `piece-${i}.ts`);
   // The encoded pieces, CLIPS_PER_PASS to an ffmpeg, each starting on a keyframe.
@@ -1556,7 +1562,7 @@ async function segmented(
     cues: Cue[];
     captionsY: number;
     texts: Text[];
-    inserts: Insert[];
+    inserts: (Insert & { sdr?: string })[];
     sounds: (Sound & { path: string })[];
     out?: string;
     named: string;
@@ -1580,7 +1586,7 @@ async function segmented(
       ...cues.map(({ start, end }) => ({ start, end, y: captionsY })),
       ...texts.map(({ from, to, y }) => ({ start: from, end: to, y })),
     ].map((l, i) => ({ ...l, image: images[i] as string, text: lines[i] }));
-    const put = inserts.map((i) => ({ path: i.path, start: i.from, end: i.to }));
+    const put = inserts.map((i) => ({ path: i.path, start: i.from, end: i.to, sdr: i.sdr }));
     const { starts, length } = timeline(clips);
     const cache = join(mockingbirdHome(), "cache", "segments");
     mkdirSync(cache, { recursive: true });
@@ -1625,7 +1631,7 @@ async function segmented(
             // The fonts are pinned, so which are there says what they draw.
             fonts.map((f) => f.url),
             laid.map((l) => [l.start, l.end, l.y, l.text]),
-            shown.map((s) => [s.start, s.end, stamp(s.path)]),
+            shown.map((s) => [s.start, s.end, stamp(s.path), s.sdr ?? null]),
           ]),
         )
         .digest("hex")
@@ -1796,12 +1802,21 @@ async function render(
   }
   // The whole cut has sound if any clip does; a clip without fills its stretch with silence.
   const audio = clips.some((c) => of(c).audio);
-  // An HDR source is brought to SDR first, or it comes out flat and grey (#252).
+  // An HDR source is brought to SDR first, or it comes out flat and grey (#252). The
+  // SDR clips beside one are labelled BT.709 to match, or an untagged clip first (or
+  // a segment of only SDR clips) leaves the whole file untagged.
+  const hdr = clips.some((c) => of(c).transfer);
   const shaped = clips.map((c) => ({
     ...c,
     silent: audio && !of(c).audio,
-    sdr: toSdrFor(of(c).transfer),
+    sdr: toSdrFor(of(c).transfer) ?? (hdr ? BT709 : undefined),
   }));
+  // HDR b-roll too: a video insert is probed for its transfer, a still has none.
+  const placed = await Promise.all(
+    inserts.map(async (i) =>
+      STILL.test(i.path) ? i : { ...i, sdr: toSdrFor((await probe(i.path)).transfer) },
+    ),
+  );
   // A split takes its areas from one picture, so its clips are brought to the first's size.
   const frameSize = split ? source.size : (size ?? source.size);
   const rate = fps ?? source.fps;
@@ -1823,7 +1838,7 @@ async function render(
       cues: captions?.trim() ? parseSrt(captions.trim()) : [],
       captionsY,
       texts,
-      inserts,
+      inserts: placed,
       sounds,
       out,
       named,
@@ -1893,7 +1908,11 @@ async function render(
         ...cues.map(({ start, end }) => ({ start, end, y: captionsY })),
         ...texts.map(({ from, to, y }) => ({ start: from, end: to, y })),
       ],
-      inserts: inserts.map(({ from, to }) => ({ start: from, end: to })),
+      inserts: placed.map((i) => ({
+        start: i.from,
+        end: i.to,
+        ...("sdr" in i && { sdr: i.sdr }),
+      })),
       sounds,
     });
     const extras = [
@@ -2104,12 +2123,15 @@ async function motion(
   let seconds = duration;
   let audio = false;
   let picture = size;
+  let videoFilters: string | undefined;
   if (path) {
     const source = await probe(path);
     if (!source.video) throw new Error(`${path} has no video, only audio.`);
     picture = source.size;
     audio = source.audio;
     seconds = Math.min(duration ?? source.seconds, source.seconds);
+    // An HDR video is brought to SDR before the page sees it or it's drawn under (#252).
+    videoFilters = toSdrFor(source.transfer);
   }
   const [width = 0, height = 0] = picture.split("x").map(Number);
   if (
@@ -2142,6 +2164,7 @@ async function motion(
     audio,
     cues: captions?.trim() ? parseSrt(captions) : [],
     fonts: fontFaces(),
+    videoFilters,
   };
   let said: string;
   try {

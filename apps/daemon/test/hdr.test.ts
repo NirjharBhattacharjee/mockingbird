@@ -66,7 +66,8 @@ test("the LUT is named by its contents, made once and found again", () => {
 
 test("the filters convert BT.2020 to RGB, apply the LUT, and label the frames BT.709", () => {
   const f = sdrFilters("C:/Temp/hlg.cube");
-  expect(f).toStartWith("scale=in_color_matrix=bt2020:in_range=tv,format=gbrp16le,");
+  // The input range is left to the source's metadata, so full-range HDR isn't stretched twice.
+  expect(f).toStartWith("scale=in_color_matrix=bt2020,format=gbrp16le,");
   // A Windows path's colon escaped at both levels the graph is parsed.
   expect(f).toContain("lut3d=file=C\\\\:/Temp/hlg.cube:interp=trilinear");
   expect(f).toEndWith("setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv");

@@ -163,6 +163,7 @@ export async function renderHtml(
     tabs: tabCount = TABS,
     onLoad = () => {},
     alpha = false,
+    videoFilters = "",
   }: {
     chrome: string;
     out: string;
@@ -180,6 +181,8 @@ export async function renderHtml(
     onLoad?: (page: { audio: unknown }) => void;
     /** Keep the page's transparency: ProRes 4444 in a .mov, to lay over a video later (#163). */
     alpha?: boolean;
+    /** Filters every frame of `video` goes through first, e.g. the engine's HDR-to-SDR conversion. */
+    videoFilters?: string;
   },
 ): Promise<number> {
   if (alpha && video) throw new Error("alpha is for a page on its own, not over a video");
@@ -207,11 +210,12 @@ export async function renderHtml(
     );
     onLoad({ audio: tabs[0]?.audio ?? undefined });
     const drawsVideo = !!video && !!tabs[0]?.drawVideo;
+    const pre = videoFilters ? `${videoFilters},` : "";
     if (drawsVideo && video) {
       decoder = Bun.spawn(
         [
           ...["ffmpeg", "-nostdin", "-loglevel", "error", "-i", video, "-an"],
-          ...["-vf", `fps=${fps},scale=${width}:${height},setsar=1`],
+          ...["-vf", `${pre}fps=${fps},scale=${width}:${height},setsar=1`],
           ...["-f", "image2pipe", "-c:v", "mjpeg", "-q:v", "2", "-"],
         ],
         { stdout: "pipe", stderr: "pipe" },
@@ -224,13 +228,13 @@ export async function renderHtml(
     // The page over the video, or over black, so a half-transparent pixel blends as it shows.
     const under =
       video && !drawsVideo
-        ? `[0:v]fps=${fps},scale=${width}:${height},setsar=1[under]`
+        ? `[0:v]${pre}fps=${fps},scale=${width}:${height},setsar=1[under]`
         : `color=c=black:s=${width}x${height}:r=${fps}[under]`;
     // The page's RGB turned to YUV with BT.709's matrix, and the file tagged BT.709,
     // so players don't guess the colours (#252).
     const bt709 = "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv";
     const graph = alpha
-      ? "[0:v]format=yuva444p10le[v]"
+      ? `[0:v]scale=out_color_matrix=bt709:out_range=tv,format=yuva444p10le,${bt709}[v]`
       : `${under};[${video ? 1 : 0}:v]scale=out_color_matrix=bt709:out_range=tv,format=yuva420p[page];` +
         `[under][page]overlay=format=auto:shortest=1,${bt709}[v]`;
     const codec = alpha

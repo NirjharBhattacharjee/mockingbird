@@ -286,16 +286,32 @@ test("a project's clips from different sources are framed to one size and rate, 
   ]);
 });
 
-test("an HDR clip is brought to SDR before anything else; an SDR clip beside it isn't (#252)", () => {
+test("an HDR clip is brought to SDR before anything else, HDR b-roll too (#252)", () => {
   const graph = renderGraph(
     [
       { from: 0, to: 2, path: "/iphone.mov", sdr: "lut3d=file=/hlg.cube" },
       { from: 0, to: 2, path: "/screen.mp4" },
     ],
-    { audio: false, size: "1920x1080", fps: 30 },
+    {
+      audio: false,
+      size: "1920x1080",
+      fps: 30,
+      inserts: [
+        { start: 0.5, end: 1.5, sdr: "lut3d=file=/hlg.cube" },
+        { start: 2.5, end: 3 },
+      ],
+    },
   );
   expect(graph).toStartWith("[0:v]lut3d=file=/hlg.cube,setpts=PTS-STARTPTS,");
   expect(graph).toContain("[1:v]setpts=PTS-STARTPTS,");
+  // HDR b-roll is converted before it's trimmed and scaled; a plain insert isn't.
+  expect(graph).toContain("[2:v]lut3d=file=/hlg.cube,trim=duration=1,");
+  expect(graph).toContain("[3:v]trim=duration=0.5,");
+});
+
+test("renderGraph adds no colour label of its own (#252)", () => {
+  const graph = renderGraph([{ from: 0, to: 2 }], { audio: false, size: "1920x1080", fps: 30 });
+  expect(graph).not.toContain("setparams");
 });
 
 test("scdet's log reads as cuts, timed from the seek", () => {

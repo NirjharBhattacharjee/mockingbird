@@ -130,6 +130,9 @@ export function lutFile(transfer: Transfer, dir = tmpdir()): string {
   return file;
 }
 
+/** Labels frames BT.709 SDR, so the encoder tags the file that way. */
+export const BT709 = "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv";
+
 /**
  * The filters that bring an HDR picture to SDR: its BT.2020 YUV to RGB, the
  * LUT, back to BT.709 YUV, and the frames labelled BT.709 so every encode
@@ -137,12 +140,13 @@ export function lutFile(transfer: Transfer, dir = tmpdir()): string {
  */
 export function sdrFilters(lut: string): string {
   return [
-    "scale=in_color_matrix=bt2020:in_range=tv",
+    // The source's range comes from its own metadata: full-range HDR isn't stretched again.
+    "scale=in_color_matrix=bt2020",
     "format=gbrp16le",
     `lut3d=file=${quoted(lut)}:interp=trilinear`,
     "scale=out_color_matrix=bt709:out_range=tv",
     "format=yuv420p",
-    "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv",
+    BT709,
   ].join(",");
 }
 
