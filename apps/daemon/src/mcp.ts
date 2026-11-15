@@ -2277,6 +2277,140 @@ async function motion(
   return `${target} (${clock((frames / fps) * 1000)}, ${width}x${height}, ${fps} fps), drawn in ${took} s`;
 }
 
+const MOTION = join(PLUGIN, "skills", "motion-graphics");
+/** The page a look board renders: templates/look-board.html. */
+export const LOOK_BOARD = join(MOTION, "templates", "look-board.html");
+
+/** Words from the video for the look board: a title, up to three short labels, and a number. */
+export type Board = {
+  title: string;
+  points: string[];
+  stat?: { value: number; unit?: string; label?: string };
+};
+
+/**
+ * Builds the look the agent wrote at `file` (TypeScript or JavaScript) into
+ * one module beside it, `<name>.look.js`, that a page imports. Its imports of
+ * "STYLES" (the styles and their helpers) and "KIT" are bundled in, so the page
+ * needs nothing else. A mistake comes back with its line. Returns the module's path.
+ */
+/** A build message with its place: `file:line:column: message`, then the line. */
+function where(log: unknown): string {
+  const { message, position: p } = log as {
+    message?: string;
+    position?: { file: string; line: number; column: number; lineText: string } | null;
+  };
+  if (!p) return String(message ?? log);
+  return `${p.file}:${p.line}:${p.column}: ${message}\n  ${p.lineText.trim()}`;
+}
+
+export async function buildLook(file: string): Promise<string> {
+  requireFile(file, "Look");
+  if (!/\.(ts|js|mjs)$/i.test(file)) {
+    throw new Error(`A look is a .ts or .js module; ${file} isn't one.`);
+  }
+  const out = join(dirname(file), `${basename(file, extname(file))}.look.js`);
+  const named = { STYLES: join(MOTION, "styles", "index.ts"), KIT: join(MOTION, "kit.ts") };
+  let built: Awaited<ReturnType<typeof Bun.build>>;
+  try {
+    built = await Bun.build({
+      entrypoints: [file],
+      target: "browser",
+      format: "esm",
+      plugins: [
+        {
+          name: "mockingbird-look",
+          setup(b) {
+            b.onResolve({ filter: /^(STYLES|KIT)$/ }, (a) => ({
+              path: named[a.path as keyof typeof named],
+            }));
+          },
+        },
+      ],
+    });
+  } catch (error) {
+    const logs = (error as { errors?: unknown[] }).errors;
+    throw new Error(
+      `The look at ${file} doesn't build:\n${logs?.length ? logs.map(where).join("\n") : String(error)}`,
+    );
+  }
+  const [module] = built.outputs;
+  if (!built.success || !module) {
+    throw new Error(`The look at ${file} doesn't build:\n${built.logs.map(where).join("\n")}`);
+  }
+  writeFileSync(out, await module.text());
+  return out;
+}
+
+/** `v` as board words, or an error naming what's wrong. */
+export function boardFrom(v: unknown): Board {
+  const o = (v ?? {}) as Record<string, unknown>;
+  if (typeof o !== "object" || Array.isArray(o)) throw new Error("board must be an object");
+  const short = (s: unknown, what: string, max: number) => {
+    if (typeof s !== "string" || !s.trim()) throw new Error(`${what} must be some words`);
+    if (s.length > max) throw new Error(`${what} is ${s.length} characters; keep it to ${max}`);
+    return s.trim();
+  };
+  const points = o.points ?? [];
+  if (!Array.isArray(points) || points.length > 3) {
+    throw new Error("board.points must be a list of up to three labels");
+  }
+  const stat = o.stat as Record<string, unknown> | undefined;
+  return {
+    title: o.title === undefined ? "Your video" : short(o.title, "board.title", 60),
+    points: points.map((p, i) => short(p, `board.points[${i}]`, 24)),
+    stat:
+      stat === undefined
+        ? undefined
+        : {
+            value: within(stat.value, 0, 1e9, "board.stat.value"),
+            unit: stat.unit === undefined ? undefined : short(stat.unit, "board.stat.unit", 4),
+            label: stat.label === undefined ? undefined : short(stat.label, "board.stat.label", 24),
+          },
+  };
+}
+
+/**
+ * Shows a look before editing starts (#262): builds it, draws a storyboard of
+ * the video's own words in it, and saves the clip and a contact sheet of
+ * twelve stills beside the look, for the user to approve or send back.
+ */
+async function lookBoard(
+  file: string,
+  board: Board,
+  { size = "1920x1080", duration = 8.5, out }: { size?: string; duration?: number; out?: string },
+): Promise<string> {
+  const module = await buildLook(file);
+  // Inline as data, never as code: "<" escaped so a title can't close the script.
+  const words = JSON.stringify(board).replace(/</g, "\\u003c");
+  const page = join(dirname(file), `.${basename(file)}.board-${process.pid}-${Date.now()}.html`);
+  writeFileSync(
+    page,
+    readFileSync(LOOK_BOARD, "utf8")
+      .replace('from "LOOK"', `from ${JSON.stringify(pathToFileURL(module).href)}`)
+      .replace('const BOARD = "BOARD";', `const BOARD = ${words};`),
+  );
+  const target = outputFor(file, out, false, "board");
+  rmSync(target, { force: true });
+  let drawn: string;
+  try {
+    drawn = await motion(page, { size, duration, out: target });
+  } finally {
+    rmSync(page, { force: true });
+  }
+  const sheet = target.replace(/\.mp4$/i, "") + "-sheet.jpg";
+  await ffmpeg(
+    ["-i", target, "-vf", `fps=12/${duration},scale=480:-2,tile=4x3`, "-frames:v", "1", sheet],
+    "make the contact sheet",
+  );
+  return [
+    `Look board: ${drawn}`,
+    `Stills: ${sheet}`,
+    `Built look: ${module}. A page imports it with \`import look from ${JSON.stringify(pathToFileURL(module).href)}\` and draws with look.make(ctx, t, m).`,
+    "Show the user the stills (and the clip) and ask whether to go ahead or what to change. Save it in the project with edit's set { look: { file, mood, approved } } once they say yes.",
+  ].join("\n");
+}
+
 /**
  * Each clip's words, timed in its source (`path`, or its own), names fixed
  * from the dictionary. Each source is heard once, over the stretches its
@@ -3356,6 +3490,48 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
           choiceOf(a),
         );
       },
+    },
+    {
+      name: "look",
+      description:
+        'Shows a look before editing starts (guide("look")): `file` is a style module you wrote for this video (.ts or .js) whose default export is { id, name, category, make(ctx, t, m) } returning the pieces every style draws (surface, title, label, node, box, link, store, stat, mark, finish), with any of your own beside them. It can import the styles and their helpers from "STYLES" and the kit from "KIT". The look is built into `<name>.look.js` beside it, drawn on a storyboard of `board` (words from the video), and saved as a clip and a sheet of twelve stills for the user to approve. Runs in the pinned headless Chrome with no network. A mistake in the look comes back with its line.',
+      inputSchema: {
+        type: "object",
+        properties: {
+          file: { type: "string", description: "Absolute path to the look (.ts or .js)" },
+          board: {
+            type: "object",
+            description:
+              "Words from the video: title (up to 60 characters), points (up to three labels of up to 24), stat { value, unit, label } for its key number",
+            properties: {
+              title: { type: "string" },
+              points: { type: "array", items: { type: "string" } },
+              stat: {
+                type: "object",
+                properties: {
+                  value: { type: "number" },
+                  unit: { type: "string" },
+                  label: { type: "string" },
+                },
+              },
+            },
+          },
+          size: {
+            type: "string",
+            description: 'WIDTHxHEIGHT (default "1920x1080"; "1080x1920" for a short)',
+          },
+          out: {
+            type: "string",
+            description: "Absolute path for the clip (default beside the look)",
+          },
+        },
+        required: ["file"],
+      },
+      run: async (a) =>
+        lookBoard(resolve(String(a.file)), boardFrom(a.board), {
+          size: a.size === undefined ? undefined : String(a.size),
+          out: a.out === undefined ? undefined : resolve(String(a.out)),
+        }),
     },
     {
       name: "motion",
