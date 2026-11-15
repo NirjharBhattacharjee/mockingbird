@@ -2,7 +2,18 @@
 // with hard pixels. Dusk sky in dithered bands over a lit skyline, RPG windows
 // with bevelled borders that snap open, dialog text that types, chevron
 // conveyors for links, and a stepped fade up from black.
-import { clamp, counting, curve, frame, hash, type Look, type Pt, progress, type Style, type Tone } from "./look.ts";
+import {
+  clamp,
+  counting,
+  curve,
+  frame,
+  hash,
+  type Look,
+  type Pt,
+  progress,
+  type Style,
+  type Tone,
+} from "./look.ts";
 
 const DARK = "#0B0E2A";
 const WHITE = "#F4F1FF";
@@ -13,7 +24,16 @@ const TONE: Record<Tone, string> = {
   bad: "#FF4F5E",
   muted: "#8A86B8",
 };
-const SKY = ["#140F33", "#1E1546", "#2C1A5E", "#432176", "#62288A", "#8A3592", "#B44A8E", "#D86A84"];
+const SKY = [
+  "#140F33",
+  "#1E1546",
+  "#2C1A5E",
+  "#432176",
+  "#62288A",
+  "#8A3592",
+  "#B44A8E",
+  "#D86A84",
+];
 const FONT = 'Verdana, "DejaVu Sans", Tahoma, Arial, sans-serif';
 
 /** Snap a 0-1 entrance to whole steps, the way sprites move. */
@@ -60,14 +80,29 @@ function make(ctx: any, t: number, m: any): Look {
   }
 
   /** Pixel text with a dark one-pixel outline, aligned at (x, y). */
-  function say(s: string, x: number, y: number, px: number, color: string, align = "left", outline = true) {
+  function say(
+    s: string,
+    x: number,
+    y: number,
+    px: number,
+    color: string,
+    align = "left",
+    outline = true,
+  ) {
     const img = crisp(s, px, color);
     const ox = align === "center" ? img.width / 2 : align === "right" ? img.width : 0;
     const x0 = R(x - ox);
     const y0 = R(y - img.height / 2);
     if (outline) {
       const sh = crisp(s, px, DARK);
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1]]) c.drawImage(sh, x0 + (dx as number), y0 + (dy as number));
+      for (const [dx, dy] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+        [1, 1],
+      ])
+        c.drawImage(sh, x0 + (dx as number), y0 + (dy as number));
     }
     c.drawImage(img, x0, y0);
     return img.width;
@@ -128,7 +163,8 @@ function make(ctx: any, t: number, m: any): Look {
       x.fillRect(bx, horizon - bh, bw, bh);
       x.fillStyle = "#FFD97A";
       for (let wy = horizon - bh + 3; wy < horizon - 2; wy += 4)
-        for (let wx = bx + 2; wx < bx + bw - 2; wx += 3) if (hash(wx * 1.3 + wy * 7.1) > 0.72) x.fillRect(wx, wy, 1, 2);
+        for (let wx = bx + 2; wx < bx + bw - 2; wx += 3)
+          if (hash(wx * 1.3 + wy * 7.1) > 0.72) x.fillRect(wx, wy, 1, 2);
       bx += bw + 1;
     }
     x.fillStyle = "#0F0B26";
@@ -196,7 +232,12 @@ function make(ctx: any, t: number, m: any): Look {
       c.arc(cx + R(rr * 0.35), cy + R(rr * 0.35), R(rr * 0.75), 0, Math.PI * 2);
       c.fill();
       c.fillStyle = WHITE;
-      c.fillRect(cx - R(rr * 0.5), cy - R(rr * 0.55), Math.max(1, R(rr * 0.3)), Math.max(1, R(rr * 0.3)));
+      c.fillRect(
+        cx - R(rr * 0.5),
+        cy - R(rr * 0.55),
+        Math.max(1, R(rr * 0.3)),
+        Math.max(1, R(rr * 0.3)),
+      );
     },
     box(x, y, bw, bh, o = {}) {
       const { at = 0, dur = 0.15, tone = "ink" } = o;
@@ -223,8 +264,13 @@ function make(ctx: any, t: number, m: any): Look {
         while (i < dist.length - 1 && (dist[i] as number) < d) i++;
         const a = pts[i - 1] as Pt;
         const b = pts[i] as Pt;
-        const f = (d - (dist[i - 1] as number)) / ((dist[i] as number) - (dist[i - 1] as number) || 1);
-        return { x: a[0] + (b[0] - a[0]) * f, y: a[1] + (b[1] - a[1]) * f, ang: Math.atan2(b[1] - a[1], b[0] - a[0]) };
+        const f =
+          (d - (dist[i - 1] as number)) / ((dist[i] as number) - (dist[i - 1] as number) || 1);
+        return {
+          x: a[0] + (b[0] - a[0]) * f,
+          y: a[1] + (b[1] - a[1]) * f,
+          ang: Math.atan2(b[1] - a[1], b[0] - a[0]),
+        };
       };
       const end = len * (p || 1 / 6);
       if (!head) {
@@ -241,7 +287,10 @@ function make(ctx: any, t: number, m: any): Look {
         const q = at_(d);
         const ca = Math.cos(q.ang);
         const sa = Math.sin(q.ang);
-        for (const [col, grow] of [[DARK, 1], [TONE[tone], 0]] as const) {
+        for (const [col, grow] of [
+          [DARK, 1],
+          [TONE[tone], 0],
+        ] as const) {
           c.fillStyle = col;
           c.beginPath();
           c.moveTo(R(q.x + ca * (2 + grow)), R(q.y + sa * (2 + grow)));
@@ -280,7 +329,8 @@ function make(ctx: any, t: number, m: any): Look {
       const px = Math.max(10, R(size * u * 1.4));
       const s = count ? counting(t, at, dur, count) + text : text;
       say(s, X(x), Y(y) - (sub ? px * 0.3 : 0), px, TONE[tone], "center");
-      if (sub) say(sub.toUpperCase(), X(x), Y(y) + px * 0.65, Math.max(8, R(px * 0.42)), WHITE, "center");
+      if (sub)
+        say(sub.toUpperCase(), X(x), Y(y) + px * 0.65, Math.max(8, R(px * 0.42)), WHITE, "center");
     },
     mark(kind, x, y, o = {}) {
       const { at = 0, dur = 0.2, size = 40 } = o;
@@ -298,10 +348,22 @@ function make(ctx: any, t: number, m: any): Look {
       };
       const pts: Pt[][] =
         kind === "check"
-          ? [[[cx - r * 0.6, cy], [cx - r * 0.15, cy + r * 0.5], [cx + r * 0.7, cy - r * 0.55]]]
+          ? [
+              [
+                [cx - r * 0.6, cy],
+                [cx - r * 0.15, cy + r * 0.5],
+                [cx + r * 0.7, cy - r * 0.55],
+              ],
+            ]
           : [
-              [[cx - r * 0.55, cy - r * 0.55], [cx + r * 0.55, cy + r * 0.55]],
-              [[cx + r * 0.55, cy - r * 0.55], [cx - r * 0.55, cy + r * 0.55]],
+              [
+                [cx - r * 0.55, cy - r * 0.55],
+                [cx + r * 0.55, cy + r * 0.55],
+              ],
+              [
+                [cx + r * 0.55, cy - r * 0.55],
+                [cx - r * 0.55, cy + r * 0.55],
+              ],
             ];
       for (const pl of pts) line(pl, DARK, 5);
       for (const pl of pts) line(pl, kind === "check" ? TONE.good : TONE.bad, 3);
@@ -320,4 +382,9 @@ function make(ctx: any, t: number, m: any): Look {
   };
 }
 
-export default { id: "pixel-16bit", name: "16-bit cutscene", category: "Retro Digital", make } satisfies Style;
+export default {
+  id: "pixel-16bit",
+  name: "16-bit cutscene",
+  category: "Retro Digital",
+  make,
+} satisfies Style;
