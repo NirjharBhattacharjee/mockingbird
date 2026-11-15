@@ -24,7 +24,13 @@ export interface Look {
   /** A container: a card, a panel, a frame. */
   box(x: number, y: number, w: number, h: number, o?: Cue): void;
   /** A connection from one point to another, bowed by `bend`, with an arrowhead unless `head` is false. */
-  link(x1: number, y1: number, x2: number, y2: number, o?: Cue & { bend?: number; head?: boolean }): void;
+  link(
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    o?: Cue & { bend?: number; head?: boolean },
+  ): void;
   /** Where data lives: a drum, a stack, a jar. */
   store(x: number, y: number, w: number, h: number, o?: Cue): void;
   /** A big number; with `count` it counts from count[0] to count[1] over `dur`. */
@@ -110,7 +116,15 @@ export function curve(a: Pt, b: Pt, bend = 0, n = 24): Pt[] {
 }
 
 /** Points round an ellipse, starting at the top and going clockwise. */
-export function ellipse(cx: number, cy: number, rx: number, ry: number, n = 48, from = -Math.PI / 2, turn = 1) {
+export function ellipse(
+  cx: number,
+  cy: number,
+  rx: number,
+  ry: number,
+  n = 48,
+  from = -Math.PI / 2,
+  turn = 1,
+) {
   return Array.from({ length: n + 1 }, (_, i) => {
     const a = from + (i / n) * Math.PI * 2 * turn;
     return [cx + Math.cos(a) * rx, cy + Math.sin(a) * ry] as Pt;
@@ -156,7 +170,14 @@ export function grain(ctx: any, m: any, t: number, amount = 0.06, size = 2) {
 /** A soft dark edge round the frame. */
 export function vignette(ctx: any, m: any, strength = 0.45, color = "0,0,0") {
   const { W, H } = frame(m);
-  const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.hypot(W, H) * 0.6);
+  const g = ctx.createRadialGradient(
+    W / 2,
+    H / 2,
+    Math.min(W, H) * 0.3,
+    W / 2,
+    H / 2,
+    Math.hypot(W, H) * 0.6,
+  );
   g.addColorStop(0, `rgba(${color},0)`);
   g.addColorStop(1, `rgba(${color},${strength})`);
   ctx.fillStyle = g;
@@ -164,7 +185,15 @@ export function vignette(ctx: any, m: any, strength = 0.45, color = "0,0,0") {
 }
 
 /** Write text centred or aligned at (x, y) pixels, middle baseline. */
-export function text(ctx: any, s: string, x: number, y: number, font: string, color: string, align: Align = "left") {
+export function text(
+  ctx: any,
+  s: string,
+  x: number,
+  y: number,
+  font: string,
+  color: string,
+  align: Align = "left",
+) {
   ctx.font = font;
   ctx.fillStyle = color;
   ctx.textAlign = align;

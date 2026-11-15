@@ -2,11 +2,9 @@
 // marker following its tip. Black for structure, blue for the idea, green for
 // the result, red for the correction.
 import {
-  type Cue,
   along,
   alpha,
-
-
+  type Cue,
   counting,
   curve,
   ellipse,
@@ -85,7 +83,14 @@ function make(ctx: any, t: number, m: any): Look {
       g.addColorStop(1, "#E8EAE9");
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, W, H);
-      const sheen = ctx.createRadialGradient(W * 0.3, H * 0.15, 0, W * 0.3, H * 0.15, Math.max(W, H) * 0.7);
+      const sheen = ctx.createRadialGradient(
+        W * 0.3,
+        H * 0.15,
+        0,
+        W * 0.3,
+        H * 0.15,
+        Math.max(W, H) * 0.7,
+      );
       sheen.addColorStop(0, "rgba(255,255,255,0.7)");
       sheen.addColorStop(1, "rgba(255,255,255,0)");
       ctx.fillStyle = sheen;
@@ -96,14 +101,24 @@ function make(ctx: any, t: number, m: any): Look {
       for (let i = 0; i < 9; i++) {
         ctx.lineWidth = (30 + hash(i) * 50) * u;
         ctx.beginPath();
-        ctx.ellipse(hash(i + 3) * W, hash(i + 7) * H, (60 + hash(i + 11) * 140) * u, (25 + hash(i + 13) * 60) * u, hash(i) * 3, 0, 5);
+        ctx.ellipse(
+          hash(i + 3) * W,
+          hash(i + 7) * H,
+          (60 + hash(i + 11) * 140) * u,
+          (25 + hash(i + 13) * 60) * u,
+          hash(i) * 3,
+          0,
+          5,
+        );
         ctx.stroke();
       }
       ctx.restore();
       // The aluminium frame and the pen tray.
       const f = 16 * u;
       const metal = (x: number, y: number, w: number, h: number, vertical: boolean) => {
-        const mg = vertical ? ctx.createLinearGradient(x, 0, x + w, 0) : ctx.createLinearGradient(0, y, 0, y + h);
+        const mg = vertical
+          ? ctx.createLinearGradient(x, 0, x + w, 0)
+          : ctx.createLinearGradient(0, y, 0, y + h);
         mg.addColorStop(0, "#D9DDE1");
         mg.addColorStop(0.5, "#AEB4BA");
         mg.addColorStop(1, "#80878F");
@@ -185,9 +200,21 @@ function make(ctx: any, t: number, m: any): Look {
       const half = (cy: number) => ellipse(cx, cy, rx, ry, 32, 0, 0.5);
       const step = dur / 5;
       ink(ellipse(cx, top, rx, ry, 32, Math.PI, 1), { ...o, at, dur: step * 1.5 });
-      ink([[cx - rx, top], [cx - rx, bottom]], { ...o, at: at + step * 1.5, dur: step * 0.7 });
+      ink(
+        [
+          [cx - rx, top],
+          [cx - rx, bottom],
+        ],
+        { ...o, at: at + step * 1.5, dur: step * 0.7 },
+      );
       ink(half(bottom), { ...o, at: at + step * 2.2, dur: step });
-      ink([[cx + rx, bottom], [cx + rx, top]], { ...o, at: at + step * 3.2, dur: step * 0.6 });
+      ink(
+        [
+          [cx + rx, bottom],
+          [cx + rx, top],
+        ],
+        { ...o, at: at + step * 3.2, dur: step * 0.6 },
+      );
       ink(half(top + (bottom - top) / 3), { ...o, at: at + step * 3.8, dur: step * 0.6 });
       ink(half(top + ((bottom - top) * 2) / 3), { ...o, at: at + step * 4.4, dur: step * 0.6 });
     },
@@ -195,17 +222,42 @@ function make(ctx: any, t: number, m: any): Look {
       const { at = 0, dur = 1, count, size = 90, sub } = o;
       const value = count ? counting(t, at, dur, count) + s : s;
       write(value, x, y, { ...o, size, align: "center", dur: 0.3 });
-      if (sub) write(sub, x, y + (size * 0.75 * u) / H, { ...o, at: at + 0.3, size: size * 0.35, align: "center" });
+      if (sub)
+        write(sub, x, y + (size * 0.75 * u) / H, {
+          ...o,
+          at: at + 0.3,
+          size: size * 0.35,
+          align: "center",
+        });
     },
     mark(kind, x, y, o = {}) {
       const s = (o.size ?? 34) * u;
       const [cx, cy] = [X(x), Y(y)];
       if (kind === "check") {
-        ink([[cx - s * 0.5, cy], [cx - s * 0.1, cy + s * 0.4], [cx + s * 0.6, cy - s * 0.5]], { dur: 0.3, tone: "good", ...o });
+        ink(
+          [
+            [cx - s * 0.5, cy],
+            [cx - s * 0.1, cy + s * 0.4],
+            [cx + s * 0.6, cy - s * 0.5],
+          ],
+          { dur: 0.3, tone: "good", ...o },
+        );
       } else {
         const at = o.at ?? 0;
-        ink([[cx - s * 0.5, cy - s * 0.5], [cx + s * 0.5, cy + s * 0.5]], { dur: 0.15, tone: "bad", ...o });
-        ink([[cx + s * 0.5, cy - s * 0.5], [cx - s * 0.5, cy + s * 0.5]], { dur: 0.15, tone: "bad", ...o, at: at + 0.15 });
+        ink(
+          [
+            [cx - s * 0.5, cy - s * 0.5],
+            [cx + s * 0.5, cy + s * 0.5],
+          ],
+          { dur: 0.15, tone: "bad", ...o },
+        );
+        ink(
+          [
+            [cx + s * 0.5, cy - s * 0.5],
+            [cx - s * 0.5, cy + s * 0.5],
+          ],
+          { dur: 0.15, tone: "bad", ...o, at: at + 0.15 },
+        );
       }
     },
     finish() {
@@ -230,7 +282,15 @@ function make(ctx: any, t: number, m: any): Look {
       ctx.roundRect(L - 30 * u, -R - u, 52 * u, R * 2 + 2 * u, R);
       ctx.fill();
       ctx.fillStyle = "#2B2F33";
-      trace(ctx, [[0, 0], [20 * u, -R * 0.7], [20 * u, R * 0.7]], true);
+      trace(
+        ctx,
+        [
+          [0, 0],
+          [20 * u, -R * 0.7],
+          [20 * u, R * 0.7],
+        ],
+        true,
+      );
       ctx.fill();
       ctx.fillStyle = color;
       ctx.fillRect(18 * u, -R, 10 * u, R * 2);
@@ -239,4 +299,9 @@ function make(ctx: any, t: number, m: any): Look {
   };
 }
 
-export default { id: "whiteboard", name: "Whiteboard", category: "Hand-drawn", make } satisfies Style;
+export default {
+  id: "whiteboard",
+  name: "Whiteboard",
+  category: "Hand-drawn",
+  make,
+} satisfies Style;

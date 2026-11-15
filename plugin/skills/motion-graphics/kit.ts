@@ -1788,4 +1788,3 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
     bars,
   };
 }
-

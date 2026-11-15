@@ -2030,7 +2030,9 @@ function needChrome(): string {
 /** The motion kit, as the URL a page imports it from. */
 export const KIT_URL = pathToFileURL(join(PLUGIN, "skills", "motion-graphics", "kit.js")).href;
 /** The explainer styles (whiteboard, comic and the rest), as the URL a page imports them from. */
-export const STYLES_URL = pathToFileURL(join(PLUGIN, "skills", "motion-graphics", "styles.js")).href;
+export const STYLES_URL = pathToFileURL(
+  join(PLUGIN, "skills", "motion-graphics", "styles.js"),
+).href;
 
 /**
  * A template imports the kit `from "KIT"`, and motion fills it in (#213): an

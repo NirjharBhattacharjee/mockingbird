@@ -10,8 +10,8 @@ import {
   hash,
   type Look,
   type Pt,
-  spring,
   type Style,
+  spring,
   type Tone,
   trace,
 } from "./look.ts";
@@ -107,7 +107,9 @@ function make(ctx: any, t: number, m: any): Look {
       ctx.restore();
     },
     label(s, x, y, o = {}) {
-      popped(X(x), Y(y), o.at, () => letters(s, X(x), Y(y), o.size ?? 34, INK, o.align ?? "center"));
+      popped(X(x), Y(y), o.at, () =>
+        letters(s, X(x), Y(y), o.size ?? 34, INK, o.align ?? "center"),
+      );
     },
     node(x, y, r, o = {}) {
       popped(X(x), Y(y), o.at, () => {
@@ -193,7 +195,13 @@ function make(ctx: any, t: number, m: any): Look {
         ctx.strokeStyle = INK;
         ctx.stroke();
         const color = tone === "ink" || tone === "accent" ? INK : CREAM;
-        letters(count ? counting(t, at, dur, count) + s : s, 0, sub ? -size * 0.15 * u : 0, size, color);
+        letters(
+          count ? counting(t, at, dur, count) + s : s,
+          0,
+          sub ? -size * 0.15 * u : 0,
+          size,
+          color,
+        );
         if (sub) letters(sub, 0, size * 0.62 * u, size * 0.36, color);
         ctx.restore();
       });
@@ -212,7 +220,12 @@ function make(ctx: any, t: number, m: any): Look {
         ctx.strokeStyle = CREAM;
         ctx.lineCap = "round";
         const [cx, cy] = [X(x), Y(y)];
-        if (kind === "check") trace(ctx, [[cx - r * 0.45, cy], [cx - r * 0.1, cy + r * 0.35], [cx + r * 0.5, cy - r * 0.35]]);
+        if (kind === "check")
+          trace(ctx, [
+            [cx - r * 0.45, cy],
+            [cx - r * 0.1, cy + r * 0.35],
+            [cx + r * 0.5, cy - r * 0.35],
+          ]);
         else {
           ctx.beginPath();
           ctx.moveTo(cx - r * 0.4, cy - r * 0.4);

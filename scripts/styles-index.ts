@@ -5,10 +5,13 @@ import { join } from "node:path";
 
 const dir = join(import.meta.dir, "..", "plugin", "skills", "motion-graphics", "styles");
 const ids = readdirSync(dir)
-  .filter((f) => f.endsWith(".ts") && !["index.ts", "look.ts"].includes(f) && !f.endsWith(".test.ts"))
+  .filter(
+    (f) => f.endsWith(".ts") && !["index.ts", "look.ts"].includes(f) && !f.endsWith(".test.ts"),
+  )
   .map((f) => f.slice(0, -3))
   .sort();
-const name = (id: string) => id.replace(/-(\w)/g, (_, c) => c.toUpperCase()).replace(/^(\d)/, "_$1");
+const name = (id: string) =>
+  id.replace(/-(\w)/g, (_, c) => c.toUpperCase()).replace(/^(\d)/, "_$1");
 writeFileSync(
   join(dir, "index.ts"),
   `// Every explainer style, by id. Written by \`bun run styles\` from the files in
