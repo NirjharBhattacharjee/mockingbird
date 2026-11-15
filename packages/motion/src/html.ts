@@ -226,9 +226,13 @@ export async function renderHtml(
       video && !drawsVideo
         ? `[0:v]fps=${fps},scale=${width}:${height},setsar=1[under]`
         : `color=c=black:s=${width}x${height}:r=${fps}[under]`;
+    // The page's RGB turned to YUV with BT.709's matrix, and the file tagged BT.709,
+    // so players don't guess the colours (#252).
+    const bt709 = "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv";
     const graph = alpha
       ? "[0:v]format=yuva444p10le[v]"
-      : `${under};[under][${video ? 1 : 0}:v]overlay=format=auto:shortest=1[v]`;
+      : `${under};[${video ? 1 : 0}:v]scale=out_color_matrix=bt709:out_range=tv,format=yuva420p[page];` +
+        `[under][page]overlay=format=auto:shortest=1,${bt709}[v]`;
     const codec = alpha
       ? ["-c:v", "prores_ks", "-profile:v", "4444", "-pix_fmt", "yuva444p10le"]
       : ["-c:v", "libx264", "-crf", "18", "-preset", "veryfast", "-pix_fmt", "yuv420p"];

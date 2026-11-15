@@ -38,6 +38,7 @@ import { audioStats } from "./audio-stats.ts";
 import { addEntries, formatEntry, readDictionary } from "./dictionary.ts";
 import { catalog, checkEffects, type Effect, effectFilters } from "./effects.ts";
 import { guide, INSTRUCTIONS, PLUGIN, playbooks } from "./guide.ts";
+import { type Transfer, toSdrFor, transferOf } from "./hdr.ts";
 import { findChrome, fontFaces } from "./models.ts";
 import { clipsFrom, findPauses, measure } from "./pauses.ts";
 import {
@@ -339,6 +340,8 @@ async function frames(
   requireFile(path, "File");
   const source = await probe(path);
   if (!source.video) return `${path} has no video, only audio. \`transcribe\` reads it.`;
+  // Stills from an HDR source as SDR, as render shows it, not flat and grey.
+  const sdr = toSdrFor(source.transfer);
   const end = Math.min(to ?? source.seconds, source.seconds);
   const times: number[] = [];
   for (let t = from; t < end; t += every) times.push(t);
@@ -363,7 +366,7 @@ async function frames(
             "-i",
             path,
           ],
-          ...["-frames:v", "1", "-vf", "scale='min(1280,iw)':-2", file],
+          ...["-frames:v", "1", "-vf", `${sdr ? `${sdr},` : ""}scale='min(1280,iw)':-2`, file],
         ],
         { stderr: "pipe" },
       );
@@ -603,6 +606,12 @@ function frame({ focus = { x: 0.5, y: 0.5 }, zoom = 1 }: Clip, size: string) {
 }
 
 /**
+ * A clip as render hands it on: `silent` if its source has no sound, and
+ * `sdr`, the filters that bring an HDR source's picture to SDR (#252).
+ */
+type Shaped = Clip & { silent?: boolean; sdr?: string };
+
+/**
  * The ffmpeg filter graph that joins `clips` in order, each its own input
  * (0, 1, …, from seekClips), cropped to `size`'s shape around its focus,
  * punched in by its zoom or moved by its moves, scaled to `size` and set to
@@ -616,10 +625,10 @@ function frame({ focus = { x: 0.5, y: 0.5 }, zoom = 1 }: Clip, size: string) {
  * speech, the sound cut to the picture's length unless `whole`, and left
  * for `level` to bring to LUFS. `size` is the finished picture's, `WxH` (a
  * split's clips are brought to it before their areas are taken). A `silent`
- * clip's sound is silence. Ends in [v], and [a] if there's sound.
+ * clip's sound is silence; an `sdr` clip's picture goes through those filters first. Ends in [v], and [a] if there's sound.
  */
 export function renderGraph(
-  clips: (Clip & { silent?: boolean })[],
+  clips: Shaped[],
   {
     audio,
     size = "1920x1080",
@@ -664,7 +673,7 @@ export function renderGraph(
       ? `trim=start=${clip.from - start}:duration=${clip.to - clip.from},`
       : "";
     const fx = effectFilters(clip.effects);
-    const v = `[${i}:v]${cut}setpts=PTS-STARTPTS${speed},${SQUARE}${look}${fx.video ? `,${fx.video}` : ""}${tb}[v${i}]`;
+    const v = `[${i}:v]${clip.sdr ? `${clip.sdr},` : ""}${cut}setpts=PTS-STARTPTS${speed},${SQUARE}${look}${fx.video ? `,${fx.video}` : ""}${tb}[v${i}]`;
     if (!audio) return v;
     const heard = clip.sound ?? clip;
     const acut = clip.sound
@@ -833,12 +842,14 @@ async function probe(path: string): Promise<{
   /** The picture's codec and pixel format, e.g. "h264" and "yuv420p". */
   codec: string;
   pix: string;
+  /** Its HDR transfer, or undefined for SDR. */
+  transfer?: Transfer;
 }> {
   const proc = Bun.spawn(
     [
       "ffprobe",
       ...["-v", "error", "-show_entries"],
-      "stream=codec_type,codec_name,pix_fmt,width,height,sample_aspect_ratio,avg_frame_rate:stream_side_data=rotation:format=duration",
+      "stream=codec_type,codec_name,pix_fmt,color_transfer,width,height,sample_aspect_ratio,avg_frame_rate:stream_side_data=rotation:format=duration",
       ...["-of", "json", path],
     ],
     { stderr: "pipe" },
@@ -854,6 +865,7 @@ async function probe(path: string): Promise<{
     codec_type: string;
     codec_name?: string;
     pix_fmt?: string;
+    color_transfer?: string;
     width?: number;
     height?: number;
     sample_aspect_ratio?: string;
@@ -876,6 +888,7 @@ async function probe(path: string): Promise<{
     fps,
     codec: picture?.codec_name ?? "",
     pix: picture?.pix_fmt ?? "",
+    transfer: transferOf(picture?.color_transfer),
     video: has("video"),
     audio: has("audio"),
     seconds: Number(format?.duration ?? 0),
@@ -1144,7 +1157,7 @@ async function level(file: string, out: string): Promise<void> {
  */
 async function joinBatches(
   path: string,
-  clips: (Clip & { silent?: boolean })[],
+  clips: Shaped[],
   dir: string,
   look: {
     audio: boolean;
@@ -1265,7 +1278,7 @@ export async function copyKeys(path: string, fps: number): Promise<number[]> {
  */
 async function copyRender(
   path: string,
-  clips: (Clip & { silent?: boolean })[],
+  clips: Shaped[],
   dir: string,
   unlevelled: string,
   {
@@ -1285,7 +1298,14 @@ async function copyRender(
   // ponytail: copies from the first source only, so its parameter sets are the only 0s; one per source if mixed edits need it.
   const from = clips[0]?.path ?? path;
   const p = probes.get(from);
-  if (p?.codec !== "h264" || p.pix !== "yuv420p" || p.size !== size || p.fps !== fps) {
+  // An HDR stretch copied as it is would land in an SDR file unconverted.
+  if (
+    p?.codec !== "h264" ||
+    p.pix !== "yuv420p" ||
+    p.transfer ||
+    p.size !== size ||
+    p.fps !== fps
+  ) {
     return false;
   }
   const keys = await copyKeys(from, fps);
@@ -1514,7 +1534,7 @@ const ENGINE = createHash("sha256")
  */
 async function segmented(
   path: string,
-  clips: (Clip & { silent?: boolean })[],
+  clips: Shaped[],
   {
     audio,
     size,
@@ -1776,7 +1796,12 @@ async function render(
   }
   // The whole cut has sound if any clip does; a clip without fills its stretch with silence.
   const audio = clips.some((c) => of(c).audio);
-  const shaped = clips.map((c) => ({ ...c, silent: audio && !of(c).audio }));
+  // An HDR source is brought to SDR first, or it comes out flat and grey (#252).
+  const shaped = clips.map((c) => ({
+    ...c,
+    silent: audio && !of(c).audio,
+    sdr: toSdrFor(of(c).transfer),
+  }));
   // A split takes its areas from one picture, so its clips are brought to the first's size.
   const frameSize = split ? source.size : (size ?? source.size);
   const rate = fps ?? source.fps;
@@ -3287,6 +3312,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
           from,
           to: Math.min(seconds(a.to) ?? info.seconds, info.seconds),
           every: within(a.every, 0.04, 600, "every", 1),
+          sdr: toSdrFor(info.transfer),
         });
       },
     },
