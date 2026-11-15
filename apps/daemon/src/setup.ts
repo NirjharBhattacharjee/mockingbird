@@ -185,12 +185,20 @@ export function checks(deps: SetupDeps = {}): Check[] {
   });
   // Captions, `motion` and `music` all draw in the pinned Chrome (#145, #155, #170).
   const chrome = findChrome(deps.env ?? process.env, mb);
+  // A MOCKINGBIRD_CHROME that can't run wins over the pinned one, so a download wouldn't fix it.
+  const override = (deps.env ?? process.env).MOCKINGBIRD_CHROME;
   list.push({
     name: "chrome",
     needed: false,
     ok: !!chrome,
-    detail: chrome ?? "missing: captions become plain subtitles, and motion and music can't run",
-    fix: "`mockingbird models pull chrome`",
+    detail:
+      chrome ??
+      (override
+        ? `MOCKINGBIRD_CHROME is ${override}, which isn't a program that can run`
+        : "missing: captions become plain subtitles, and motion and music can't run"),
+    fix: override
+      ? "point MOCKINGBIRD_CHROME at a Chrome that runs, or unset it"
+      : "`mockingbird models pull chrome`",
   });
   const books = playbooks().length;
   list.push({
@@ -291,13 +299,23 @@ export async function setup(args: string[], deps: SetupDeps = {}): Promise<numbe
   }
 
   // Not needed to transcribe or cut, so a no or a failed download carries on.
-  if (!findChrome(deps.env ?? process.env, mb) && pinnedChrome(mb)) {
+  const override = (deps.env ?? process.env).MOCKINGBIRD_CHROME;
+  if (override && !findChrome(deps.env ?? process.env, mb)) {
+    log(
+      `MOCKINGBIRD_CHROME is ${override}, which isn't a program that can run: point it at a Chrome that runs, or unset it.`,
+    );
+  } else if (!findChrome(deps.env ?? process.env, mb) && pinnedChrome(mb)) {
     if (
       ask(
         "Download the headless Chrome that captions and motion graphics draw in, and its fonts (about 150 MB), from storage.googleapis.com and raw.githubusercontent.com? [Y/n]",
       )
     ) {
-      if ((await (deps.pullChrome ?? (() => Promise.resolve(1)))()) !== 0) {
+      // A pull that throws (an unpack that fails) counts as a failed download, not the end of setup.
+      const code = await (deps.pullChrome ?? (() => Promise.resolve(1)))().catch((error) => {
+        log(`Chrome: ${error instanceof Error ? error.message : error}`);
+        return 1;
+      });
+      if (code !== 0) {
         log("Chrome didn't download: run `mockingbird models pull chrome` to try again.");
       }
     } else {
