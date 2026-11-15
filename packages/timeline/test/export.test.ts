@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { pathToFileURL } from "node:url";
 import { toFcpxml, toOtio } from "../src/export.ts";
 import { check, compile } from "../src/index.ts";
 
@@ -39,7 +40,7 @@ test("FCPXML: frame-exact times, escaped text, and what it can't carry", () => {
   expect(text).toContain('<sequence format="r1" duration="135/30s"');
   expect(text).toContain('<transition name="Cross Dissolve" offset="44/30s" duration="15/30s">');
   expect(text).toContain('<text-style ref="ts0-0">Tom &amp; &lt;Jerry&gt;</text-style>');
-  expect(text).toContain('src="file:///m/a.mp4"');
+  expect(text).toContain(`src="${pathToFileURL("/m/a.mp4").href}"`);
   expect(left.join("; ")).toContain("effects");
   expect(left.join("; ")).toContain("speed changes");
   // 29.97 is written NTSC-style.
