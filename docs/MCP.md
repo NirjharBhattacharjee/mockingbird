@@ -48,6 +48,7 @@ with `"args": ["/c", "C:\\Users\\<you>\\.mockingbird\\bin\\mockingbird.cmd", "mc
 | `transcribe(path, from, to, words, model, language)` | An audio or video file (anything ffmpeg reads: m4a, mp3, wav, mp4, mov, mkv) as text, in lines timestamped `[mm:ss]`, with names fixed from your dictionary (a `heard => term` entry first, then anything that sounds like a term). Each call starts its own whisper-server, so two can run at once. The client's model does any cleanup or summarising. `from` and `to` (seconds) take one stretch of the file. `words: true` gives one line per word with its start and end, `[01:23.48-01:23.71] Catppuccin`, to cut a clip on; names are fixed one word at a time there, so a name misheard as two words stays as heard. `model` (a file in `models/`) and `language` (a Whisper code, or `auto`) pick the model and language for this call only; given neither, with the language on `auto` and a model mapped to a language (`models use --language`), it detects the language from the first speech and uses that model. The first line then names the language and model. |
 | `transcribe(project)` | The words in a project's cut, clip by clip, each line at its time in the finished video: the edit as text, to choose what `cut_words` cuts. See [Text-based editing](#text-based-editing). |
 | `effects` | The effects catalog: each effect's name, whether it's on the picture or the sound, and its settings with ranges and defaults; see [Effects](#effects). |
+| `export(project, format, out)` | A project as FCPXML 1.10 and OpenTimelineIO, to finish the cut in Final Cut, Resolve or Premiere; see [Exporting to an editor](#exporting-to-an-editor). |
 | `scopes(path, from, to, every)` | What a colourist reads off the scopes, as numbers: luma, the histogram's thirds, clipping, saturation and skin's distance from the skin-tone line; see [Effects](#effects). |
 | `audio_stats(path, from, to)` | What a file's sound measures, since the agent can't listen: see [Measuring sound](#measuring-sound). |
 | `scenes(path, from, to, threshold)` | The shot changes in a video, from ffmpeg's `scdet` over frames shrunk to 180 lines: each one's `[mm:ss.cc]` time and how big a change it is (0 to 100), and cuts a minute and seconds a shot. `threshold` (default 10) is how big a change counts. It finds changes of shot, such as a cut to b-roll, a new slide or another camera, not jump cuts within one shot: in the first minute of the v2 edit, the two cuts that changed the framing scored 5.9 and 7.5, and eight jump cuts scored under 1 or not at all, below ordinary movement. Decoded with the hardware where there's a decoder: a minute of 4K HEVC phone video took 21.6 s, against 165.6 s in software; a 4-minute 1080p60 screen recording took 29.5 s. |
@@ -451,6 +452,31 @@ mean 0.51, 95th percentile 0.80, nothing clipped, saturation 0.18 and skin
 1° off the line. On clean speech with pink noise and a 50 Hz hum added,
 `highpass` and `denoise` (floor −47) lowered the noise floor of the levelled
 render from −41.9 to −47.4 dBFS, and Whisper still heard every word.
+
+## Exporting to an editor
+
+`export(project)` saves the project beside it as `<name>.fcpxml` (FCPXML
+1.10: Final Cut Pro, and DaVinci Resolve or Premiere, which import it) and
+`<name>.otio` (OpenTimelineIO, which Resolve imports, and Premiere and Avid
+through OTIO's adapters). `format` picks one, and `out` picks a folder.
+The export carries:
+
+- the clips, with their source times and transitions, each transition split
+  by whole frames around its cut;
+- inserts on video tracks above the clips;
+- texts, as Basic Title titles in FCPXML and markers in OTIO;
+- sounds on their own audio tracks, with their volume;
+- in OTIO, speed changes and J and L cuts too.
+
+What an editor can't take this way (effects, framing, split screens,
+generated beds, word captions) is listed in the reply, so it can be redone
+there.
+
+Checked on a three-clip project with a dissolve, a 2x clip with a J cut, two
+titles, an insert and a sound: OpenTimelineIO 0.18.1 read the `.otio`, and
+its FCPXML adapter read the `.fcpxml`. Every track came to the cut's 4.5 s.
+It isn't tested in Final Cut or Resolve yet, since neither is on the build
+machine.
 
 ## Measuring sound
 

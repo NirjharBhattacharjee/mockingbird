@@ -33,6 +33,7 @@ import {
   type Word,
   wanted,
 } from "@mockingbird/timeline";
+import { type Source, toFcpxml, toOtio } from "@mockingbird/timeline/export";
 import type { SpeechSegment } from "@mockingbird/vad";
 import { audioStats } from "./audio-stats.ts";
 import { addEntries, formatEntry, readDictionary } from "./dictionary.ts";
@@ -2997,6 +2998,72 @@ async function renderProject(
   });
 }
 
+/**
+ * `export`: the project at `file` as FCPXML and/or OTIO (#198), each source
+ * probed for its length, size and rate. Never overwrites: a taken name gets -N.
+ */
+async function exportProject(file: string, format: string, out: unknown): Promise<string> {
+  if (!["fcpxml", "otio", "both"].includes(format)) {
+    throw new Error(`format must be fcpxml, otio or both; got ${format}`);
+  }
+  const project = load(requireFile(file, "Project")).project;
+  if (!project.clips.length) throw new Error(`${file} has no clips to export.`);
+  const cut = compile(project, dirname(file));
+  const paths = [
+    ...new Set([
+      ...cut.clips.map((c) => c.path),
+      ...cut.inserts.map((i) => i.path),
+      ...cut.sounds.flatMap((s) => (s.path ? [s.path] : [])),
+    ]),
+  ];
+  const facts = new Map<string, Source>();
+  for (const p of paths) {
+    const pr = await probe(requireFile(p, "Source"));
+    facts.set(p, {
+      seconds: pr.seconds,
+      video: pr.video,
+      audio: pr.audio,
+      size: pr.size,
+      fps: pr.fps,
+    });
+  }
+  const info = (p: string) => facts.get(p) as Source;
+  const first = info(cut.clips[0]?.path as string);
+  const size = cut.size ?? (cut.split ? "1080x1920" : first.size);
+  const fps = cut.fps ?? first.fps;
+  const name = basename(file).replace(/\.json$/i, "");
+  const dir = out === undefined ? dirname(file) : resolve(String(out));
+  mkdirSync(dir, { recursive: true });
+  const free = (ext: string) => {
+    for (let n = 0; ; n++) {
+      const f = join(dir, `${name}${n ? `-${n}` : ""}.${ext}`);
+      if (!existsSync(f)) return f;
+    }
+  };
+  const saved: string[] = [];
+  let left: string[] = [];
+  if (format !== "otio") {
+    const x = toFcpxml(cut, name, size, fps, info);
+    const f = free("fcpxml");
+    writeFileSync(f, x.text);
+    saved.push(f);
+    left = x.left;
+  }
+  if (format !== "fcpxml") {
+    const o = toOtio(cut, name, fps, info);
+    const f = free("otio");
+    writeFileSync(f, o.text);
+    saved.push(f);
+    if (!left.length) left = o.left;
+  }
+  return [
+    `Saved ${saved.join(" and ")} (${size}, ${fps} fps, ${cut.clips.length} clips).`,
+    left.length ? `Not carried, so redo them in the editor: ${left.join("; ")}.` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 /** A tool's `model` and `language`, each only if given. */
 const choiceOf = (a: Record<string, unknown>): ModelChoice => ({
   ...(a.model === undefined ? {} : { model: String(a.model) }),
@@ -3479,6 +3546,26 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
         "The effects catalog: each effect's name, whether it's on the picture or the sound, and its settings with their ranges and defaults. Put effects on a project's clip with edit's {op:\"set\", id, effects:[{name:\"color\", exposure:0.5}, {name:\"denoise\", amount:0.4}]}, or on render's clips (effects: [...]). They apply in order, after the clip's framing; check a grade with `scopes`.",
       inputSchema: { type: "object", properties: {} },
       run: async () => catalog(),
+    },
+    {
+      name: "export",
+      description:
+        "Save a project as FCPXML 1.10 (Final Cut Pro, DaVinci Resolve, Premiere through it) and OpenTimelineIO (.otio: Resolve, Premiere, Avid through OTIO's adapters), so a person can finish the cut in an editor. Carries the clips with their source times and transitions, inserts on video tracks above, texts as titles (markers in OTIO) and sounds on audio tracks; returns what an editor can't take this way (effects, framing, generated music). Saves beside the project as <name>.fcpxml and <name>.otio, or in `out`, a folder, and never overwrites.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          project: { type: "string", description: "The project file (project.json)" },
+          format: {
+            type: "string",
+            enum: ["fcpxml", "otio", "both"],
+            description: "Which to save (default both)",
+          },
+          out: { type: "string", description: "A folder to save in (default the project's)" },
+        },
+        required: ["project"],
+      },
+      run: async (a) =>
+        exportProject(resolve(String(a.project)), String(a.format ?? "both"), a.out),
     },
     {
       name: "scopes",

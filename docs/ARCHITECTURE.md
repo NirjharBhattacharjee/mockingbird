@@ -19,7 +19,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
-| 2026-11-15 | Effects catalog, phase 2 (#198): chromakey, stabilize (ffmpeg's `deshake`: Homebrew's ffmpeg 9 has no vidstab), crop, freeze, reverse; a `mask` on any picture effect (rect, ellipse or polygon, feathered, moving), drawn per frame by `geq` and merged as alpha; inserts with a box, a blend mode, effects and moves; adjustment layers between the inserts and the text. |
+| 2026-11-15 | Effects catalog, phase 2 (#198): chromakey, stabilize (ffmpeg's `deshake`: Homebrew's ffmpeg 9 has no vidstab), crop, freeze, reverse; a `mask` on any picture effect (rect, ellipse or polygon, feathered, moving), drawn per frame by `geq` and merged as alpha; inserts with a box, a blend mode, effects and moves; adjustment layers between the inserts and the text; `export` to FCPXML 1.10 and OpenTimelineIO (`packages/timeline/src/export.ts`). |
 | 2026-11-14 | The speech is raised to −14 LUFS before music and effects are mixed under it (#212). On a −31 LUFS recording with a bed at volume 0.15, the music sat 2.2 dB under the speech and ducked 0.6 dB; now 16.6 dB under, ducking 12.9 dB. |
 | 2026-11-14 | Chrome for every user (#250): `install.sh` and `install.ps1` download the pinned Chrome and its fonts after the models, warning instead of failing when they can't; `setup` offers it when it's missing; `doctor` checks it instead of the Core Text and Core Graphics lines left from before #155 and #169. |
 | 2026-11-06 | `motion` swaps a page's `from "KIT"` for the kit's file URL in a copy beside the page (#213), so agents leave the templates' import alone: replacing it by hand hit a comment first, and a Windows path isn't a URL. |
@@ -182,6 +182,7 @@ tool, with its options, is documented in [MCP.md](./MCP.md):
 | `render` | a project, or cuts from one video: framing, 9:16 or split layout, captions, text, b-roll, music and sound effects, loudness to −14 LUFS |
 | `motion` | an HTML page rendered in a pinned headless Chrome, frame by frame, to MP4 |
 | `music` | background music written as code, rendered with Web Audio in the same Chrome |
+| `export` | a project as FCPXML 1.10 and OpenTimelineIO, for Final Cut, Resolve or Premiere |
 | `status` | what's installed |
 | `dictionary_list`, `dictionary_add` | names to spell right |
 
