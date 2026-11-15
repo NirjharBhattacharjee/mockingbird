@@ -14,11 +14,14 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   align,
+  boardFrom,
+  buildLook,
   CLIPS_PER_PASS,
   chunks,
   fineClock,
   handle,
   KIT_URL,
+  LOOK_BOARD,
   mcpTools,
   mixGraph,
   moving,
@@ -1501,4 +1504,56 @@ test("motion fills in a page's `from \"KIT\"` with the kit's file URL, beside th
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+describe("look (#262)", () => {
+  test("a look builds into one module with STYLES' helpers in it", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mb-look-"));
+    try {
+      const file = join(dir, "warm.ts");
+      writeFileSync(
+        file,
+        'import { frame } from "STYLES";\nexport default { id: "warm", name: "Warm", category: "Test", make: (ctx: any, t: number, m: any) => frame(m) };\n',
+      );
+      const built = await buildLook(file);
+      expect(built).toBe(join(dir, "warm.look.js"));
+      const code = readFileSync(built, "utf8");
+      expect(code).not.toContain('from "STYLES"');
+      expect(code).toContain("function frame");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a mistake in a look comes back with where it is", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mb-look-"));
+    try {
+      const file = join(dir, "broken.ts");
+      writeFileSync(file, "export default {\n  make(ctx) { return ctx.\n};\n");
+      await expect(buildLook(file)).rejects.toThrow(/doesn't build[\s\S]*broken\.ts/);
+      await expect(buildLook(join(dir, "look.css"))).rejects.toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("board words are checked before anything renders", () => {
+    expect(
+      boardFrom({ title: "Sleep", points: ["a", "b"], stat: { value: 40, unit: "%" } }),
+    ).toEqual({
+      title: "Sleep",
+      points: ["a", "b"],
+      stat: { value: 40, unit: "%", label: undefined },
+    });
+    expect(boardFrom(undefined).title).toBe("Your video");
+    expect(() => boardFrom({ points: ["a", "b", "c", "d"] })).toThrow("up to three");
+    expect(() => boardFrom({ title: "x".repeat(61) })).toThrow("keep it to 60");
+  });
+
+  test("the board page has the places look fills in", () => {
+    const html = readFileSync(LOOK_BOARD, "utf8");
+    expect(html).toContain('from "LOOK"');
+    expect(html).toContain('const BOARD = "BOARD";');
+    expect(html).toContain('from "KIT"');
+  });
 });

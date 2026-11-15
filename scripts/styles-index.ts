@@ -20,6 +20,8 @@ import type { Look, Style } from "./look.ts";
 ${ids.map((id) => `import ${name(id)} from "./${id}.ts";`).join("\n")}
 
 export type { Look, Style };
+// The shared helpers, so a look written for one video (guide("look")) can import them from "STYLES".
+export * from "./look.ts";
 export const STYLES: Record<string, Style> = {
 ${ids.map((id) => `  "${id}": ${name(id)},`).join("\n")}
 };
