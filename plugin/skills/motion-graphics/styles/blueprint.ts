@@ -3,8 +3,8 @@
 // by a faint construction line run edge to edge, then a glowing plotter head
 // inks it; lettering is stencilled capitals in a monospace.
 import {
-  type Cue,
   along,
+  type Cue,
   counting,
   curve,
   ellipse,
@@ -40,7 +40,14 @@ function make(ctx: any, t: number, m: any): Look {
     if (!c) {
       c = new OffscreenCanvas(W, H);
       const b = c.getContext("2d");
-      const gr = b.createRadialGradient(W * 0.5, H * 0.45, 0, W * 0.5, H * 0.5, Math.hypot(W, H) * 0.6);
+      const gr = b.createRadialGradient(
+        W * 0.5,
+        H * 0.45,
+        0,
+        W * 0.5,
+        H * 0.5,
+        Math.hypot(W, H) * 0.6,
+      );
       gr.addColorStop(0, "#1E4E9C");
       gr.addColorStop(1, "#123476");
       b.fillStyle = gr;
@@ -49,18 +56,26 @@ function make(ctx: any, t: number, m: any): Look {
       for (let i = 0; i < 24; i++) {
         b.fillStyle = hash(i) > 0.5 ? "rgba(90,140,210,0.10)" : "rgba(8,24,70,0.14)";
         b.beginPath();
-        b.ellipse(hash(i + 1) * W, hash(i + 2) * H, (80 + hash(i + 3) * 200) * u, (60 + hash(i + 4) * 120) * u, hash(i + 5) * 3, 0, Math.PI * 2);
+        b.ellipse(
+          hash(i + 1) * W,
+          hash(i + 2) * H,
+          (80 + hash(i + 3) * 200) * u,
+          (60 + hash(i + 4) * 120) * u,
+          hash(i + 5) * 3,
+          0,
+          Math.PI * 2,
+        );
         b.fill();
       }
       b.filter = "none";
       // Grid: fine lines, every fifth a little stronger.
       const s = 24 * u;
       for (let i = 0, x = 0; x < W; i++, x += s) {
-        b.fillStyle = `rgba(200,225,255,${i % 5 ? 0.05 : 0.1})`;
+        b.fillStyle = `rgba(200,225,255,${i % 5 ? 0.08 : 0.16})`;
         b.fillRect(x, 0, 1, H);
       }
       for (let i = 0, y = 0; y < H; i++, y += s) {
-        b.fillStyle = `rgba(200,225,255,${i % 5 ? 0.05 : 0.1})`;
+        b.fillStyle = `rgba(200,225,255,${i % 5 ? 0.08 : 0.16})`;
         b.fillRect(0, y, W, 1);
       }
       // Fold creases.
@@ -84,7 +99,10 @@ function make(ctx: any, t: number, m: any): Look {
   }
 
   /** Draft a path: a construction line flashes along it first, then the plotter inks it. */
-  function draft(points: Pt[], { at = 0, dur = 0.5, tone = "ink" as Tone, width = 2.6, dash = false, guide = true } = {}) {
+  function draft(
+    points: Pt[],
+    { at = 0, dur = 0.5, tone = "ink" as Tone, width = 2.6, dash = false, guide = true } = {},
+  ) {
     if (t < at) return;
     const col = LINE[tone];
     ctx.save();
@@ -99,7 +117,10 @@ function make(ctx: any, t: number, m: any): Look {
       const ey = ((b[1] - a[1]) / len) * 60 * u;
       ctx.strokeStyle = `rgba(200,225,255,${0.08 + 0.2 * (1 - g0)})`;
       ctx.lineWidth = u;
-      trace(ctx, [[a[0] - ex, a[1] - ey], [b[0] + ex, b[1] + ey]]);
+      trace(ctx, [
+        [a[0] - ex, a[1] - ey],
+        [b[0] + ex, b[1] + ey],
+      ]);
       ctx.stroke();
     }
     const p = progress(t, at, dur);
@@ -116,7 +137,12 @@ function make(ctx: any, t: number, m: any): Look {
   }
 
   /** Stencilled capitals that appear letter by letter like a lettering guide. */
-  function letter(s: string, x: number, y: number, o: Cue & { size?: number; align?: string; weight?: number } = {}) {
+  function letter(
+    s: string,
+    x: number,
+    y: number,
+    o: Cue & { size?: number; align?: string; weight?: number } = {},
+  ) {
     const { at = 0, size = 30, tone = "ink", align = "left", weight = 700 } = o;
     if (t < at) return 0;
     const dur = o.dur ?? 0.04 * s.length + 0.1;
@@ -182,17 +208,35 @@ function make(ctx: any, t: number, m: any): Look {
       if (!w) return;
       const done = at + (o.dur ?? 0.04 * s.length + 0.1);
       const yy = Y(y) + size * 0.7 * u;
-      draft([[X(x), yy], [X(x) + w, yy]], { at: done, dur: 0.3, width: 2 });
+      draft(
+        [
+          [X(x), yy],
+          [X(x) + w, yy],
+        ],
+        { at: done, dur: 0.3, width: 2 },
+      );
     },
     label(s, x, y, o = {}) {
-      letter(s, x, y, { size: 22, align: "center", ...o });
+      letter(s, x, y, { size: 28, align: "center", ...o });
     },
     node(x, y, r, o = {}) {
       const at = o.at ?? 0;
       const [cx, cy, R] = [X(x), Y(y), r * u];
       // Centre marks first, then the circle.
-      draft([[cx - R * 1.4, cy], [cx + R * 1.4, cy]], { at, dur: 0.08, width: 1, tone: "muted", guide: false });
-      draft([[cx, cy - R * 1.4], [cx, cy + R * 1.4]], { at, dur: 0.08, width: 1, tone: "muted", guide: false });
+      draft(
+        [
+          [cx - R * 1.4, cy],
+          [cx + R * 1.4, cy],
+        ],
+        { at, dur: 0.08, width: 1, tone: "muted", guide: false },
+      );
+      draft(
+        [
+          [cx, cy - R * 1.4],
+          [cx, cy + R * 1.4],
+        ],
+        { at, dur: 0.08, width: 1, tone: "muted", guide: false },
+      );
       draft(ellipse(cx, cy, R, R, 48), { ...o, at: at + 0.06, dur: o.dur ?? 0.2, guide: false });
     },
     box(x, y, w, h, o = {}) {
@@ -206,7 +250,13 @@ function make(ctx: any, t: number, m: any): Look {
       draft([[a[0], b[1]], a], { ...o, at: at + 3 * q, dur: q });
       // A dimension line under it once drawn.
       const dy = b[1] + 16 * u;
-      draft([[a[0], dy], [b[0], dy]], { at: at + dur, dur: 0.2, tone: "muted", width: 1, guide: false });
+      draft(
+        [
+          [a[0], dy],
+          [b[0], dy],
+        ],
+        { at: at + dur, dur: 0.2, tone: "muted", width: 1, guide: false },
+      );
       if (t >= at + dur + 0.2) {
         ctx.save();
         ctx.fillStyle = LINE.muted;
@@ -225,7 +275,15 @@ function make(ctx: any, t: number, m: any): Look {
       const s = 16 * u;
       ctx.save();
       ctx.fillStyle = LINE[o.tone ?? "ink"];
-      trace(ctx, [end, [end[0] - Math.cos(a - 0.3) * s, end[1] - Math.sin(a - 0.3) * s], [end[0] - Math.cos(a + 0.3) * s, end[1] - Math.sin(a + 0.3) * s]], true);
+      trace(
+        ctx,
+        [
+          end,
+          [end[0] - Math.cos(a - 0.3) * s, end[1] - Math.sin(a - 0.3) * s],
+          [end[0] - Math.cos(a + 0.3) * s, end[1] - Math.sin(a + 0.3) * s],
+        ],
+        true,
+      );
       ctx.fill();
       ctx.restore();
     },
@@ -238,9 +296,26 @@ function make(ctx: any, t: number, m: any): Look {
       const bottom = Y(y + h) - ry;
       const step = dur / 4;
       draft(ellipse(cx, top, rx, ry, 40), { ...o, at, dur: step, guide: false });
-      draft([[cx - rx, top], [cx - rx, bottom]], { ...o, at: at + step, dur: step });
-      draft([[cx + rx, top], [cx + rx, bottom]], { ...o, at: at + step, dur: step });
-      draft(ellipse(cx, bottom, rx, ry, 24, 0, 0.5), { ...o, at: at + step * 2, dur: step, guide: false });
+      draft(
+        [
+          [cx - rx, top],
+          [cx - rx, bottom],
+        ],
+        { ...o, at: at + step, dur: step },
+      );
+      draft(
+        [
+          [cx + rx, top],
+          [cx + rx, bottom],
+        ],
+        { ...o, at: at + step, dur: step },
+      );
+      draft(ellipse(cx, bottom, rx, ry, 24, 0, 0.5), {
+        ...o,
+        at: at + step * 2,
+        dur: step,
+        guide: false,
+      });
       // Section hatching across the body.
       if (t >= at + step * 3) {
         const p = progress(t, at + step * 3, step);
@@ -250,7 +325,12 @@ function make(ctx: any, t: number, m: any): Look {
         ctx.clip();
         ctx.strokeStyle = "rgba(220,235,255,0.35)";
         ctx.lineWidth = u;
-        for (let d = -rx * 2; d < bottom - top + rx * 2; d += 12 * u) trace(ctx, [[cx - rx, top + d], [cx + rx, top + d - rx * 2]]), ctx.stroke();
+        ctx.beginPath();
+        for (let d = -rx * 2; d < bottom - top + rx * 2; d += 12 * u) {
+          ctx.moveTo(cx - rx, top + d);
+          ctx.lineTo(cx + rx, top + d - rx * 2);
+        }
+        ctx.stroke();
         ctx.restore();
       }
     },
@@ -268,19 +348,54 @@ function make(ctx: any, t: number, m: any): Look {
       const by = Y(y) - size * 0.6 * u;
       const bw = w + pad * 2;
       const bh = size * 1.2 * u;
-      if (size >= 80) draft([[bx, by], [bx + bw, by], [bx + bw, by + bh], [bx, by + bh], [bx, by]], { at, dur: 0.4, tone: "muted", width: 1.4, guide: false });
+      if (size >= 80)
+        draft(
+          [
+            [bx, by],
+            [bx + bw, by],
+            [bx + bw, by + bh],
+            [bx, by + bh],
+            [bx, by],
+          ],
+          { at, dur: 0.4, tone: "muted", width: 1.4, guide: false },
+        );
       letter(value, x, y, { at, dur: 0.01, size, tone, align: "center" });
-      if (sub) letter(sub, x, y - (size * 0.95 * u) / H, { at: at + 0.3, size: size * 0.26, align: "center", tone: "ink" });
+      if (sub)
+        letter(sub, x, y - (size * 0.95 * u) / H, {
+          at: at + 0.3,
+          size: size * 0.26,
+          align: "center",
+          tone: "ink",
+        });
     },
     mark(kind, x, y, o = {}) {
       const s = (o.size ?? 32) * u;
       const [cx, cy] = [X(x), Y(y)];
       const at = o.at ?? 0;
       if (kind === "check") {
-        draft([[cx - s * 0.5, cy], [cx - s * 0.1, cy + s * 0.4], [cx + s * 0.6, cy - s * 0.5]], { dur: 0.3, tone: "good", ...o, guide: false });
+        draft(
+          [
+            [cx - s * 0.5, cy],
+            [cx - s * 0.1, cy + s * 0.4],
+            [cx + s * 0.6, cy - s * 0.5],
+          ],
+          { dur: 0.3, tone: "good", ...o, guide: false },
+        );
       } else {
-        draft([[cx - s * 0.5, cy - s * 0.5], [cx + s * 0.5, cy + s * 0.5]], { dur: 0.15, tone: "bad", ...o, guide: false });
-        draft([[cx + s * 0.5, cy - s * 0.5], [cx - s * 0.5, cy + s * 0.5]], { dur: 0.15, tone: "bad", ...o, at: at + 0.15, guide: false });
+        draft(
+          [
+            [cx - s * 0.5, cy - s * 0.5],
+            [cx + s * 0.5, cy + s * 0.5],
+          ],
+          { dur: 0.15, tone: "bad", ...o, guide: false },
+        );
+        draft(
+          [
+            [cx + s * 0.5, cy - s * 0.5],
+            [cx - s * 0.5, cy + s * 0.5],
+          ],
+          { dur: 0.15, tone: "bad", ...o, at: at + 0.15, guide: false },
+        );
       }
     },
     finish() {
@@ -295,9 +410,15 @@ function make(ctx: any, t: number, m: any): Look {
       ctx.fillRect(x - 26 * u, y - 26 * u, 52 * u, 52 * u);
       ctx.strokeStyle = "rgba(255,255,255,0.5)";
       ctx.lineWidth = u;
-      trace(ctx, [[x - 14 * u, y], [x + 14 * u, y]]);
+      trace(ctx, [
+        [x - 14 * u, y],
+        [x + 14 * u, y],
+      ]);
       ctx.stroke();
-      trace(ctx, [[x, y - 14 * u], [x, y + 14 * u]]);
+      trace(ctx, [
+        [x, y - 14 * u],
+        [x, y + 14 * u],
+      ]);
       ctx.stroke();
       ctx.restore();
     },
