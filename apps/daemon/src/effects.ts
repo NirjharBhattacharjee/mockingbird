@@ -174,6 +174,14 @@ export const EFFECTS: Record<string, Entry> = {
     build: (_, __, c) =>
       `trim=end_frame=1,tpad=stop_mode=clone:stop_duration=${f(c.length)},trim=duration=${f(c.length)}`,
   },
+  interpolate: {
+    kind: "video",
+    about:
+      "Smooth slow motion: a slowed clip (speed under 1) gets new in-between frames from the motion instead of repeated ones. Slow to render: 4 s at 720p took 9.5 s",
+    params: {},
+    // Placed by render before the frame rate is set, not in the effect chain.
+    build: () => "",
+  },
   reverse: {
     kind: "video",
     about: "Plays the clip backwards, picture and sound. Keep it short: the clip is held in memory",

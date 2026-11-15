@@ -160,3 +160,13 @@ test("inserts take a box, a blend and effects; adjustment layers go under the te
     graph.indexOf("overlay=x=(main_w-overlay_w)/2"),
   );
 });
+
+test("interpolate makes new frames before the frame rate is set (#200)", () => {
+  const graph = renderGraph([{ from: 0, to: 1, speed: 0.25, effects: [{ name: "interpolate" }] }], {
+    audio: false,
+    size: "640x360",
+    fps: 30,
+  });
+  expect(graph).toContain("scale=640:360,setsar=1,minterpolate=fps=30:mi_mode=mci");
+  expect(graph).toContain("vsbmc=1,fps=30[v0]");
+});

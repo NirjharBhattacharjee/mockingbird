@@ -59,6 +59,7 @@ import {
   WHISPER_LANGUAGES,
 } from "./runtime.ts";
 import { scopes } from "./scopes.ts";
+import { sync } from "./sync.ts";
 
 /**
  * `mockingbird mcp` (#88): mockingbird's local functions as Model Context
@@ -667,10 +668,15 @@ export function renderGraph(
   // one by one, only brought to one size if they're from different sources.
   const parts = clips.map((clip, i) => {
     const speed = clip.speed && clip.speed !== 1 ? `,setpts=PTS/${clip.speed}` : "";
+    // Slow motion made of new frames, not repeats (#200): motion-compensated, after the
+    // framing so it works on the finished size, before fps would repeat frames.
+    const rate = clip.effects?.some((e) => e.name === "interpolate")
+      ? `minterpolate=fps=${fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1,fps=${fps}`
+      : `fps=${fps}`;
     const look =
       split || !clip.moves?.length
-        ? `${frame(split ? { from: 0, to: 0 } : clip, size)},fps=${fps}`
-        : `,fps=${fps},${moving(clip, size, fps)}`;
+        ? `${frame(split ? { from: 0, to: 0 } : clip, size)},${rate}`
+        : `,${rate},${moving(clip, size, fps)}`;
     const tb = chained ? `,settb=1/${fps}` : "";
     // The input opens the picture's and the sound's stretches together; each takes its own.
     const start = opened(clip).from;
@@ -3546,6 +3552,34 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
         "The effects catalog: each effect's name, whether it's on the picture or the sound, and its settings with their ranges and defaults. Put effects on a project's clip with edit's {op:\"set\", id, effects:[{name:\"color\", exposure:0.5}, {name:\"denoise\", amount:0.4}]}, or on render's clips (effects: [...]). They apply in order, after the clip's framing; check a grade with `scopes`.",
       inputSchema: { type: "object", properties: {} },
       run: async () => catalog(),
+    },
+    {
+      name: "sync",
+      description:
+        "Line up recordings of one take (two or more cameras, or a camera and a separate recorder) by their sound, for a multicam edit. Gives each file's offset against the first: a moment at t seconds in it is at t + offset in the first. To cut to another angle at T seconds of the first's clock, add a project clip from that file with from = T - offset. Reads the first `window` seconds of each (default 120); a score under about 0.3 means the sound didn't match and the offset is a guess.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          paths: {
+            type: "array",
+            items: { type: "string" },
+            description: "The recordings, the first as the reference",
+          },
+          window: { type: "number", description: "Seconds of each to compare (default 120)" },
+        },
+        required: ["paths"],
+      },
+      run: async (a) => {
+        const paths = items(a.paths as unknown).map((p) => requireFile(resolve(String(p)), "File"));
+        const done = await sync(paths, within(a.window, 10, 1200, "window", 120));
+        return done
+          .map((d, i) =>
+            i === 0
+              ? `${d.path}: the reference`
+              : `${d.path}: offset ${d.offset >= 0 ? "+" : ""}${d.offset.toFixed(3)} s (score ${d.score.toFixed(2)}${d.score < 0.3 ? ", a guess" : ""})`,
+          )
+          .join("\n");
+      },
     },
     {
       name: "export",

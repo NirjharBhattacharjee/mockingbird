@@ -49,6 +49,7 @@ with `"args": ["/c", "C:\\Users\\<you>\\.mockingbird\\bin\\mockingbird.cmd", "mc
 | `transcribe(project)` | The words in a project's cut, clip by clip, each line at its time in the finished video: the edit as text, to choose what `cut_words` cuts. See [Text-based editing](#text-based-editing). |
 | `effects` | The effects catalog: each effect's name, whether it's on the picture or the sound, and its settings with ranges and defaults; see [Effects](#effects). |
 | `export(project, format, out)` | A project as FCPXML 1.10 and OpenTimelineIO, to finish the cut in Final Cut, Resolve or Premiere; see [Exporting to an editor](#exporting-to-an-editor). |
+| `sync(paths, window)` | Lines up recordings of one take (cameras, a separate recorder) by their sound: each file's offset against the first, for a multicam edit. Two cameras offset by 1.234 s, with different mic tone, gain and room noise, came out at 1.234 s (0.0 ms off) in 0.44 s. |
 | `scopes(path, from, to, every)` | What a colourist reads off the scopes, as numbers: luma, the histogram's thirds, clipping, saturation and skin's distance from the skin-tone line; see [Effects](#effects). |
 | `audio_stats(path, from, to)` | What a file's sound measures, since the agent can't listen: see [Measuring sound](#measuring-sound). |
 | `scenes(path, from, to, threshold)` | The shot changes in a video, from ffmpeg's `scdet` over frames shrunk to 180 lines: each one's `[mm:ss.cc]` time and how big a change it is (0 to 100), and cuts a minute and seconds a shot. `threshold` (default 10) is how big a change counts. It finds changes of shot, such as a cut to b-roll, a new slide or another camera, not jump cuts within one shot: in the first minute of the v2 edit, the two cuts that changed the framing scored 5.9 and 7.5, and eight jump cuts scored under 1 or not at all, below ordinary movement. Decoded with the hardware where there's a decoder: a minute of 4K HEVC phone video took 21.6 s, against 165.6 s in software; a 4-minute 1080p60 screen recording took 29.5 s. |
@@ -417,6 +418,7 @@ framing, and a clip with effects is always encoded, never stream-copied.
 | `crop` | picture | `left`, `right`, `top`, `bottom`, each 0–0.5; on an insert the cut shows through |
 | `freeze` | picture | holds the clip's first frame for its length while the sound plays on |
 | `reverse` | picture and sound | plays the clip backwards; keep it short, it's held in memory |
+| `interpolate` | picture | smooth slow motion: a clip at speed under 1 gets new in-between frames instead of repeats. In a 0.25x clip, repeated frames went from 89 of 118 to 7, but 4 s at 720p took 9.5 s to render instead of 0.7 |
 
 Any picture effect takes a `mask` to apply it to part of the frame only:
 `{shape: "rect" | "ellipse" | "polygon", x, y, w, h, feather, invert, end}`.
