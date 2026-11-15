@@ -19,6 +19,7 @@ import {
   fineClock,
   handle,
   KIT_URL,
+  STYLES_URL,
   mcpTools,
   mixGraph,
   moving,
@@ -1490,6 +1491,13 @@ test("motion fills in a page's `from \"KIT\"` with the kit's file URL, beside th
     const plain = join(dir, "plain.html");
     writeFileSync(plain, '<script type="module">import { kit } from "./kit.js";</script>');
     expect(withKit(plain)).toBe(plain);
+    // The explainer styles come in the same way.
+    expect(existsSync(fileURLToPath(STYLES_URL))).toBe(true);
+    const styled = join(dir, "styled.html");
+    writeFileSync(styled, '<script type="module">import { style } from "STYLES";</script>');
+    expect(readFileSync(withKit(styled), "utf8")).toBe(
+      `<script type="module">import { style } from ${JSON.stringify(STYLES_URL)};</script>`,
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

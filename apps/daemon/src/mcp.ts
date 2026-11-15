@@ -2029,19 +2029,26 @@ function needChrome(): string {
 
 /** The motion kit, as the URL a page imports it from. */
 export const KIT_URL = pathToFileURL(join(PLUGIN, "skills", "motion-graphics", "kit.js")).href;
+/** The explainer styles (whiteboard, comic and the rest), as the URL a page imports them from. */
+export const STYLES_URL = pathToFileURL(join(PLUGIN, "skills", "motion-graphics", "styles.js")).href;
 
 /**
  * A template imports the kit `from "KIT"`, and motion fills it in (#213): an
  * agent replacing it by hand hit the template's comment first, and a Windows
  * path isn't a URL. The filled-in copy goes beside the page, so the page's own
- * files are where it says. Returns the page to load: `script` itself when it
- * doesn't import "KIT".
+ * files are where it says. `from "STYLES"` is filled in the same way. Returns
+ * the page to load: `script` itself when it imports neither.
  */
 export function withKit(script: string): string {
   const html = readFileSync(script, "utf8");
-  if (!html.includes('from "KIT"')) return script;
+  if (!html.includes('from "KIT"') && !html.includes('from "STYLES"')) return script;
   const copy = join(dirname(script), `.${basename(script)}.${process.pid}-${Date.now()}.html`);
-  writeFileSync(copy, html.replaceAll('from "KIT"', `from ${JSON.stringify(KIT_URL)}`));
+  writeFileSync(
+    copy,
+    html
+      .replaceAll('from "KIT"', `from ${JSON.stringify(KIT_URL)}`)
+      .replaceAll('from "STYLES"', `from ${JSON.stringify(STYLES_URL)}`),
+  );
   return copy;
 }
 
