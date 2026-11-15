@@ -283,6 +283,47 @@ test("doctor checks Chrome, which MOCKINGBIRD_CHROME can stand in for", () => {
     ok: true,
     detail: process.execPath,
   });
+  // A bad override wins over the pinned one, so the fix is the override, not a download.
+  expect(chrome({ MOCKINGBIRD_CHROME: "/nowhere/chrome" })).toMatchObject({
+    ok: false,
+    detail: "MOCKINGBIRD_CHROME is /nowhere/chrome, which isn't a program that can run",
+    fix: "point MOCKINGBIRD_CHROME at a Chrome that runs, or unset it",
+  });
+});
+
+test("a Chrome pull that throws doesn't stop setup; a bad MOCKINGBIRD_CHROME isn't offered a download", async () => {
+  const base = (env: Record<string, string>, logs: string[], asked: string[]) => {
+    const h = home();
+    return setup([], {
+      home: h,
+      mbHome: join(h, ".mockingbird"),
+      env,
+      which: (n) => `/opt/homebrew/bin/${n}`,
+      run: () => ({ code: 0, out: "libx264" }),
+      ask: (q) => {
+        asked.push(q);
+        return !q.startsWith("Download the speech");
+      },
+      pullChrome: async () => {
+        throw new Error("unpack failed");
+      },
+      log: (m) => logs.push(m),
+    });
+  };
+  const logs: string[] = [];
+  const asked: string[] = [];
+  await base({}, logs, asked);
+  if (pinnedChrome(join(home(), ".mockingbird"))) {
+    expect(logs).toContain("Chrome: unpack failed");
+  }
+  // It carried on to the agents.
+  expect(asked.at(-1)).toMatch(/^Add mockingbird to /);
+
+  const logs2: string[] = [];
+  const asked2: string[] = [];
+  await base({ MOCKINGBIRD_CHROME: "/nowhere/chrome" }, logs2, asked2);
+  expect(asked2.some((q) => q.includes("headless Chrome"))).toBe(false);
+  expect(logs2.join("\n")).toContain("MOCKINGBIRD_CHROME is /nowhere/chrome");
 });
 
 test("an empty or cut-short pinned speech model counts as damaged", () => {
