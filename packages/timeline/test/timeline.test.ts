@@ -633,6 +633,33 @@ describe("adjustment layers and insert looks (#198)", () => {
     expect(apply(project, [{ op: "remove", id: "c3" }]).project.adjust).toEqual([]);
   });
 
+  test("an insert's box takes the path track gives (#200)", () => {
+    const box = {
+      x: 0,
+      y: 0,
+      w: 0.2,
+      h: 0.1,
+      path: [
+        { at: 0, x: 0.1, y: 0.2 },
+        { at: 1, x: 0.3, y: 0.2 },
+      ],
+    };
+    const { project } = apply(base(), [
+      { op: "add", type: "insert", path: "t.png", from: 0, to: 1, box },
+    ]);
+    expect(project.inserts.find((i) => i.path === "t.png")?.box).toEqual(box);
+    const bad = {
+      ...box,
+      path: [
+        { at: 1, x: 0, y: 0 },
+        { at: 0, x: 0, y: 0 },
+      ],
+    };
+    expect(() =>
+      apply(base(), [{ op: "add", type: "insert", path: "t.png", from: 0, to: 1, box: bad }]),
+    ).toThrow("rising");
+  });
+
   test("an adjust needs effects", () => {
     expect(() => apply(base(), [{ op: "add", type: "adjust", from: 0, to: 1 }])).toThrow(
       "needs effects",

@@ -40,6 +40,7 @@ import { addEntries, formatEntry, readDictionary } from "./dictionary.ts";
 import {
   catalog,
   checkEffects,
+  checkPath,
   type Effect,
   effectFilters,
   masked,
@@ -60,7 +61,7 @@ import {
 } from "./runtime.ts";
 import { scopes } from "./scopes.ts";
 import { sync } from "./sync.ts";
-import { track } from "./track.ts";
+import { along, type Point, track } from "./track.ts";
 
 /**
  * `mockingbird mcp` (#88): mockingbird's local functions as Model Context
@@ -782,7 +783,11 @@ export function renderGraph(
         `[ig${i}][ih${i}]blend=all_mode=${blend}:eof_action=pass:${when},format=yuv420p${label(i + 1)}`,
       ];
     }
-    const at = box ? `x=${Math.round(box.x * W)}:y=${Math.round(box.y * H)}:` : "";
+    const at = box?.path?.length
+      ? `x='${along(box.path, "x", `(t-${start})`, W)}':y='${along(box.path, "y", `(t-${start})`, H)}':`
+      : box
+        ? `x=${Math.round(box.x * W)}:y=${Math.round(box.y * H)}:`
+        : "";
     return [...steps, `${label(i)}[i${i}]overlay=${at}eof_action=pass:${when}${label(i + 1)}`];
   });
   // libass's captions go on last, over the inserts like the images. An .srt is
@@ -1137,7 +1142,8 @@ export const BLENDS = [
  * Burns pan over a still).
  */
 export type Look = {
-  box?: { x: number; y: number; w: number; h: number };
+  /** `path`, from `track`: the box's top left over time, from the insert's start. */
+  box?: { x: number; y: number; w: number; h: number; path?: Point[] };
   blend?: string;
   effects?: Effect[];
   moves?: Move[];
@@ -3112,6 +3118,14 @@ function area(value: unknown, what: string): Area {
   return r;
 }
 
+/** An insert's box: an area, and the `path` `track` gives to move it with a subject. */
+function tracked(value: unknown, what: string): NonNullable<Look["box"]> {
+  const path = (value as { path?: unknown } | null)?.path;
+  if (path === undefined) return area(value, what);
+  checkPath(path, `${what}.path`);
+  return { ...area(value, what), path: path as Point[] };
+}
+
 /** A stretch of the finished video, `from` before `to`. */
 function stretch(a: Record<string, unknown>, what: string) {
   const from = seconds(a.from) ?? Number.NaN;
@@ -3198,7 +3212,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
       description: `Edit a project file (project.json): an edit kept between calls, whose clips can come from several sources and whose texts, b-roll and sounds stay on their clips as the cut changes. Applies \`ops\` in order, all or none, saves, and returns an outline: each clip's place in the finished video and what's on it. Makes the file if it isn't there; no ops only reads it. You can also edit the JSON by hand. Times: a clip's from/to are seconds in its source (as \`transcribe\` gives them); a text's, insert's or sound's are seconds from the start of its \`clip\` in the finished video, or of the video without one. Ops:
 - {op:"add", type:"clip", path, from, to, focus?:{x,y}, zoom?, speed?, moves?, transition?, lead?, index?}: on the main track, which plays in order with no gaps (default at the end). speed: 0.25-4. moves: [{at, focus?, zoom?, ease?}], the framing by \`at\` seconds into the clip, eased ("smooth", or "linear") from the one before: a slow push-in, a move to the other speaker. transition: {type, duration}, how the clip comes in over the end of the one before: ffmpeg xfade's fade, fadeblack, fadewhite, dissolve, wipe*, slide*, smooth*, circleopen, zoomin and others. lead: a J cut (positive: the clip's sound starts that many seconds before its picture) or an L cut (negative: the clip before's sound carries on over its picture)
 - {op:"add", type:"text", text, from, to, clip?, y?}: drawn like the captions, *words* yellow
-- {op:"add", type:"insert", path, from, to, clip?, box?, blend?, effects?, moves?}: a picture or video over the whole frame (b-roll). box: {x, y, w, h}, 0-1 of the picture, makes it a picture in the picture. blend: screen, multiply, overlay, softlight, lighten, darken, addition or difference (whole frame only). effects: from the catalog; chromakey keys a green screen over the cut. moves: as a clip's, a Ken Burns pan over a still
+- {op:"add", type:"insert", path, from, to, clip?, box?, blend?, effects?, moves?}: a picture or video over the whole frame (b-roll). box: {x, y, w, h, path?}, 0-1 of the picture, makes it a picture in the picture; path, from track, moves it with a subject. blend: screen, multiply, overlay, softlight, lighten, darken, addition or difference (whole frame only). effects: from the catalog; chromakey keys a green screen over the cut. moves: as a clip's, a Ken Burns pan over a still
 - {op:"add", type:"adjust", from, to, clip?, effects}: an adjustment layer; its effects change everything under the text (clips and inserts) for its stretch, e.g. a grade over a whole section
 - {op:"add", type:"audio", path, at?, clip?, volume?, loop?, duck?}: music or a sound effect under the speech. Or generated music in place of path: generator:{generator:"/abs/lofi.js", tempo?, key?, energy?, seed?} (a music generator; the bed is made at render time, as long as the video from at, and kept, so it isn't made again)
 - {op:"remove", id}: a clip goes with everything on it, and the cut closes up
@@ -3324,7 +3338,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
                 box: {
                   type: "object",
                   description:
-                    "{x, y, w, h}, 0-1 of the picture: a picture in the picture, filled to the box",
+                    "{x, y, w, h, path?}, 0-1 of the picture: a picture in the picture, filled to the box. path: the points `track` gives, to move the box with a subject (a title that follows someone)",
                 },
                 blend: {
                   type: "string",
@@ -3422,7 +3436,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
             inserts: items(a.inserts).map((t, i) => ({
               path: resolve(String(t.path)),
               ...stretch(t, `inserts[${i}]`),
-              ...(t.box === undefined ? {} : { box: area(t.box, `inserts[${i}].box`) }),
+              ...(t.box === undefined ? {} : { box: tracked(t.box, `inserts[${i}].box`) }),
               ...(t.blend === undefined ? {} : { blend: String(t.blend) }),
               ...(t.effects === undefined
                 ? {}

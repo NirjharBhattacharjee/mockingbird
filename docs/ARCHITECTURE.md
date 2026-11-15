@@ -19,7 +19,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
-| 2026-11-15 | Effects catalog, phase 3, part 2 (#200): `track` follows a box by zero-mean normalised cross-correlation on grey frames 320 wide, coarse then to the pixel, the template drifting toward each match; a mask's `path` takes its points, drawn as one shape moved by `overlay`. |
+| 2026-11-15 | Effects catalog, phase 3, part 2 (#200): `track` follows a box by zero-mean normalised cross-correlation on grey frames 320 wide, coarse then to the pixel, the template drifting toward each match; a mask's `path` takes its points, drawn as one shape moved by `overlay`, and so does an insert's box, for a title that follows a subject. |
 | 2026-11-15 | Effects catalog, phase 3, part 1 (#200): `sync` lines up cameras by their sound (log-energy envelopes cross-correlated at 10 ms, then the samples at 8 kHz); `interpolate` makes slow motion from `minterpolate`'s motion-compensated frames, after the framing and before `fps`. |
 | 2026-11-15 | Effects catalog, phase 2 (#198): chromakey, stabilize (ffmpeg's `deshake`: Homebrew's ffmpeg 9 has no vidstab), crop, freeze, reverse; a `mask` on any picture effect (rect, ellipse or polygon, feathered, moving), drawn per frame by `geq` and merged as alpha; inserts with a box, a blend mode, effects and moves; adjustment layers between the inserts and the text; `export` to FCPXML 1.10 and OpenTimelineIO (`packages/timeline/src/export.ts`). |
 | 2026-11-14 | The speech is raised to −14 LUFS before music and effects are mixed under it (#212). On a −31 LUFS recording with a bed at volume 0.15, the music sat 2.2 dB under the speech and ducked 0.6 dB; now 16.6 dB under, ducking 12.9 dB. |

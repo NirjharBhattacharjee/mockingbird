@@ -128,7 +128,8 @@ export type Insert = {
   clip?: string;
   from: number;
   to: number;
-  box?: Area;
+  /** `path`, from `track`: the box's top left over time, `at` seconds from the insert's start. */
+  box?: Area & { path?: { at: number; x: number; y: number }[] };
   blend?: string;
   effects?: Effects;
   moves?: Move[];
@@ -230,6 +231,27 @@ function area(v: unknown, what: string): Area {
   };
   if (a.x + a.w > 1.001 || a.y + a.h > 1.001) fail(`${what} goes past the picture`);
   return a;
+}
+
+/** An insert's box: an area, and the `path` `track` gives to follow a subject. */
+function tracked(v: unknown, what: string): NonNullable<Insert["box"]> {
+  const { path, ...rest } = obj(v, what, ["x", "y", "w", "h", "path"]);
+  const box = area(rest, what);
+  if (path === undefined) return box;
+  if (!Array.isArray(path) || !path.length) fail(`${what}.path must be a list of { at, x, y }`);
+  let last = -1;
+  const points = (path as unknown[]).map((p, i) => {
+    const o = obj(p, `${what}.path[${i}]`, ["at", "x", "y"]);
+    const at = num(o.at, `${what}.path[${i}].at`, 0, 86400);
+    if (!(at > last)) fail(`${what}.path[${i}].at must be rising`);
+    last = at;
+    return {
+      at,
+      x: num(o.x, `${what}.path[${i}].x`, -1, 2),
+      y: num(o.y, `${what}.path[${i}].y`, -1, 2),
+    };
+  });
+  return { ...box, path: points };
 }
 
 const CLIP = [
@@ -340,7 +362,7 @@ function insert(v: unknown, what: string): Insert {
     path: str(o.path, `${what}.path`),
     clip: maybe(o.clip, (c) => str(c, `${what}.clip`)),
     ...stretch(o, what),
-    box: maybe(o.box, (b) => area(b, `${what}.box`)),
+    box: maybe(o.box, (b) => tracked(b, `${what}.box`)),
     blend: maybe(o.blend, (b) => str(b, `${what}.blend`)),
     effects: maybe(o.effects, (l) => effectList(l, what)),
     moves: maybe(o.moves, (l) => moves(l, what)),

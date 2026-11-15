@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { maskSteps } from "../src/effects.ts";
+import { renderGraph } from "../src/mcp.ts";
 import { along, follow } from "../src/track.ts";
 
 test("track follows a textured square across noisy frames (#200)", () => {
@@ -50,4 +51,31 @@ test("a mask with a path moves a drawn box with overlay", () => {
   expect(steps).toHaveLength(3);
   expect(steps[2]).toContain("overlay=x='if(lt(t,2),(0+(320-0)*(t-0)/2),320)'");
   expect(steps[2]?.endsWith("[m]")).toBe(true);
+});
+
+test("an insert's box follows a path, timed from the insert's start (#200)", () => {
+  const graph = renderGraph([{ from: 0, to: 4 }], {
+    audio: false,
+    size: "640x360",
+    fps: 30,
+    inserts: [
+      {
+        start: 1,
+        end: 3,
+        box: {
+          x: 0,
+          y: 0,
+          w: 0.25,
+          h: 0.25,
+          path: [
+            { at: 0, x: 0, y: 0.5 },
+            { at: 2, x: 0.5, y: 0.5 },
+          ],
+        },
+      },
+    ],
+  });
+  expect(graph).toContain(
+    "overlay=x='if(lt((t-1),2),(0+(320-0)*((t-1)-0)/2),320)':y='if(lt((t-1),2),(180+(180-180)*((t-1)-0)/2),180)':eof_action=pass",
+  );
 });

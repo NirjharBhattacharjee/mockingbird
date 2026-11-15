@@ -430,7 +430,9 @@ face across the shot. Or give a rectangle or ellipse a `path`, the points
 `track` returns, and it follows them instead. The mask is drawn per frame, so a masked effect costs
 more: 6 s at 1280x720 rendered in 7 to 8 s, against under a second without.
 
-Inserts take `box: {x, y, w, h}` (a picture in the picture), `blend`
+Inserts take `box: {x, y, w, h}` (a picture in the picture; give it
+`track`'s points as `path` and it moves with a subject, a title that follows
+someone across the shot), `blend`
 (`screen`, `multiply`, `overlay`, `softlight`, `lighten`, `darken`,
 `addition` or `difference`, whole frame only), `effects`, and in a project
 `moves` like a clip's (a Ken Burns pan over a still). A green-screen clip
