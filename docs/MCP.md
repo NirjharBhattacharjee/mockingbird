@@ -411,6 +411,30 @@ framing, and a clip with effects is always encoded, never stream-copied.
 | `highpass` | sound | `frequency` (80 Hz suits speech) |
 | `compress` | sound | `threshold` (dB), `ratio` |
 | `deess` | sound | `amount` |
+| `chromakey` | picture | `color` (`#00ff00`), `similarity`, `blend`, `spill`; put it on an insert so the cut shows through |
+| `stabilize` | picture | `strength`, `zoom` (crops in to hide the moving edges); ffmpeg's `deshake` |
+| `crop` | picture | `left`, `right`, `top`, `bottom`, each 0–0.5; on an insert the cut shows through |
+| `freeze` | picture | holds the clip's first frame for its length while the sound plays on |
+| `reverse` | picture and sound | plays the clip backwards; keep it short, it's held in memory |
+
+Any picture effect takes a `mask` to apply it to part of the frame only:
+`{shape: "rect" | "ellipse" | "polygon", x, y, w, h, feather, invert, end}`.
+Sizes are 0–1 of the picture, a polygon has `points: [[x, y], ...]`,
+`feather` softens the edge (0–0.5 of the width), and `end: {x, y, w, h}`
+moves a rectangle or ellipse there over the clip, e.g. a blur that follows a
+face across the shot. The mask is drawn per frame, so a masked effect costs
+more: 6 s at 1280x720 rendered in 7 to 8 s, against under a second without.
+
+Inserts take `box: {x, y, w, h}` (a picture in the picture), `blend`
+(`screen`, `multiply`, `overlay`, `softlight`, `lighten`, `darken`,
+`addition` or `difference`, whole frame only), `effects`, and in a project
+`moves` like a clip's (a Ken Burns pan over a still). A green-screen clip
+keys over the cut as an insert with `effects: [{name: "chromakey"}]`.
+
+An adjustment layer, `{op: "add", type: "adjust", from, to, clip?, effects}`
+in a project or `render`'s `adjust: [{from, to, effects}]`, puts its effects
+on everything under the text (the clips and the inserts) for its stretch:
+one grade over a whole section, or a masked blur over it.
 
 `scopes` measures a picture the way a colourist reads the scopes: mean luma
 and its 5th to 95th percentile, the share of pixels in the shadows, mids and

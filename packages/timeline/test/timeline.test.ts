@@ -591,3 +591,51 @@ describe("J and L cuts", () => {
     expect(two(2.5)).toThrow("more than c2 or the clip before it lasts");
   });
 });
+
+describe("adjustment layers and insert looks (#198)", () => {
+  test("an adjust stays on its clip through a split, and compiles to finished-video times", () => {
+    const { project } = apply(base(), [
+      {
+        op: "add",
+        type: "adjust",
+        clip: "c1",
+        from: 4.5,
+        to: 5.5,
+        effects: [{ name: "color", saturation: 0 }],
+      },
+      {
+        op: "add",
+        type: "insert",
+        path: "green.mp4",
+        clip: "c1",
+        from: 1,
+        to: 2,
+        box: { x: 0.5, y: 0, w: 0.5, h: 0.5 },
+        effects: [{ name: "chromakey" }],
+      },
+      { op: "split", id: "c1", at: 14 },
+    ]);
+    expect(project.adjust).toEqual([
+      { id: "j1", clip: "c3", from: 0.5, to: 1.5, effects: [{ name: "color", saturation: 0 }] },
+    ]);
+    const cut = compile(project, "/p");
+    expect(cut.adjust).toEqual([
+      { from: 4.5, to: 5.5, effects: [{ name: "color", saturation: 0 }] },
+    ]);
+    expect(cut.inserts.find((i) => i.box)).toMatchObject({
+      from: 1,
+      to: 2,
+      box: { x: 0.5, y: 0, w: 0.5, h: 0.5 },
+      effects: [{ name: "chromakey" }],
+    });
+    expect(outline(project, "p.json")).toContain("adjust effects color");
+    // Removing its clip takes it too.
+    expect(apply(project, [{ op: "remove", id: "c3" }]).project.adjust).toEqual([]);
+  });
+
+  test("an adjust needs effects", () => {
+    expect(() => apply(base(), [{ op: "add", type: "adjust", from: 0, to: 1 }])).toThrow(
+      "needs effects",
+    );
+  });
+});
