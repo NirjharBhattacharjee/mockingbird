@@ -14,8 +14,8 @@ import {
   type Look,
   type Pt,
   progress,
-  spring,
   type Style,
+  spring,
   type Tone,
   trace,
 } from "./look.ts";
@@ -69,7 +69,16 @@ function make(ctx: any, t: number, m: any): Look {
     ctx.restore();
   }
 
-  function glowText(s: string, x: number, y: number, size: number, weight: number, fill: any, align = "left", blur = 16) {
+  function glowText(
+    s: string,
+    x: number,
+    y: number,
+    size: number,
+    weight: number,
+    fill: any,
+    align = "left",
+    blur = 16,
+  ) {
     ctx.save();
     ctx.font = `${weight} ${Math.round(size * u)}px ${SANS}`;
     ctx.textAlign = align;
@@ -221,7 +230,9 @@ function make(ctx: any, t: number, m: any): Look {
       if (s <= 0) return;
       ctx.save();
       ctx.globalAlpha = clamp(s);
-      scaled(X(x + w / 2), Y(y + h / 2), 0.92 + 0.08 * s, () => tile(X(x), Y(y), X(w), Y(h), 16 * u, tone, 0.6));
+      scaled(X(x + w / 2), Y(y + h / 2), 0.92 + 0.08 * s, () =>
+        tile(X(x), Y(y), X(w), Y(h), 16 * u, tone, 0.6),
+      );
       ctx.restore();
     },
     link(x1, y1, x2, y2, o = {}) {
@@ -305,7 +316,16 @@ function make(ctx: any, t: number, m: any): Look {
       ctx.font = `800 ${Math.round(size * u)}px ${SANS}`;
       const tw = ctx.measureText(value).width;
       const cy = Y(y) + (1 - p) * 20 * u;
-      glowText(value, X(x), cy, size, 800, grad(X(x) - tw / 2, cy - size * u, X(x) + tw / 2, cy + size * u, tone), "center", 26);
+      glowText(
+        value,
+        X(x),
+        cy,
+        size,
+        800,
+        grad(X(x) - tw / 2, cy - size * u, X(x) + tw / 2, cy + size * u, tone),
+        "center",
+        26,
+      );
       if (sub) {
         ctx.font = `700 ${Math.round(size * 0.24 * u)}px ${SANS}`;
         ctx.textAlign = "center";
@@ -336,19 +356,36 @@ function make(ctx: any, t: number, m: any): Look {
         ctx.lineJoin = "round";
         const pts: Pt[] =
           kind === "check"
-            ? [[cx - R * 0.42, cy + R * 0.02], [cx - R * 0.1, cy + R * 0.34], [cx + R * 0.45, cy - R * 0.32]]
-            : [[cx - R * 0.35, cy - R * 0.35], [cx + R * 0.35, cy + R * 0.35]];
+            ? [
+                [cx - R * 0.42, cy + R * 0.02],
+                [cx - R * 0.1, cy + R * 0.34],
+                [cx + R * 0.45, cy - R * 0.32],
+              ]
+            : [
+                [cx - R * 0.35, cy - R * 0.35],
+                [cx + R * 0.35, cy + R * 0.35],
+              ];
         trace(ctx, along(pts, d).points);
         ctx.stroke();
         if (kind === "cross" && d > 0) {
-          trace(ctx, [[cx + R * 0.35, cy - R * 0.35], [cx - R * 0.35, cy + R * 0.35]]);
+          trace(ctx, [
+            [cx + R * 0.35, cy - R * 0.35],
+            [cx - R * 0.35, cy + R * 0.35],
+          ]);
           ctx.stroke();
         }
         ctx.restore();
       });
     },
     finish() {
-      const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.hypot(W, H) * 0.6);
+      const g = ctx.createRadialGradient(
+        W / 2,
+        H / 2,
+        Math.min(W, H) * 0.35,
+        W / 2,
+        H / 2,
+        Math.hypot(W, H) * 0.6,
+      );
       g.addColorStop(0, "rgba(4,4,20,0)");
       g.addColorStop(1, "rgba(4,4,20,0.55)");
       ctx.fillStyle = g;
@@ -357,4 +394,9 @@ function make(ctx: any, t: number, m: any): Look {
   };
 }
 
-export default { id: "tech-glow", name: "Neon tech", category: "Popular Explainer Looks", make } satisfies Style;
+export default {
+  id: "tech-glow",
+  name: "Neon tech",
+  category: "Popular Explainer Looks",
+  make,
+} satisfies Style;

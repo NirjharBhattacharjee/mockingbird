@@ -53,7 +53,17 @@ function make(ctx: any, t: number, m: any): Look {
   }
 
   /** Text written on: the outline sweeps in left to right, then the fill fades up behind it. */
-  function write(s: string, x: number, y: number, size: number, color: string, at: number, dur: number, align = "left", italic = false) {
+  function write(
+    s: string,
+    x: number,
+    y: number,
+    size: number,
+    color: string,
+    at: number,
+    dur: number,
+    align = "left",
+    italic = false,
+  ) {
     const p = progress(t, at, dur);
     if (p <= 0) return;
     ctx.save();
@@ -123,7 +133,8 @@ function make(ctx: any, t: number, m: any): Look {
       if (f > 0) {
         ctx.beginPath();
         ctx.arc(cx, cy, R - 1.5 * u, 0, Math.PI * 2);
-        ctx.fillStyle = tone === "accent" ? `rgba(255,255,255,${0.55 * f})` : `rgba(88,196,221,${0.5 * f})`;
+        ctx.fillStyle =
+          tone === "accent" ? `rgba(255,255,255,${0.55 * f})` : `rgba(88,196,221,${0.5 * f})`;
         ctx.fill();
       }
     },
@@ -132,14 +143,25 @@ function make(ctx: any, t: number, m: any): Look {
       const a: Pt = [X(x), Y(y)];
       const b: Pt = [X(x + w), Y(y + h)];
       const ind = indicate(at + dur);
-      create([a, [b[0], a[1]], b, [a[0], b[1]], a], at, dur, mix(tone === "ink" ? COL.ink : COL[tone], ind.tint), 3);
+      create(
+        [a, [b[0], a[1]], b, [a[0], b[1]], a],
+        at,
+        dur,
+        mix(tone === "ink" ? COL.ink : COL[tone], ind.tint),
+        3,
+      );
     },
     link(x1, y1, x2, y2, o = {}) {
       const { at = 0, dur = 0.4, bend = 0, head = true, tone = "ink" } = o;
       const a: Pt = [X(x1), Y(y1)];
       const b: Pt = [X(x2), Y(y2)];
       // Weights: a soft blue or red by direction, the way a network's edges show their sign.
-      const color = !head && tone === "accent" ? ((x1 * 31 + y1 * 17 + y2 * 13) % 1 > 0.5 ? "#58C4DDAA" : "#FC6255AA") : COL[tone];
+      const color =
+        !head && tone === "accent"
+          ? (x1 * 31 + y1 * 17 + y2 * 13) % 1 > 0.5
+            ? "#58C4DDAA"
+            : "#FC6255AA"
+          : COL[tone];
       const res = create(curve(a, b, bend, 32), at, dur, color, head ? 3 : 1.6);
       if (!res || !head || progress(t, at, dur) < 1) return;
       const tip = res.points.at(-1) as Pt;
@@ -160,11 +182,43 @@ function make(ctx: any, t: number, m: any): Look {
       const top = Y(y);
       const bot = Y(y + h);
       const lip = X(w) * 0.18;
-      create([[l + lip, top], [l, top], [l, bot], [l + lip, bot]], at, dur * 0.5, COL[tone], 3);
-      create([[r - lip, top], [r, top], [r, bot], [r - lip, bot]], at, dur * 0.5, COL[tone], 3);
+      create(
+        [
+          [l + lip, top],
+          [l, top],
+          [l, bot],
+          [l + lip, bot],
+        ],
+        at,
+        dur * 0.5,
+        COL[tone],
+        3,
+      );
+      create(
+        [
+          [r - lip, top],
+          [r, top],
+          [r, bot],
+          [r - lip, bot],
+        ],
+        at,
+        dur * 0.5,
+        COL[tone],
+        3,
+      );
       const rows = ["x₁", "x₂", "⋮", "xₙ"];
       rows.forEach((s, i) => {
-        write(s, (l + r) / 2, top + ((bot - top) * (i + 0.5)) / rows.length, 30, COL.accent, at + dur * 0.4 + i * 0.08, 0.3, "center", true);
+        write(
+          s,
+          (l + r) / 2,
+          top + ((bot - top) * (i + 0.5)) / rows.length,
+          30,
+          COL.accent,
+          at + dur * 0.4 + i * 0.08,
+          0.3,
+          "center",
+          true,
+        );
       });
     },
     stat(s, x, y, o = {}) {
@@ -185,7 +239,8 @@ function make(ctx: any, t: number, m: any): Look {
       ctx.fillStyle = color;
       ctx.fillText(value, 0, 0);
       ctx.restore();
-      if (sub) write(sub, X(x), Y(y) - size * 0.85 * u, size * 0.32, COL.ink, at + 0.2, 0.5, "center");
+      if (sub)
+        write(sub, X(x), Y(y) - size * 0.85 * u, size * 0.32, COL.ink, at + 0.2, 0.5, "center");
       // A surrounding rectangle drawn round the big result once it settles.
       if (count && size >= 80) {
         ctx.save();
@@ -204,14 +259,47 @@ function make(ctx: any, t: number, m: any): Look {
       const cx = X(x);
       const cy = Y(y);
       if (kind === "check")
-        create([[cx - s * 0.5, cy], [cx - s * 0.12, cy + s * 0.4], [cx + s * 0.55, cy - s * 0.5]], at, 0.35, COL.good, 4);
+        create(
+          [
+            [cx - s * 0.5, cy],
+            [cx - s * 0.12, cy + s * 0.4],
+            [cx + s * 0.55, cy - s * 0.5],
+          ],
+          at,
+          0.35,
+          COL.good,
+          4,
+        );
       else {
-        create([[cx - s * 0.45, cy - s * 0.45], [cx + s * 0.45, cy + s * 0.45]], at, 0.2, COL.bad, 4);
-        create([[cx + s * 0.45, cy - s * 0.45], [cx - s * 0.45, cy + s * 0.45]], at + 0.2, 0.2, COL.bad, 4);
+        create(
+          [
+            [cx - s * 0.45, cy - s * 0.45],
+            [cx + s * 0.45, cy + s * 0.45],
+          ],
+          at,
+          0.2,
+          COL.bad,
+          4,
+        );
+        create(
+          [
+            [cx + s * 0.45, cy - s * 0.45],
+            [cx - s * 0.45, cy + s * 0.45],
+          ],
+          at + 0.2,
+          0.2,
+          COL.bad,
+          4,
+        );
       }
     },
     finish() {},
   };
 }
 
-export default { id: "math-anim", name: "Math animation", category: "Popular Explainer Looks", make } satisfies Style;
+export default {
+  id: "math-anim",
+  name: "Math animation",
+  category: "Popular Explainer Looks",
+  make,
+} satisfies Style;
