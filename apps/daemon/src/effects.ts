@@ -4,6 +4,7 @@
  * names its parameters with their ranges and builds the ffmpeg filter that
  * render puts on a clip's picture or sound.
  */
+import { along, type Point } from "./track.ts";
 
 type Param = { min: number; max: number; default: number; about: string };
 /** What an effect is put on: the picture's size, and how long it lasts in the finished video. */
@@ -37,6 +38,8 @@ export type Mask = {
   feather?: number;
   invert?: boolean;
   end?: { x: number; y: number; w: number; h: number };
+  /** A rect or ellipse following a path, its top left `at` seconds into the clip: what `track` gives. */
+  path?: Point[];
 };
 
 const DEFAULT_CTX: Ctx = { width: 1920, height: 1080, length: 0, fps: 30 };
@@ -360,7 +363,7 @@ export function pictureSteps(
     flush(l("p"));
     steps.push(
       `${at}split${l("k")}${l("e")}`,
-      `${maskSource(e.mask as Mask, ctx)}${l("m")}`,
+      ...maskSteps(e.mask as Mask, ctx, l("m"), `${tag}${n}`),
       `${l("e")}${b.filter},format=yuva420p${l("f")}`,
       `${l("f")}${l("m")}alphamerge${l("x")}`,
       `${l("k")}${l("x")}overlay=format=auto${l("o")}`,
@@ -369,6 +372,29 @@ export function pictureSteps(
   });
   flush(output);
   return steps;
+}
+
+/**
+ * The mask's graph steps, ending in `out`. One that follows a path is its
+ * shape drawn once and moved over black by overlay, whose position is worked
+ * out per frame, not per pixel as geq's would be.
+ */
+export function maskSteps(m: Mask, ctx: Ctx, out: string, tag: string): string[] {
+  if (!m.path?.length) return [`${maskSource(m, ctx)}${out}`];
+  const { width: W, height: H, fps, length } = ctx;
+  const pw = even((m.w ?? 0.2) * W);
+  const ph = even((m.h ?? 0.2) * H);
+  const d = f(Math.max(length, 1 / fps));
+  const round =
+    m.shape === "ellipse"
+      ? ",format=gray,geq=lum='255*lte(pow((X-W/2)/(W/2),2)+pow((Y-H/2)/(H/2),2),1)'"
+      : "";
+  const soft = m.feather ? `,gblur=sigma=${f(m.feather * W)}` : "";
+  return [
+    `color=c=white:s=${pw}x${ph}:r=${fps}:d=${d}${round},format=yuv420p[${tag}ms]`,
+    `color=c=black:s=${W}x${H}:r=${fps}:d=${d},format=yuv420p[${tag}mb]`,
+    `[${tag}mb][${tag}ms]overlay=x='${along(m.path, "x", "t", W)}':y='${along(m.path, "y", "t", H)}':shortest=1,format=gray${m.invert ? ",negate" : ""}${soft}${out}`,
+  ];
 }
 
 /**
@@ -413,11 +439,33 @@ export function maskSource(m: Mask, ctx: Ctx): string {
   return `color=c=black:s=${W}x${H}:r=${fps}:d=${f(length)},format=gray,geq=lum='255*${value}'${soft}`;
 }
 
+/** `v` checked as a path: [{at, x, y}], at rising, x and y 0-1. */
+export function checkPath(v: unknown, at: string): void {
+  if (!Array.isArray(v) || !v.length) throw new Error(`${at} must be a list of { at, x, y }`);
+  let last = -1;
+  v.forEach((p, i) => {
+    const o = p as Record<string, unknown>;
+    if (typeof o !== "object" || o === null) throw new Error(`${at}[${i}] must be { at, x, y }`);
+    const [t, x, y] = [o.at, o.x, o.y];
+    if (typeof t !== "number" || !(t > last))
+      throw new Error(`${at}[${i}].at must be rising seconds`);
+    if (
+      typeof x !== "number" ||
+      !(x >= -1 && x <= 2) ||
+      typeof y !== "number" ||
+      !(y >= -1 && y <= 2)
+    ) {
+      throw new Error(`${at}[${i}] needs x and y, 0-1 of the picture`);
+    }
+    last = t;
+  });
+}
+
 /** `v` checked as a Mask. */
 function checkMask(v: unknown, at: string): void {
   if (typeof v !== "object" || v === null) throw new Error(`${at} must be an object`);
   const m = v as Record<string, unknown>;
-  const keys = ["shape", "x", "y", "w", "h", "points", "feather", "invert", "end"];
+  const keys = ["shape", "x", "y", "w", "h", "points", "feather", "invert", "end", "path"];
   const extra = Object.keys(m).filter((k) => !keys.includes(k));
   if (extra.length)
     throw new Error(`${at} has no ${extra.join(", ")}; it takes ${keys.join(", ")}`);
@@ -434,6 +482,12 @@ function checkMask(v: unknown, at: string): void {
   unit(m.feather, `${at}.feather`, 0, 0.5);
   if (m.invert !== undefined && typeof m.invert !== "boolean")
     throw new Error(`${at}.invert must be true or false`);
+  if (m.path !== undefined) {
+    if (m.shape === "polygon" || m.end !== undefined) {
+      throw new Error(`${at}: a path moves a rect or ellipse, and takes no end`);
+    }
+    checkPath(m.path, `${at}.path`);
+  }
   if (m.shape === "polygon") {
     if (m.end !== undefined)
       throw new Error(`${at}: a polygon doesn't move; use a rect or ellipse with end`);

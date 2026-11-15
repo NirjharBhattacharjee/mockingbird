@@ -49,6 +49,7 @@ with `"args": ["/c", "C:\\Users\\<you>\\.mockingbird\\bin\\mockingbird.cmd", "mc
 | `transcribe(project)` | The words in a project's cut, clip by clip, each line at its time in the finished video: the edit as text, to choose what `cut_words` cuts. See [Text-based editing](#text-based-editing). |
 | `effects` | The effects catalog: each effect's name, whether it's on the picture or the sound, and its settings with ranges and defaults; see [Effects](#effects). |
 | `export(project, format, out)` | A project as FCPXML 1.10 and OpenTimelineIO, to finish the cut in Final Cut, Resolve or Premiere; see [Exporting to an editor](#exporting-to-an-editor). |
+| `track(path, from, to, box)` | Follows a box through a video by template matching on frames shrunk to 320 wide: its top left over time, five points a second, to give a mask as its `path` so a blur or a grade stays on a moving face, plate or logo. A test pattern moving across a busy 1280x720 background was followed for 6 s in 0.38 s, at most 4.4 px off. `worst` under about 0.5 means it was lost. |
 | `sync(paths, window)` | Lines up recordings of one take (cameras, a separate recorder) by their sound: each file's offset against the first, for a multicam edit. Two cameras offset by 1.234 s, with different mic tone, gain and room noise, came out at 1.234 s (0.0 ms off) in 0.44 s. |
 | `scopes(path, from, to, every)` | What a colourist reads off the scopes, as numbers: luma, the histogram's thirds, clipping, saturation and skin's distance from the skin-tone line; see [Effects](#effects). |
 | `audio_stats(path, from, to)` | What a file's sound measures, since the agent can't listen: see [Measuring sound](#measuring-sound). |
@@ -425,7 +426,8 @@ Any picture effect takes a `mask` to apply it to part of the frame only:
 Sizes are 0–1 of the picture, a polygon has `points: [[x, y], ...]`,
 `feather` softens the edge (0–0.5 of the width), and `end: {x, y, w, h}`
 moves a rectangle or ellipse there over the clip, e.g. a blur that follows a
-face across the shot. The mask is drawn per frame, so a masked effect costs
+face across the shot. Or give a rectangle or ellipse a `path`, the points
+`track` returns, and it follows them instead. The mask is drawn per frame, so a masked effect costs
 more: 6 s at 1280x720 rendered in 7 to 8 s, against under a second without.
 
 Inserts take `box: {x, y, w, h}` (a picture in the picture), `blend`

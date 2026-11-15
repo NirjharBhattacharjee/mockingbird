@@ -60,6 +60,7 @@ import {
 } from "./runtime.ts";
 import { scopes } from "./scopes.ts";
 import { sync } from "./sync.ts";
+import { track } from "./track.ts";
 
 /**
  * `mockingbird mcp` (#88): mockingbird's local functions as Model Context
@@ -3579,6 +3580,47 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
               : `${d.path}: offset ${d.offset >= 0 ? "+" : ""}${d.offset.toFixed(3)} s (score ${d.score.toFixed(2)}${d.score < 0.3 ? ", a guess" : ""})`,
           )
           .join("\n");
+      },
+    },
+    {
+      name: "track",
+      description:
+        "Follow a box through a video: give where the subject is at `from` (x, y, w, h, 0-1 of the picture) and get its top left over time, five points a second, `at` seconds from `from`. Give the points as a mask's `path` (with the box's w and h) to keep a blur or a grade on a moving face, plate or logo. They're in the source picture, so they line up with the clip when it isn't reframed. `worst` is the weakest match on the way: under about 0.5 the subject was probably lost there; track shorter stretches.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path: { type: "string" },
+          from: { type: "number", description: "Seconds where the box is given" },
+          to: { type: "number", description: "Seconds to follow it to" },
+          box: {
+            type: "object",
+            properties: {
+              x: { type: "number" },
+              y: { type: "number" },
+              w: { type: "number" },
+              h: { type: "number" },
+            },
+            required: ["x", "y", "w", "h"],
+          },
+        },
+        required: ["path", "from", "to", "box"],
+      },
+      run: async (a) => {
+        const path = requireFile(resolve(String(a.path)), "File");
+        const source = await probe(path);
+        const from = within(a.from, 0, source.seconds, "from", 0);
+        const end = Math.min(source.seconds, from + 600);
+        const to = within(a.to, from, end, "to", end);
+        const b = (a.box ?? {}) as Record<string, unknown>;
+        const box = {
+          x: within(b.x, 0, 1, "box.x", 0),
+          y: within(b.y, 0, 1, "box.y", 0),
+          w: within(b.w, 0.01, 1, "box.w", 0.2),
+          h: within(b.h, 0.01, 1, "box.h", 0.2),
+        };
+        if (box.x + box.w > 1 || box.y + box.h > 1) throw new Error("box must fit in the picture");
+        const [w, h] = source.size.split("x").map(Number) as [number, number];
+        return JSON.stringify(await track(path, from, to, box, w / h));
       },
     },
     {
