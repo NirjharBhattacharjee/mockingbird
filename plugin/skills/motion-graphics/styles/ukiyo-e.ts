@@ -43,7 +43,12 @@ function make(ctx: any, t: number, m: any): Look {
   /** The two stages of a print: keyblock outline (0-1) and colour pressed in (0-1). */
   function press(at = 0, dur = 0.6) {
     const p = progress(t, at, dur);
-    return { key: clamp(p / 0.35), color: clamp((p - 0.35) / 0.4), shift: (1 - clamp((p - 0.35) / 0.65)) * 6 * u, on: p > 0 };
+    return {
+      key: clamp(p / 0.35),
+      color: clamp((p - 0.35) / 0.4),
+      shift: (1 - clamp((p - 0.35) / 0.65)) * 6 * u,
+      on: p > 0,
+    };
   }
 
   function paper() {
@@ -66,7 +71,8 @@ function make(ctx: any, t: number, m: any): Look {
       for (let i = 0; i < 60; i++) {
         const y0 = hash(i * 3.3) * H;
         x.beginPath();
-        for (let px = 0; px <= W; px += 20 * u) x.lineTo(px, y0 + Math.sin(px / (140 * u) + i) * 6 * u);
+        for (let px = 0; px <= W; px += 20 * u)
+          x.lineTo(px, y0 + Math.sin(px / (140 * u) + i) * 6 * u);
         x.stroke();
       }
       // washi fibres
@@ -78,7 +84,12 @@ function make(ctx: any, t: number, m: any): Look {
         const l = (4 + hash(i * 5.3) * 14) * u;
         x.beginPath();
         x.moveTo(fx, fy);
-        x.quadraticCurveTo(fx + Math.cos(a) * l, fy + Math.sin(a + 1) * l, fx + Math.cos(a) * l * 1.6, fy + Math.sin(a) * l * 1.6);
+        x.quadraticCurveTo(
+          fx + Math.cos(a) * l,
+          fy + Math.sin(a + 1) * l,
+          fx + Math.cos(a) * l * 1.6,
+          fy + Math.sin(a) * l * 1.6,
+        );
         x.stroke();
       }
       cache.set(key, c);
@@ -113,13 +124,21 @@ function make(ctx: any, t: number, m: any): Look {
     ctx.lineWidth = 1.2 * u;
     for (let r = 0; r < 4; r++) {
       ctx.beginPath();
-      for (let px = 0; px <= W; px += 12 * u) ctx.lineTo(px, top + (22 + r * 14) * u + Math.sin(px / (40 * u) + r + t) * 2 * u);
+      for (let px = 0; px <= W; px += 12 * u)
+        ctx.lineTo(px, top + (22 + r * 14) * u + Math.sin(px / (40 * u) + r + t) * 2 * u);
       ctx.stroke();
     }
   }
 
   /** A cartouche: cream panel, keyblock border, inner gold rule. */
-  function cartouche(x: number, y: number, w: number, h: number, pr: ReturnType<typeof press>, edge = SUMI) {
+  function cartouche(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    pr: ReturnType<typeof press>,
+    edge = SUMI,
+  ) {
     ctx.save();
     if (pr.color > 0) {
       ctx.globalAlpha = pr.color;
@@ -148,7 +167,7 @@ function make(ctx: any, t: number, m: any): Look {
       sea();
     },
     title(s, o = {}) {
-      const { x = 0.035, y = 0.05, size = 44, at = 0, dur = 0.8 } = o;
+      const { x = 0.035, y = 0.05, size = 50, at = 0, dur = 0.8 } = o;
       const pr = press(at, dur);
       if (!pr.on) return;
       ctx.font = font(size);
@@ -167,14 +186,21 @@ function make(ctx: any, t: number, m: any): Look {
       ctx.restore();
     },
     label(s, x, y, o = {}) {
-      const { size = 28, align = "center", tone = "ink", at = 0 } = o;
+      const { size = 34, align = "center", tone = "ink", at = 0 } = o;
       const pr = press(at, o.dur ?? 0.45);
       if (!pr.on) return;
       ctx.font = font(size);
       const w = ctx.measureText(s).width + 22 * u;
       const h = size * 1.45 * u;
       const left = align === "center" ? X(x) - w / 2 : align === "right" ? X(x) - w : X(x);
-      cartouche(left, Y(y) - h / 2, w, h, pr, tone === "ink" || tone === "muted" ? SUMI : BLOCK[tone]);
+      cartouche(
+        left,
+        Y(y) - h / 2,
+        w,
+        h,
+        pr,
+        tone === "ink" || tone === "muted" ? SUMI : BLOCK[tone],
+      );
       ctx.save();
       ctx.globalAlpha = pr.color;
       text(ctx, s, left + w / 2, Y(y), font(size), tone === "ink" ? SUMI : BLOCK[tone], "center");
@@ -277,7 +303,13 @@ function make(ctx: any, t: number, m: any): Look {
           for (let k = 0; k < 8; k++) {
             const a = (k / 8) * Math.PI * 2;
             ctx.beginPath();
-            ctx.arc(bx + pr.shift + bw / 2 + Math.cos(a) * r * 0.8, cy + Math.sin(a) * r * 0.8, r * 0.32, 0, Math.PI * 2);
+            ctx.arc(
+              bx + pr.shift + bw / 2 + Math.cos(a) * r * 0.8,
+              cy + Math.sin(a) * r * 0.8,
+              r * 0.32,
+              0,
+              Math.PI * 2,
+            );
             ctx.fill();
           }
           ctx.beginPath();
@@ -304,12 +336,28 @@ function make(ctx: any, t: number, m: any): Look {
       if (sub) cartouche(X(x) - w / 2, Y(y) - h / 2, w, h, pr, BLOCK[tone]);
       ctx.save();
       ctx.globalAlpha = pr.color;
-      text(ctx, str, X(x), Y(y) - (sub ? size * 0.2 * u : 0), font(size, 700), BLOCK[tone] === BLOCK.accent ? SUMI : BLOCK[tone], "center");
-      if (sub) text(ctx, sub, X(x), Y(y) + size * 0.58 * u, font(size * 0.3), BLOCK.muted, "center");
+      text(
+        ctx,
+        str,
+        X(x),
+        Y(y) - (sub ? size * 0.2 * u : 0),
+        font(size, 700),
+        BLOCK[tone] === BLOCK.accent ? SUMI : BLOCK[tone],
+        "center",
+      );
+      if (sub) text(ctx, sub, X(x), Y(y) + size * 0.58 * u, font(size * 0.36), SUMI, "center");
       ctx.restore();
       if (sub && progress(t, at + dur, 0.6) > 0) {
         // a vermilion brush ring once the count lands
-        const ring = ellipse(X(x), Y(y), w * 0.62, h * 0.66, 48, -2.2, progress(t, at + dur, 0.6) * 1.05);
+        const ring = ellipse(
+          X(x),
+          Y(y),
+          w * 0.62,
+          h * 0.66,
+          48,
+          -2.2,
+          progress(t, at + dur, 0.6) * 1.05,
+        );
         ctx.save();
         trace(ctx, ring);
         ctx.strokeStyle = alpha(BLOCK.bad, 0.85);
@@ -334,7 +382,12 @@ function make(ctx: any, t: number, m: any): Look {
       ctx.strokeRect(-r * 0.78, -r * 0.78, r * 1.56, r * 1.56);
       ctx.lineWidth = 6 * u;
       ctx.lineCap = "square";
-      if (kind === "check") trace(ctx, [[-r * 0.45, 0], [-r * 0.1, r * 0.35], [r * 0.5, -r * 0.4]]);
+      if (kind === "check")
+        trace(ctx, [
+          [-r * 0.45, 0],
+          [-r * 0.1, r * 0.35],
+          [r * 0.5, -r * 0.4],
+        ]);
       else {
         ctx.beginPath();
         ctx.moveTo(-r * 0.4, -r * 0.4);
@@ -348,7 +401,7 @@ function make(ctx: any, t: number, m: any): Look {
     finish() {
       // a hint of uneven pigment, the same every frame
       ctx.save();
-      ctx.globalAlpha = 0.05;
+      ctx.globalAlpha = 0.02;
       ctx.fillStyle = "#6B4A2A";
       for (let i = 0; i < 40; i++) {
         ctx.beginPath();
@@ -360,4 +413,9 @@ function make(ctx: any, t: number, m: any): Look {
   };
 }
 
-export default { id: "ukiyo-e", name: "Woodblock print", category: "Art & Design Movements", make } satisfies Style;
+export default {
+  id: "ukiyo-e",
+  name: "Woodblock print",
+  category: "Art & Design Movements",
+  make,
+} satisfies Style;
