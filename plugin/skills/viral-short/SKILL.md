@@ -29,6 +29,9 @@ instead.
   unless you pass `out`; mockingbird never overwrites a file.
 - If the user gave a reference video they want to match, run **style-match**
   on it first.
+- If the short will have graphics or titles, run **look** first (`guide("look")`):
+  design this video's look with the user, and start cutting only after they
+  approve it. Skip it when they say to.
 
 ## Steps
 
