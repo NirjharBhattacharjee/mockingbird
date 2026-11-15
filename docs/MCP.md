@@ -48,16 +48,16 @@ with `"args": ["/c", "C:\\Users\\<you>\\.mockingbird\\bin\\mockingbird.cmd", "mc
 | `transcribe(path, from, to, words, model, language)` | An audio or video file (anything ffmpeg reads: m4a, mp3, wav, mp4, mov, mkv) as text, in lines timestamped `[mm:ss]`, with names fixed from your dictionary (a `heard => term` entry first, then anything that sounds like a term). Each call starts its own whisper-server, so two can run at once. The client's model does any cleanup or summarising. `from` and `to` (seconds) take one stretch of the file. `words: true` gives one line per word with its start and end, `[01:23.48-01:23.71] Catppuccin`, to cut a clip on; names are fixed one word at a time there, so a name misheard as two words stays as heard. `model` (a file in `models/`) and `language` (a Whisper code, or `auto`) pick the model and language for this call only; given neither, with the language on `auto` and a model mapped to a language (`models use --language`), it detects the language from the first speech and uses that model. The first line then names the language and model. |
 | `transcribe(project)` | The words in a project's cut, clip by clip, each line at its time in the finished video: the edit as text, to choose what `cut_words` cuts. See [Text-based editing](#text-based-editing). |
 | `effects` | The effects catalog: each effect's name, whether it's on the picture or the sound, and its settings with ranges and defaults; see [Effects](#effects). |
-| `scopes(path, from, to, every)` | What a colourist reads off the scopes, as numbers: luma, the histogram's thirds, clipping, saturation and skin's distance from the skin-tone line; see [Effects](#effects). |
+| `scopes(path, from, to, every)` | What a colourist reads off the scopes, as numbers: luma, the histogram's thirds, clipping, saturation and skin's distance from the skin-tone line; see [Effects](#effects). An HDR source is measured after it's brought to SDR, as `render` will show it. |
 | `audio_stats(path, from, to)` | What a file's sound measures, since the agent can't listen: see [Measuring sound](#measuring-sound). |
 | `scenes(path, from, to, threshold)` | The shot changes in a video, from ffmpeg's `scdet` over frames shrunk to 180 lines: each one's `[mm:ss.cc]` time and how big a change it is (0 to 100), and cuts a minute and seconds a shot. `threshold` (default 10) is how big a change counts. It finds changes of shot, such as a cut to b-roll, a new slide or another camera, not jump cuts within one shot: in the first minute of the v2 edit, the two cuts that changed the framing scored 5.9 and 7.5, and eight jump cuts scored under 1 or not at all, below ordinary movement. Decoded with the hardware where there's a decoder: a minute of 4K HEVC phone video took 21.6 s, against 165.6 s in software; a 4-minute 1080p60 screen recording took 29.5 s. |
-| `frames(path, every, from, to)` | Stills from a video, one every `every` seconds (default 60), saved to a temp folder; returns their paths with `[mm:ss]` times, so a client that reads images can see slides and screen shares, or where the speaker is before framing a clip. `from` and `to` (seconds) take one stretch. Each still is read by seeking to it, so a long 4K phone video takes seconds, not minutes. |
+| `frames(path, every, from, to)` | Stills from a video, one every `every` seconds (default 60), saved to a temp folder; returns their paths with `[mm:ss]` times, so a client that reads images can see slides and screen shares, or where the speaker is before framing a clip. `from` and `to` (seconds) take one stretch. An HDR source's stills are brought to SDR, as `render` shows it. Each still is read by seeking to it, so a long 4K phone video takes seconds, not minutes. |
 | `captions(path, clips, perCue, lit, upper, model, language)` | Word-by-word captions for the video `render` will make from `clips`, as SRT timed to the finished video: up to `perCue` words a cue (default 3), the word being said written `*like this*` (`lit`, default on), in capitals if `upper`. A new cue starts at each clip, after a sentence, after half a second's pause, or when its words span 1.2 seconds. Each clip is transcribed with two seconds either side, clips whose padded stretches overlap are transcribed together as one, and a word belongs to the clip its middle falls in. `model` and `language` work as in `transcribe`; detection listens to the first clip. |
 | `captions(project)` | The same word-by-word SRT for an `edit` project's cut, timed to its finished video with speed, transitions and J and L cuts, from the word cache; `perCue`, `lit` and `upper` default to the project's captions. Pass it to `motion` as `captions` over the project's render. |
 | `pauses(path, from, to, noise, shortest, minPause, margin)` | The pauses in a file's sound (ffmpeg's `silencedetect`, quieter than `noise` dB, default −35, for at least `shortest` s, default 0.25), one `start end length` line each, then `render`'s `clips` as JSON: what's between pauses of at least `minPause` s (default 0.4), `margin` s (default 0.15) kept into each, a stretch of 0.3 s or less joined to the next. |
 | `measure(path)` | A finished video's picture size (WxH), length, integrated loudness and true peak; its cuts come from `scenes`. |
 | `edit(project, ops)` | Changes a project file, an edit kept between calls; see [Projects](#projects). Applies `ops` in order, all of them or none, saves the file, and returns an outline of the cut. Makes the file if it isn't there; with no ops it only reads it. |
-| `render(project)` or `render(path, clips, …)` | Renders a project, or cuts `clips` out of one video and joins them, into one MP4 with ffmpeg; see [Render options](#render-options). Saves to `out`, or `<name>-render-N.mp4` beside the project (`<name>-short-N.mp4` beside the source), and never overwrites a file. |
+| `render(project)` or `render(path, clips, …)` | Renders a project, or cuts `clips` out of one video and joins them, into one MP4 with ffmpeg; see [Render options](#render-options). Saves to `out`, or `<name>-render-N.mp4` beside the project (`<name>-short-N.mp4` beside the source), and never overwrites a file. An HDR source (HLG or PQ, which phones record by default) is brought to SDR BT.709 first, and a render with one in it is tagged BT.709; see [HDR sources](#hdr-sources). |
 | `motion(script, path, captions, size, duration, fps, out)` | Motion graphics written as code: an HTML page rendered in a pinned headless Chrome; see [Motion graphics](#motion-graphics). Saves to `out`, or `<name>-motion-N.mp4` beside the video or script, and never overwrites a file. |
 | `music(script, duration, out, tempo, key, energy, seed)` | Background music written as code: a generator module played into Web Audio's `OfflineAudioContext` in the pinned headless Chrome, saved as a WAV at −14 LUFS for `render`'s `audio`; see [Music](#music). Never overwrites a file. |
 | `guide(topic)` | A playbook for one job, from [`plugin/`](../plugin/README.md): `viral-short`, `long-form`, `hooks`, `retention-editing`, `captions`, `motion-graphics`, `music`, `style-match`, or `reviewer` (the checks a finished video has to pass). It starts with the folder holding the playbook's scripts, kit and templates. |
@@ -427,6 +427,38 @@ mean 0.51, 95th percentile 0.80, nothing clipped, saturation 0.18 and skin
 1° off the line. On clean speech with pink noise and a 50 Hz hum added,
 `highpass` and `denoise` (floor −47) lowered the noise floor of the levelled
 render from −41.9 to −47.4 dBFS, and Whisper still heard every word.
+
+### HDR sources
+
+Phones record HDR by default: an iPhone writes HEVC, 10-bit, BT.2020, with
+the HLG transfer. Encoded as 8-bit SDR without a conversion, that picture
+comes out flat and grey, and grading can't bring it back (#252). So
+`render`, `frames` and `scopes` read each source's transfer, and an HLG or
+PQ picture is converted before anything else touches it: BT.2020 YUV to
+RGB, a 3D LUT, then BT.709 YUV, with the frames labelled BT.709 so every
+encode after tags the file SDR. That covers a render's video `inserts` as
+well as its clips. In an edit that mixes HDR and SDR sources, the SDR clips
+are labelled BT.709 too, so the file is tagged whichever clip comes first.
+An SDR-only render keeps its source's tags, untagged or not.
+
+`motion` converts an HDR `path` the same way before the page sees it or it's
+drawn under, and tags its output BT.709, a transparent `alpha` page included.
+
+The LUT is made by mockingbird (`apps/daemon/src/hdr.ts`), since Homebrew's
+ffmpeg has neither zscale nor libplacebo and every ffmpeg has `lut3d`. It
+takes the signal to display light (HLG's OOTF for a 1000-nit display, or
+PQ's EOTF), puts HDR's reference white (203 nits) at SDR display light 0.56,
+moves BT.2020's primaries to BT.709's, rolls the brightness off above 0.5
+with the hue kept, pulls out-of-gamut colours toward their grey, and
+encodes for gamma 2.4. It's written once to the temp folder under a name
+taken from its contents, so a changed conversion never reuses an old file.
+
+Measured on a 59 s vlog from 11 iPhone HLG clips, the render before the
+motion pass: it was tagged HLG/BT.2020 in an 8-bit SDR file, with mean luma
+0.52, saturation 0.11 and skin 8.4° off the skin-tone line. Now it's tagged
+BT.709, with mean luma 0.50, nothing clipped, saturation 0.14 and skin 0.8°
+off. The conversion costs time: the same render took 38–40 s, against
+23–24 s without it. An SDR source doesn't go through it.
 
 ## Measuring sound
 
