@@ -2,7 +2,17 @@
 // grout inside a patterned border, and every element laid tile by tile in
 // rows that follow its shape. Lines are tiled along their length; key
 // moments make the gold flash.
-import { clamp, curve, frame, hash, type Look, type Pt, progress, type Style, type Tone } from "./look.ts";
+import {
+  clamp,
+  curve,
+  frame,
+  hash,
+  type Look,
+  type Pt,
+  progress,
+  type Style,
+  type Tone,
+} from "./look.ts";
 
 const GROUT = "#5E564A";
 const TILE: Record<Tone, string[]> = {
@@ -12,7 +22,6 @@ const TILE: Record<Tone, string[]> = {
   bad: ["#A8322C", "#C2463A", "#8A241F"],
   muted: ["#9C9488", "#8A8276", "#B0A99C"],
 };
-const EDGE: Record<Tone, string> = { ink: "#A8322C", accent: "#EDE6D6", good: "#EDE6D6", bad: "#EDE6D6", muted: "#5E564A" };
 const SERIF = '"Hoefler Text", "Baskerville", "Palatino", Georgia, serif';
 
 function make(ctx: any, t: number, m: any): Look {
@@ -38,7 +47,15 @@ function make(ctx: any, t: number, m: any): Look {
   }
 
   /** Lay tiles over a box where `inside` says, in order of `order` (0-1), as far as `p`. */
-  function lay(x0: number, y0: number, x1: number, y1: number, p: number, inside: (x: number, y: number) => Tone | null, order: (x: number, y: number) => number) {
+  function lay(
+    x0: number,
+    y0: number,
+    x1: number,
+    y1: number,
+    p: number,
+    inside: (x: number, y: number) => Tone | null,
+    order: (x: number, y: number) => number,
+  ) {
     if (p <= 0) return;
     let k = 0;
     for (let row = 0, y = y0 + S / 2; y < y1; row++, y += S) {
@@ -53,7 +70,16 @@ function make(ctx: any, t: number, m: any): Look {
     void k;
   }
 
-  function serif(s: string, x: number, y: number, size: number, fill: string, stroke: string, align = "center", italic = false) {
+  function serif(
+    s: string,
+    x: number,
+    y: number,
+    size: number,
+    fill: string,
+    stroke: string,
+    align = "center",
+    italic = false,
+  ) {
     ctx.font = `${italic ? "italic " : ""}700 ${Math.round(size * u)}px ${SERIF}`;
     ctx.textAlign = align;
     ctx.textBaseline = "middle";
@@ -66,7 +92,16 @@ function make(ctx: any, t: number, m: any): Look {
   }
 
   /** Text that sets in word-tile by letter: letters appear left to right. */
-  function setText(s: string, x: number, y: number, size: number, p: number, fill: string, stroke: string, align = "center") {
+  function setText(
+    s: string,
+    x: number,
+    y: number,
+    size: number,
+    p: number,
+    fill: string,
+    stroke: string,
+    align = "center",
+  ) {
     if (p <= 0) return;
     const n = Math.ceil(s.length * clamp(p));
     ctx.save();
@@ -79,10 +114,19 @@ function make(ctx: any, t: number, m: any): Look {
 
   /** A pale stone plaque behind text, laid as tiles. */
   function plaque(x: number, y: number, w: number, h: number, p: number, tone: Tone = "ink") {
-    lay(x, y, x + w, y + h, p, (px, py) => {
-      const edge = px < x + S * 1.1 || px > x + w - S * 1.1 || py < y + S * 1.1 || py > y + h - S * 1.1;
-      return edge ? (tone === "ink" ? "accent" : tone) : "ink";
-    }, (px) => (px - x) / w);
+    lay(
+      x,
+      y,
+      x + w,
+      y + h,
+      p,
+      (px, py) => {
+        const edge =
+          px < x + S * 1.1 || px > x + w - S * 1.1 || py < y + S * 1.1 || py > y + h - S * 1.1;
+        return edge ? (tone === "ink" ? "accent" : tone) : "ink";
+      },
+      (px) => (px - x) / w,
+    );
   }
 
   return {
@@ -95,7 +139,7 @@ function make(ctx: any, t: number, m: any): Look {
         c.fillStyle = GROUT;
         c.fillRect(0, 0, W, H);
         const golds = ["#C9A13B", "#B58D2E", "#D8B24C", "#A98228", "#E1C062", "#BE9535"];
-        const s = 12 * u;
+        const s = 20 * u;
         let k = 0;
         for (let row = 0, y = s / 2; y < H + s; row++, y += s * 0.92) {
           const wave = Math.sin(row * 0.4) * s * 0.3;
@@ -139,7 +183,7 @@ function make(ctx: any, t: number, m: any): Look {
       }
       ctx.drawImage(tile, 0, 0);
       // Light raking across: a soft band of glint drifting left to right.
-      const gx = ((t * 0.12) % 1.4 - 0.2) * W;
+      const gx = (((t * 0.12) % 1.4) - 0.2) * W;
       const sh = ctx.createLinearGradient(gx - W * 0.2, 0, gx + W * 0.2, H * 0.3);
       sh.addColorStop(0, "rgba(255,235,170,0)");
       sh.addColorStop(0.5, "rgba(255,235,170,0.16)");
@@ -148,7 +192,7 @@ function make(ctx: any, t: number, m: any): Look {
       ctx.fillRect(0, 0, W, H);
     },
     title(s, o = {}) {
-      const { x = 0.05, y = 0.1, size = 46, at = 0, dur = 0.9 } = o;
+      const { x = 0.05, y = 0.11, size = 58, at = 0, dur = 0.9 } = o;
       const p = progress(t, at, dur);
       if (p <= 0) return;
       ctx.save();
@@ -160,18 +204,27 @@ function make(ctx: any, t: number, m: any): Look {
       ctx.restore();
     },
     label(s, x, y, o = {}) {
-      const { at = 0, size = 30, tone = "ink", align = "center" } = o;
+      const { at = 0, size = 38, tone = "ink", align = "center" } = o;
       const p = progress(t, at, o.dur ?? 0.04 * s.length + 0.1);
-      const fill = tone === "good" ? "#2C4C94" : tone === "accent" || tone === "bad" || tone === "ink" ? "#7E1F1A" : "#4A4238";
+      const fill =
+        tone === "good"
+          ? "#2C4C94"
+          : tone === "accent" || tone === "bad" || tone === "ink"
+            ? "#7E1F1A"
+            : "#4A4238";
       setText(s, X(x), Y(y), size, p, fill, "#F3EEE2", align);
     },
     node(x, y, r, o = {}) {
       const { at = 0, dur = 0.35, tone = "accent" } = o;
-      const R = r * u * 1.15;
+      const R = Math.max(r * u * 1.5, S * 2.6);
       const cx = X(x);
       const cy = Y(y);
       const p = progress(t, at, dur);
       if (p <= 0) return;
+      ctx.fillStyle = GROUT;
+      ctx.beginPath();
+      ctx.arc(cx, cy, (R + S * 0.5) * Math.min(1, p * 1.5), 0, Math.PI * 2);
+      ctx.fill();
       // Rings of tiles laid round the centre outward (andamento).
       tessera(cx, cy, 0, TILE[tone], cx + cy);
       for (let ring = 1; ring * S <= R; ring++) {
@@ -181,7 +234,13 @@ function make(ctx: any, t: number, m: any): Look {
         for (let i = 0; i < n; i++) {
           if ((ring - 1 + i / n) / Math.max(1, R / S) > p * 1.05) continue;
           const a = (i / n) * Math.PI * 2;
-          tessera(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, a + Math.PI / 2, isEdge ? TILE.ink : TILE[tone], ring * 31 + i + cx);
+          tessera(
+            cx + Math.cos(a) * rr,
+            cy + Math.sin(a) * rr,
+            a + Math.PI / 2,
+            isEdge ? TILE.ink : TILE[tone],
+            ring * 31 + i + cx,
+          );
         }
       }
     },
@@ -195,7 +254,11 @@ function make(ctx: any, t: number, m: any): Look {
       if (p <= 0) return;
       const pts = curve([X(x1), Y(y1)], [X(x2), Y(y2)], bend, 64);
       let len = 0;
-      for (let i = 1; i < pts.length; i++) len += Math.hypot((pts[i] as Pt)[0] - (pts[i - 1] as Pt)[0], (pts[i] as Pt)[1] - (pts[i - 1] as Pt)[1]);
+      for (let i = 1; i < pts.length; i++)
+        len += Math.hypot(
+          (pts[i] as Pt)[0] - (pts[i - 1] as Pt)[0],
+          (pts[i] as Pt)[1] - (pts[i - 1] as Pt)[1],
+        );
       const thin = !head;
       const step = thin ? S * 0.75 : S;
       const n = Math.floor((len / step) * p);
@@ -204,11 +267,17 @@ function make(ctx: any, t: number, m: any): Look {
         const f = Math.min(pts.length - 1, Math.round(((k * step) / len) * (pts.length - 1)));
         const a = pts[f] as Pt;
         const b = (pts[Math.min(pts.length - 1, f + 1)] ?? a) as Pt;
-        const ang = Math.atan2(b[1] - a[1], b[0] - a[0]) || Math.atan2(pts.at(-1)![1] - pts[0]![1], pts.at(-1)![0] - pts[0]![0]);
+        const last = pts.at(-1) as Pt;
+        const first = pts[0] as Pt;
+        const ang =
+          Math.atan2(b[1] - a[1], b[0] - a[0]) ||
+          Math.atan2(last[1] - first[1], last[0] - first[0]);
         const nx = -Math.sin(ang);
         const ny = Math.cos(ang);
         if (thin) tessera(a[0], a[1], ang, cols, k * 13 + a[0], S * 0.6);
-        else for (const off of [-0.5, 0.5]) tessera(a[0] + nx * off * S, a[1] + ny * off * S, ang, cols, k * 13 + off * 7 + a[0]);
+        else
+          for (const off of [-0.5, 0.5])
+            tessera(a[0] + nx * off * S, a[1] + ny * off * S, ang, cols, k * 13 + off * 7 + a[0]);
       }
       if (head && p >= 1) {
         const end = pts.at(-1) as Pt;
@@ -233,15 +302,25 @@ function make(ctx: any, t: number, m: any): Look {
       const cx = (x0 + x1) / 2;
       const rx = (x1 - x0) / 2;
       const ry = rx * 0.32;
-      lay(x0 - S, y0, x1 + S, y1, progress(t, at, dur), (px, py) => {
-        const dx = (px - cx) / rx;
-        if (Math.abs(dx) > 1) return null;
-        const e = ry * Math.sqrt(1 - dx * dx);
-        if (py < y0 + ry - e || py > y1 - ry + e) return null;
-        const band = [0, 1, 2, 3].some((i) => Math.abs(py - (y0 + ry + ((y1 - y0 - 2 * ry) * i) / 3 + e)) < S * 0.6);
-        if (py < y0 + ry + e) return "ink";
-        return band ? "ink" : tone;
-      }, (_, py) => 1 - (py - y0) / (y1 - y0));
+      lay(
+        x0 - S,
+        y0,
+        x1 + S,
+        y1,
+        progress(t, at, dur),
+        (px, py) => {
+          const dx = (px - cx) / rx;
+          if (Math.abs(dx) > 1) return null;
+          const e = ry * Math.sqrt(1 - dx * dx);
+          if (py < y0 + ry - e || py > y1 - ry + e) return null;
+          const band = [0, 1, 2, 3].some(
+            (i) => Math.abs(py - (y0 + ry + ((y1 - y0 - 2 * ry) * i) / 3 + e)) < S * 0.6,
+          );
+          if (py < y0 + ry + e) return "ink";
+          return band ? "ink" : tone;
+        },
+        (_, py) => 1 - (py - y0) / (y1 - y0),
+      );
     },
     stat(s, x, y, o = {}) {
       const { at = 0, dur = 1, count, size = 90, sub, tone = "accent" } = o;
@@ -281,7 +360,10 @@ function make(ctx: any, t: number, m: any): Look {
               ...curve([cx - s * 0.6, cy], [cx - s * 0.15, cy + s * 0.45], 0, 3),
               ...curve([cx - s * 0.15, cy + s * 0.45], [cx + s * 0.7, cy - s * 0.6], 0, 6),
             ]
-          : [...curve([cx - s * 0.5, cy - s * 0.5], [cx + s * 0.5, cy + s * 0.5], 0, 5), ...curve([cx + s * 0.5, cy - s * 0.5], [cx - s * 0.5, cy + s * 0.5], 0, 5)];
+          : [
+              ...curve([cx - s * 0.5, cy - s * 0.5], [cx + s * 0.5, cy + s * 0.5], 0, 5),
+              ...curve([cx + s * 0.5, cy - s * 0.5], [cx - s * 0.5, cy + s * 0.5], 0, 5),
+            ];
       const n = Math.ceil(path.length * p);
       const cols = kind === "check" ? ["#2F7A44", "#3A8C52", "#276A3A"] : TILE.bad;
       path.slice(0, n).forEach(([px, py], i) => {
@@ -314,4 +396,9 @@ function countTo(t: number, at: number, dur: number, [a, b]: [number, number]) {
   return Math.round(a + (b - a) * e).toLocaleString("en-US");
 }
 
-export default { id: "mosaic", name: "Byzantine mosaic", category: "Illustration", make } satisfies Style;
+export default {
+  id: "mosaic",
+  name: "Byzantine mosaic",
+  category: "Illustration",
+  make,
+} satisfies Style;

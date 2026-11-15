@@ -13,8 +13,8 @@ import {
   type Pt,
   progress,
   roughen,
-  spring,
   type Style,
+  spring,
   type Tone,
   trace,
 } from "./look.ts";
@@ -45,7 +45,15 @@ function make(ctx: any, t: number, m: any): Look {
   /** How a note slaps on: drops from a little larger, overshoots, settles. */
   const slap = (at = 0) => spring(t, { start: at, stiffness: 320, damping: 16, from: 0, to: 1 });
 
-  function pen(s: string, x: number, y: number, size: number, color: string, align = "center", p = 1) {
+  function pen(
+    s: string,
+    x: number,
+    y: number,
+    size: number,
+    color: string,
+    align = "center",
+    p = 1,
+  ) {
     if (p <= 0) return;
     ctx.save();
     ctx.font = `700 ${Math.round(size * u)}px ${HAND}`;
@@ -97,7 +105,17 @@ function make(ctx: any, t: number, m: any): Look {
   }
 
   /** A square note at (cx, cy) pixels, w x h, slapped on from `at`, turned a touch. */
-  function note(cx: number, cy: number, w: number, h: number, color: string, at: number, k: number, pinned = true, lined = false) {
+  function note(
+    cx: number,
+    cy: number,
+    w: number,
+    h: number,
+    color: string,
+    at: number,
+    k: number,
+    pinned = true,
+    lined = false,
+  ) {
     const s = slap(at);
     if (s <= 0) return 0;
     const sc = 1 + (1 - s) * 0.35;
@@ -161,7 +179,12 @@ function make(ctx: any, t: number, m: any): Look {
         const n = Math.floor((W * H) / (5 * u * 5 * u) / 3);
         for (let i = 0; i < n; i++) {
           const v = hash(i * 1.7);
-          c.fillStyle = v < 0.35 ? "rgba(110,70,30,0.35)" : v < 0.7 ? "rgba(230,190,130,0.35)" : "rgba(80,50,20,0.25)";
+          c.fillStyle =
+            v < 0.35
+              ? "rgba(110,70,30,0.35)"
+              : v < 0.7
+                ? "rgba(230,190,130,0.35)"
+                : "rgba(80,50,20,0.25)";
           const s = (1 + hash(i * 3.1) * 3) * u;
           c.fillRect(hash(i * 5.3) * W, hash(i * 7.9) * H, s, s);
         }
@@ -207,11 +230,25 @@ function make(ctx: any, t: number, m: any): Look {
       }
       ctx.restore();
       const wd = o.dur ?? 0.05 * s.length + 0.2;
-      pen(s.toUpperCase(), X(x) + 30 * u, cy - h * 0.05, size, PEN.ink, "left", progress(t, at + 0.2, wd));
-      stroke(curve([X(x) + 30 * u, cy + h * 0.28], [X(x) + 30 * u + tw, cy + h * 0.26], -0.03, 12), at + 0.2 + wd, 0.3, PEN.bad, 3);
+      pen(
+        s.toUpperCase(),
+        X(x) + 30 * u,
+        cy - h * 0.05,
+        size,
+        PEN.ink,
+        "left",
+        progress(t, at + 0.2, wd),
+      );
+      stroke(
+        curve([X(x) + 30 * u, cy + h * 0.28], [X(x) + 30 * u + tw, cy + h * 0.26], -0.03, 12),
+        at + 0.2 + wd,
+        0.3,
+        PEN.bad,
+        3,
+      );
     },
     label(s, x, y, o = {}) {
-      const { at = 0, size = 28, tone = "ink", align = "center" } = o;
+      const { at = 0, size = 32, tone = "ink", align = "center" } = o;
       pen(s, X(x), Y(y), size, PEN[tone], align, progress(t, at, o.dur ?? 0.04 * s.length + 0.15));
     },
     node(x, y, r, o = {}) {
@@ -244,7 +281,10 @@ function make(ctx: any, t: number, m: any): Look {
         const mid: Pt = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2 + sag];
         const pts: Pt[] = Array.from({ length: 13 }, (_, i) => {
           const s = i / 12;
-          return [(1 - s) ** 2 * a[0] + 2 * (1 - s) * s * mid[0] + s * s * b[0], (1 - s) ** 2 * a[1] + 2 * (1 - s) * s * mid[1] + s * s * b[1]];
+          return [
+            (1 - s) ** 2 * a[0] + 2 * (1 - s) * s * mid[0] + s * s * b[0],
+            (1 - s) ** 2 * a[1] + 2 * (1 - s) * s * mid[1] + s * s * b[1],
+          ];
         });
         const p = progress(t, at, dur);
         if (p <= 0) return;
@@ -289,7 +329,10 @@ function make(ctx: any, t: number, m: any): Look {
       for (let i = 0; i < 6; i++) {
         const cx = X(x) + cw * (0.5 + (i % 2)) + (hash(i * 3) - 0.5) * 6 * u;
         const cy = Y(y) + ch * (0.5 + Math.floor(i / 2)) + (hash(i * 5) - 0.5) * 6 * u;
-        if (note(cx, cy, cw * 0.92, ch * 0.92, cols[i] as string, at + i * 0.1, i * 7 + 1, false) > 0.6) {
+        if (
+          note(cx, cy, cw * 0.92, ch * 0.92, cols[i] as string, at + i * 0.1, i * 7 + 1, false) >
+          0.6
+        ) {
           pen(i % 3 === 1 ? "dog" : "cat", cx, cy + ch * 0.2, 13, "#2B4FB0");
         }
       }
@@ -302,14 +345,25 @@ function make(ctx: any, t: number, m: any): Look {
         const w = size * 2.6 * u;
         const h = size * 2.3 * u;
         if (note(X(x), Y(y), w, h, PAD.ink, at, 77) <= 0) return;
-        pen(sub.toUpperCase(), X(x), Y(y) - size * 0.6 * u, size * 0.3, PEN.ink, "center", progress(t, at + 0.2, 0.3));
+        pen(
+          sub.toUpperCase(),
+          X(x),
+          Y(y) - size * 0.6 * u,
+          size * 0.3,
+          PEN.ink,
+          "center",
+          progress(t, at + 0.2, 0.3),
+        );
         pen(value, X(x), Y(y) + size * 0.25 * u, size, color);
         // Red marker circle once it lands.
         const ring = curve([0, 0], [0, 0]);
         void ring;
         const pts: Pt[] = Array.from({ length: 40 }, (_, i) => {
           const a = -Math.PI * 0.6 + (i / 39) * Math.PI * 2.15;
-          return [X(x) + Math.cos(a) * size * 1.15 * u, Y(y) + size * 0.25 * u + Math.sin(a) * size * 0.62 * u];
+          return [
+            X(x) + Math.cos(a) * size * 1.15 * u,
+            Y(y) + size * 0.25 * u + Math.sin(a) * size * 0.62 * u,
+          ];
         });
         stroke(pts, at + dur + 0.1, 0.4, PEN.bad, 4);
       } else if (t >= at) pen(value, X(x), Y(y), size, color);
@@ -318,14 +372,48 @@ function make(ctx: any, t: number, m: any): Look {
       const { at = 0, dur = 0.3, size = 34 } = o;
       const s = size * u;
       const [cx, cy] = [X(x), Y(y)];
-      if (kind === "check") stroke([[cx - s * 0.5, cy], [cx - s * 0.1, cy + s * 0.4], [cx + s * 0.6, cy - s * 0.5]], at, dur, PEN.good, 5);
+      if (kind === "check")
+        stroke(
+          [
+            [cx - s * 0.5, cy],
+            [cx - s * 0.1, cy + s * 0.4],
+            [cx + s * 0.6, cy - s * 0.5],
+          ],
+          at,
+          dur,
+          PEN.good,
+          5,
+        );
       else {
-        stroke([[cx - s * 0.5, cy - s * 0.5], [cx + s * 0.5, cy + s * 0.5]], at, dur / 2, PEN.bad, 5);
-        stroke([[cx + s * 0.5, cy - s * 0.5], [cx - s * 0.5, cy + s * 0.5]], at + dur / 2, dur / 2, PEN.bad, 5);
+        stroke(
+          [
+            [cx - s * 0.5, cy - s * 0.5],
+            [cx + s * 0.5, cy + s * 0.5],
+          ],
+          at,
+          dur / 2,
+          PEN.bad,
+          5,
+        );
+        stroke(
+          [
+            [cx + s * 0.5, cy - s * 0.5],
+            [cx - s * 0.5, cy + s * 0.5],
+          ],
+          at + dur / 2,
+          dur / 2,
+          PEN.bad,
+          5,
+        );
       }
     },
     finish() {},
   };
 }
 
-export default { id: "sticky-notes", name: "Sticky-note wall", category: "Illustration", make } satisfies Style;
+export default {
+  id: "sticky-notes",
+  name: "Sticky-note wall",
+  category: "Illustration",
+  make,
+} satisfies Style;
