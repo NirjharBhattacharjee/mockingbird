@@ -38,7 +38,7 @@ const COMMAND_TIMEOUT_MS = 60_000;
  */
 export async function launchChrome(
   path: string,
-  { wrap = [] }: { wrap?: string[] } = {},
+  { wrap = [], gpu = false }: { wrap?: string[]; gpu?: boolean } = {},
 ): Promise<Chrome> {
   const profile = mkdtempSync(join(tmpdir(), "mockingbird-chrome-"));
   const [program = path, ...before] = [...wrap, path];
@@ -54,6 +54,13 @@ export async function launchChrome(
       "--mute-audio",
       // Colours as the page wrote them, not as this Mac's display would show them.
       "--force-color-profile=srgb",
+      // WebGL on the Mac's GPU through Metal, for 3D pages (#270): headless Chrome
+      // otherwise draws WebGL in software (SwiftShader), about 6x slower. Only
+      // when asked, so 2D pages keep their exact pixels; without a GPU, Chrome
+      // falls back to software.
+      ...(gpu && process.platform === "darwin"
+        ? ["--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist"]
+        : []),
       "--allow-file-access-from-files",
       "--disable-background-timer-throttling",
       "--disable-renderer-backgrounding",
