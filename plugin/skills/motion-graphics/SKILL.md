@@ -181,6 +181,28 @@ These come from the style study; the templates already follow them.
 - The video is drawn under each frame. To zoom or pan, `camera` redraws it;
   for anything custom, `ctx.drawImage(m.video, sx, sy, sw, sh, dx, dy, dw, dh)`.
 
+## 3D with three.js
+
+For real depth (a camera flying through a scene, footage on a plane that
+tilts in space, lit and shadowed objects, extruded shapes), a page can
+import three.js `from "THREE"`. `motion` fills it in with the copy shipped
+in `vendor/` (0.187.0), since pages have no network, and draws the page on
+the Mac's GPU. Start from [templates/three.html](./templates/three.html).
+
+- **Draw in `mockingbird.draw(t)` and work everything out from `t`.** Don't
+  use three's `Clock`, `requestAnimationFrame` loops or `setTimeout`.
+  Create the renderer with `preserveDrawingBuffer: true`.
+- **Footage as a texture:** set `mockingbird.drawVideo = true`, then each
+  frame put `m.video` on a `THREE.Texture` with `needsUpdate = true`. An
+  ImageBitmap ignores `flipY`, so flip it with `repeat.set(1, -1)` and
+  `offset.set(0, 1)`.
+- **Only core three.js is shipped.** Addons (text geometry, loaders, post
+  effects) aren't there. Build shapes from core geometry, or draw text on a
+  canvas and use it as a texture.
+- **Speed:** on an M3, 10 s of a lit, shadowed 1080p scene with footage took
+  33.4 s. 3D costs about five times what a 2D page does, so use it for the
+  moments that need depth.
+
 ## When it fails
 
 `motion` reports `the page failed by 2.40 s (frame 72): …` and saves
