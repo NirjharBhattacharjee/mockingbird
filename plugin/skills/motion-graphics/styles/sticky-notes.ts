@@ -10,7 +10,6 @@ import {
   frame,
   hash,
   type Look,
-  leftOf,
   type Pt,
   progress,
   roughen,
@@ -216,8 +215,7 @@ function make(ctx: any, t: number, m: any): Look {
       ctx.restore();
       const w = tw + 60 * u;
       const h = size * 2.4 * u;
-      const left = leftOf(X(x), w, o.align);
-      const cx = left + w / 2;
+      const cx = X(x) + w / 2;
       const cy = Y(y) + h * 0.2;
       if (note(cx, cy, w, h, "#FBFBF6", at, 11, false, true) <= 0) return;
       // Two bits of tape.
@@ -234,7 +232,7 @@ function make(ctx: any, t: number, m: any): Look {
       const wd = o.dur ?? 0.05 * s.length + 0.2;
       pen(
         s.toUpperCase(),
-        left + 30 * u,
+        X(x) + 30 * u,
         cy - h * 0.05,
         size,
         PEN.ink,
@@ -242,7 +240,7 @@ function make(ctx: any, t: number, m: any): Look {
         progress(t, at + 0.2, wd),
       );
       stroke(
-        curve([left + 30 * u, cy + h * 0.28], [left + 30 * u + tw, cy + h * 0.26], -0.03, 12),
+        curve([X(x) + 30 * u, cy + h * 0.28], [X(x) + 30 * u + tw, cy + h * 0.26], -0.03, 12),
         at + 0.2 + wd,
         0.3,
         PEN.bad,

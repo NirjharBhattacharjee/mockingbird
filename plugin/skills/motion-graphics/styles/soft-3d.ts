@@ -314,12 +314,8 @@ function make(ctx: any, t: number, m: any): Look {
           const by = Y(y + h) - (row + 1) * bh;
           const clay =
             (row + c) % 3 === 0 ? CLAY.accent : (row + c) % 3 === 1 ? CLAY.ink : CLAY.muted;
-          // A small store leaves no room inside a brick's padding: skip it, since a
-          // negative size reaches ctx.ellipse() as a negative radius, which throws.
-          const [iw, ih] = [bw - 4 * u, bh - 8 * u];
-          if (iw <= 0 || ih <= 0) continue;
           dropped(bx + bw / 2, by + bh, at + (k++ / (rows * 2)) * dur, () =>
-            slab(bx + 2 * u, by + 2 * u, iw, ih, Math.min(10 * u, iw / 2, ih / 2), clay),
+            slab(bx + 2 * u, by + 2 * u, bw - 4 * u, bh - 8 * u, 10 * u, clay),
           );
         }
     },

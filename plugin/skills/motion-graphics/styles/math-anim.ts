@@ -130,8 +130,7 @@ function make(ctx: any, t: number, m: any): Look {
       if (!ring) return;
       // Activation: the neuron fills grey, the idea ones a little brighter.
       const f = smooth(progress(t, at + dur, 0.4));
-      // A tiny node has no room for the fill, and arc() throws on a negative radius.
-      if (f > 0 && R > 1.5 * u) {
+      if (f > 0) {
         ctx.beginPath();
         ctx.arc(cx, cy, R - 1.5 * u, 0, Math.PI * 2);
         ctx.fillStyle =

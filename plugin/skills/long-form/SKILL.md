@@ -16,7 +16,9 @@ needs a reason to stay, and music under explanation hurts.
 The other skills apply here too: **hooks** (the first minute),
 **retention-editing** (cutting and pace), **captions**, **motion-graphics**,
 **style-match**. For shorts cut from this same video, use **viral-short**
-after.
+after. If the video will have graphics, chapter cards or explainers, run
+**look** before step 1's edit work: design this video's look with the user and
+edit only once they approve it.
 
 ## Steps
 

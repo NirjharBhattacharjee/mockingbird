@@ -184,11 +184,6 @@ export function vignette(ctx: any, m: any, strength = 0.45, color = "0,0,0") {
   ctx.fillRect(0, 0, W, H);
 }
 
-/** The left edge of something `width` wide anchored at `x` with this alignment. */
-export function leftOf(x: number, width: number, align: Align = "left"): number {
-  return align === "right" ? x - width : align === "center" ? x - width / 2 : x;
-}
-
 /** Write text centred or aligned at (x, y) pixels, middle baseline. */
 export function text(
   ctx: any,

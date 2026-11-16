@@ -12,7 +12,6 @@ import {
   frame,
   hash,
   type Look,
-  leftOf,
   type Pt,
   progress,
   type Style,
@@ -265,8 +264,7 @@ function make(ctx: any, t: number, m: any): Look {
       ctx.restore();
       // A cartouche with a double rule, then the engraved title inside it.
       const a = expo(progress(t, at, 0.4));
-      // The same left edge engrave() starts the title at, so the cartouche holds it.
-      const bx = leftOf(X(x), w, o.align) - 18 * u;
+      const bx = X(x) - 18 * u;
       const by = Y(y) - size * 0.85 * u;
       const bw = (w + 36 * u) * a;
       const bh = size * 1.7 * u;

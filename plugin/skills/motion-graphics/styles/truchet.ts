@@ -144,8 +144,6 @@ function make(ctx: any, t: number, m: any): Look {
       const { at = 0, dur = 0.6, tone = "ink" } = o;
       if (t < at) return;
       const [x0, y0, bw, bh] = [X(x), Y(y), X(w), Y(h)];
-      // A box with no width or height has nothing to fill, and would divide by zero.
-      if (bw <= 0 || bh <= 0) return;
       const n = Math.max(3, Math.round(bh / (34 * u)));
       const s = bh / n;
       const cols = Math.ceil(bw / s);
@@ -221,8 +219,6 @@ function make(ctx: any, t: number, m: any): Look {
       const { at = 0, dur = 0.8, tone = "ink" } = o;
       if (t < at) return;
       const [x0, y0, bw, bh] = [X(x), Y(y), X(w), Y(h)];
-      // A store with no width or height has nothing to fill, and would divide by zero.
-      if (bw <= 0 || bh <= 0) return;
       const s = bw / 2;
       const rows = Math.max(1, Math.floor(bh / s));
       // Tiles stacked from the bottom up.

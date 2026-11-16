@@ -12,7 +12,6 @@ import {
   frame,
   hash,
   type Look,
-  leftOf,
   type Pt,
   progress,
   roughen,
@@ -190,12 +189,10 @@ function make(ctx: any, t: number, m: any): Look {
       const w = write(s, x, y, { ...o, size, at, align: o.align ?? "left" });
       if (!w) return;
       const done = at + (o.dur ?? 0.05 * s.length + 0.1);
-      // Under the text where write() put it, whatever the alignment.
-      const left = leftOf(X(x), w, o.align ?? "left");
       pencil(
         curve(
-          [left - 10 * u, Y(y) + size * 0.75 * u],
-          [left + w + 14 * u, Y(y) + size * 0.7 * u],
+          [X(x) - 10 * u, Y(y) + size * 0.75 * u],
+          [X(x) + w + 14 * u, Y(y) + size * 0.7 * u],
           -0.01,
           12,
         ),

@@ -184,8 +184,6 @@ function make(ctx: any, t: number, m: any): Look {
       // a block of small black cells filling column by column
       const at = o.at ?? 0;
       const dur = o.dur ?? 0.8;
-      // A store with no width or height has nothing to fill, and would divide by zero.
-      if (X(w) <= 0 || Y(h) <= 0) return;
       const cols = 4;
       const cw = X(w) / cols;
       const rows = Math.max(3, Math.floor(Y(h) / cw));

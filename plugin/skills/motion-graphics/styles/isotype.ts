@@ -182,8 +182,6 @@ function make(ctx: any, t0: number, m: any): Look {
       // rows of identical figures stamped out row by row, the last one partial
       const at = o.at ?? 0;
       const dur = o.dur ?? 0.8;
-      // A store with no width or height has nothing to fill, and would divide by zero.
-      if (X(w) <= 0 || Y(h) <= 0) return;
       const cols = 3;
       const cw = X(w) / cols;
       const rows = Math.max(2, Math.floor(Y(h) / (cw * 1.3)));

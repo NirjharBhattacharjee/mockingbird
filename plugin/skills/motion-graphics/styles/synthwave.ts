@@ -107,15 +107,6 @@ function make(ctx: any, t: number, m: any): Look {
     sun.addColorStop(0.5, "#FF9A3C");
     sun.addColorStop(1, "#FF2E8A");
     c.save();
-    // The stripes are clipped out of the sun as it's drawn: erasing them afterwards
-    // would cut through the sky behind it too, which shares this canvas.
-    c.beginPath();
-    c.rect(0, 0, W, H);
-    for (let i = 0; i < 7; i++) {
-      const y = sy + sr * (-0.15 + i * 0.17);
-      c.rect(sx - sr, y, sr * 2, sr * (0.03 + i * 0.022));
-    }
-    c.clip("evenodd");
     c.shadowColor = "#FF5AA0";
     c.shadowBlur = 60 * u;
     c.beginPath();
@@ -123,6 +114,12 @@ function make(ctx: any, t: number, m: any): Look {
     c.fillStyle = sun;
     c.fill();
     c.restore();
+    c.globalCompositeOperation = "destination-out";
+    for (let i = 0; i < 7; i++) {
+      const y = sy + sr * (-0.15 + i * 0.17);
+      c.fillRect(sx - sr, y, sr * 2, sr * (0.03 + i * 0.022));
+    }
+    c.globalCompositeOperation = "source-over";
     // Wireframe mountains either side.
     for (const side of [-1, 1]) {
       const pts: Pt[] = [];
@@ -198,7 +195,7 @@ function make(ctx: any, t: number, m: any): Look {
       ctx.translate(X(x), Y(y) + size * u * 0.6);
       ctx.scale(s, s);
       ctx.globalAlpha = clamp((t - at) / 0.08);
-      chromeText(text.toUpperCase(), 0, 0, size * u, o.align ?? "left");
+      chromeText(text.toUpperCase(), 0, 0, size * u, "left");
       ctx.restore();
       const flash = 1 - clamp((t - at - 0.12) / 0.25);
       if (flash > 0 && t - at > 0.1) {

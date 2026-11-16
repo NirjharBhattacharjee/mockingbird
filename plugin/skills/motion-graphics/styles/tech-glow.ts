@@ -164,8 +164,8 @@ function make(ctx: any, t: number, m: any): Look {
       ctx.restore();
     },
     label(s, x, y, o = {}) {
-      const { at = 0, dur = 0.4, size = 24, tone = "ink", align = "center" } = o;
-      const p = expo(progress(t, at, dur));
+      const { at = 0, size = 24, tone = "ink", align = "center" } = o;
+      const p = expo(progress(t, at, 0.4));
       if (p <= 0) return;
       ctx.save();
       ctx.globalAlpha = p;

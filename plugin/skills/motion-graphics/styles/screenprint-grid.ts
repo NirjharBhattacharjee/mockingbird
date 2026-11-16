@@ -12,7 +12,6 @@ import {
   frame,
   hash,
   type Look,
-  leftOf,
   type Pt,
   type Style,
   type Tone,
@@ -129,12 +128,11 @@ function make(ctx: any, t: number, m: any): Look {
       const h = size * 1.3 * u;
       const { on } = slap(at);
       if (!on) return;
-      const left = leftOf(X(x), w, o.align);
       ctx.fillStyle = PLATE.ink;
-      cut(left + 6 * u, Y(y) - h / 2 + 4 * u, w, h, 3);
+      cut(X(x) + 6 * u, Y(y) - h / 2 + 4 * u, w, h, 3);
       ctx.fill();
-      squeegee(left, Y(y) - h / 2, w, h, at, () =>
-        stencil(s, left + 15 * u, Y(y), size, BLACK, "left"),
+      squeegee(X(x), Y(y) - h / 2, w, h, at, () =>
+        stencil(s, X(x) + 15 * u, Y(y), size, BLACK, "left"),
       );
     },
     label(s, x, y, o = {}) {
@@ -281,16 +279,10 @@ function make(ctx: any, t: number, m: any): Look {
       squeegee(X(x) - w / 2, Y(y) - h / 2, w, h, at, () =>
         stencil(value, X(x), Y(y) + 2 * u, size, BLACK),
       );
-      if (sub) {
-        // The reveal is as wide as the subtitle itself, which can be wider than the number.
-        ctx.save();
-        ctx.font = `400 ${Math.round(size * 0.26 * u)}px ${STENCIL}`;
-        const sw = ctx.measureText(sub).width + 24 * u;
-        ctx.restore();
-        squeegee(X(x) - sw / 2, Y(y) - size * u, sw, size * 0.4 * u, at + 0.1, () =>
+      if (sub)
+        squeegee(X(x) - w / 2, Y(y) - size * u, w, size * 0.4 * u, at + 0.1, () =>
           stencil(sub, X(x), Y(y) - size * 0.78 * u, size * 0.26, BLACK),
         );
-      }
       if (big && count) {
         const q = clamp((t - at - dur) / 0.4);
         if (q > 0) {

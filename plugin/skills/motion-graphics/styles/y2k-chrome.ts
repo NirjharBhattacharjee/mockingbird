@@ -10,7 +10,6 @@ import {
   frame,
   hash,
   type Look,
-  leftOf,
   type Pt,
   progress,
   type Style,
@@ -172,11 +171,10 @@ function make(ctx: any, t: number, m: any): Look {
       const tw = ctx.measureText(text).width;
       const ph = size * u * 1.7;
       const yy = Y(y) + (1 - k) * 20 * u;
-      const left = leftOf(X(x), tw + 36 * u, o.align);
-      glass(left, yy, tw + 36 * u, ph, ph / 2);
+      glass(X(x), yy, tw + 36 * u, ph, ph / 2);
       ctx.fillStyle = TONE.ink;
       ctx.textBaseline = "middle";
-      ctx.fillText(text, left + 18 * u, yy + ph / 2);
+      ctx.fillText(text, X(x) + 18 * u, yy + ph / 2);
       ctx.restore();
     },
     label(text, x, y, o = {}) {

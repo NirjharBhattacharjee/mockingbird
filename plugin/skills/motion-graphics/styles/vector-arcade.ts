@@ -136,25 +136,10 @@ function make(ctx: any, t: number, m: any): Look {
     const tw = up.length * adv - 2 * k;
     const x0 = align === "center" ? x - tw / 2 : align === "right" ? x - tw : x;
     const lines: Pt[][] = [];
-    const plain: [string, number][] = [];
-    for (let i = 0; i < Math.min(n, up.length); i++) {
-      const ch = up[i] as string;
-      // A character outside the vector font (缓, €) is written as glowing text, not dropped.
-      if (!(ch in GLYPH) && ch.trim()) plain.push([ch, x0 + i * adv]);
-      for (const pl of strokes(ch))
+    for (let i = 0; i < Math.min(n, up.length); i++)
+      for (const pl of strokes(up[i] as string))
         lines.push(pl.map(([gx, gy]) => [x0 + i * adv + gx * k, y - 3 * k + gy * k]));
-    }
     beam(lines, color, Math.max(1.2, size / 28));
-    if (plain.length) {
-      ctx.save();
-      ctx.font = `600 ${Math.round(7 * k)}px ui-monospace, Menlo, monospace`;
-      ctx.fillStyle = color;
-      ctx.shadowColor = color;
-      ctx.shadowBlur = 8 * u;
-      ctx.textBaseline = "middle";
-      for (const [ch, cx] of plain) ctx.fillText(ch, cx, y);
-      ctx.restore();
-    }
     return tw;
   }
   const typed = (s: string, at: number, dur: number) => Math.ceil(s.length * progress(t, at, dur));
@@ -190,15 +175,7 @@ function make(ctx: any, t: number, m: any): Look {
     title(text, o = {}) {
       const { x = 0.035, y = 0.06, size = 56, at = 0, dur = 0.9 } = o;
       if (t < at) return;
-      letters(
-        text,
-        X(x),
-        Y(y) + size * u * 0.5,
-        size,
-        BEAM.bad,
-        o.align ?? "left",
-        typed(text, at, dur),
-      );
+      letters(text, X(x), Y(y) + size * u * 0.5, size, BEAM.bad, "left", typed(text, at, dur));
     },
     label(text, x, y, o = {}) {
       const { at = 0, dur = 0.35, size = 38, tone = "ink", align = "center" } = o;

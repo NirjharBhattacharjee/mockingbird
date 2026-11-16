@@ -203,19 +203,10 @@ function make(ctx: any, t: number, m: any): Look {
     const dw = size * 0.5 * u;
     const dh = size * u;
     const gap = size * 0.16 * u;
-    // Digits, % and - are strung in thread; "." and "," are a nail; anything else
-    // (a unit, a currency sign) is written as text rather than dropped.
-    const font = `600 ${Math.round(size * 0.55 * u)}px ${HAND}`;
-    ctx.save();
-    ctx.font = font;
-    const advance = (ch: string) =>
-      ch in SEGMENTS || ch === "%" || ch === "-"
-        ? dw + gap
-        : ch === "." || ch === "," || ch === " "
-          ? gap * 0.8
-          : ctx.measureText(ch).width + gap;
-    const width = [...s].reduce((sum, ch) => sum + advance(ch), 0);
-    ctx.restore();
+    const width = [...s].reduce(
+      (sum, ch) => sum + (ch in SEGMENTS ? dw + gap : ch === "%" ? dw + gap : gap * 0.8),
+      0,
+    );
     let x = cx - width / 2;
     const top = cy - dh / 2;
     for (const [k, ch] of [...s].entries()) {
@@ -293,23 +284,9 @@ function make(ctx: any, t: number, m: any): Look {
           for (const p of ring) nail(p[0], p[1], when, 1.8);
         }
         x += dw + gap;
-      } else if (ch === "-") {
-        thread([x, top + dh / 2], [x + dw, top + dh / 2], progress(t, when, 0.2), color, 2);
-        nail(x, top + dh / 2, when, 2.4);
-        nail(x + dw, top + dh / 2, when, 2.4);
-        x += dw + gap;
-      } else if (ch === "." || ch === "," || ch === " ") {
-        if (ch !== " ") nail(x, top + dh, when, 2.8);
-        x += gap * 0.8;
       } else {
-        ctx.save();
-        ctx.font = font;
-        ctx.globalAlpha = progress(t, when, 0.2);
-        ctx.fillStyle = color;
-        ctx.textBaseline = "alphabetic";
-        ctx.fillText(ch, x, top + dh);
-        ctx.restore();
-        x += advance(ch);
+        if (ch === ",") nail(x, top + dh, when, 2.8);
+        x += gap * 0.8;
       }
     }
     return width;

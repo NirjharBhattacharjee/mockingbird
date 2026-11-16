@@ -2435,6 +2435,187 @@ async function motion(
   return `${target} (${clock((frames / fps) * 1000)}, ${width}x${height}, ${fps} fps), drawn in ${took} s`;
 }
 
+const MOTION = join(PLUGIN, "skills", "motion-graphics");
+/** The page a look board renders: templates/look-board.html. */
+export const LOOK_BOARD = join(MOTION, "templates", "look-board.html");
+
+/** Words from the video for the look board: a title, up to three short labels, and a number. */
+export type Board = {
+  title: string;
+  points: string[];
+  stat?: { value: number; unit?: string; label?: string };
+};
+
+/**
+ * Builds the look the agent wrote at `file` (TypeScript or JavaScript) into
+ * one module beside it, `<name>.look.js`, that a page imports. Its imports of
+ * "STYLES" (the styles and their helpers) and "KIT" are bundled in, so the page
+ * needs nothing else. A mistake comes back with its line. Returns the module's path.
+ */
+/** A build message with its place: `file:line:column: message`, then the line. */
+function where(log: unknown): string {
+  const { message, position: p } = log as {
+    message?: string;
+    position?: { file: string; line: number; column: number; lineText: string } | null;
+  };
+  if (!p) return String(message ?? log);
+  return `${p.file}:${p.line}:${p.column}: ${message}\n  ${p.lineText.trim()}`;
+}
+
+export async function buildLook(
+  file: string,
+  out = join(dirname(file), `${basename(file, extname(file))}.look.js`),
+): Promise<string> {
+  requireFile(file, "Look");
+  if (!/\.(ts|js|mjs)$/i.test(file)) {
+    throw new Error(`A look is a .ts or .js module; ${file} isn't one.`);
+  }
+  const named = { STYLES: join(MOTION, "styles", "index.ts"), KIT: join(MOTION, "kit.ts") };
+  let built: Awaited<ReturnType<typeof Bun.build>>;
+  try {
+    built = await Bun.build({
+      entrypoints: [file],
+      target: "browser",
+      format: "esm",
+      plugins: [
+        {
+          name: "mockingbird-look",
+          setup(b) {
+            b.onResolve({ filter: /^(STYLES|KIT)$/ }, (a) => ({
+              path: named[a.path as keyof typeof named],
+            }));
+          },
+        },
+      ],
+    });
+  } catch (error) {
+    const logs = (error as { errors?: unknown[] }).errors;
+    throw new Error(
+      `The look at ${file} doesn't build:\n${logs?.length ? logs.map(where).join("\n") : String(error)}`,
+    );
+  }
+  const [module] = built.outputs;
+  if (!built.success || !module) {
+    throw new Error(`The look at ${file} doesn't build:\n${built.logs.map(where).join("\n")}`);
+  }
+  writeFileSync(out, await module.text());
+  return out;
+}
+
+/** `v` as board words, or an error naming what's wrong. */
+export function boardFrom(v: unknown): Board {
+  const o = (v ?? {}) as Record<string, unknown>;
+  if (typeof o !== "object" || Array.isArray(o)) throw new Error("board must be an object");
+  const short = (s: unknown, what: string, max: number) => {
+    if (typeof s !== "string" || !s.trim()) throw new Error(`${what} must be some words`);
+    if (s.length > max) throw new Error(`${what} is ${s.length} characters; keep it to ${max}`);
+    return s.trim();
+  };
+  const points = o.points ?? [];
+  if (!Array.isArray(points) || points.length > 3) {
+    throw new Error("board.points must be a list of up to three labels");
+  }
+  const stat = o.stat as Record<string, unknown> | undefined;
+  return {
+    title: o.title === undefined ? "Your video" : short(o.title, "board.title", 60),
+    points: points.map((p, i) => short(p, `board.points[${i}]`, 24)),
+    stat:
+      stat === undefined
+        ? undefined
+        : {
+            value: within(stat.value, 0, 1e9, "board.stat.value"),
+            unit: stat.unit === undefined ? undefined : short(stat.unit, "board.stat.unit", 4),
+            label: stat.label === undefined ? undefined : short(stat.label, "board.stat.label", 24),
+          },
+  };
+}
+
+/**
+ * `out`, or `<look>-board-N.mp4` beside the look with the first N whose clip
+ * and contact sheet are both free. The sheet is claimed here; the clip is
+ * left for `motion` to claim.
+ */
+function boardTarget(file: string, out: string | undefined): { clip: string; sheet: string } {
+  const sheetOf = (clip: string) => `${clip.replace(/\.mp4$/i, "")}-sheet.jpg`;
+  if (out) {
+    const sheet = sheetOf(out);
+    if (existsSync(out) || !claim(sheet)) {
+      throw new Error(`${out} or its sheet ${sheet} already exists; give another \`out\`.`);
+    }
+    return { clip: out, sheet };
+  }
+  const base = join(dirname(file), basename(file, extname(file)));
+  for (let n = 1; ; n++) {
+    const clip = `${base}-board-${n}.mp4`;
+    if (!existsSync(clip) && claim(sheetOf(clip))) return { clip, sheet: sheetOf(clip) };
+  }
+}
+
+/**
+ * Shows a look before editing starts (#262): builds it, draws it, and saves
+ * the clip and a contact sheet of twelve stills beside the look, for the user
+ * to approve or send back. With `page`, the agent's own board (a page that
+ * imports the look `from "LOOK"`, drawn from the video's content) is drawn,
+ * over `path` if given; without, a generic storyboard of `board`'s words.
+ */
+async function lookBoard(
+  file: string,
+  board: Board,
+  {
+    size = "1920x1080",
+    duration = 8.5,
+    out,
+    page: own,
+    path,
+  }: { size?: string; duration?: number; out?: string; page?: string; path?: string },
+): Promise<string> {
+  if (own) requireFile(own, "Board page");
+  if (path) requireFile(path, "File");
+  // This board's own build, so a rebuild running alongside can't swap it out;
+  // the stable <name>.look.js beside it is what the edit's pages import.
+  const stamp = `${process.pid}-${Date.now()}`;
+  const mine = await buildLook(file, join(dirname(file), `.${basename(file)}.${stamp}.look.js`));
+  const module = join(dirname(file), `${basename(file, extname(file))}.look.js`);
+  copyFileSync(mine, module);
+  const url = JSON.stringify(pathToFileURL(mine).href);
+  // Inline as data, never as code: "<" escaped so a title can't close the script,
+  // and given through callbacks so "$&" in it isn't a replacement pattern.
+  const words = JSON.stringify(board).replace(/</g, "\\u003c");
+  const template = own ?? LOOK_BOARD;
+  const page = join(dirname(own ?? file), `.${basename(template)}.board-${stamp}.html`);
+  writeFileSync(
+    page,
+    readFileSync(template, "utf8")
+      .replace('from "LOOK"', () => `from ${url}`)
+      .replace('const BOARD = "BOARD";', () => `const BOARD = ${words};`),
+  );
+  const { clip: target, sheet } = boardTarget(file, out);
+  let drawn: string;
+  try {
+    drawn = await motion(
+      page,
+      path ? { path, duration, out: target } : { size, duration, out: target },
+    );
+    await ffmpeg(
+      ["-i", target, "-vf", `fps=12/${duration},scale=480:-2,tile=4x3`, "-frames:v", "1", sheet],
+      "make the contact sheet",
+    );
+  } catch (error) {
+    rmSync(sheet, { force: true });
+    throw error;
+  } finally {
+    rmSync(page, { force: true });
+    rmSync(mine, { force: true });
+  }
+  const pageUrl = JSON.stringify(pathToFileURL(module).href);
+  return [
+    `Look board: ${drawn}`,
+    `Stills: ${sheet}`,
+    `Built look: ${module}. A page imports it with \`import look from ${pageUrl}\` and draws with look.make(ctx, t, m).`,
+    "Show the user the stills (and the clip) and ask whether to go ahead or what to change. Save it in the project with edit's set { look: { file, mood, approved } } once they say yes.",
+  ].join("\n");
+}
+
 /**
  * Each clip's words, timed in its source (`path`, or its own), names fixed
  * from the dictionary. Each source is heard once, over the stretches its
@@ -3613,6 +3794,62 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
           choiceOf(a),
         );
       },
+    },
+    {
+      name: "look",
+      description:
+        'Shows a look before editing starts (guide("look")): `file` is a style module you wrote for this video (.ts or .js) whose default export is { id, name, category, make(ctx, t, m) } returning the pieces every style draws (surface, title, label, node, box, link, store, stat, mark, finish), with any of your own beside them. It can import the styles and their helpers from "STYLES" and the kit from "KIT". The look is built into `<name>.look.js` beside it and drawn on a board, then saved as a clip and a sheet of twelve stills for the user to approve. Write the board yourself as `page`, an HTML page that imports the look `from "LOOK"` and shows the real content of the video in it (its subjects, its words, over the footage as `path`). Without a `page`, a generic storyboard of the words in `board` is drawn, which only checks that the pieces work. Runs in the pinned headless Chrome with no network. A mistake in the look comes back with its line.',
+      inputSchema: {
+        type: "object",
+        properties: {
+          file: { type: "string", description: "Absolute path to the look (.ts or .js)" },
+          board: {
+            type: "object",
+            description:
+              "Words from the video: title (up to 60 characters), points (up to three labels of up to 24), stat { value, unit, label } for its key number",
+            properties: {
+              title: { type: "string" },
+              points: { type: "array", items: { type: "string" } },
+              stat: {
+                type: "object",
+                properties: {
+                  value: { type: "number" },
+                  unit: { type: "string" },
+                  label: { type: "string" },
+                },
+              },
+            },
+          },
+          page: {
+            type: "string",
+            description:
+              'Absolute path to your own board page (.html) that imports the look `from "LOOK"` (and "KIT" or "STYLES" if it likes) and draws the video\'s real content in it. Without one, a generic storyboard of `board` is drawn',
+          },
+          path: {
+            type: "string",
+            description:
+              "Absolute path to a video for the board to draw over (the page gets its frames as m.video)",
+          },
+          duration: { type: "number", description: "Seconds, 1 to 60 (default 8.5)" },
+          size: {
+            type: "string",
+            description: 'WIDTHxHEIGHT (default "1920x1080"; "1080x1920" for a short)',
+          },
+          out: {
+            type: "string",
+            description: "Absolute path for the clip (default beside the look)",
+          },
+        },
+        required: ["file"],
+      },
+      run: async (a) =>
+        lookBoard(resolve(String(a.file)), boardFrom(a.board), {
+          size: a.size === undefined ? undefined : String(a.size),
+          duration: within(a.duration, 1, 60, "duration", 8.5),
+          out: a.out === undefined ? undefined : resolve(String(a.out)),
+          page: a.page === undefined ? undefined : resolve(String(a.page)),
+          path: a.path === undefined ? undefined : resolve(String(a.path)),
+        }),
     },
     {
       name: "motion",
