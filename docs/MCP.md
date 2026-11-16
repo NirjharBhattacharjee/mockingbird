@@ -512,8 +512,9 @@ from the motion-graphics skill's `styles/` folder) the same way.
 A page can import the kit `from "KIT"`, the explainer styles `from "STYLES"`
 and three.js `from "THREE"` (0.187.0, shipped in the plugin, #270); `motion`
 fills each one in with its file. A page that imports three.js is drawn on the
-GPU (ANGLE on Metal on macOS; elsewhere, Chrome's software renderer), and 2D
-pages keep software rendering so their pixels don't change. On an M3, 10 s of a
+GPU (ANGLE on Metal on macOS, falling back to Chrome's software renderer when
+the GPU can't start; elsewhere, software), and 2D pages keep software
+rendering so their pixels don't change. On an M3, 10 s of a
 lit, shadowed 1920x1080 scene with footage as a texture drew in 33.4 s,
 against 199 s in software.
 

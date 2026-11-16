@@ -56,10 +56,17 @@ export async function launchChrome(
       "--force-color-profile=srgb",
       // WebGL on the Mac's GPU through Metal, for 3D pages (#270): headless Chrome
       // otherwise draws WebGL in software (SwiftShader), about 6x slower. Only
-      // when asked, so 2D pages keep their exact pixels; without a GPU, Chrome
-      // falls back to software.
+      // when asked, so 2D pages keep their exact pixels. If the GPU can't start,
+      // Chrome gives a page no WebGL at all unless SwiftShader is allowed, so it
+      // is: the page draws in software instead of blank. Pages are local and
+      // offline, which is what "unsafe" there warns about.
       ...(gpu && process.platform === "darwin"
-        ? ["--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist"]
+        ? [
+            "--use-angle=metal",
+            "--enable-gpu",
+            "--ignore-gpu-blocklist",
+            "--enable-unsafe-swiftshader",
+          ]
         : []),
       "--allow-file-access-from-files",
       "--disable-background-timer-throttling",

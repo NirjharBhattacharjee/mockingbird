@@ -49,7 +49,7 @@
           footage.needsUpdate = true;
         }
         screen.rotation.y = Math.sin(t * 0.6) * 0.4;
-        camera.position.set(Math.sin(t * 0.25) * 1.2, 0.5, 5 - t * 0.1);
+        camera.position.set(Math.sin(t * 0.25) * 1.2, 0.5, 4.5 + Math.cos(t * 0.2) * 0.5);
         camera.lookAt(0, 0, 0);
         renderer.render(scene, camera);
       };
