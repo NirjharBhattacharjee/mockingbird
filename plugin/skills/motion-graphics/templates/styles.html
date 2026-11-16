@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <body style="margin: 0">
+    <script type="module">
+      // An explainer drawn in one of the styles (styles/ beside the kit): the
+      // same title, nodes, links, boxes, numbers and marks come out in each
+      // style's look, with its own entrances. Change STYLE to any id in
+      // STYLES; write SCENE from what's being explained. Render it without a
+      // video (`size`, `duration`) and `inserts` it into an edit, or on its own.
+      import { page } from "KIT";
+      import { STYLES, style } from "STYLES";
+
+      const STYLE = "whiteboard";
+      // ---- the explanation, every time in seconds -----------------------------
+      function SCENE(look, t) {
+        look.title("How AI learns", { at: 0.1, dur: 0.9 });
+        look.store(0.06, 0.32, 0.08, 0.2, { at: 1.3, dur: 0.8 });
+        look.label("Data", 0.1, 0.6, { at: 2.1 });
+        look.link(0.16, 0.42, 0.23, 0.42, { at: 2.4, dur: 0.25 });
+        const layers = [
+          [0.27, 3],
+          [0.34, 4],
+          [0.41, 3],
+        ];
+        const y = (i, n) => 0.42 + (i - (n - 1) / 2) * 0.1;
+        layers.slice(0, 2).forEach(([x, n], l) => {
+          const [x2, n2] = layers[l + 1];
+          for (let i = 0; i < n; i++)
+            for (let j = 0; j < n2; j++)
+              look.link(x, y(i, n), x2, y(j, n2), { at: 3.4 + (i * n2 + j) * 0.03, dur: 0.12, head: false, tone: "accent" });
+        });
+        let k = 0;
+        for (const [x, n] of layers)
+          for (let i = 0; i < n; i++) look.node(x, y(i, n), 22, { at: 2.7 + k++ * 0.06, tone: "accent" });
+        look.label("Neural net", 0.34, 0.68, { at: 4.0, tone: "accent" });
+        look.link(0.45, 0.42, 0.52, 0.42, { at: 4.4, dur: 0.25 });
+        look.box(0.54, 0.31, 0.15, 0.22, { at: 4.7, tone: "good" });
+        look.stat("%", 0.615, 0.42, { at: 5.0, count: [12, 92], dur: 0.8, size: 60, tone: "good" });
+        look.label("Prediction", 0.615, 0.26, { at: 5.4, tone: "good" });
+        look.mark("check", 0.715, 0.27, { at: 5.8 });
+        look.link(0.64, 0.56, 0.42, 0.56, { at: 6.0, dur: 0.5, bend: -0.35, tone: "bad" });
+        look.label("Fix the error", 0.53, 0.74, { at: 6.4, tone: "bad" });
+        look.stat("%", 0.85, 0.45, { at: 6.8, count: [19, 97], dur: 1.0, sub: "accuracy", size: 90, tone: "accent" });
+      }
+
+      page((ctx, t, m) => {
+        const look = style(STYLE, ctx, t, m);
+        look.surface();
+        SCENE(look, t);
+        look.finish();
+      });
+      void STYLES;
+    </script>
+  </body>
+</html>

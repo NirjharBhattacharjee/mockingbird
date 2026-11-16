@@ -46,3 +46,13 @@ test("kit.js is kit.ts built (`bun run kit` after changing kit.ts)", () => {
   const committed = require("node:fs").readFileSync(`${import.meta.dir}/kit.js`, "utf8");
   expect(committed).toBe(built.stdout.toString());
 });
+
+test("styles.js is styles/ built (`bun run styles` after changing a style)", () => {
+  const built = Bun.spawnSync(
+    ["bun", "build", `${import.meta.dir}/styles/index.ts`, "--target=browser"],
+    { stderr: "pipe" },
+  );
+  expect(built.exitCode).toBe(0);
+  const committed = require("node:fs").readFileSync(`${import.meta.dir}/styles.js`, "utf8");
+  expect(committed).toBe(built.stdout.toString());
+});

@@ -503,7 +503,9 @@ motion-graphics kit's `page()` does that wrapping.)
 
 A page that imports `from "KIT"`, as the kit's templates do, gets the kit:
 `motion` loads a copy beside the page with `"KIT"` swapped for the kit's
-file URL, and deletes the copy after (#213). Leave `"KIT"` as it is.
+file URL, and deletes the copy after (#213). Leave `"KIT"` as it is. A page
+that imports `from "STYLES"` gets the explainer styles (`styles.js`, built
+from the motion-graphics skill's `styles/` folder) the same way.
 
 ### HTML pages
 
