@@ -8,6 +8,7 @@ import {
   compile,
   edit,
   framing,
+  lookGate,
   outline,
   type Project,
   transcript,
@@ -798,5 +799,42 @@ describe("look (#262)", () => {
       "look has no aproved",
     );
     expect(() => check({ ...empty, look: { mood: "calm" } })).toThrow("look.file");
+  });
+});
+
+describe("the look gate (#264)", () => {
+  const base: Project = { version: 1, clips: [], texts: [], inserts: [], audio: [] };
+  const text = { id: "t1", text: "Hi", from: 0, to: 1 };
+
+  test("a plain cut with no graphics renders without a look", () => {
+    expect(lookGate(base)).toBeUndefined();
+    expect(
+      lookGate({ ...base, inserts: [{ id: "b", path: "/p/broll.mp4", from: 0, to: 1 }] }),
+    ).toBeUndefined();
+  });
+
+  test("graphics without an approved look are refused, with what to ask", () => {
+    const why = lookGate({ ...base, texts: [text] }) ?? "";
+    expect(why).toContain("What vibe should this video have?");
+    expect(why).toContain("Should I edit with this look, or what should change?");
+    expect(
+      lookGate({ ...base, inserts: [{ id: "o", path: "/p/title.html", from: 0, to: 1 }] }),
+    ).toBeDefined();
+    expect(
+      lookGate({ ...base, texts: [text], look: { file: "/p/l.ts", approved: false } }),
+    ).toBeDefined();
+  });
+
+  test("an approved look, or the user's word to skip, lets it render", () => {
+    expect(
+      lookGate({ ...base, texts: [text], look: { file: "/p/l.ts", approved: true } }),
+    ).toBeUndefined();
+    expect(lookGate({ ...base, texts: [text], look: { skipped: true } })).toBeUndefined();
+  });
+
+  test("a skipped look needs no file, and the outline says it was skipped", () => {
+    const p = check({ ...base, look: { skipped: true } });
+    expect(outline(p, "p.json")).toContain("look skipped by the user");
+    expect(() => check({ ...base, look: { mood: "calm" } })).toThrow("look.file");
   });
 });
