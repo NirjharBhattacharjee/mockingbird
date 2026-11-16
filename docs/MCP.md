@@ -131,9 +131,13 @@ call and changing the cut doesn't break the timing of what's laid over it
   rendered, as the `captions` tool does: `perCue`, `lit`, `upper`, and `y`
   (where their middle sits). Leave it out, or `null`, for none.
 - **`look`** is the video's look ([Looks](#looks)): `file` (the look module
-  the agent wrote), `mood`, and `approved`, which is true once the user has
-  approved it. The outline shows it. Render doesn't read it; the graphics
-  made for the edit do.
+  the agent wrote), `mood` (the vibe the user picked), and `approved`, which
+  is true once the user has seen the board and said yes. `{ "skipped": true }`
+  records that the user said to edit without one. The outline shows it.
+  `render` refuses a project with graphics (texts or HTML overlays) until its
+  look is approved or skipped, and the refusal says what to ask the user
+  (#264). A draft, a sound-only render and a cut with no graphics aren't
+  held back.
 - **`split`** is `render`'s split; its clips are brought to the first
   clip's size first. A split always comes out 1080x1920, so `size` is that
   or left out.
