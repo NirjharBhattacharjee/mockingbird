@@ -37,3 +37,9 @@ test("the server tells every client about the playbooks on connect", async () =>
   expect(reply.result.instructions).toBe(INSTRUCTIONS);
   expect(INSTRUCTIONS).toContain('`guide("reviewer")`');
 });
+
+test("every client is told to ask the vibe and get the look approved (#264)", () => {
+  expect(INSTRUCTIONS).toContain('guide("look")');
+  expect(INSTRUCTIONS).toContain("ask them to pick a vibe");
+  expect(INSTRUCTIONS).toContain("refuses a project with graphics");
+});

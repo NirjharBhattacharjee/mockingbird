@@ -27,6 +27,7 @@ import {
   edit,
   lengthOf,
   load,
+  lookGate,
   type Move,
   type Project,
   transcript,
@@ -2372,7 +2373,8 @@ async function lookBoard(
     `Look board: ${drawn}`,
     `Stills: ${sheet}`,
     `Built look: ${module}. A page imports it with \`import look from ${pageUrl}\` and draws with look.make(ctx, t, m).`,
-    "Show the user the stills (and the clip) and ask whether to go ahead or what to change. Save it in the project with edit's set { look: { file, mood, approved } } once they say yes.",
+    'Now show the user the stills and the clip, and ask them, word for word: "Should I edit with this look, or what should change?" Don\'t start editing until they say yes.',
+    "When they do, save it in the project with edit's set { look: { file, mood, approved: true } }. If they say to skip the look, set { look: { skipped: true } }.",
   ].join("\n");
 }
 
@@ -2982,6 +2984,9 @@ async function renderProject(
 ) {
   const { project, created } = load(file);
   if (created) throw new Error(`No project at ${file}; make one with \`edit\`.`);
+  // A draft or the sound alone is a check of the cut; the finished video waits for the look (#264).
+  const gate = draft || soundOnly ? undefined : lookGate(project);
+  if (gate) throw new Error(gate);
   const cut = compile(project, dirname(file));
   const first = cut.clips[0]?.path;
   if (!first) throw new Error(`${file} has no clips yet; add some with \`edit\`.`);

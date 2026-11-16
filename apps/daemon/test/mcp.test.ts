@@ -1039,6 +1039,7 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
           { op: "add", type: "clip", path: "wide.mp4", from: 0.5, to: 2.5 },
           { op: "add", type: "clip", path: "tall.mp4", from: 1, to: 3 },
           { op: "add", type: "text", text: "on the *tall* one", clip: "c2", from: 0, to: 1 },
+          { op: "set", look: { skipped: true } },
         ],
       });
       expect(outline).toContain("c2  0:02.00-0:04.00  tall.mp4 1-3");
