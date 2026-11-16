@@ -1666,3 +1666,20 @@ describe("look (#262)", () => {
     expect(html).toContain('from "KIT"');
   });
 });
+
+test("a look can be built to a path of its own (#262 review)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mb-look-"));
+  try {
+    const file = join(dir, "warm.ts");
+    writeFileSync(
+      file,
+      'export default { id: "w", name: "W", category: "T", make: () => ({}) };\n',
+    );
+    const mine = join(dir, ".warm.ts.123.look.js");
+    expect(await buildLook(file, mine)).toBe(mine);
+    expect(existsSync(mine)).toBe(true);
+    expect(existsSync(join(dir, "warm.look.js"))).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

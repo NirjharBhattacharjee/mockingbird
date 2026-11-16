@@ -124,8 +124,26 @@ like it.
 
 ## 4. Show it: the look board
 
-Call `look` with the module, a `board` in the video's own words and the
-video's shape:
+**Draw the board from the video itself**, not from a generic diagram. Write
+a short page that imports your look `from "LOOK"` and shows what this video
+is actually about: its subject (the turkey it's about, the product, the
+speaker), its key line, over its own footage. Pass the page as `page` and a
+few seconds of the footage as `path` (the page gets the frames as `m.video`,
+with `mockingbird.drawVideo = true` or the kit's `page()`). A cooking video's
+board shows the dish; a talk's board shows the speaker and their big number.
+
+```json
+{
+  "file": "/path/to/project/look.ts",
+  "page": "/path/to/project/board.html",
+  "path": "/path/to/project/sample.mp4",
+  "duration": 8
+}
+```
+
+Without a `page`, `look` draws a generic storyboard (nodes, a box, a
+number) of a `board` in the video's own words. That only shows the pieces
+work; don't show it to the user as the look:
 
 ```json
 {

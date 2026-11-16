@@ -59,7 +59,7 @@ with `"args": ["/c", "C:\\Users\\<you>\\.mockingbird\\bin\\mockingbird.cmd", "mc
 | `edit(project, ops)` | Changes a project file, an edit kept between calls; see [Projects](#projects). Applies `ops` in order, all of them or none, saves the file, and returns an outline of the cut. Makes the file if it isn't there; with no ops it only reads it. |
 | `render(project)` or `render(path, clips, …)` | Renders a project, or cuts `clips` out of one video and joins them, into one MP4 with ffmpeg; see [Render options](#render-options). Saves to `out`, or `<name>-render-N.mp4` beside the project (`<name>-short-N.mp4` beside the source), and never overwrites a file. An HDR source (HLG or PQ, which phones record by default) is brought to SDR BT.709 first, and a render with one in it is tagged BT.709; see [HDR sources](#hdr-sources). |
 | `motion(script, path, captions, size, duration, fps, out)` | Motion graphics written as code: an HTML page rendered in a pinned headless Chrome; see [Motion graphics](#motion-graphics). Saves to `out`, or `<name>-motion-N.mp4` beside the video or script, and never overwrites a file. |
-| `look(file, board, size, out)` | Shows a look made for one video before editing starts: builds the agent's look module, draws a storyboard of `board` (words from the video) in it, and saves the clip and a sheet of twelve stills beside the look. See [Looks](#looks). |
+| `look(file, page, path, duration, board, size, out)` | Shows a look made for one video before editing starts: builds the agent's look module, draws a storyboard of `board` (words from the video) in it, and saves the clip and a sheet of twelve stills beside the look. See [Looks](#looks). |
 | `music(script, duration, out, tempo, key, energy, seed)` | Background music written as code: a generator module played into Web Audio's `OfflineAudioContext` in the pinned headless Chrome, saved as a WAV at −14 LUFS for `render`'s `audio`; see [Music](#music). Never overwrites a file. |
 | `guide(topic)` | A playbook for one job, from [`plugin/`](../plugin/README.md): `brief` (start here when the user hasn't said what kind of video it is: it reads the transcript, decides the format and picks the playbook), `viral-short`, `long-form`, `look`, `hooks`, `retention-editing`, `captions`, `motion-graphics`, `music`, `style-match`, or `reviewer` (the checks a finished video has to pass). It starts with the folder holding the playbook's scripts, kit and templates. |
 | `status` | Whether mockingbird is ready: the transcription model in use, the speech detection model, ffmpeg, whisper-server, the Chrome that `motion` renders HTML in, how many words the dictionary has, and `oldPlugin`: how to switch when Claude Code still has the mockingbird-studio plugin from before v0.4.2 (#256). `whisperServer` is true only when the one transcribe would run answers `--help` within 10 s; when one is there but won't start (a build for a newer glibc, no execute permission), `whisperServerError` says why. |
@@ -630,11 +630,12 @@ stat, mark, finish) and anything else the look adds. The module can
 import from `"STYLES"` (every style and the helpers in `styles/look.ts`) and
 from `"KIT"`. The steps are in `guide("look")`.
 
-`look(file, board, size, out)` builds the module with Bun into
+`look(file, page, path, duration, board, size, out)` builds the module with Bun into
 `<name>.look.js` beside it, with what it imports bundled in. A mistake comes back as
-`file:line:column` with the line. It then draws
-`plugin/skills/motion-graphics/templates/look-board.html` in Chrome, the
-same way `motion` does: an 8.5 s storyboard of `board`, which is
+`file:line:column` with the line. It then draws the board in Chrome the way `motion` does. The board is the
+agent's own `page`, which imports the look `from "LOOK"` and shows the
+video's real content, drawn over `path` if one is given. Without a `page`, it's
+`plugin/skills/motion-graphics/templates/look-board.html`: an 8.5 s storyboard of `board`, which is
 `{ title, points: [up to three labels], stat: { value, unit, label } }`,
 default `size` 1920x1080. It saves `<name>-board-N.mp4` (or `out`) and
 `…-sheet.jpg`, a 4x3 contact sheet. Pages for the edit import the

@@ -633,7 +633,7 @@ describe("look (#262)", () => {
     const approved = apply(project, [
       { op: "set", look: { file: "/p/dusk.ts", mood: "calm", approved: true } },
     ]).project;
-    expect(outline(approved, "p.json")).toContain("approved");
+    expect(outline(approved, "p.json")).toContain("look dusk.ts (calm), approved");
     expect(apply(approved, [{ op: "set", look: null }]).project.look).toBeUndefined();
   });
 
