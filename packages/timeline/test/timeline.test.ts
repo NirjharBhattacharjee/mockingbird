@@ -591,3 +591,23 @@ describe("J and L cuts", () => {
     expect(two(2.5)).toThrow("more than c2 or the clip before it lasts");
   });
 });
+
+test("a generated sound can say how long its bed is (#266)", () => {
+  const p = check({
+    version: 1,
+    clips: [],
+    texts: [],
+    inserts: [],
+    audio: [{ id: "m", at: 0, generator: { generator: "/g/lofi.js", length: 74.4 } }],
+  });
+  expect(p.audio[0]?.generator?.length).toBe(74.4);
+  expect(() =>
+    check({
+      version: 1,
+      clips: [],
+      texts: [],
+      inserts: [],
+      audio: [{ id: "m", at: 0, generator: { generator: "/g/lofi.js", length: 0 } }],
+    }),
+  ).toThrow("length must be a number from 1 to 7200");
+});

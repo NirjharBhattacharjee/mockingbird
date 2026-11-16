@@ -136,7 +136,7 @@ call and changing the cut doesn't break the timing of what's laid over it
 | Op | What it does |
 |---|---|
 | `{op: "add", type: "clip", path, from, to, focus?, zoom?, speed?, moves?, transition?, lead?, index?}` | A clip on the main track, at `index` (default the end). See [Speed, moves and transitions](#speed-moves-and-transitions). |
-| `{op: "add", type: "text" \| "insert" \| "audio", …}` | A text, picture or video, or sound, with the fields above. A sound can take `generator: {generator, tempo?, key?, energy?, seed?}` in place of `path`: see [Music in a project](#music-in-a-project). |
+| `{op: "add", type: "text" \| "insert" \| "audio", …}` | A text, picture or video, or sound, with the fields above. A sound can take `generator: {generator, tempo?, key?, energy?, seed?, length?}` in place of `path`: see [Music in a project](#music-in-a-project). |
 | `{op: "add", type: "overlay", page, from, to, clip?}` | An HTML page laid over its stretch with its transparency: see [Overlays](#overlays). |
 | `{op: "remove", id}` | Removes an item. A clip takes what's on it with it, and the cut closes up. |
 | `{op: "split", id, at}` | Splits a clip in two at `at` seconds in its source. What starts on the second half moves to the new clip. |
@@ -272,9 +272,14 @@ A project's sound can be generated instead of a file: `{op: "add", type:
 "audio", generator: {generator: "/abs/lofi.js", tempo: 80, key: "A minor",
 energy: [[0, 0.2], [30, 0.8]], seed: 1}, volume: 0.15, duck: true}`. The
 generator is one of [`music`](#music)'s. `render` makes the bed as long as
-the video from where the sound starts and keeps it in
+the video from where the sound starts, or `length` seconds when it's given
+(a bed under just the intro of a long edit), and keeps it in
 `~/.mockingbird/cache/music/`, by the generator's folder of modules and its
-arguments, so a render after an edit reuses it.
+arguments, so a render after an edit reuses it. Making the bed waits a
+minute plus a second for each second of music, so a long bed isn't cut off
+(#266). Making a bed grows with the square of its length (on an M3: 74 s
+took 16 s, 150 s took 82 s, 300 s over 6 minutes), so give a long edit's
+music a `length`, or make a short bed with `music` and `loop` it.
 
 `render` with `project` and `sound: true` saves the sound alone as
 `<name>-sound-N.m4a` at −14 LUFS, to check the mix without the picture:

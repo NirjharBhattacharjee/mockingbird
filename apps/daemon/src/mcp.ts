@@ -2820,8 +2820,10 @@ async function beds(
     }
     const script = requireFile(g.generator, "Generator");
     const params = {
+      // As long as asked (a bed under just the intro), never past the video's end (#266).
       duration: Math.min(
         MOTION_MAX_SECONDS,
+        g.length ?? Number.POSITIVE_INFINITY,
         Math.max(1, Math.round((cut.length - rest.at) * 1000) / 1000),
       ),
       seed: g.seed ?? 1,
@@ -2845,6 +2847,14 @@ async function beds(
       try {
         await music(script, part, params);
         renameSync(part, wav);
+      } catch (error) {
+        // Generating grows with the square of the length: 74 s took 16 s on an M3, 300 s over 6 minutes (#266).
+        if (/didn't answer/.test(String(error))) {
+          throw new Error(
+            `${basename(script)} couldn't make ${params.duration.toFixed(0)} s of music in time: a long bed takes much longer than a short one. Give the sound a \`length\` (just the part that needs music), or make a shorter bed with \`music\` and \`loop\` it. (${(error as Error).message})`,
+          );
+        }
+        throw error;
       } finally {
         rmSync(part, { force: true });
       }

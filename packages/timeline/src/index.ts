@@ -130,6 +130,8 @@ export type Generated = {
   /** 0-1, or [seconds, level] points in time order. */
   energy?: number | [number, number][];
   seed?: number;
+  /** Seconds of music; default as long as the video from where it starts (#266). */
+  length?: number;
 };
 
 export type Sound = {
@@ -233,7 +235,7 @@ const CLIP = [
 const TEXT = ["id", "text", "clip", "from", "to", "y"];
 const INSERT = ["id", "path", "clip", "from", "to"];
 const SOUND = ["id", "path", "generator", "clip", "at", "volume", "loop", "duck"];
-const GENERATED = ["generator", "tempo", "key", "energy", "seed"];
+const GENERATED = ["generator", "tempo", "key", "energy", "seed", "length"];
 const CAPTIONS = ["perCue", "lit", "upper", "y"];
 
 function point(v: unknown, what: string): Point {
@@ -345,6 +347,7 @@ function generated(v: unknown, what: string): Generated {
     key: maybe(o.key, (k) => str(k, `${what}.key`).slice(0, 40)),
     energy: maybe(o.energy, (e) => energy(e, `${what}.energy`)),
     seed: maybe(o.seed, (n) => Math.round(num(n, `${what}.seed`, 0, 2 ** 32 - 1))),
+    length: maybe(o.length, (n) => num(n, `${what}.length`, 1, 7200)),
   });
 }
 

@@ -6,11 +6,16 @@ import type { Readable, Writable } from "node:stream";
 
 /** A headless Chrome, driven over the DevTools protocol. */
 export type Chrome = {
-  /** One DevTools command; `session` sends it to a tab. `T` is the reply's shape. */
+  /**
+   * One DevTools command; `session` sends it to a tab. `T` is the reply's
+   * shape. `timeout` (ms) is how long to wait for the answer, for a command
+   * whose work grows with its input, like generating minutes of music.
+   */
   send: <T = Record<string, unknown>>(
     method: string,
     params?: object,
     session?: string,
+    timeout?: number,
   ) => Promise<T>;
   close: () => Promise<void>;
 };
@@ -113,14 +118,19 @@ export async function launchChrome(
   // Writing to a Chrome that has just died is reported by `exit`.
   input.on("error", () => {});
 
-  const send: Chrome["send"] = <T>(method: string, params = {}, session?: string) => {
+  const send: Chrome["send"] = <T>(
+    method: string,
+    params = {},
+    session?: string,
+    timeout = COMMAND_TIMEOUT_MS,
+  ) => {
     if (gone) return Promise.reject(gone);
     const n = ++id;
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         waiting.delete(n);
-        reject(new Error(`Chrome didn't answer ${method} in ${COMMAND_TIMEOUT_MS / 1000} s`));
-      }, COMMAND_TIMEOUT_MS);
+        reject(new Error(`Chrome didn't answer ${method} in ${Math.round(timeout / 1000)} s`));
+      }, timeout);
       waiting.set(n, {
         resolve: (v) => {
           clearTimeout(timer);
