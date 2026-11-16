@@ -156,6 +156,11 @@ export type Project = {
   fps?: number;
   split?: { top: Area; bottom: Area };
   captions?: Captions | null;
+  /**
+   * Even out loudness between sources (#265): render measures each source's
+   * sound and brings it to `target` LUFS with a `gain` on its clips.
+   */
+  level?: { target: number };
   clips: Clip[];
   texts: Text[];
   inserts: Insert[];
@@ -379,6 +384,14 @@ function captions(v: unknown, what: string): Captions | null {
   });
 }
 
+/** `true`, or `{ target }` in LUFS (default -16): the project's `level`. */
+function level(v: unknown): { target: number } | undefined {
+  if (v === false || v === null) return undefined;
+  if (v === true) return { target: -16 };
+  const o = obj(v, "level", ["target"]);
+  return { target: o.target === undefined ? -16 : num(o.target, "level.target", -30, -6) };
+}
+
 function size(v: unknown): string {
   const m = /^(\d+)x(\d+)$/.exec(String(v));
   const [w, h] = [Number(m?.[1]), Number(m?.[2])];
@@ -406,6 +419,7 @@ export function check(v: unknown): Project {
     "fps",
     "split",
     "captions",
+    "level",
     "clips",
     "texts",
     "inserts",
@@ -426,6 +440,7 @@ export function check(v: unknown): Project {
       return { top: area(t.top, "split.top"), bottom: area(t.bottom, "split.bottom") };
     }),
     captions: maybe(o.captions, (c) => captions(c, "captions")),
+    level: maybe(o.level, (v) => level(v)),
     clips: list("clips").map((c, i) => clip(c, `clips[${i}]`)),
     texts: list("texts").map((t, i) => text(t, `texts[${i}]`)),
     inserts: list("inserts").map((t, i) => insert(t, `inserts[${i}]`)),
@@ -891,7 +906,7 @@ function step(p: Project, raw: unknown, what: string, notes: string[], words?: W
         }
       };
       if (id === undefined) {
-        obj(fields, what, ["size", "fps", "split", "captions"]);
+        obj(fields, what, ["size", "fps", "split", "captions", "level"]);
         merge(p as unknown as Obj);
         return;
       }
@@ -968,6 +983,7 @@ export function outline(p: Project, file: string): string {
     p.captions
       ? `captions on${p.captions.perCue ? ` (${p.captions.perCue} a cue)` : ""}`
       : undefined,
+    p.level ? `sources levelled to ${p.level.target} LUFS` : undefined,
   ].filter(Boolean);
   const line = (t: Text | Insert | Sound, base: number) => {
     if ("at" in t) {

@@ -83,6 +83,13 @@ export const EFFECTS: Record<string, Entry> = {
     params: { radius: { min: 0.5, max: 50, default: 8, about: "pixels" } },
     build: (p) => `gblur=sigma=${f(p.radius as number)}`,
   },
+  gain: {
+    kind: "audio",
+    about:
+      "Raises or lowers the clip's sound by dB; a project's `level` sets it for each source (#265)",
+    params: { db: { min: -30, max: 30, default: 0, about: "dB; +6 is about twice as loud" } },
+    build: (p) => (p.db ? `volume=${f(p.db as number)}dB` : ""),
+  },
   denoise: {
     kind: "audio",
     about:

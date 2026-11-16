@@ -1106,6 +1106,30 @@ async function ffmpeg(args: string[], what: string): Promise<void> {
 }
 
 /** `file`'s integrated loudness in LUFS, through `filter` first if given. */
+/**
+ * The gain that brings each source among `paths` to `target` LUFS (#265),
+ * measured once a source, kept within 30 dB either way. A source with no
+ * sound, or silence, gets none.
+ */
+export async function levelGains(
+  paths: string[],
+  target: number,
+  measure: (path: string) => Promise<number>,
+): Promise<Map<string, { measured: number; db: number }>> {
+  const out = new Map<string, { measured: number; db: number }>();
+  // ponytail: measured every render; cache by path and mtime if long projects make it slow.
+  for (const path of new Set(paths)) {
+    const measured = await measure(path);
+    // No speech to level (silence, or a card with no sound): boosting it would only raise the hiss.
+    if (!Number.isFinite(measured) || measured < -60) continue;
+    out.set(path, {
+      measured,
+      db: Math.max(-30, Math.min(30, Math.round((target - measured) * 10) / 10)),
+    });
+  }
+  return out;
+}
+
 async function loudness(file: string, filter = ""): Promise<number> {
   const proc = Bun.spawn(
     [
@@ -2876,6 +2900,21 @@ async function renderProject(
   const cut = compile(project, dirname(file));
   const first = cut.clips[0]?.path;
   if (!first) throw new Error(`${file} has no clips yet; add some with \`edit\`.`);
+  if (project.level) {
+    const gains = await levelGains(
+      cut.clips.map((c) => c.path),
+      project.level.target,
+      (path) => loudness(path).catch(() => -Infinity),
+    );
+    for (const [path, { measured, db }] of gains)
+      log(
+        `level: ${basename(path)} ${measured.toFixed(1)} LUFS, ${db >= 0 ? "+" : ""}${db.toFixed(1)} dB`,
+      );
+    cut.clips = cut.clips.map((c) => {
+      const db = gains.get(c.path)?.db;
+      return db ? { ...c, effects: [...(c.effects ?? []), { name: "gain", db }] } : c;
+    });
+  }
   // The sound alone needs nothing drawn, so nothing is transcribed for captions.
   const said = cut.captions && !soundOnly ? await cutCaptions(cut, log, cut.captions) : undefined;
   // A draft reads 4K from proxies; its size is still the source's, not the proxy's.
@@ -3034,7 +3073,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
 - {op:"add", type:"clip", path, from, to, focus?:{x,y}, zoom?, speed?, moves?, transition?, lead?, index?}: on the main track, which plays in order with no gaps (default at the end). speed: 0.25-4. moves: [{at, focus?, zoom?, ease?}], the framing by \`at\` seconds into the clip, eased ("smooth", or "linear") from the one before: a slow push-in, a move to the other speaker. transition: {type, duration}, how the clip comes in over the end of the one before: ffmpeg xfade's fade, fadeblack, fadewhite, dissolve, wipe*, slide*, smooth*, circleopen, zoomin and others. lead: a J cut (positive: the clip's sound starts that many seconds before its picture) or an L cut (negative: the clip before's sound carries on over its picture)
 - {op:"add", type:"text", text, from, to, clip?, y?}: drawn like the captions, *words* yellow
 - {op:"add", type:"insert", path, from, to, clip?}: a picture or video over the whole frame (b-roll)
-- {op:"add", type:"audio", path, at?, clip?, volume?, loop?, duck?}: music or a sound effect under the speech. Or generated music in place of path: generator:{generator:"/abs/lofi.js", tempo?, key?, energy?, seed?} (a music generator; the bed is made at render time, as long as the video from at, and kept, so it isn't made again)
+- {op:"add", type:"audio", path, at?, clip?, volume?, loop?, duck?}: music or a sound effect under the speech. Or generated music in place of path: generator:{generator:"/abs/lofi.js", tempo?, key?, energy?, seed?, length?} (a music generator; the bed is made at render time, as long as the video from at or \`length\` seconds if given, and kept, so it isn't made again)
 - {op:"remove", id}: a clip goes with everything on it, and the cut closes up
 - {op:"split", id, at}: a clip in two at a source time; what's on the second half moves with it
 - {op:"trim", id, from?, to?}: a clip's source times; what's on it stays on the same picture
