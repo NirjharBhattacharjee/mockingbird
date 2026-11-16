@@ -252,6 +252,7 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
           return answer.trim() ? /^y/i.test(answer.trim()) : fallback;
         },
         pull: pullWithProgress,
+        pullChrome: () => pullWithProgress(pullChrome),
       });
     case "models":
       if (rest.length === 1 && rest[0] === "pull") return pullWithProgress();
