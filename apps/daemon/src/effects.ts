@@ -53,7 +53,7 @@ export type Effect = { name: string } & Record<string, unknown>;
  * parses: the option value (`\`, `'`, `:`), then the graph (`\`, `'`, `[`, `]`,
  * `,`, `;`). Quoting it instead breaks on an apostrophe: `O'Brien.cube`.
  */
-const quoted = (path: string) =>
+export const quoted = (path: string) =>
   path.replace(/[\\':]/g, (c) => `\\${c}`).replace(/[\\'[\],;]/g, (c) => `\\${c}`);
 
 const f = (n: number) => String(Math.round(n * 10000) / 10000);

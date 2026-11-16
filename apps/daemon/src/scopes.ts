@@ -110,12 +110,13 @@ export function report(s: Scopes, where: string): string {
 
 /**
  * Frames from `path` over `from`-`to` (one every `every` seconds, at most
- * 60), measured. `size` is the video's, `WxH`.
+ * 60), measured. `size` is the video's, `WxH`. `sdr` brings an HDR
+ * source to SDR first, so it's measured as render will show it.
  */
 export async function scopes(
   path: string,
   size: string,
-  { from = 0, to, every = 1 }: { from?: number; to: number; every?: number },
+  { from = 0, to, every = 1, sdr }: { from?: number; to: number; every?: number; sdr?: string },
 ): Promise<string> {
   const span = Math.max(0.04, to - from);
   const step = Math.max(every, span / 60);
@@ -130,7 +131,7 @@ export async function scopes(
         path,
         "-an",
         "-vf",
-        `fps=1/${step},scale=${width}:${height}:out_range=tv,format=yuv444p`,
+        `fps=1/${step},${sdr ? `${sdr},` : ""}scale=${width}:${height}:out_range=tv,format=yuv444p`,
       ],
       ...["-f", "rawvideo", "-pix_fmt", "yuv444p", "-"],
     ],

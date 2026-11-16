@@ -170,3 +170,17 @@ test("interpolate makes new frames before the frame rate is set (#200)", () => {
   expect(graph).toContain("scale=640:360,setsar=1,minterpolate=fps=30:mi_mode=mci");
   expect(graph).toContain("vsbmc=1,fps=30[v0]");
 });
+
+test("an HDR clip with a masked effect, and an insert with a box, are brought to SDR first (#252)", () => {
+  const graph = renderGraph(
+    [{ from: 0, to: 2, sdr: "setparams=X", effects: [{ name: "blur", mask: { shape: "rect" } }] }],
+    {
+      audio: false,
+      size: "640x360",
+      fps: 30,
+      inserts: [{ start: 0, end: 1, sdr: "setparams=Y", box: { x: 0, y: 0, w: 0.5, h: 0.5 } }],
+    },
+  );
+  expect(graph).toContain("[0:v]setparams=X,setpts=PTS-STARTPTS");
+  expect(graph).toContain("[1:v]setparams=Y,trim=duration=1");
+});

@@ -47,6 +47,7 @@ import {
   pictureSteps,
 } from "./effects.ts";
 import { guide, INSTRUCTIONS, PLUGIN, playbooks } from "./guide.ts";
+import { BT709, type Transfer, toSdrFor, transferOf } from "./hdr.ts";
 import { findChrome, fontFaces } from "./models.ts";
 import { clipsFrom, findPauses, measure } from "./pauses.ts";
 import {
@@ -350,6 +351,8 @@ async function frames(
   requireFile(path, "File");
   const source = await probe(path);
   if (!source.video) return `${path} has no video, only audio. \`transcribe\` reads it.`;
+  // Stills from an HDR source as SDR, as render shows it, not flat and grey.
+  const sdr = toSdrFor(source.transfer);
   const end = Math.min(to ?? source.seconds, source.seconds);
   const times: number[] = [];
   for (let t = from; t < end; t += every) times.push(t);
@@ -374,7 +377,7 @@ async function frames(
             "-i",
             path,
           ],
-          ...["-frames:v", "1", "-vf", "scale='min(1280,iw)':-2", file],
+          ...["-frames:v", "1", "-vf", `${sdr ? `${sdr},` : ""}scale='min(1280,iw)':-2`, file],
         ],
         { stderr: "pipe" },
       );
@@ -614,6 +617,13 @@ function frame({ focus = { x: 0.5, y: 0.5 }, zoom = 1 }: Clip, size: string) {
 }
 
 /**
+ * A clip as render hands it on: `silent` if its source has no sound, and
+ * `sdr`, the filters that bring an HDR source's picture to SDR, or label an
+ * SDR clip BT.709 to match in an edit with HDR in it (#252).
+ */
+type Shaped = Clip & { silent?: boolean; sdr?: string };
+
+/**
  * The ffmpeg filter graph that joins `clips` in order, each its own input
  * (0, 1, …, from seekClips), cropped to `size`'s shape around its focus,
  * punched in by its zoom or moved by its moves, scaled to `size` and set to
@@ -627,10 +637,10 @@ function frame({ focus = { x: 0.5, y: 0.5 }, zoom = 1 }: Clip, size: string) {
  * speech, the sound cut to the picture's length unless `whole`, and left
  * for `level` to bring to LUFS. `size` is the finished picture's, `WxH` (a
  * split's clips are brought to it before their areas are taken). A `silent`
- * clip's sound is silence. Ends in [v], and [a] if there's sound.
+ * clip's sound is silence; an `sdr` clip's picture goes through those filters first. Ends in [v], and [a] if there's sound.
  */
 export function renderGraph(
-  clips: (Clip & { silent?: boolean })[],
+  clips: Shaped[],
   {
     audio,
     size = "1920x1080",
@@ -652,7 +662,7 @@ export function renderGraph(
     burn?: boolean;
     captionsY?: number;
     overlays?: (Omit<Cue, "text"> & { y?: number })[];
-    inserts?: (Omit<Cue, "text"> & Look)[];
+    inserts?: (Omit<Cue, "text"> & Look & { sdr?: string })[];
     /** Adjustment layers: effects on everything under the text for a stretch (#198). */
     adjust?: (Omit<Cue, "text"> & { effects: Effect[] })[];
     sounds?: Sound[];
@@ -688,7 +698,7 @@ export function renderGraph(
     const [width, height] = size.split("x").map(Number) as [number, number];
     const ctx = { width, height, fps, length: lengthOf(clip) };
     const fx = effectFilters(clip.effects, ctx);
-    const head = `[${i}:v]${cut}setpts=PTS-STARTPTS${speed},${SQUARE}${look}`;
+    const head = `[${i}:v]${clip.sdr ? `${clip.sdr},` : ""}${cut}setpts=PTS-STARTPTS${speed},${SQUARE}${look}`;
     // A masked effect needs labels of its own (#198); the rest stay one chain.
     const v = masked(clip.effects)
       ? [
@@ -728,7 +738,14 @@ export function renderGraph(
   // Inserts go under the text, so captions stay readable over b-roll, and
   // adjustment layers between them, so they change the inserts too (#198).
   const [W, H] = out.split("x").map(Number) as [number, number];
-  type Layer = { start: number; end: number; y?: number; input: number; kind: string } & Look;
+  type Layer = {
+    start: number;
+    end: number;
+    y?: number;
+    input: number;
+    kind: string;
+    sdr?: string;
+  } & Look;
   const layers: Layer[] = [
     ...inserts.map((cue, i) => ({
       ...cue,
@@ -758,9 +775,11 @@ export function renderGraph(
       ];
     }
     const { box, blend, effects = [], moves } = layer;
+    // HDR b-roll is brought to SDR like the clips under it (#252).
+    const sdr = layer.sdr ? `${layer.sdr},` : "";
     if (!box && !blend && !effects.length && !moves?.length) {
       // Its own first frame lands at `start`; once it runs out, the picture underneath shows again.
-      const shaped = `[${input}:v]trim=duration=${end - start},setpts=PTS-STARTPTS+${start}/TB,${fill({ x: 0, y: 0, w: 1, h: 1 }, out)},setsar=1[i${i}]`;
+      const shaped = `[${input}:v]${sdr}trim=duration=${end - start},setpts=PTS-STARTPTS+${start}/TB,${fill({ x: 0, y: 0, w: 1, h: 1 }, out)},setsar=1[i${i}]`;
       return [shaped, `${label(i)}[i${i}]overlay=eof_action=pass:${when}${label(i + 1)}`];
     }
     // A box is a picture in the picture: the insert filled to the box, laid at its corner.
@@ -770,7 +789,7 @@ export function renderGraph(
       ? `,${moving({ from: 0, to: end - start, moves }, shape, fps)}`
       : "";
     const steps = [
-      `[${input}:v]trim=duration=${end - start},setpts=PTS-STARTPTS,fps=${fps},${fill({ x: 0, y: 0, w: 1, h: 1 }, shape)}${moved},setsar=1[ib${i}]`,
+      `[${input}:v]${sdr}trim=duration=${end - start},setpts=PTS-STARTPTS,fps=${fps},${fill({ x: 0, y: 0, w: 1, h: 1 }, shape)}${moved},setsar=1[ib${i}]`,
       ...pictureSteps(effects, `[ib${i}]`, `[ie${i}]`, { ...ctx, width: bw, height: bh }, `i${i}`),
       `[ie${i}]setpts=PTS+${start}/TB[i${i}]`,
     ];
@@ -918,12 +937,14 @@ async function probe(path: string): Promise<{
   /** The picture's codec and pixel format, e.g. "h264" and "yuv420p". */
   codec: string;
   pix: string;
+  /** Its HDR transfer, or undefined for SDR. */
+  transfer?: Transfer;
 }> {
   const proc = Bun.spawn(
     [
       "ffprobe",
       ...["-v", "error", "-show_entries"],
-      "stream=codec_type,codec_name,pix_fmt,width,height,sample_aspect_ratio,avg_frame_rate:stream_side_data=rotation:format=duration",
+      "stream=codec_type,codec_name,pix_fmt,color_transfer,width,height,sample_aspect_ratio,avg_frame_rate:stream_side_data=rotation:format=duration",
       ...["-of", "json", path],
     ],
     { stderr: "pipe" },
@@ -939,6 +960,7 @@ async function probe(path: string): Promise<{
     codec_type: string;
     codec_name?: string;
     pix_fmt?: string;
+    color_transfer?: string;
     width?: number;
     height?: number;
     sample_aspect_ratio?: string;
@@ -961,6 +983,7 @@ async function probe(path: string): Promise<{
     fps,
     codec: picture?.codec_name ?? "",
     pix: picture?.pix_fmt ?? "",
+    transfer: transferOf(picture?.color_transfer),
     video: has("video"),
     audio: has("audio"),
     seconds: Number(format?.duration ?? 0),
@@ -1284,7 +1307,7 @@ async function level(file: string, out: string): Promise<void> {
  */
 async function joinBatches(
   path: string,
-  clips: (Clip & { silent?: boolean })[],
+  clips: Shaped[],
   dir: string,
   look: {
     audio: boolean;
@@ -1405,7 +1428,7 @@ export async function copyKeys(path: string, fps: number): Promise<number[]> {
  */
 async function copyRender(
   path: string,
-  clips: (Clip & { silent?: boolean })[],
+  clips: Shaped[],
   dir: string,
   unlevelled: string,
   {
@@ -1427,7 +1450,14 @@ async function copyRender(
   // ponytail: copies from the first source only, so its parameter sets are the only 0s; one per source if mixed edits need it.
   const from = clips[0]?.path ?? path;
   const p = probes.get(from);
-  if (p?.codec !== "h264" || p.pix !== "yuv420p" || p.size !== size || p.fps !== fps) {
+  // An HDR stretch copied as it is would land in an SDR file unconverted.
+  if (
+    p?.codec !== "h264" ||
+    p.pix !== "yuv420p" ||
+    p.transfer ||
+    p.size !== size ||
+    p.fps !== fps
+  ) {
     return false;
   }
   const keys = await copyKeys(from, fps);
@@ -1438,6 +1468,9 @@ async function copyRender(
     (c) => (c.path ?? path) === from && (c.zoom ?? 1) === 1 && !c.moves?.length,
   );
   if (!plan.some((q) => q.copy)) return false;
+  // A copied stretch keeps its source's colour tags, and the file takes the first piece's:
+  // with HDR in the edit, everything is encoded so the file is tagged BT.709.
+  if (clips.some((c) => c.sdr)) return false;
   const at = (q: Piece) => ({ ...q.clip, from: q.a / fps, to: q.b / fps });
   const files: string[] = plan.map((_, i) => `piece-${i}.ts`);
   // The encoded pieces, CLIPS_PER_PASS to an ffmpeg, each starting on a keyframe.
@@ -1656,7 +1689,7 @@ const ENGINE = createHash("sha256")
  */
 async function segmented(
   path: string,
-  clips: (Clip & { silent?: boolean })[],
+  clips: Shaped[],
   {
     audio,
     size,
@@ -1679,7 +1712,7 @@ async function segmented(
     cues: Cue[];
     captionsY: number;
     texts: Text[];
-    inserts: Insert[];
+    inserts: (Insert & { sdr?: string })[];
     adjust: { from: number; to: number; effects: Effect[] }[];
     sounds: (Sound & { path: string })[];
     out?: string;
@@ -1947,7 +1980,21 @@ async function render(
   }
   // The whole cut has sound if any clip does; a clip without fills its stretch with silence.
   const audio = clips.some((c) => of(c).audio);
-  const shaped = clips.map((c) => ({ ...c, silent: audio && !of(c).audio }));
+  // An HDR source is brought to SDR first, or it comes out flat and grey (#252). The
+  // SDR clips beside one are labelled BT.709 to match, or an untagged clip first (or
+  // a segment of only SDR clips) leaves the whole file untagged.
+  const hdr = clips.some((c) => of(c).transfer);
+  const shaped = clips.map((c) => ({
+    ...c,
+    silent: audio && !of(c).audio,
+    sdr: toSdrFor(of(c).transfer) ?? (hdr ? BT709 : undefined),
+  }));
+  // HDR b-roll too: a video insert is probed for its transfer, a still has none.
+  const placed = await Promise.all(
+    inserts.map(async (i) =>
+      STILL.test(i.path) ? i : { ...i, sdr: toSdrFor((await probe(i.path)).transfer) },
+    ),
+  );
   // A split takes its areas from one picture, so its clips are brought to the first's size.
   const frameSize = split ? source.size : (size ?? source.size);
   const rate = fps ?? source.fps;
@@ -1970,7 +2017,7 @@ async function render(
       cues: captions?.trim() ? parseSrt(captions.trim()) : [],
       captionsY,
       texts,
-      inserts,
+      inserts: placed,
       adjust,
       sounds,
       out,
@@ -2049,7 +2096,7 @@ async function render(
         ...cues.map(({ start, end }) => ({ start, end, y: captionsY })),
         ...texts.map(({ from, to, y }) => ({ start: from, end: to, y })),
       ],
-      inserts: inserts.map(({ from, to, path: _, ...look }) => ({ start: from, end: to, ...look })),
+      inserts: placed.map(({ from, to, path: _, ...look }) => ({ start: from, end: to, ...look })),
       adjust: adjust.map(({ from, to, effects }) => ({ start: from, end: to, effects })),
       sounds,
       gain,
@@ -2263,12 +2310,15 @@ async function motion(
   let seconds = duration;
   let audio = false;
   let picture = size;
+  let videoFilters: string | undefined;
   if (path) {
     const source = await probe(path);
     if (!source.video) throw new Error(`${path} has no video, only audio.`);
     picture = source.size;
     audio = source.audio;
     seconds = Math.min(duration ?? source.seconds, source.seconds);
+    // An HDR video is brought to SDR before the page sees it or it's drawn under (#252).
+    videoFilters = toSdrFor(source.transfer);
   }
   const [width = 0, height = 0] = picture.split("x").map(Number);
   if (
@@ -2301,6 +2351,7 @@ async function motion(
     audio,
     cues: captions?.trim() ? parseSrt(captions) : [],
     fonts: fontFaces(),
+    videoFilters,
   };
   let said: string;
   try {
@@ -3680,6 +3731,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
           from,
           to: Math.min(seconds(a.to) ?? info.seconds, info.seconds),
           every: within(a.every, 0.04, 600, "every", 1),
+          sdr: toSdrFor(info.transfer),
         });
       },
     },
