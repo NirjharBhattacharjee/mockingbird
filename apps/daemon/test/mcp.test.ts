@@ -890,6 +890,8 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
             ops: [
               { op: "add", type: "clip", path: talk, from: 0, to: 3 },
               { op: "add", type: "overlay", page, clip: "c1", from: 1, to: 2 },
+              // A project with graphics renders once the look is settled (#264).
+              { op: "set", look: { skipped: true } },
             ],
           });
         await run({ project });
