@@ -71,6 +71,14 @@ test("cuts land on whole frames, so 100 clips of 1.05 s don't drift (#198)", () 
     0,
   );
   expect(n).toBe(3150);
+  // The sound track too, clip after clip.
+  const a1 = t.tracks.children.find((k: { name: string }) => k.name === "A1");
+  const heard = a1.children.reduce(
+    (s: number, c: { source_range: { duration: { value: number } } }) =>
+      s + c.source_range.duration.value,
+    0,
+  );
+  expect(heard).toBe(3150);
 });
 
 test("a looped sound repeats, a wipe and OTIO's lost gain are reported, b-roll is picture only", () => {

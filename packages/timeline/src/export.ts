@@ -45,6 +45,8 @@ function placed(cut: Compiled, fps: number): Placed[] {
   };
   const snap = (s: number) => Math.round(s * fps) / fps;
   let start = 0;
+  // The sound track runs clip after clip too: its lengths from snapped running totals, like the picture's.
+  let heard = 0;
   return cut.clips.map((c, i) => {
     const speed = c.speed ?? 1;
     const length = (c.to - c.from) / speed;
@@ -53,6 +55,9 @@ function placed(cut: Compiled, fps: number): Placed[] {
     start = Math.max(0, start - (before + after));
     const at = snap(start + before);
     const end = snap(start + length - tail);
+    const soundLength = ((c.sound?.to ?? c.to) - (c.sound?.from ?? c.from)) / speed - before - tail;
+    const heardFrom = snap(heard);
+    heard += soundLength;
     const p = {
       path: c.path,
       at,
@@ -64,7 +69,7 @@ function placed(cut: Compiled, fps: number): Placed[] {
       after,
       sound: {
         from: (c.sound?.from ?? c.from) + before * speed,
-        length: ((c.sound?.to ?? c.to) - (c.sound?.from ?? c.from)) / speed - before - tail,
+        length: snap(heard) - heardFrom,
       },
     };
     start += length;

@@ -49,7 +49,7 @@ test("a mask with a path moves a drawn box with overlay", () => {
     "c0",
   );
   expect(steps).toHaveLength(3);
-  expect(steps[2]).toContain("overlay=x='if(lt(t,2),(0+(320-0)*(t-0)/2),320)'");
+  expect(steps[2]).toContain("overlay=x='if(lt(t,0),0,if(lt(t,2),(0+(320-0)*(t-0)/2),320))'");
   expect(steps[2]?.endsWith("[m]")).toBe(true);
 });
 
@@ -76,7 +76,7 @@ test("an insert's box follows a path, timed from the insert's start (#200)", () 
     ],
   });
   expect(graph).toContain(
-    "overlay=x='if(lt((t-1),2),(0+(320-0)*((t-1)-0)/2),320)':y='if(lt((t-1),2),(180+(180-180)*((t-1)-0)/2),180)':eof_action=pass",
+    "overlay=x='if(lt((t-1),0),0,if(lt((t-1),2),(0+(320-0)*((t-1)-0)/2),320))':y='if(lt((t-1),0),180,if(lt((t-1),2),(180+(180-180)*((t-1)-0)/2),180))':eof_action=pass",
   );
 });
 
@@ -100,4 +100,21 @@ test("along nests shallowly for a long path, which ffmpeg's parser needs", () =>
     if (c === ")") d--;
   }
   expect(depth).toBeLessThan(20);
+});
+
+test("along holds the first point before it, even one at 0 s", () => {
+  const e = along(
+    [
+      { at: 0, x: 0.1, y: 0 },
+      { at: 1, x: 0.5, y: 0 },
+    ],
+    "x",
+    "-1",
+    100,
+  );
+  const value = new Function("lt", "IF", `return ${e.replaceAll("if(", "IF(")}`)(
+    (a: number, b: number) => (a < b ? 1 : 0),
+    (c: number, a: number, b: number) => (c ? a : b),
+  );
+  expect(value).toBe(10);
 });

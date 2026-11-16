@@ -3125,7 +3125,8 @@ async function exportProject(file: string, format: string, out: unknown): Promis
     const f = free("otio");
     writeFileSync(f, o.text);
     saved.push(f);
-    if (!left.length) left = o.left;
+    // Both formats: everything either one leaves out, said once.
+    left = [...new Set([...left, ...o.left])];
   }
   if (pages.length) left = [...left, `${pages.length} HTML overlay page(s)`];
   return [

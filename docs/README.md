@@ -37,7 +37,9 @@ Windows, winget gets Git and ffmpeg. Then it clones mockingbird into
 Chrome that captions and motion graphics draw in, each checked against its
 sha256. Chrome has no Linux ARM build: there, set `MOCKINGBIRD_CHROME` to a
 Chrome you have, or captions are plain subtitles and motion and music can't
-run. It skips anything you already have, so it's safe to run again.
+run. An agent started from the desktop doesn't see a variable set only in a
+terminal, so put it in the `env` of the agent's mockingbird server entry, or
+in `~/.profile` and log in again. It skips anything you already have, so it's safe to run again.
 [Read the script](../scripts/install.sh) first if you like.
 
 Or with Homebrew on an Apple Silicon Mac:

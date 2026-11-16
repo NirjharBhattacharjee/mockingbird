@@ -200,5 +200,5 @@ export function along(points: Point[], key: "x" | "y", t: string, scale: number)
   };
   const last = points.at(-1) as Point;
   const inner = `if(lt(${t},${last.at}),${span(0, points.length - 2)},${v(last)})`;
-  return first.at > 0 ? `if(lt(${t},${first.at}),${v(first)},${inner})` : inner;
+  return `if(lt(${t},${first.at}),${v(first)},${inner})`;
 }
