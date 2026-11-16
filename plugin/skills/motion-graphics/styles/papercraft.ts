@@ -10,6 +10,7 @@ import {
   frame,
   hash,
   type Look,
+  leftOf,
   type Pt,
   type Style,
   spring,
@@ -203,7 +204,7 @@ function make(ctx: any, t: number, m: any): Look {
       const w = ctx.measureText(s).width + 50 * u;
       const h = size * 1.9 * u;
       ctx.restore();
-      const cx = o.align === "center" ? X(x) : X(x) + w / 2;
+      const cx = leftOf(X(x), w, o.align) + w / 2;
       tent(cx, Y(y) + h / 2 - 8 * u, w, h, "#3E74C4", at, 1, () => {
         const parts = s.split(" ");
         const last = parts.pop() ?? "";
@@ -217,15 +218,22 @@ function make(ctx: any, t: number, m: any): Look {
       });
     },
     label(s, x, y, o = {}) {
-      const { at = 0, size = 26, tone = "ink" } = o;
+      const { at = 0, size = 26, tone = "ink", align = "center" } = o;
       ctx.save();
       ctx.font = `800 ${Math.round(size * u)}px ${ROUND}`;
       const w = ctx.measureText(s).width + 26 * u;
       ctx.restore();
       const h = size * 1.75 * u;
       const color = tone === "ink" ? INK : FACE[tone][2];
-      tent(X(x), Y(y), w, h, STRIP[tone === "ink" ? "accent" : tone], at, x * 91 + y * 7, () =>
-        words(s, 0, 0, size, color),
+      tent(
+        leftOf(X(x), w, align) + w / 2,
+        Y(y),
+        w,
+        h,
+        STRIP[tone === "ink" ? "accent" : tone],
+        at,
+        x * 91 + y * 7,
+        () => words(s, 0, 0, size, color),
       );
     },
     node(x, y, r, o = {}) {

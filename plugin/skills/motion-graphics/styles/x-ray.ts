@@ -14,6 +14,7 @@ import {
   grain,
   hash,
   type Look,
+  leftOf,
   type Pt,
   progress,
   roughen,
@@ -183,7 +184,8 @@ function make(ctx: any, t: number, m: any): Look {
       ctx.font = `700 ${Math.round(size * u)}px ${HAND}`;
       const w = ctx.measureText(s.toUpperCase()).width + 36 * u;
       const h = size * 1.5 * u;
-      ctx.translate(X(x), Y(y));
+      const left = leftOf(X(x), w, o.align);
+      ctx.translate(left, Y(y));
       ctx.rotate(-0.01);
       ctx.globalAlpha = p;
       ctx.fillStyle = "#E7D9A8";
@@ -199,10 +201,10 @@ function make(ctx: any, t: number, m: any): Look {
       ctx.textBaseline = "middle";
       ctx.textAlign = "left";
       ctx.beginPath();
-      ctx.rect(X(x), Y(y) - h, w * progress(t, at + 0.15, dur), h * 2);
+      ctx.rect(left, Y(y) - h, w * progress(t, at + 0.15, dur), h * 2);
       ctx.clip();
       ctx.fillStyle = "#2A2620";
-      ctx.fillText(s.toUpperCase(), X(x) + 18 * u, Y(y) + 1 * u);
+      ctx.fillText(s.toUpperCase(), left + 18 * u, Y(y) + 1 * u);
       ctx.restore();
     },
     label(s, x, y, o = {}) {

@@ -9,6 +9,7 @@ import {
   frame,
   hash,
   type Look,
+  leftOf,
   type Pt,
   progress,
   type Style,
@@ -192,8 +193,9 @@ function make(ctx: any, t: number, m: any): Look {
       const full_ = crisp(s, px, WHITE).width;
       const open = step(progress(t, at, 0.12), 3);
       const bh = px + 8;
-      windowAt(X(x), Y(y) + (bh * (1 - open)) / 2, full_ + 12, bh * open);
-      if (open >= 1 && n > 0) say(s.slice(0, n), X(x) + 6, Y(y) + bh / 2, px, WHITE);
+      const left = leftOf(X(x), full_ + 12, o.align);
+      windowAt(left, Y(y) + (bh * (1 - open)) / 2, full_ + 12, bh * open);
+      if (open >= 1 && n > 0) say(s.slice(0, n), left + 6, Y(y) + bh / 2, px, WHITE);
     },
     label(text, x, y, o = {}) {
       const { size = 44, at = 0, dur = 0.3, tone = "ink", align = "center" } = o;

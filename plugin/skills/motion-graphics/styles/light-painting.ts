@@ -269,7 +269,9 @@ function make(ctx: any, t: number, m: any): Look {
       // The pixel stick: columns of amber LEDs light as it sweeps across.
       const dot = size * 0.13 * u;
       const cw = dot * 6;
-      const chars = value.split("").filter((c) => LED[c]);
+      // Every character keeps its place: those without an LED glyph (a unit, a
+      // minus sign) are written in amber rather than dropped.
+      const chars = value.split("");
       const total = chars.length * cw;
       const left = X(x) - total / 2;
       const top = Y(y) - dot * 3.5;
@@ -280,7 +282,16 @@ function make(ctx: any, t: number, m: any): Look {
       ctx.shadowColor = "#FF9A1A";
       ctx.shadowBlur = 8 * u;
       chars.forEach((c, i) => {
-        const rows = LED[c] as number[];
+        const rows = LED[c];
+        if (!rows) {
+          if (c.trim() && (i * cw) / total <= sweep) {
+            ctx.font = `700 ${Math.round(dot * 7)}px ${HAND}`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(c, left + i * cw + dot * 2.5, top + dot * 3.5);
+          }
+          return;
+        }
         for (let r = 0; r < 7; r++) {
           for (let k = 0; k < 5; k++) {
             if (!((rows[r] as number) & (1 << (4 - k)))) continue;

@@ -2686,6 +2686,20 @@ async function overlays(
       JSON.stringify([2, basename(page), look, duration, fonts.map((f) => f.url)]),
     );
     stampFolder(hash, dirname(page));
+    // The kit and the styles live in the plugin, not beside the page: a rebuilt
+    // kit.js or styles.js has to change the key of every page that imports it.
+    const html = readFileSync(page, "utf8");
+    const motionDir = join(PLUGIN, "skills", "motion-graphics");
+    hash.update(
+      JSON.stringify(
+        [
+          ['from "KIT"', "kit.js"],
+          ['from "STYLES"', "styles.js"],
+        ]
+          .filter(([use]) => html.includes(use as string))
+          .map(([, file]) => stamp(join(motionDir, file as string))),
+      ),
+    );
     const key = hash.digest("hex").slice(0, 32);
     const cache = join(mockingbirdHome(), "cache", "overlays");
     const mov = join(cache, `${key}.mov`);

@@ -274,8 +274,14 @@ function make(ctx: any, t: number, m: any): Look {
               ctx.arc(X(x), Y(y), size * 0.95 * u, 0, Math.PI * 2);
               ctx.fill();
             }
-          } else if (k === 1) ctx.fillText(value, X(x), Y(y));
-          else {
+          } else if (k === 1) {
+            ctx.fillText(value, X(x), Y(y));
+            // A bad stat skips plate 2, so its subtitle goes on this one.
+            if (sub && tone === "bad") {
+              ctx.font = `700 ${Math.round(size * 0.24 * u)}px ${MONO}`;
+              ctx.fillText(sub.toUpperCase(), X(x), Y(y) - size * 0.75 * u);
+            }
+          } else {
             ctx.fillText(value, X(x) + 3 * u, Y(y) + 3 * u);
             if (sub) {
               ctx.font = `700 ${Math.round(size * 0.24 * u)}px ${MONO}`;

@@ -337,11 +337,12 @@ function make(ctx: any, t: number, m: any): Look {
           false,
           3,
         );
-      else
+      else {
+        // Two diagonals: a cross, not a minus.
         hairline(
           [
-            [cx - s * 0.7, cy],
-            [cx + s * 0.7, cy],
+            [cx - s * 0.5, cy - s * 0.5],
+            [cx + s * 0.5, cy + s * 0.5],
           ],
           at,
           0.3,
@@ -349,6 +350,18 @@ function make(ctx: any, t: number, m: any): Look {
           false,
           3.5,
         );
+        hairline(
+          [
+            [cx + s * 0.5, cy - s * 0.5],
+            [cx - s * 0.5, cy + s * 0.5],
+          ],
+          at + 0.12,
+          0.3,
+          "#FF4B55",
+          false,
+          3.5,
+        );
+      }
     },
     finish() {
       const v = ctx.createRadialGradient(

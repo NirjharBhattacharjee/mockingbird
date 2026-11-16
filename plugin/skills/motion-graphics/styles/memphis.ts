@@ -10,6 +10,7 @@ import {
   frame,
   hash,
   type Look,
+  leftOf,
   type Pt,
   type Style,
   spring,
@@ -182,7 +183,7 @@ function make(ctx: any, t0: number, m: any): Look {
       ctx.font = font(size);
       const w = ctx.measureText(s.toUpperCase()).width + 48 * u;
       const h = size * 1.7 * u;
-      const [bx, by] = [X(x), Y(y)];
+      const [bx, by] = [leftOf(X(x), w, o.align), Y(y)];
       popped(bx + w / 2, by + h / 2, at, 1, () => {
         ctx.save();
         ctx.translate(bx + w / 2, by + h / 2);

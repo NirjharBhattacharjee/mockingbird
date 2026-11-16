@@ -109,10 +109,13 @@ function make(ctx: any, t: number, m: any): Look {
       const a = pts[i - 1] as Pt;
       const b = pts[i] as Pt;
       const l = Math.hypot(b[0] - a[0], b[1] - a[1]);
-      for (let d = carry; d < Math.min(l, left); d += 2) {
+      let d = carry;
+      for (; d < Math.min(l, left); d += 2) {
         c.fillRect(R(a[0] + ((b[0] - a[0]) * d) / l), R(a[1] + ((b[1] - a[1]) * d) / l), 1, 1);
-        carry = d + 2 - l;
       }
+      // How far into the next segment the next dot falls, even when no dot fit in
+      // this one: a run of segments shorter than the gap would otherwise stop the line.
+      carry = d - l;
       left -= l;
     }
   }

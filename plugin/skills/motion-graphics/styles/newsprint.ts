@@ -12,6 +12,7 @@ import {
   frame,
   hash,
   type Look,
+  leftOf,
   type Pt,
   roughen,
   type Style,
@@ -129,7 +130,7 @@ function make(ctx: any, t: number, m: any): Look {
       ctx.save();
       ctx.font = `700 ${Math.round(size * u)}px ${COND}`;
       const w = ctx.measureText(s.toUpperCase()).width;
-      const cx = X(x) + w / 2;
+      const cx = leftOf(X(x), w, o.align) + w / 2;
       ctx.translate(cx, Y(y));
       ctx.rotate((1 - e) * Math.PI * 4);
       ctx.scale(0.05 + 0.95 * e, 0.05 + 0.95 * e);

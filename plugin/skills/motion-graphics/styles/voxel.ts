@@ -287,6 +287,8 @@ function make(ctx: any, t: number, m: any): Look {
     store(x, y, w, h, o = {}) {
       const { at = 0, dur = 0.9 } = o;
       // A crate tower built layer by layer from the ground up.
+      // A store with no width or height has nothing to fill, and would divide by zero.
+      if (X(w) <= 0 || Y(h) <= 0) return;
       const s = X(w) / 3;
       const rows = Math.max(1, Math.floor(Y(h) / s));
       let k = 0;
