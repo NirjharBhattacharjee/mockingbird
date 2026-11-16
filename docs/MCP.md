@@ -628,7 +628,7 @@ with the user and writes a module like the ones in
 pieces every style draws (surface, title, label, node, box, link, store,
 stat, mark, finish) and anything else the look adds. The module can
 import from `"STYLES"` (every style and the helpers in `styles/look.ts`) and
-from `"KIT"`. The steps are in `guide("look")`.
+from `"KIT"`. The steps are in `guide("look")`: the agent makes three deliberately different looks for each video (safe, bold, strange), each following two constraint cards drawn from the transcript and avoiding a list of default clichés, and the user picks one to refine (#268).
 
 `look(file, page, path, duration, board, size, out)` builds the module with Bun into
 `<name>.look.js` beside it, with what it imports bundled in. A mistake comes back as
