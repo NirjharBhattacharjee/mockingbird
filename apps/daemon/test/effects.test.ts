@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { catalog, checkEffects, effectFilters } from "../src/effects.ts";
+import { catalog, checkEffects, effectFilters, maskSource, pictureSteps } from "../src/effects.ts";
 import { renderGraph } from "../src/mcp.ts";
 import { measure } from "../src/scopes.ts";
 
@@ -61,4 +61,126 @@ test("scopes reads luma, clipping, saturation and skin off YUV 4:4:4 frames", ()
   expect(s.luma).toBeCloseTo((0 + 1 + 110 / 219 + 124 / 219) / 4, 3);
   expect(s.skin).toBe(0.25);
   expect(Math.abs(s.skinOffset ?? 99)).toBeLessThan(2);
+});
+
+test("phase 2 entries build from the picture's size and length (#198)", () => {
+  const ctx = { width: 1000, height: 500, length: 2, fps: 30 };
+  expect(effectFilters([{ name: "chromakey", color: "#0000ff" }], ctx).video).toBe(
+    "format=yuva420p,chromakey=color=0x0000ff:similarity=0.15:blend=0.05,despill=type=blue:green=0:blue=-1:mix=0.5",
+  );
+  expect(effectFilters([{ name: "crop", left: 0.1, top: 0.2 }], ctx).video).toBe(
+    "format=yuva420p,crop=900:400:100:100,pad=1000:500:100:100:color=black@0",
+  );
+  expect(effectFilters([{ name: "freeze" }], ctx).video).toBe(
+    "trim=end_frame=1,tpad=stop_mode=clone:stop_duration=2,trim=duration=2",
+  );
+  expect(effectFilters([{ name: "reverse" }], ctx)).toEqual({
+    video: "reverse",
+    audio: "areverse",
+  });
+  expect(effectFilters([{ name: "stabilize", strength: 1, zoom: 0.1 }], ctx).video).toBe(
+    "deshake=rx=64:ry=64:edge=mirror,crop=900:450,scale=1000:500",
+  );
+  expect(() => checkEffects([{ name: "chromakey", color: "green" }], "fx")).toThrow(
+    "a colour like",
+  );
+});
+
+test("a masked effect is split off, given the mask as alpha and laid back", () => {
+  const ctx = { width: 640, height: 360, length: 4, fps: 25 };
+  const steps = pictureSteps(
+    [
+      { name: "color", exposure: 1 },
+      {
+        name: "blur",
+        radius: 10,
+        mask: {
+          shape: "rect",
+          x: 0.1,
+          y: 0.1,
+          w: 0.5,
+          h: 0.5,
+          end: { x: 0.4, y: 0.1, w: 0.5, h: 0.5 },
+        },
+      },
+    ],
+    "[in]",
+    "[out]",
+    ctx,
+    "c0",
+  );
+  expect(steps[0]).toBe("[in]exposure=exposure=1[c0p1]");
+  expect(steps[1]).toBe("[c0p1]split[c0k1][c0e1]");
+  // The box moves from x 0.1 to 0.4 over the clip's 4 s.
+  expect(steps[2]).toContain(
+    "color=c=black:s=640x360:r=25:d=4,format=gray,geq=lum='255*between((X/W),(0.1+0.3*clip(T/4,0,1))",
+  );
+  expect(steps.at(-1)).toBe("[c0o1]null[out]");
+  expect(
+    maskSource(
+      {
+        shape: "polygon",
+        points: [
+          [0, 0],
+          [1, 0],
+          [0, 1],
+        ],
+        invert: true,
+        feather: 0.01,
+      },
+      ctx,
+    ),
+  ).toContain("(1-mod(");
+  expect(() => checkEffects([{ name: "denoise", mask: { shape: "rect" } }], "fx")).toThrow(
+    "only a picture effect",
+  );
+  expect(() =>
+    checkEffects([{ name: "blur", mask: { shape: "polygon", points: [[0, 0]] } }], "fx"),
+  ).toThrow("at least 3");
+});
+
+test("inserts take a box, a blend and effects; adjustment layers go under the text", () => {
+  const graph = renderGraph([{ from: 0, to: 4 }], {
+    audio: false,
+    size: "640x360",
+    fps: 30,
+    inserts: [
+      { start: 1, end: 3, box: { x: 0.5, y: 0.1, w: 0.25, h: 0.25 } },
+      { start: 1, end: 3, blend: "screen" },
+    ],
+    adjust: [{ start: 2, end: 3, effects: [{ name: "color", saturation: 0 }] }],
+    overlays: [{ start: 0, end: 4 }],
+  });
+  expect(graph).toContain("crop=160:90,setsar=1[ib0]");
+  expect(graph).toContain("[c0][i0]overlay=x=320:y=36:eof_action=pass");
+  expect(graph).toContain("blend=all_mode=screen:eof_action=pass");
+  expect(graph).toContain("[ae2]trim=start=2:end=3,setpts=PTS-STARTPTS[ar2]");
+  // The text is laid last, over the adjusted picture.
+  expect(graph.indexOf("[ak2][ad2]overlay")).toBeLessThan(
+    graph.indexOf("overlay=x=(main_w-overlay_w)/2"),
+  );
+});
+
+test("interpolate makes new frames before the frame rate is set (#200)", () => {
+  const graph = renderGraph([{ from: 0, to: 1, speed: 0.25, effects: [{ name: "interpolate" }] }], {
+    audio: false,
+    size: "640x360",
+    fps: 30,
+  });
+  expect(graph).toContain("scale=640:360,setsar=1,minterpolate=fps=30:mi_mode=mci");
+  expect(graph).toContain("vsbmc=1,fps=30[v0]");
+});
+
+test("an HDR clip with a masked effect, and an insert with a box, are brought to SDR first (#252)", () => {
+  const graph = renderGraph(
+    [{ from: 0, to: 2, sdr: "setparams=X", effects: [{ name: "blur", mask: { shape: "rect" } }] }],
+    {
+      audio: false,
+      size: "640x360",
+      fps: 30,
+      inserts: [{ start: 0, end: 1, sdr: "setparams=Y", box: { x: 0, y: 0, w: 0.5, h: 0.5 } }],
+    },
+  );
+  expect(graph).toContain("[0:v]setparams=X,setpts=PTS-STARTPTS");
+  expect(graph).toContain("[1:v]setparams=Y,trim=duration=1");
 });

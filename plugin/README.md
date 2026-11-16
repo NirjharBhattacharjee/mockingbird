@@ -4,7 +4,7 @@ A Claude Code plugin that edits your videos into shorts for YouTube Shorts,
 Instagram Reels and TikTok, and into long-form edits for YouTube. Give it a
 recording; it picks the moments, cuts the pauses, opens on a hook, captions
 every word, frames the speaker, and checks the result before handing it back.
-The rendering happens on your Mac, with
+The rendering happens on your computer, with
 [mockingbird](https://github.com/NirjharBhattacharjee/mockingbird).
 
 ```
@@ -79,7 +79,7 @@ so Claude doesn't see every tool twice.
 
 ## Privacy
 
-Your video is cut and rendered on your Mac and never uploaded. Claude reads
+Your video is cut and rendered on your computer and never uploaded. Claude reads
 the transcript and the stills it looks at, which go to Anthropic like anything
 else you show Claude. See [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md).
 
@@ -97,7 +97,8 @@ else you show Claude. See [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md).
 
 ## Limits
 
-- The Homebrew formula is for Apple silicon only; elsewhere, use the installers.
+- The Homebrew formula is for Apple silicon only; on Linux, Windows and an
+  Intel Mac, use the installers.
 - Off Apple silicon, Whisper runs on the CPU, so the default model is the
   smaller `small` and transcription is slower.
 - It edits what you recorded. It can move your best line to the front; it

@@ -1,7 +1,8 @@
 # mockingbird — architecture
 
 > **Status:** pivot step 1 done (#135): dictation is gone, and mockingbird is a
-> video editing engine for AI agents, served over MCP. macOS only so far. The
+> video editing engine for AI agents, served over MCP, on macOS, Linux and
+> Windows. The
 > plan for the rest is [#134](https://github.com/NirjharBhattacharjee/mockingbird/issues/134).
 > **Owner:** bhattacharjeenirjhar26@gmail.com
 > **Last updated:** 2026-11-04
@@ -18,6 +19,10 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
+| 2026-11-15 | Effects catalog, phase 3, part 2 (#200): `track` follows a box by zero-mean normalised cross-correlation on grey frames 320 wide, coarse then to the pixel, the template drifting toward each match; a mask's `path` takes its points, drawn as one shape moved by `overlay`, and so does an insert's box, for a title that follows a subject. |
+| 2026-11-15 | Effects catalog, phase 3, part 1 (#200): `sync` lines up cameras by their sound (log-energy envelopes cross-correlated at 10 ms, then the samples at 8 kHz); `interpolate` makes slow motion from `minterpolate`'s motion-compensated frames, after the framing and before `fps`. |
+| 2026-11-15 | Effects catalog, phase 2 (#198): chromakey, stabilize (ffmpeg's `deshake`: Homebrew's ffmpeg 9 has no vidstab), crop, freeze, reverse; a `mask` on any picture effect (rect, ellipse or polygon, feathered, moving), drawn per frame by `geq` and merged as alpha; inserts with a box, a blend mode, effects and moves; adjustment layers between the inserts and the text; `export` to FCPXML 1.10 and OpenTimelineIO (`packages/timeline/src/export.ts`). |
+| 2026-11-14 | The speech is raised to −14 LUFS before music and effects are mixed under it (#212). On a −31 LUFS recording with a bed at volume 0.15, the music sat 2.2 dB under the speech and ducked 0.6 dB; now 16.6 dB under, ducking 12.9 dB. |
 | 2026-11-14 | Chrome for every user (#250): `install.sh` and `install.ps1` download the pinned Chrome and its fonts after the models, warning instead of failing when they can't; `setup` offers it when it's missing; `doctor` checks it instead of the Core Text and Core Graphics lines left from before #155 and #169. |
 | 2026-11-06 | `motion` swaps a page's `from "KIT"` for the kit's file URL in a copy beside the page (#213), so agents leave the templates' import alone: replacing it by hand hit a comment first, and a Windows path isn't a URL. |
 | 2026-11-06 | Windows (#202): the plugin starts there (`launch.cmd`, `launch.ps1`); filter graphs go to ffmpeg in a file, since one for 100 clips is longer than a Windows command line; off Apple Silicon the default Whisper model is `small` Q5_1, as `large-v3` took 2.6x real time on a 2-core CPU (MODELS.md §6). |
@@ -179,6 +184,9 @@ tool, with its options, is documented in [MCP.md](./MCP.md):
 | `render` | a project, or cuts from one video: framing, 9:16 or split layout, captions, text, b-roll, music and sound effects, loudness to −14 LUFS |
 | `motion` | an HTML page rendered in a pinned headless Chrome, frame by frame, to MP4 |
 | `music` | background music written as code, rendered with Web Audio in the same Chrome |
+| `export` | a project as FCPXML 1.10 and OpenTimelineIO, for Final Cut, Resolve or Premiere |
+| `sync` | lines up recordings of one take by their sound, for multicam |
+| `track` | follows a box through a video, for a mask that moves with its subject |
 | `status` | what's installed |
 | `dictionary_list`, `dictionary_add` | names to spell right |
 
@@ -220,7 +228,10 @@ its length (`-t`), so only what's kept is decoded. Then a crop and scale per
 clip for framing and zoom (or two crops stacked for a split), `concat`,
 overlays for b-roll, then the captions and text as PNG overlays drawn by
 `packages/captions` in the pinned Chrome, and an audio graph that mixes music and
-effects under the speech with sidechain ducking. The sound is written
+effects under the speech with sidechain ducking. When there's anything to mix,
+the speech is measured first and raised to −14 LUFS before the mix (#212), so
+a sound's `volume` and the duck's threshold mean the same on a quiet
+recording as on a loud one. The sound is written
 uncompressed, then `level` brings it to −14 LUFS: it measures the file,
 measures again through a 4x-oversampled limiter at −2 dB (peaks stay under
 −1.5 dBTP after AAC), corrects the gain once, and copies the picture into
