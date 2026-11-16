@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <body style="margin: 0">
+    <script type="module">
+      // A 3D page with three.js (#270): motion fills in "THREE" with the copy
+      // shipped beside the kit, and draws it on the Mac's GPU. Everything is a
+      // function of `t` in mockingbird.draw, never three's Clock, so every
+      // frame is the same each render. With `path`, the video's frames arrive
+      // as m.video and go on the screen plane as a texture.
+      import * as THREE from "THREE";
+
+      const m = mockingbird;
+      m.drawVideo = true;
+      const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+      renderer.setSize(m.width, m.height);
+      renderer.shadowMap.enabled = true;
+      document.body.append(renderer.domElement);
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0b0f1e);
+      const camera = new THREE.PerspectiveCamera(45, m.width / m.height, 0.1, 100);
+      scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+      const sun = new THREE.DirectionalLight(0xffffff, 2);
+      sun.position.set(4, 6, 5);
+      sun.castShadow = true;
+      scene.add(sun);
+
+      // The footage as a texture. An ImageBitmap ignores flipY, so the UVs flip it.
+      const footage = new THREE.Texture();
+      footage.colorSpace = THREE.SRGBColorSpace;
+      footage.flipY = false;
+      footage.repeat.set(1, -1);
+      footage.offset.set(0, 1);
+      const screen = new THREE.Mesh(
+        new THREE.PlaneGeometry(3.2, 1.8),
+        new THREE.MeshStandardMaterial({ map: footage, roughness: 0.6 }),
+      );
+      screen.castShadow = true;
+      scene.add(screen);
+      const floor = new THREE.Mesh(new THREE.PlaneGeometry(20, 20), new THREE.MeshStandardMaterial({ color: 0x1a2140 }));
+      floor.rotation.x = -Math.PI / 2;
+      floor.position.y = -1.3;
+      floor.receiveShadow = true;
+      scene.add(floor);
+
+      m.draw = (t) => {
+        if (m.video) {
+          footage.image = m.video;
+          footage.needsUpdate = true;
+        }
+        screen.rotation.y = Math.sin(t * 0.6) * 0.4;
+        camera.position.set(Math.sin(t * 0.25) * 1.2, 0.5, 5 - t * 0.1);
+        camera.lookAt(0, 0, 0);
+        renderer.render(scene, camera);
+      };
+    </script>
+  </body>
+</html>
