@@ -119,8 +119,9 @@ export function follow(
 ): { points: { x: number; y: number }[]; worst: number } {
   const w = Math.max(4, Math.round(box.w * width));
   const h = Math.max(4, Math.round(box.h * height));
-  let x = Math.round(box.x * width);
-  let y = Math.round(box.y * height);
+  // Kept inside the frame once the box is at least 4 px, so a corner box reads no pixel past it.
+  let x = Math.min(Math.round(box.x * width), width - w);
+  let y = Math.min(Math.round(box.y * height), height - h);
   const first = list[0];
   if (!first) return { points: [], worst: 0 };
   let template = patch(first, width, x, y, w, h);
@@ -135,6 +136,8 @@ export function follow(
       const s = score(img, width, template, cx, cy, w, h);
       if (s > best.s) best = { x: cx, y: cy, s };
     };
+    // Where it was first, since the 3 px grid below skips a box that hasn't moved.
+    look(x, y);
     for (let dy = -reach; dy <= reach; dy += 3)
       for (let dx = -reach; dx <= reach; dx += 3) look(x + dx, y + dy);
     const coarse = { ...best };
@@ -174,19 +177,28 @@ export async function track(
   return { points: kept, worst: Math.round(worst * 100) / 100 };
 }
 
-/** A value over time `t` from `points` as an ffmpeg expression: linear between them, held past the ends. */
+/**
+ * A value over time `t` from `points` as an ffmpeg expression: linear between
+ * them, held past the ends. A balanced tree of if()s, so 150 points nest 8
+ * deep, not 150: ffmpeg's parser stops at 100.
+ */
 export function along(points: Point[], key: "x" | "y", t: string, scale: number): string {
   const v = (p: Point) => String(Math.round(p[key] * scale * 100) / 100);
-  if (points.length < 2) return points[0] ? v(points[0]) : "0";
-  let expr = v(points.at(-1) as Point);
-  for (let i = points.length - 2; i >= 0; i--) {
-    const a = points[i] as Point;
-    const b = points[i + 1] as Point;
-    const span = Math.max(b.at - a.at, 1e-3);
-    const lerp = `(${v(a)}+(${v(b)}-${v(a)})*(${t}-${a.at})/${span})`;
-    expr = `if(lt(${t},${b.at}),${lerp},${expr})`;
-  }
-  return points[0] && points[0].at > 0
-    ? `if(lt(${t},${points[0].at}),${v(points[0])},${expr})`
-    : expr;
+  const first = points[0];
+  if (!first) return "0";
+  if (points.length < 2) return v(first);
+  // Segment i runs from points[i] to points[i + 1]; segments lo..hi as one expression.
+  const span = (lo: number, hi: number): string => {
+    if (lo === hi) {
+      const a = points[lo] as Point;
+      const b = points[lo + 1] as Point;
+      const d = Math.max(b.at - a.at, 1e-3);
+      return `(${v(a)}+(${v(b)}-${v(a)})*(${t}-${a.at})/${d})`;
+    }
+    const mid = (lo + hi) >> 1;
+    return `if(lt(${t},${(points[mid + 1] as Point).at}),${span(lo, mid)},${span(mid + 1, hi)})`;
+  };
+  const last = points.at(-1) as Point;
+  const inner = `if(lt(${t},${last.at}),${span(0, points.length - 2)},${v(last)})`;
+  return first.at > 0 ? `if(lt(${t},${first.at}),${v(first)},${inner})` : inner;
 }

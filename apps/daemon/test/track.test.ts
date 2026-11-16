@@ -79,3 +79,25 @@ test("an insert's box follows a path, timed from the insert's start (#200)", () 
     "overlay=x='if(lt((t-1),2),(0+(320-0)*((t-1)-0)/2),320)':y='if(lt((t-1),2),(180+(180-180)*((t-1)-0)/2),180)':eof_action=pass",
   );
 });
+
+test("a box that doesn't move is found where it was, and a corner box stays in the frame", () => {
+  const [W, H] = [320, 180];
+  const img = new Uint8Array(W * H);
+  img[80 * W + 100] = 255;
+  const still = follow([img, img, img], W, H, { x: 100 / W, y: 80 / H, w: 4 / W, h: 4 / H });
+  expect(still.points.at(-1)).toEqual({ x: 100, y: 80 });
+  const corner = follow([img, img], W, H, { x: 0.99, y: 0.99, w: 0.01, h: 0.01 });
+  expect(corner.points[0]).toEqual({ x: W - 4, y: H - 4 });
+  expect(Number.isNaN(corner.worst)).toBe(false);
+});
+
+test("along nests shallowly for a long path, which ffmpeg's parser needs", () => {
+  const pts = Array.from({ length: 151 }, (_, i) => ({ at: i / 5, x: (i % 7) / 10, y: 0 }));
+  let depth = 0;
+  let d = 0;
+  for (const c of along(pts, "x", "t", 100)) {
+    if (c === "(") depth = Math.max(depth, ++d);
+    if (c === ")") d--;
+  }
+  expect(depth).toBeLessThan(20);
+});

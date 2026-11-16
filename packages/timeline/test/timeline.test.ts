@@ -110,6 +110,29 @@ describe("apply", () => {
     expect(notes).toEqual(["removed t1: what they were on was cut"]);
   });
 
+  test("a trim into a tracked insert takes the start of its path too (#200)", () => {
+    const box = {
+      x: 0,
+      y: 0,
+      w: 0.2,
+      h: 0.2,
+      path: [
+        { at: 0, x: 0, y: 0.5 },
+        { at: 4, x: 0.8, y: 0.5 },
+      ],
+    };
+    const { project } = apply(base(), [
+      { op: "add", type: "insert", path: "t.png", clip: "c1", from: 0, to: 4, box },
+      { op: "trim", id: "c1", from: 12 },
+    ]);
+    const moved = project.inserts.find((i) => i.path === "t.png");
+    expect(moved).toMatchObject({ from: 0, to: 2 });
+    expect(moved?.box?.path).toEqual([
+      { at: 0, x: 0.4, y: 0.5 },
+      { at: 2, x: 0.8, y: 0.5 },
+    ]);
+  });
+
   test("a trim off a clip's end drops what was on the part cut away", () => {
     const { project, notes } = apply(base(), [{ op: "trim", id: "c1", to: 13 }]);
     // t2 was 4 s into c1, which is now 3 s long; t1 (0-2 s) stays.

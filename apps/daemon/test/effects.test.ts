@@ -66,7 +66,7 @@ test("scopes reads luma, clipping, saturation and skin off YUV 4:4:4 frames", ()
 test("phase 2 entries build from the picture's size and length (#198)", () => {
   const ctx = { width: 1000, height: 500, length: 2, fps: 30 };
   expect(effectFilters([{ name: "chromakey", color: "#0000ff" }], ctx).video).toBe(
-    "format=yuva420p,chromakey=color=0x0000ff:similarity=0.15:blend=0.05,despill=type=blue:mix=0.5",
+    "format=yuva420p,chromakey=color=0x0000ff:similarity=0.15:blend=0.05,despill=type=blue:green=0:blue=-1:mix=0.5",
   );
   expect(effectFilters([{ name: "crop", left: 0.1, top: 0.2 }], ctx).video).toBe(
     "format=yuva420p,crop=900:400:100:100,pad=1000:500:100:100:color=black@0",

@@ -30,34 +30,41 @@ type Placed = {
   sound: { from: number; length: number };
 };
 
-/** The main track as cut-to-cut clips: a transition's overlap is split evenly around its cut, as editors model it. */
+/**
+ * The main track as cut-to-cut clips: a transition's overlap is split around
+ * its cut, as editors model it. The clip before the cut keeps the frames after
+ * it as a handle (OTIO's out_offset) and the clip after keeps the frames before
+ * it (in_offset). Each cut lands on a whole frame, so durations add up to the
+ * timeline instead of each rounding on its own.
+ */
 function placed(cut: Compiled, fps: number): Placed[] {
+  // A transition's whole frames, the odd one before the cut.
+  const split = (d = 0) => {
+    const n = Math.round(d * fps);
+    return [Math.ceil(n / 2) / fps, Math.floor(n / 2) / fps] as const;
+  };
+  const snap = (s: number) => Math.round(s * fps) / fps;
   let start = 0;
   return cut.clips.map((c, i) => {
     const speed = c.speed ?? 1;
     const length = (c.to - c.from) / speed;
-    // A transition's whole frames, the odd one before the cut.
-    const split = (d = 0) => {
-      const n = Math.round(d * fps);
-      return [Math.ceil(n / 2) / fps, Math.floor(n / 2) / fps] as const;
-    };
     const [before, after] = split(c.transition?.duration);
-    const tail = split(cut.clips[i + 1]?.transition?.duration)[0];
-    const into = c.transition?.duration ?? 0;
-    start = Math.max(0, start - into);
+    const tail = split(cut.clips[i + 1]?.transition?.duration)[1];
+    start = Math.max(0, start - (before + after));
+    const at = snap(start + before);
+    const end = snap(start + length - tail);
     const p = {
       path: c.path,
-      at: start + into - before,
-      length: length - (into - before) - tail,
-      from: c.from + (into - before) * speed,
+      at,
+      length: end - at,
+      from: c.from + before * speed,
       speed,
       transition: c.transition,
       before,
       after,
       sound: {
-        from: (c.sound?.from ?? c.from) + (into - before) * speed,
-        length:
-          ((c.sound?.to ?? c.to) - (c.sound?.from ?? c.from)) / speed - (into - before) - tail,
+        from: (c.sound?.from ?? c.from) + before * speed,
+        length: ((c.sound?.to ?? c.to) - (c.sound?.from ?? c.from)) / speed - before - tail,
       },
     };
     start += length;
@@ -76,19 +83,22 @@ function lanes<T extends { from: number; to: number }>(items: T[]): T[][] {
   return out;
 }
 
-/** The sounds as stretches: a looped one plays to the end, any other for its file's length. */
+/**
+ * The sounds as stretches: one plays for its file's length, and a looped one
+ * is repeated to the end, since neither format has a loop.
+ */
 function heard(cut: Compiled, info: (path: string) => Source) {
   return cut.sounds
     .filter((s) => s.path)
-    .map((s) => {
+    .flatMap((s) => {
       const path = s.path as string;
-      const room = cut.length - s.at;
-      return {
-        path,
-        from: s.at,
-        to: s.at + (s.loop ? room : Math.min(room, info(path).seconds)),
-        volume: s.volume,
-      };
+      const seconds = info(path).seconds;
+      const end = s.loop ? cut.length : Math.min(cut.length, s.at + seconds);
+      const out: { path: string; from: number; to: number; volume: number }[] = [];
+      for (let t = s.at; t < end - 1e-6 && seconds > 0; t += seconds) {
+        out.push({ path, from: t, to: Math.min(t + seconds, end), volume: s.volume });
+      }
+      return out;
     });
 }
 
@@ -111,6 +121,13 @@ function left(cut: Compiled, fcpxml: boolean): string[] {
     notes.push("speed changes (OTIO keeps them)");
   if (fcpxml && cut.clips.some((c) => c.sound)) notes.push("J and L cuts (OTIO keeps them)");
   if (cut.captions) notes.push("the word captions (export them with `captions`)");
+  const wipes = cut.clips.filter(
+    (c) => c.transition && !["fade", "dissolve"].includes(c.transition.type),
+  ).length;
+  if (wipes) notes.push(`${wipes} transitions other than a fade (they come in as dissolves)`);
+  if (!fcpxml && cut.sounds.some((s) => s.path && s.volume !== 1)) {
+    notes.push("the sounds' volumes (OTIO has no standard gain; FCPXML keeps them)");
+  }
   return notes;
 }
 
@@ -350,6 +367,7 @@ export function toFcpxml(
   };
   const main = placed(cut, fps);
   // Connected items hang off the spine clip under their start, timed in that clip's source.
+  // FCPXML gets no speed changes, so a clip's source runs at 1x there and so does this.
   const host = (at: number) => {
     const i = Math.max(
       0,
@@ -357,7 +375,7 @@ export function toFcpxml(
     );
     return {
       i,
-      offset: (main[i] as Placed).from + (at - (main[i] as Placed).at) * (main[i] as Placed).speed,
+      offset: (main[i] as Placed).from + (at - (main[i] as Placed).at),
     };
   };
   const hung = main.map(() => [] as string[]);
@@ -366,7 +384,7 @@ export function toFcpxml(
     for (const ins of lane) {
       const h = host(ins.from);
       hung[h.i]?.push(
-        `<asset-clip ref="${asset(ins.path)}" lane="${k + 1}" offset="${t(h.offset)}" start="0s" duration="${t(ins.to - ins.from)}" name="${esc(basename(ins.path))}"/>`,
+        `<asset-clip ref="${asset(ins.path)}" lane="${k + 1}" offset="${t(h.offset)}" start="0s" duration="${t(ins.to - ins.from)}" srcEnable="video" name="${esc(basename(ins.path))}"/>`,
       );
     }
   });

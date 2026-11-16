@@ -105,6 +105,20 @@ export function bestLag(
   return best;
 }
 
+/** Envelope hops per block of the coarse search. */
+const BLOCK = 10;
+
+/** `e` averaged over blocks of `n`. */
+export function blocks(e: Float32Array, n: number): Float32Array {
+  const out = new Float32Array(Math.floor(e.length / n));
+  for (let i = 0; i < out.length; i++) {
+    let sum = 0;
+    for (let k = 0; k < n; k++) sum += e[i * n + k] as number;
+    out[i] = sum / n;
+  }
+  return out;
+}
+
 export type Synced = { path: string; offset: number; score: number };
 
 /**
@@ -124,11 +138,15 @@ export async function sync(paths: string[], window = 120): Promise<Synced[]> {
   for (const path of rest) {
     const other = await samples(path, RATE, 0, window);
     const otherEnv = envelope(other, hop);
-    const rough = bestLag(
-      refEnv,
-      otherEnv,
-      Math.floor(Math.min(refEnv.length, otherEnv.length) / 2),
+    // The search is quadratic, so it runs on 100 ms blocks first (1200 s each: 0.05e9
+    // steps, not 10e9), then on the 10 ms envelope within two blocks of that.
+    const [refBlocks, otherBlocks] = [blocks(refEnv, BLOCK), blocks(otherEnv, BLOCK)];
+    const coarse = bestLag(
+      refBlocks,
+      otherBlocks,
+      Math.floor(Math.min(refBlocks.length, otherBlocks.length) / 2),
     );
+    const rough = bestLag(refEnv, otherEnv, 2 * BLOCK, coarse.lag * BLOCK);
     // Then sample by sample, on up to 20 s where both run, within two hops of the rough lag.
     const lag = rough.lag * hop;
     const start = Math.max(0, lag);
@@ -138,7 +156,8 @@ export async function sync(paths: string[], window = 120): Promise<Synced[]> {
       const a = ref.subarray(start, start + length);
       const b = other.subarray(start - lag, start - lag + length);
       const fine = bestLag(a, b, 2 * hop);
-      offset = (lag + fine.lag) / RATE;
+      // Silence in both scores 0 at every lag: then the rough offset stands.
+      if (fine.score > 0) offset = (lag + fine.lag) / RATE;
     }
     out.push({
       path,

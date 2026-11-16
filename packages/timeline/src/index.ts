@@ -599,6 +599,21 @@ function findClip(p: Project, id: unknown): Clip {
   return p.clips[index] as Clip;
 }
 
+type PathPoint = { at: number; x: number; y: number };
+
+/** `path` with its first `cut` seconds gone: the point it had reached then, at 0, and the rest moved up. */
+export function rebase(path: PathPoint[], cut: number): PathPoint[] {
+  const next = path.findIndex((q) => q.at > cut);
+  if (next < 0) return [{ ...(path.at(-1) as PathPoint), at: 0 }];
+  const rest = path.slice(next).map((q) => ({ ...q, at: ms(q.at - cut) }));
+  const a = path[next - 1];
+  // Not started by then: it's held at its first point until it does, so it only moves up.
+  if (!a) return rest;
+  const b = path[next] as PathPoint;
+  const k = (cut - a.at) / (b.at - a.at);
+  return [{ at: 0, x: ms(a.x + (b.x - a.x) * k), y: ms(a.y + (b.y - a.y) * k) }, ...rest];
+}
+
 /** To the millisecond, so a file the agent reads says 2.7 and not 2.6999999999999997. */
 const ms = (t: number) => Math.round(t * 1000) / 1000;
 
@@ -615,6 +630,10 @@ function shift(p: Project, clip: string, by: number, notes: string[]) {
     t.from = ms(t.from + by);
     t.to = ms(t.to + by);
     if (t.to <= 0) gone.add(t.id);
+    // A trim into a tracked insert takes the start of its path too, so it carries on from there.
+    const path = "box" in t ? (t as Insert).box?.path : undefined;
+    if (t.from < 0 && path?.length)
+      (t as Insert).box = { ...((t as Insert).box as Area), path: rebase(path, -t.from) };
     t.from = Math.max(0, t.from);
   }
   for (const s of p.audio) {

@@ -127,7 +127,7 @@ export const EFFECTS: Record<string, Entry> = {
       const hex = (s.color as string).replace("#", "");
       const [, g, b] = [0, 2, 4].map((i) => Number.parseInt(hex.slice(i, i + 2), 16));
       const spill = p.spill
-        ? `,despill=type=${(g as number) >= (b as number) ? "green" : "blue"}:mix=${f(p.spill as number)}`
+        ? `,despill=${(g as number) >= (b as number) ? "type=green:green=-1:blue=0" : "type=blue:green=0:blue=-1"}:mix=${f(p.spill as number)}`
         : "";
       return `format=yuva420p,chromakey=color=0x${hex}:similarity=${f(p.similarity as number)}:blend=${f(p.blend as number)}${spill}`;
     },

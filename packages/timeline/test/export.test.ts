@@ -38,7 +38,7 @@ test("OTIO: the main track adds up to the cut, the transition split by whole fra
 test("FCPXML: frame-exact times, escaped text, and what it can't carry", () => {
   const { text, left } = toFcpxml(cut, "cut", "1280x720", 30, () => source);
   expect(text).toContain('<sequence format="r1" duration="135/30s"');
-  expect(text).toContain('<transition name="Cross Dissolve" offset="44/30s" duration="15/30s">');
+  expect(text).toContain('<transition name="Cross Dissolve" offset="45/30s" duration="15/30s">');
   expect(text).toContain('<text-style ref="ts0-0">Tom &amp; &lt;Jerry&gt;</text-style>');
   expect(text).toContain(`src="${pathToFileURL("/m/a.mp4").href}"`);
   expect(left.join("; ")).toContain("effects");
@@ -47,4 +47,64 @@ test("FCPXML: frame-exact times, escaped text, and what it can't carry", () => {
   expect(toFcpxml(cut, "cut", "1280x720", 30000 / 1001, () => source).text).toContain(
     'frameDuration="1001/30000s"',
   );
+});
+
+test("cuts land on whole frames, so 100 clips of 1.05 s don't drift (#198)", () => {
+  const many = compile(
+    check({
+      version: 1,
+      clips: Array.from({ length: 100 }, (_, i) => ({
+        id: `c${i}`,
+        path: "/m/a.mp4",
+        from: 0,
+        to: 1.05,
+      })),
+      audio: [],
+    }),
+    "/m",
+  );
+  const t = JSON.parse(toOtio(many, "cut", 30, () => source).text);
+  const v1 = t.tracks.children[0];
+  const n = v1.children.reduce(
+    (s: number, c: { source_range: { duration: { value: number } } }) =>
+      s + c.source_range.duration.value,
+    0,
+  );
+  expect(n).toBe(3150);
+});
+
+test("a looped sound repeats, a wipe and OTIO's lost gain are reported, b-roll is picture only", () => {
+  const looped = compile(
+    check({
+      version: 1,
+      clips: [
+        { id: "c1", path: "/m/a.mp4", from: 0, to: 4 },
+        {
+          id: "c2",
+          path: "/m/a.mp4",
+          from: 5,
+          to: 9,
+          transition: { type: "wipeleft", duration: 0.5 },
+        },
+      ],
+      inserts: [{ id: "b1", path: "/m/b.mp4", from: 1, to: 2 }],
+      audio: [{ id: "s1", path: "/m/bed.wav", at: 0, volume: 0.15, loop: true }],
+    }),
+    "/m",
+  );
+  const info = (p: string) =>
+    p.endsWith(".wav") ? { ...source, video: false, seconds: 3 } : source;
+  const o = toOtio(looped, "cut", 30, info);
+  const bed = JSON.parse(o.text).tracks.children.find((k: { name: string }) => k.name === "A2");
+  // 7.5 s of cut from a 3 s bed: 3 + 3 + 1.5.
+  expect(
+    bed.children.map(
+      (c: { source_range: { duration: { value: number } } }) => c.source_range.duration.value,
+    ),
+  ).toEqual([90, 90, 45]);
+  expect(o.left.join("; ")).toContain("1 transitions other than a fade");
+  expect(o.left.join("; ")).toContain("volumes");
+  const x = toFcpxml(looped, "cut", "1280x720", 30, info);
+  expect(x.text).toContain('srcEnable="video" name="b.mp4"');
+  expect(x.left.join("; ")).not.toContain("volumes");
 });

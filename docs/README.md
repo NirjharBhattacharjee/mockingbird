@@ -35,7 +35,9 @@ Windows, winget gets Git and ffmpeg. Then it clones mockingbird into
 `~/mockingbird` at the latest release, and downloads the speech models
 (about 1.1 GB on an Apple Silicon Mac, 0.2 GB elsewhere) and the headless
 Chrome that captions and motion graphics draw in, each checked against its
-sha256. It skips anything you already have, so it's safe to run again.
+sha256. Chrome has no Linux ARM build: there, set `MOCKINGBIRD_CHROME` to a
+Chrome you have, or captions are plain subtitles and motion and music can't
+run. It skips anything you already have, so it's safe to run again.
 [Read the script](../scripts/install.sh) first if you like.
 
 Or with Homebrew on an Apple Silicon Mac:

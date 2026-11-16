@@ -1641,6 +1641,10 @@ export function segments(
 }
 
 /** What a file is, for a cache key: a file changed on disk gets a new key. */
+/** Effects with their files (a LUT) stamped, so one edited in place misses the cache. */
+const stampFiles = (effects: Effect[]) =>
+  effects.map((e) => (typeof e.file === "string" ? { ...e, file: stamp(e.file) } : e));
+
 const stamp = (file: string) => {
   const s = statSync(file);
   return `${resolve(file)}:${s.size}:${s.mtimeMs}`;
@@ -1774,19 +1778,19 @@ async function segmented(
             part.map((c) => ({
               ...c,
               path: stamp(c.path ?? path),
-              ...(c.effects && {
-                effects: c.effects.map((e) =>
-                  typeof e.file === "string" ? { ...e, file: stamp(e.file) } : e,
-                ),
-              }),
+              ...(c.effects && { effects: stampFiles(c.effects) }),
             })),
             // By its words, not its pixels: Chrome's antialiasing varies a little with the line drawn before.
             chrome ?? null,
             // The fonts are pinned, so which are there says what they draw.
             fonts.map((f) => f.url),
             laid.map((l) => [l.start, l.end, l.y, l.text]),
-            shown.map(({ path: f, ...rest }) => ({ ...rest, path: stamp(f) })),
-            adjusting,
+            shown.map(({ path: f, ...rest }) => ({
+              ...rest,
+              path: stamp(f),
+              ...(rest.effects && { effects: stampFiles(rest.effects) }),
+            })),
+            adjusting.map((a) => ({ ...a, effects: stampFiles(a.effects) })),
           ]),
         )
         .digest("hex")
@@ -3072,7 +3076,10 @@ async function exportProject(file: string, format: string, out: unknown): Promis
   }
   const project = load(requireFile(file, "Project")).project;
   if (!project.clips.length) throw new Error(`${file} has no clips to export.`);
-  const cut = compile(project, dirname(file));
+  const compiled = compile(project, dirname(file));
+  // An HTML overlay is drawn by Chrome at render time, so there's no media for an editor to take.
+  const pages = compiled.inserts.filter((i) => /\.html?$/i.test(i.path));
+  const cut = { ...compiled, inserts: compiled.inserts.filter((i) => !pages.includes(i)) };
   const paths = [
     ...new Set([
       ...cut.clips.map((c) => c.path),
@@ -3120,6 +3127,7 @@ async function exportProject(file: string, format: string, out: unknown): Promis
     saved.push(f);
     if (!left.length) left = o.left;
   }
+  if (pages.length) left = [...left, `${pages.length} HTML overlay page(s)`];
   return [
     `Saved ${saved.join(" and ")} (${size}, ${fps} fps, ${cut.clips.length} clips).`,
     left.length ? `Not carried, so redo them in the editor: ${left.join("; ")}.` : "",

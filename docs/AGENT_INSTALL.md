@@ -46,8 +46,9 @@ ls -l ~/.local/bin/mockingbird 2>/dev/null && ~/.local/bin/mockingbird status
 - `uname -sm` must print one of `Darwin arm64`, `Darwin x86_64`,
   `Linux x86_64` or `Linux aarch64`. Anything else isn't supported, so tell
   the person and stop. Chrome has no Linux ARM build, so there motion
-  graphics need a Chrome the person points `MOCKINGBIRD_CHROME` at, and
-  captions become a subtitle track. Tell the person before going on.
+  graphics and music need a Chrome the person points `MOCKINGBIRD_CHROME`
+  at. Without one, motion and music can't run and captions become a
+  subtitle track. Tell the person before going on.
 - **On a Mac**, the `brew` line must print a path. If it only lists
   `/opt/homebrew/bin/brew` or `/usr/local/bin/brew`, Homebrew is installed
   but not on your PATH. Start each command below with
