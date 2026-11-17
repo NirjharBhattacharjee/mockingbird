@@ -164,6 +164,7 @@ export async function renderHtml(
     onLoad = () => {},
     alpha = false,
     videoFilters = "",
+    gpu = false,
   }: {
     chrome: string;
     out: string;
@@ -183,6 +184,8 @@ export async function renderHtml(
     alpha?: boolean;
     /** Filters every frame of `video` goes through first, e.g. the engine's HDR-to-SDR conversion. */
     videoFilters?: string;
+    /** Draw WebGL on the GPU (macOS), for 3D pages; see launchChrome. */
+    gpu?: boolean;
   },
 ): Promise<number> {
   if (alpha && video) throw new Error("alpha is for a page on its own, not over a video");
@@ -203,7 +206,7 @@ export async function renderHtml(
   let pictures: AsyncGenerator<Uint8Array> | undefined;
   let drawn = 0;
   try {
-    chrome = await launchChrome(chromePath);
+    chrome = await launchChrome(chromePath, { gpu });
     const browser = chrome;
     const tabs = await Promise.all(
       Array.from({ length: Math.min(tabCount, total) }, () => openTab(browser, page, scene, clock)),

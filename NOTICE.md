@@ -1,7 +1,7 @@
 # Third-party notices
 
-mockingbird ships no third-party files in this repository. `mockingbird
-models pull` and `models pull chrome` download these to
+mockingbird ships one third-party file in this repository, three.js (below).
+`mockingbird models pull` and `models pull chrome` download the rest to
 `~/.mockingbird/` when you run them, each pinned and checked against its
 sha256 (`apps/daemon/src/models.ts`).
 
@@ -29,3 +29,14 @@ bundling and redistributing a font with any software. Each family's
 | Whisper models (whisper.cpp's ggml files) | MIT | Hugging Face, `ggerganov/whisper.cpp` |
 | Silero VAD | MIT | GitHub, `snakers4/silero-vad` |
 | chrome-headless-shell | BSD-3-Clause (Chromium) and its third-party notices | Chrome for Testing |
+
+## three.js
+
+[three.js](https://threejs.org) 0.187.0, MIT licence (Copyright © 2010-2026
+three.js authors), in
+[`plugin/skills/motion-graphics/vendor/`](plugin/skills/motion-graphics/vendor/).
+It's bundled into one file with `bun build --minify` from the npm package, and
+its licence is in `three.LICENSE` beside it. It's shipped rather than
+downloaded because motion pages run with no network; `motion` fills in a
+page's `from "THREE"` with it (#270).
+

@@ -16,7 +16,8 @@
     "transcribe": "bun apps/daemon/src/transcribe.ts",
     "fixtures": "sh scripts/make-fixtures.sh",
     "bench:models": "bun bench/models.ts",
-    "kit": "bun build plugin/skills/motion-graphics/kit.ts --no-bundle --target=browser --outfile plugin/skills/motion-graphics/kit.js"
+    "kit": "bun build plugin/skills/motion-graphics/kit.ts --no-bundle --target=browser --outfile plugin/skills/motion-graphics/kit.js && bun build plugin/skills/motion-graphics/styles/index.ts --target=browser --outfile plugin/skills/motion-graphics/styles.js",
+    "styles": "bun scripts/styles-index.ts && bun run kit"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",

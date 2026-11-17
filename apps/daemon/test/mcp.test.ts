@@ -19,6 +19,7 @@ import {
   fineClock,
   handle,
   KIT_URL,
+  levelGains,
   mcpTools,
   mixGraph,
   moving,
@@ -26,9 +27,11 @@ import {
   parseScenes,
   pieces,
   renderGraph,
+  STYLES_URL,
   seekClips,
   segments,
   spans,
+  THREE_URL,
   tempo,
   timedLines,
   timedWords,
@@ -1439,6 +1442,54 @@ test("motion takes only an HTML page, and says where canvas scripts went", async
   );
 });
 
+test.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)(
+  'a three.js page imports "THREE" and draws a lit 3D scene (#270)',
+  async () => {
+    const motion = mcpTools(
+      async () => ({}),
+      () => {},
+    ).find((t) => t.name === "motion");
+    if (!motion) throw new Error("no motion tool");
+    const dir = mkdtempSync(join(tmpdir(), "mb-three-"));
+    try {
+      const template = join(
+        import.meta.dir,
+        "../../../plugin/skills/motion-graphics/templates/three.html",
+      );
+      const out = join(dir, "three.mp4");
+      expect(await motion.run({ script: template, size: "320x180", duration: 1, out })).toContain(
+        "(00:01, 320x180, 30 fps)",
+      );
+      // The floor and the plane are lit: the last frame isn't just the background colour.
+      const frame = Bun.spawnSync(
+        [
+          "ffmpeg",
+          "-nostdin",
+          "-loglevel",
+          "error",
+          "-sseof",
+          "-0.1",
+          "-i",
+          out,
+          "-frames:v",
+          "1",
+          "-f",
+          "rawvideo",
+          "-pix_fmt",
+          "gray",
+          "-",
+        ],
+        { stdout: "pipe" },
+      ).stdout;
+      const levels = new Set(frame);
+      expect(levels.size).toBeGreaterThan(8);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+  120_000,
+);
+
 describe("music", () => {
   const music = mcpTools(
     async () => ({}),
@@ -1531,7 +1582,45 @@ test("motion fills in a page's `from \"KIT\"` with the kit's file URL, beside th
     const plain = join(dir, "plain.html");
     writeFileSync(plain, '<script type="module">import { kit } from "./kit.js";</script>');
     expect(withKit(plain)).toBe(plain);
+    // The explainer styles come in the same way.
+    expect(existsSync(fileURLToPath(STYLES_URL))).toBe(true);
+    const styled = join(dir, "styled.html");
+    writeFileSync(styled, '<script type="module">import { style } from "STYLES";</script>');
+    expect(readFileSync(withKit(styled), "utf8")).toBe(
+      `<script type="module">import { style } from ${JSON.stringify(STYLES_URL)};</script>`,
+    );
+    // And three.js, shipped with the plugin (#270).
+    expect(existsSync(fileURLToPath(THREE_URL))).toBe(true);
+    const three = join(dir, "three.html");
+    writeFileSync(three, '<script type="module">import * as THREE from "THREE";</script>');
+    expect(readFileSync(withKit(three), "utf8")).toBe(
+      `<script type="module">import * as THREE from ${JSON.stringify(THREE_URL)};</script>`,
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("level brings each source to the target once, within 30 dB (#265)", async () => {
+  const loud: Record<string, number> = {
+    "/a.mp4": -39.7,
+    "/b.mp4": -14.2,
+    "/c.mp4": -55,
+    "/mute.mp4": -Infinity,
+    "/card.mp4": -70,
+  };
+  const seen: string[] = [];
+  const paths = ["/a.mp4", "/b.mp4", "/a.mp4", "/c.mp4", "/mute.mp4", "/card.mp4"];
+  const gains = await levelGains(paths, -16, async (p) => {
+    seen.push(p);
+    return loud[p] ?? -Infinity;
+  });
+  // Each source measured once.
+  expect(seen).toEqual(["/a.mp4", "/b.mp4", "/c.mp4", "/mute.mp4", "/card.mp4"]);
+  expect(gains.get("/a.mp4")).toEqual({ measured: -39.7, db: 23.7 });
+  expect(gains.get("/b.mp4")?.db).toBe(-1.8);
+  expect(gains.get("/c.mp4")?.db).toBe(30);
+  // Silence, or a card with no sound, is left alone.
+  expect(gains.has("/mute.mp4")).toBe(false);
+  expect(gains.has("/card.mp4")).toBe(false);
 });

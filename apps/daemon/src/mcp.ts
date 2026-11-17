@@ -1228,6 +1228,30 @@ async function ffmpeg(args: string[], what: string): Promise<void> {
 }
 
 /** `file`'s integrated loudness in LUFS, through `filter` first if given. */
+/**
+ * The gain that brings each source among `paths` to `target` LUFS (#265),
+ * measured once a source, kept within 30 dB either way. A source with no
+ * sound, or silence, gets none.
+ */
+export async function levelGains(
+  paths: string[],
+  target: number,
+  measure: (path: string) => Promise<number>,
+): Promise<Map<string, { measured: number; db: number }>> {
+  const out = new Map<string, { measured: number; db: number }>();
+  // ponytail: measured every render; cache by path and mtime if long projects make it slow.
+  for (const path of new Set(paths)) {
+    const measured = await measure(path);
+    // No speech to level (silence, or a card with no sound): boosting it would only raise the hiss.
+    if (!Number.isFinite(measured) || measured < -60) continue;
+    out.set(path, {
+      measured,
+      db: Math.max(-30, Math.min(30, Math.round((target - measured) * 10) / 10)),
+    });
+  }
+  return out;
+}
+
 async function loudness(file: string, filter = ""): Promise<number> {
   const proc = Bun.spawn(
     [
@@ -2264,19 +2288,36 @@ function needChrome(): string {
 
 /** The motion kit, as the URL a page imports it from. */
 export const KIT_URL = pathToFileURL(join(PLUGIN, "skills", "motion-graphics", "kit.js")).href;
+/** The explainer styles (whiteboard, comic and the rest), as the URL a page imports them from. */
+export const STYLES_URL = pathToFileURL(
+  join(PLUGIN, "skills", "motion-graphics", "styles.js"),
+).href;
+/** three.js, pinned and shipped with the plugin, as the URL a page imports it from (#270). */
+export const THREE_URL = pathToFileURL(
+  join(PLUGIN, "skills", "motion-graphics", "vendor", "three.module.min.js"),
+).href;
+/** What a page can import by name, and where each one is. */
+const NAMED = { KIT: KIT_URL, STYLES: STYLES_URL, THREE: THREE_URL };
 
 /**
  * A template imports the kit `from "KIT"`, and motion fills it in (#213): an
  * agent replacing it by hand hit the template's comment first, and a Windows
  * path isn't a URL. The filled-in copy goes beside the page, so the page's own
- * files are where it says. Returns the page to load: `script` itself when it
- * doesn't import "KIT".
+ * files are where it says. `from "STYLES"` and `from "THREE"` are filled in
+ * the same way. Returns the page to load: `script` itself when it imports none.
  */
 export function withKit(script: string): string {
   const html = readFileSync(script, "utf8");
-  if (!html.includes('from "KIT"')) return script;
+  const used = Object.entries(NAMED).filter(([name]) => html.includes(`from "${name}"`));
+  if (!used.length) return script;
   const copy = join(dirname(script), `.${basename(script)}.${process.pid}-${Date.now()}.html`);
-  writeFileSync(copy, html.replaceAll('from "KIT"', `from ${JSON.stringify(KIT_URL)}`));
+  writeFileSync(
+    copy,
+    used.reduce(
+      (page, [name, url]) => page.replaceAll(`from "${name}"`, `from ${JSON.stringify(url)}`),
+      html,
+    ),
+  );
   return copy;
 }
 
@@ -2356,6 +2397,8 @@ async function motion(
     cues: captions?.trim() ? parseSrt(captions) : [],
     fonts: fontFaces(),
     videoFilters,
+    // A three.js page draws on the GPU; 2D pages keep software rendering's exact pixels (#270).
+    gpu: readFileSync(script, "utf8").includes('from "THREE"'),
   };
   let said: string;
   try {
@@ -2917,6 +2960,20 @@ async function overlays(
       JSON.stringify([2, basename(page), look, duration, fonts.map((f) => f.url)]),
     );
     stampFolder(hash, dirname(page));
+    // The kit and the styles live in the plugin, not beside the page: a rebuilt
+    // kit.js or styles.js has to change the key of every page that imports it.
+    const html = readFileSync(page, "utf8");
+    const motionDir = join(PLUGIN, "skills", "motion-graphics");
+    hash.update(
+      JSON.stringify(
+        [
+          ['from "KIT"', "kit.js"],
+          ['from "STYLES"', "styles.js"],
+        ]
+          .filter(([use]) => html.includes(use as string))
+          .map(([, file]) => stamp(join(motionDir, file as string))),
+      ),
+    );
     const key = hash.digest("hex").slice(0, 32);
     const cache = join(mockingbirdHome(), "cache", "overlays");
     const mov = join(cache, `${key}.mov`);
@@ -2989,8 +3046,10 @@ async function beds(
     }
     const script = requireFile(g.generator, "Generator");
     const params = {
+      // As long as asked (a bed under just the intro), never past the video's end (#266).
       duration: Math.min(
         MOTION_MAX_SECONDS,
+        g.length ?? Number.POSITIVE_INFINITY,
         Math.max(1, Math.round((cut.length - rest.at) * 1000) / 1000),
       ),
       seed: g.seed ?? 1,
@@ -3014,6 +3073,14 @@ async function beds(
       try {
         await music(script, part, params);
         renameSync(part, wav);
+      } catch (error) {
+        // Generating grows with the square of the length: 74 s took 16 s on an M3, 300 s over 6 minutes (#266).
+        if (/didn't answer/.test(String(error))) {
+          throw new Error(
+            `${basename(script)} couldn't make ${params.duration.toFixed(0)} s of music in time: a long bed takes much longer than a short one. Give the sound a \`length\` (just the part that needs music), or make a shorter bed with \`music\` and \`loop\` it. (${(error as Error).message})`,
+          );
+        }
+        throw error;
       } finally {
         rmSync(part, { force: true });
       }
@@ -3035,6 +3102,21 @@ async function renderProject(
   const cut = compile(project, dirname(file));
   const first = cut.clips[0]?.path;
   if (!first) throw new Error(`${file} has no clips yet; add some with \`edit\`.`);
+  if (project.level) {
+    const gains = await levelGains(
+      cut.clips.map((c) => c.path),
+      project.level.target,
+      (path) => loudness(path).catch(() => -Infinity),
+    );
+    for (const [path, { measured, db }] of gains)
+      log(
+        `level: ${basename(path)} ${measured.toFixed(1)} LUFS, ${db >= 0 ? "+" : ""}${db.toFixed(1)} dB`,
+      );
+    cut.clips = cut.clips.map((c) => {
+      const db = gains.get(c.path)?.db;
+      return db ? { ...c, effects: [...(c.effects ?? []), { name: "gain", db }] } : c;
+    });
+  }
   // The sound alone needs nothing drawn, so nothing is transcribed for captions.
   const said = cut.captions && !soundOnly ? await cutCaptions(cut, log, cut.captions) : undefined;
   // A draft reads 4K from proxies; its size is still the source's, not the proxy's.
@@ -3274,7 +3356,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
 - {op:"add", type:"text", text, from, to, clip?, y?}: drawn like the captions, *words* yellow
 - {op:"add", type:"insert", path, from, to, clip?, box?, blend?, effects?, moves?}: a picture or video over the whole frame (b-roll). box: {x, y, w, h, path?}, 0-1 of the picture, makes it a picture in the picture; path, from track, moves it with a subject. blend: screen, multiply, overlay, softlight, lighten, darken, addition or difference (whole frame only). effects: from the catalog; chromakey keys a green screen over the cut. moves: as a clip's, a Ken Burns pan over a still
 - {op:"add", type:"adjust", from, to, clip?, effects}: an adjustment layer; its effects change everything under the text (clips and inserts) for its stretch, e.g. a grade over a whole section
-- {op:"add", type:"audio", path, at?, clip?, volume?, loop?, duck?}: music or a sound effect under the speech. Or generated music in place of path: generator:{generator:"/abs/lofi.js", tempo?, key?, energy?, seed?} (a music generator; the bed is made at render time, as long as the video from at, and kept, so it isn't made again)
+- {op:"add", type:"audio", path, at?, clip?, volume?, loop?, duck?}: music or a sound effect under the speech. Or generated music in place of path: generator:{generator:"/abs/lofi.js", tempo?, key?, energy?, seed?, length?} (a music generator; the bed is made at render time, as long as the video from at or \`length\` seconds if given, and kept, so it isn't made again)
 - {op:"remove", id}: a clip goes with everything on it, and the cut closes up
 - {op:"split", id, at}: a clip in two at a source time; what's on the second half moves with it
 - {op:"trim", id, from?, to?}: a clip's source times; what's on it stays on the same picture

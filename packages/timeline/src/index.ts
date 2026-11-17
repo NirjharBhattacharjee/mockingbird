@@ -145,6 +145,8 @@ export type Generated = {
   /** 0-1, or [seconds, level] points in time order. */
   energy?: number | [number, number][];
   seed?: number;
+  /** Seconds of music; default as long as the video from where it starts (#266). */
+  length?: number;
 };
 
 export type Sound = {
@@ -169,6 +171,11 @@ export type Project = {
   fps?: number;
   split?: { top: Area; bottom: Area };
   captions?: Captions | null;
+  /**
+   * Even out loudness between sources (#265): render measures each source's
+   * sound and brings it to `target` LUFS with a `gain` on its clips.
+   */
+  level?: { target: number };
   clips: Clip[];
   texts: Text[];
   inserts: Insert[];
@@ -271,7 +278,7 @@ const TEXT = ["id", "text", "clip", "from", "to", "y"];
 const INSERT = ["id", "path", "clip", "from", "to", "box", "blend", "effects", "moves"];
 const ADJUST = ["id", "clip", "from", "to", "effects"];
 const SOUND = ["id", "path", "generator", "clip", "at", "volume", "loop", "duck"];
-const GENERATED = ["generator", "tempo", "key", "energy", "seed"];
+const GENERATED = ["generator", "tempo", "key", "energy", "seed", "length"];
 const CAPTIONS = ["perCue", "lit", "upper", "y"];
 
 function point(v: unknown, what: string): Point {
@@ -402,6 +409,7 @@ function generated(v: unknown, what: string): Generated {
     key: maybe(o.key, (k) => str(k, `${what}.key`).slice(0, 40)),
     energy: maybe(o.energy, (e) => energy(e, `${what}.energy`)),
     seed: maybe(o.seed, (n) => Math.round(num(n, `${what}.seed`, 0, 2 ** 32 - 1))),
+    length: maybe(o.length, (n) => num(n, `${what}.length`, 1, 7200)),
   });
 }
 
@@ -433,6 +441,14 @@ function captions(v: unknown, what: string): Captions | null {
   });
 }
 
+/** `true`, or `{ target }` in LUFS (default -16): the project's `level`. */
+function level(v: unknown): { target: number } | undefined {
+  if (v === false || v === null) return undefined;
+  if (v === true) return { target: -16 };
+  const o = obj(v, "level", ["target"]);
+  return { target: o.target === undefined ? -16 : num(o.target, "level.target", -30, -6) };
+}
+
 function size(v: unknown): string {
   const m = /^(\d+)x(\d+)$/.exec(String(v));
   const [w, h] = [Number(m?.[1]), Number(m?.[2])];
@@ -461,6 +477,7 @@ export function check(v: unknown): Project {
     "fps",
     "split",
     "captions",
+    "level",
     "clips",
     "texts",
     "inserts",
@@ -482,6 +499,7 @@ export function check(v: unknown): Project {
       return { top: area(t.top, "split.top"), bottom: area(t.bottom, "split.bottom") };
     }),
     captions: maybe(o.captions, (c) => captions(c, "captions")),
+    level: maybe(o.level, (v) => level(v)),
     clips: list("clips").map((c, i) => clip(c, `clips[${i}]`)),
     texts: list("texts").map((t, i) => text(t, `texts[${i}]`)),
     inserts: list("inserts").map((t, i) => insert(t, `inserts[${i}]`)),
@@ -984,7 +1002,7 @@ function step(p: Project, raw: unknown, what: string, notes: string[], words?: W
         }
       };
       if (id === undefined) {
-        obj(fields, what, ["size", "fps", "split", "captions"]);
+        obj(fields, what, ["size", "fps", "split", "captions", "level"]);
         merge(p as unknown as Obj);
         return;
       }
@@ -1061,6 +1079,7 @@ export function outline(p: Project, file: string): string {
     p.captions
       ? `captions on${p.captions.perCue ? ` (${p.captions.perCue} a cue)` : ""}`
       : undefined,
+    p.level ? `sources levelled to ${p.level.target} LUFS` : undefined,
   ].filter(Boolean);
   const line = (t: Text | Insert | Sound | Adjust, base: number) => {
     if ("at" in t) {

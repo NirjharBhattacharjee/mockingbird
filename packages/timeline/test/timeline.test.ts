@@ -689,3 +689,34 @@ describe("adjustment layers and insert looks (#198)", () => {
     );
   });
 });
+
+test("a generated sound can say how long its bed is (#266)", () => {
+  const p = check({
+    version: 1,
+    clips: [],
+    texts: [],
+    inserts: [],
+    audio: [{ id: "m", at: 0, generator: { generator: "/g/lofi.js", length: 74.4 } }],
+  });
+  expect(p.audio[0]?.generator?.length).toBe(74.4);
+  expect(() =>
+    check({
+      version: 1,
+      clips: [],
+      texts: [],
+      inserts: [],
+      audio: [{ id: "m", at: 0, generator: { generator: "/g/lofi.js", length: 0 } }],
+    }),
+  ).toThrow("length must be a number from 1 to 7200");
+});
+
+test("level is true or { target }, and the outline says so (#265)", () => {
+  const base = { version: 1, clips: [], texts: [], inserts: [], audio: [] };
+  expect(check({ ...base, level: true }).level).toEqual({ target: -16 });
+  expect(check({ ...base, level: { target: -18 } }).level).toEqual({ target: -18 });
+  expect(check({ ...base, level: false }).level).toBeUndefined();
+  expect(() => check({ ...base, level: { target: -2 } })).toThrow("level.target");
+  expect(outline(check({ ...base, level: true }), "p.json")).toContain(
+    "sources levelled to -16 LUFS",
+  );
+});

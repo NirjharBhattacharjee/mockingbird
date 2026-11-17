@@ -34,6 +34,9 @@ settings, not from a blank file.
      anything that explains. Its `SCENES` list is the whole edit: `intro`,
      `chapter`, `name`, `look` (the camera glides to a point, optionally
      ringing it and labelling it), `photo`, `quote`, `checklist`.
+   - [templates/styles.html](./templates/styles.html) for an explainer
+     drawn from scratch in one of the [styles](#explainer-styles): set
+     `STYLE` and write `SCENE`.
 4. **Fill in the settings from the transcript.** Times are seconds into the
    cut. Pick the hook, the keywords, the callouts or the scenes. That's the
    creative work; the template does the rest.
@@ -52,6 +55,43 @@ settings, not from a blank file.
 Without a video, `motion` with `size` and `duration` makes graphics on their
 own: run the explainer template with no footage to make a title sequence or
 a chapter card to `inserts` into a `render`.
+
+## Explainer styles
+
+For an explanation drawn from scratch rather than over footage (a diagram
+that builds, a process, a number that matters), `styles/` holds dozens of
+complete looks: whiteboard marker, comic halftone, chalkboard, blueprint,
+watercolour, neon sign, pixel art, a CRT terminal, risograph, stained
+glass and the rest. `STYLES` lists them by id, each with a name and a
+family.
+
+Every style draws the same pieces, so a scene written once renders in any
+of them:
+
+| | |
+|---|---|
+| `surface()` | the world: a board, paper, space, a screen |
+| `title(text)` | the heading |
+| `label(text, x, y)` | a short label |
+| `node(x, y, r)` | a thing or a point |
+| `box(x, y, w, h)` | a container |
+| `link(x1, y1, x2, y2, { bend, head })` | a connection or an arrow |
+| `store(x, y, w, h)` | where data lives |
+| `stat(text, x, y, { count, sub })` | a big number, counting up |
+| `mark("check" \| "cross", x, y)` | a tick or a cross |
+| `finish()` | the last layer: grain, scanlines, the pen |
+
+Each takes `{ at, dur, tone }`: when it arrives, how long its entrance
+takes, and its tone (`ink`, `accent`, `good`, `bad`, `muted`), which the
+style turns into its own colours. Positions are 0 to 1 of the frame.
+
+Start from [templates/styles.html](./templates/styles.html): it imports
+`page` from `"KIT"` and `style` from `"STYLES"` (motion fills both in),
+draws one scene, and needs only `STYLE` and `SCENE` changed. Pick the
+style from the subject and the audience, not at random: a whiteboard or
+napkin sketch for a process, a blueprint or patent drawing for how a thing
+is built, an editorial chart for numbers, a CRT terminal for code. Render
+it with `size` and `duration` and `inserts` it into the edit.
 
 ## The kit
 
@@ -136,6 +176,28 @@ These come from the style study; the templates already follow them.
   the kit draws a shadow instead.
 - The video is drawn under each frame. To zoom or pan, `camera` redraws it;
   for anything custom, `ctx.drawImage(m.video, sx, sy, sw, sh, dx, dy, dw, dh)`.
+
+## 3D with three.js
+
+For real depth (a camera flying through a scene, footage on a plane that
+tilts in space, lit and shadowed objects, extruded shapes), a page can
+import three.js `from "THREE"`. `motion` fills it in with the copy shipped
+in `vendor/` (0.187.0), since pages have no network, and draws the page on
+the Mac's GPU. Start from [templates/three.html](./templates/three.html).
+
+- **Draw in `mockingbird.draw(t)` and work everything out from `t`.** Don't
+  use three's `Clock`, `requestAnimationFrame` loops or `setTimeout`.
+  Create the renderer with `preserveDrawingBuffer: true`.
+- **Footage as a texture:** set `mockingbird.drawVideo = true`, then each
+  frame put `m.video` on a `THREE.Texture` with `needsUpdate = true`. An
+  ImageBitmap ignores `flipY`, so flip it with `repeat.set(1, -1)` and
+  `offset.set(0, 1)`.
+- **Only core three.js is shipped.** Addons (text geometry, loaders, post
+  effects) aren't there. Build shapes from core geometry, or draw text on a
+  canvas and use it as a texture.
+- **Speed:** on an M3, 10 s of a lit, shadowed 1080p scene with footage took
+  33.4 s. 3D costs about five times what a 2D page does, so use it for the
+  moments that need depth.
 
 ## When it fails
 

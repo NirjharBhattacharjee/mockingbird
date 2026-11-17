@@ -184,3 +184,10 @@ test("an HDR clip with a masked effect, and an insert with a box, are brought to
   expect(graph).toContain("[0:v]setparams=X,setpts=PTS-STARTPTS");
   expect(graph).toContain("[1:v]setparams=Y,trim=duration=1");
 });
+
+test("gain raises or lowers a clip's sound by dB, and 0 leaves it (#265)", () => {
+  expect(effectFilters([{ name: "gain", db: 7.5 }]).audio).toBe("volume=7.5dB");
+  expect(effectFilters([{ name: "gain", db: -3 }]).audio).toBe("volume=-3dB");
+  expect(effectFilters([{ name: "gain", db: 0 }]).audio).toBe("");
+  expect(() => checkEffects([{ name: "gain", db: 40 }], "clip")).toThrow();
+});
