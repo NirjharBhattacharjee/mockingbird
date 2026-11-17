@@ -18,6 +18,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
+| 2026-11-16 | 3D motion pages (#270): three.js 0.187.0 (MIT) ships in the plugin's `vendor/`, and `motion` fills in `from "THREE"` the way it does `"KIT"`. A page that imports it is drawn on the Mac's GPU (ANGLE on Metal); 2D pages keep software rendering, so their pixels don't change. 10 s of a lit, shadowed 1080p scene with footage as a texture took 33.4 s on an M3, against 199 s in software. |
 | 2026-11-14 | Chrome for every user (#250): `install.sh` and `install.ps1` download the pinned Chrome and its fonts after the models, warning instead of failing when they can't; `setup` offers it when it's missing; `doctor` checks it instead of the Core Text and Core Graphics lines left from before #155 and #169. |
 | 2026-11-06 | `motion` swaps a page's `from "KIT"` for the kit's file URL in a copy beside the page (#213), so agents leave the templates' import alone: replacing it by hand hit a comment first, and a Windows path isn't a URL. |
 | 2026-11-06 | Windows (#202): the plugin starts there (`launch.cmd`, `launch.ps1`); filter graphs go to ffmpeg in a file, since one for 100 clips is longer than a Windows command line; off Apple Silicon the default Whisper model is `small` Q5_1, as `large-v3` took 2.6x real time on a 2-core CPU (MODELS.md §6). |
