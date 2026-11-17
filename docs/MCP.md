@@ -123,6 +123,14 @@ call and changing the cut doesn't break the timing of what's laid over it
   the start of the video. One can run past the end of its clip, over the
   clips after it, like a title held across a jump cut; a `split` leaves an
   item that crosses it on the first half, still running on.
+- **`level`** evens out loudness between sources (#265): `true` for −16
+  LUFS, or `{ "target": -18 }`. `render` measures each source's sound once
+  (ffmpeg's `ebur128`) and puts a `gain` on all its clips, up to 30 dB either
+  way, so a quiet recording and a loud one meet in the middle. It keeps each
+  speaker's own dynamics, and the finished video is still brought to −14 LUFS.
+  The log says what it measured and the gain it set. A source quieter than
+  −60 LUFS (silence, a card) is left alone. On the seven D5 recordings, the
+  speakers' loudness spread went from 21.1 LU to 1.9 LU.
 - **`captions`** makes word-by-word captions for the cut as it is when it's
   rendered, as the `captions` tool does: `perCue`, `lit`, `upper`, and `y`
   (where their middle sits). Leave it out, or `null`, for none.
@@ -136,14 +144,14 @@ call and changing the cut doesn't break the timing of what's laid over it
 | Op | What it does |
 |---|---|
 | `{op: "add", type: "clip", path, from, to, focus?, zoom?, speed?, moves?, transition?, lead?, index?}` | A clip on the main track, at `index` (default the end). See [Speed, moves and transitions](#speed-moves-and-transitions). |
-| `{op: "add", type: "text" \| "insert" \| "audio", …}` | A text, picture or video, or sound, with the fields above. A sound can take `generator: {generator, tempo?, key?, energy?, seed?}` in place of `path`: see [Music in a project](#music-in-a-project). |
+| `{op: "add", type: "text" \| "insert" \| "audio", …}` | A text, picture or video, or sound, with the fields above. A sound can take `generator: {generator, tempo?, key?, energy?, seed?, length?}` in place of `path`: see [Music in a project](#music-in-a-project). |
 | `{op: "add", type: "overlay", page, from, to, clip?}` | An HTML page laid over its stretch with its transparency: see [Overlays](#overlays). |
 | `{op: "remove", id}` | Removes an item. A clip takes what's on it with it, and the cut closes up. |
 | `{op: "split", id, at}` | Splits a clip in two at `at` seconds in its source. What starts on the second half moves to the new clip. |
 | `{op: "trim", id, from?, to?}` | Changes a clip's source times. What's on it moves with the picture: trimming 2 s off the start moves its texts 2 s earlier, and drops any that were only on what's gone. |
 | `{op: "move", id, index}` | Moves a clip to another place in the cut. |
 | `{op: "cut_words", text, clip?, all?}` or `{op: "cut_words", from, to, clip?}` | Cuts words out of the cut by quoting them; see [Text-based editing](#text-based-editing). |
-| `{op: "set", id?, …fields}` | Sets fields of an item (`null` clears one), or without `id` the project's `size`, `fps`, `split` and `captions`. Unlike `trim`, setting a clip's `from`/`to` leaves what's on it where it is. |
+| `{op: "set", id?, …fields}` | Sets fields of an item (`null` clears one), or without `id` the project's `size`, `fps`, `split`, `captions` and `level`. Unlike `trim`, setting a clip's `from`/`to` leaves what's on it where it is. |
 
 New items get ids like `c1`, `t1`, `b1` and `a1` unless given one. A field
 the project doesn't have is an error, not ignored, so a misspelling is
@@ -272,9 +280,14 @@ A project's sound can be generated instead of a file: `{op: "add", type:
 "audio", generator: {generator: "/abs/lofi.js", tempo: 80, key: "A minor",
 energy: [[0, 0.2], [30, 0.8]], seed: 1}, volume: 0.15, duck: true}`. The
 generator is one of [`music`](#music)'s. `render` makes the bed as long as
-the video from where the sound starts and keeps it in
+the video from where the sound starts, or `length` seconds when it's given
+(a bed under just the intro of a long edit), and keeps it in
 `~/.mockingbird/cache/music/`, by the generator's folder of modules and its
-arguments, so a render after an edit reuses it.
+arguments, so a render after an edit reuses it. Making the bed waits a
+minute plus a second for each second of music, so a long bed isn't cut off
+(#266). Making a bed grows with the square of its length (on an M3: 74 s
+took 16 s, 150 s took 82 s, 300 s over 6 minutes), so give a long edit's
+music a `length`, or make a short bed with `music` and `loop` it.
 
 `render` with `project` and `sound: true` saves the sound alone as
 `<name>-sound-N.m4a` at −14 LUFS, to check the mix without the picture:
@@ -407,6 +420,7 @@ framing, and a clip with effects is always encoded, never stream-copied.
 | `vignette` | picture | `amount` |
 | `sharpen` | picture | `amount` |
 | `blur` | picture | `radius` |
+| `gain` | sound | `db`, −30 to 30: raise or lower the clip's sound; a project's `level` sets it per source (#265) |
 | `denoise` | sound | `amount`, and `floor`: where the noise sits in dBFS, from `audio_stats` on the source |
 | `highpass` | sound | `frequency` (80 Hz suits speech) |
 | `compress` | sound | `threshold` (dB), `ratio` |

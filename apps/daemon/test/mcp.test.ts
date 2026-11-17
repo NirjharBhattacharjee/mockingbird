@@ -19,6 +19,7 @@ import {
   fineClock,
   handle,
   KIT_URL,
+  levelGains,
   mcpTools,
   mixGraph,
   moving,
@@ -1529,4 +1530,28 @@ test("motion fills in a page's `from \"KIT\"` with the kit's file URL, beside th
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("level brings each source to the target once, within 30 dB (#265)", async () => {
+  const loud: Record<string, number> = {
+    "/a.mp4": -39.7,
+    "/b.mp4": -14.2,
+    "/c.mp4": -55,
+    "/mute.mp4": -Infinity,
+    "/card.mp4": -70,
+  };
+  const seen: string[] = [];
+  const paths = ["/a.mp4", "/b.mp4", "/a.mp4", "/c.mp4", "/mute.mp4", "/card.mp4"];
+  const gains = await levelGains(paths, -16, async (p) => {
+    seen.push(p);
+    return loud[p] ?? -Infinity;
+  });
+  // Each source measured once.
+  expect(seen).toEqual(["/a.mp4", "/b.mp4", "/c.mp4", "/mute.mp4", "/card.mp4"]);
+  expect(gains.get("/a.mp4")).toEqual({ measured: -39.7, db: 23.7 });
+  expect(gains.get("/b.mp4")?.db).toBe(-1.8);
+  expect(gains.get("/c.mp4")?.db).toBe(30);
+  // Silence, or a card with no sound, is left alone.
+  expect(gains.has("/mute.mp4")).toBe(false);
+  expect(gains.has("/card.mp4")).toBe(false);
 });

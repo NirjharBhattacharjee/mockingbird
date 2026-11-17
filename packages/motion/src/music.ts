@@ -42,18 +42,24 @@ export async function renderMusic(
       targetId,
       flatten: true,
     });
-    const run = async <T>(expression: string): Promise<T> => {
+    const run = async <T>(expression: string, timeout?: number): Promise<T> => {
       const reply = await chrome?.send<{
         result: { value: T };
         exceptionDetails?: { text: string; exception?: { description?: string } };
-      }>("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true }, sessionId);
+      }>(
+        "Runtime.evaluate",
+        { expression, awaitPromise: true, returnByValue: true },
+        sessionId,
+        timeout,
+      );
       if (!reply) throw new Error("Chrome closed");
       const failed = reply.exceptionDetails;
       if (failed) throw new Error(failed.exception?.description ?? failed.text);
       return reply.result.value;
     };
     await waitForLoad(run);
-    const frames = await run<number>(`(async () => {
+    const frames = await run<number>(
+      `(async () => {
       const params = ${JSON.stringify(params)};
       // mulberry32: the same numbers for the same seed, in every run.
       let s = params.seed >>> 0;
@@ -72,7 +78,11 @@ export async function renderMusic(
       const sound = await ctx.startRendering();
       globalThis.__sound = [sound.getChannelData(0), sound.getChannelData(1)];
       return sound.length;
-    })()`);
+    })()`,
+      // Generating takes longer the longer the music: a 74 s bed took 16 s on an
+      // M3. A second for each second asked for, on top of the usual minute (#266).
+      60_000 + params.duration * 1000,
+    );
     await file.write(wavHeader(frames, params.sampleRate));
     const step = CHUNK_SECONDS * params.sampleRate;
     for (let at = 0; at < frames; at += step) {

@@ -62,3 +62,10 @@ test("scopes reads luma, clipping, saturation and skin off YUV 4:4:4 frames", ()
   expect(s.skin).toBe(0.25);
   expect(Math.abs(s.skinOffset ?? 99)).toBeLessThan(2);
 });
+
+test("gain raises or lowers a clip's sound by dB, and 0 leaves it (#265)", () => {
+  expect(effectFilters([{ name: "gain", db: 7.5 }]).audio).toBe("volume=7.5dB");
+  expect(effectFilters([{ name: "gain", db: -3 }]).audio).toBe("volume=-3dB");
+  expect(effectFilters([{ name: "gain", db: 0 }]).audio).toBe("");
+  expect(() => checkEffects([{ name: "gain", db: 40 }], "clip")).toThrow();
+});
