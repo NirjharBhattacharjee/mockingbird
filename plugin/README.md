@@ -66,6 +66,7 @@ so Claude doesn't see every tool twice.
 
 | | |
 |---|---|
+| `brief` | Reads the transcript, frames and cut count to work out what the video is (podcast, tutorial, talk, demo, vlog, commentary), what to make from it, and which playbook and settings fit |
 | `viral-short` | The shorts workflow, and the bar a short has to clear |
 | `long-form` | The long-form workflow: cut, opening, chapters, captions file, titles, thumbnails |
 | `hooks` | The first seconds of a short, the first minute of a long video |
