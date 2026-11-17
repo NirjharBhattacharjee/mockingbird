@@ -2415,7 +2415,7 @@ async function lookBoard(
   if (path) requireFile(path, "File");
   // This board's own build, so a rebuild running alongside can't swap it out;
   // the stable <name>.look.js beside it is what the edit's pages import.
-  const stamp = `${process.pid}-${Date.now()}`;
+  const stamp = `${process.pid}-${randomUUID()}`;
   const mine = await buildLook(file, join(dirname(file), `.${basename(file)}.${stamp}.look.js`));
   const module = join(dirname(file), `${basename(file, extname(file))}.look.js`);
   copyFileSync(mine, module);
