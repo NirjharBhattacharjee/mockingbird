@@ -1,7 +1,8 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { renderMusic, wavHeader } from "../src/music.ts";
 
 /** MOCKINGBIRD_CHROME, or the one `mockingbird models pull chrome` put in ~/.mockingbird/bin. */
@@ -84,6 +85,34 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("renderMusic (integration)
     const [a, b, c] = [await make("a.wav", 7), await make("b.wav", 7), await make("c.wav", 8)];
     expect(a.equals(b)).toBe(true);
     expect(a.equals(c)).toBe(false);
+  }, 60_000);
+
+  test("soon makes a bar's notes as the track reaches it, and they play on time", async () => {
+    const lib = pathToFileURL(
+      resolve(import.meta.dir, "../../../plugin/skills/music/generators/lib.js"),
+    ).href;
+    // A tone from 5 s to 7 s, made a second before each second of it plays.
+    const path = generator(
+      "later.js",
+      `import { soon } from ${JSON.stringify(lib)};
+      export default (ctx) => {
+        for (const t of [5, 6]) soon(ctx, t, () => {
+          const o = ctx.createOscillator(); o.connect(ctx.destination); o.start(t); o.stop(t + 1);
+        });
+      };`,
+    );
+    const out = join(dir, "later.wav");
+    await renderMusic(path, { chrome: chrome(), out, params: { ...params, duration: 8 } });
+    const got = samples(out);
+    const loudest = (from: number, to: number) => {
+      let m = 0;
+      for (let i = from * 48000 * 2; i < to * 48000 * 2; i++)
+        m = Math.max(m, Math.abs(got[i] ?? 0));
+      return m;
+    };
+    expect(loudest(0, 4.99)).toBe(0);
+    expect(loudest(5, 7)).toBeGreaterThan(0.9);
+    expect(loudest(7.01, 8)).toBe(0);
   }, 60_000);
 
   test("a generator without a default export, or one that throws, says why", async () => {

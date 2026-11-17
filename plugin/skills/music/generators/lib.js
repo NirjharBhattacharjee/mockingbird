@@ -449,3 +449,28 @@ export function riser(ctx, out, end, length = 4, level = 0.12, { noiseBuffer } =
   n.start(t);
   n.stop(end + 0.05);
 }
+
+const later = new WeakMap();
+
+/**
+ * Runs `make` once the track is about `lead` seconds short of `t`, rather than
+ * now. Notes made up front all sit in the graph from the start, and Chrome
+ * works through every one of them for every few milliseconds of sound, so a
+ * track takes time that grows with the square of its length (#272). Wrap each
+ * bar in this and only the notes about to play are there. Everything `make`
+ * schedules must start at or after `t - lead`.
+ */
+export function soon(ctx, t, make, lead = 1) {
+  const frame = Math.floor((Math.max(0, t - lead) * ctx.sampleRate) / 128) * 128;
+  if (frame === 0) return make();
+  if (!later.has(ctx)) later.set(ctx, new Map());
+  const at = later.get(ctx);
+  // One suspend a moment: Chrome refuses a second at the same frame.
+  if (at.has(frame)) return at.get(frame).push(make);
+  const run = [make];
+  at.set(frame, run);
+  ctx.suspend(frame / ctx.sampleRate).then(() => {
+    for (const f of run) f();
+    ctx.resume();
+  });
+}

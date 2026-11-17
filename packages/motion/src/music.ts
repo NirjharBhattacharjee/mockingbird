@@ -35,7 +35,8 @@ export async function renderMusic(
   let chrome: Chrome | undefined;
   const file = await open(out, "w");
   try {
-    chrome = await launchChrome(chromePath);
+    // gc(), for the page to clear away notes that have finished playing.
+    chrome = await launchChrome(chromePath, { flags: ["--js-flags=--expose-gc"] });
     // A page at the module's own address, so it and its relative imports load as files.
     const { targetId } = await chrome.send<{ targetId: string }>("Target.createTarget", { url });
     const { sessionId } = await chrome.send<{ sessionId: string }>("Target.attachToTarget", {
@@ -75,11 +76,15 @@ export async function renderMusic(
       }
       const ctx = new OfflineAudioContext(2, Math.round(params.duration * params.sampleRate), params.sampleRate);
       await make(ctx, params);
-      const sound = await ctx.startRendering();
+      // A finished note stays in the graph, and costs time on every block of
+      // sound after it, until the page collects its garbage. The page is idle
+      // while Chrome renders, so collect every second (#272).
+      const sweep = setInterval(() => gc(), 1000);
+      const sound = await ctx.startRendering().finally(() => clearInterval(sweep));
       globalThis.__sound = [sound.getChannelData(0), sound.getChannelData(1)];
       return sound.length;
     })()`,
-      // Generating takes longer the longer the music: a 74 s bed took 16 s on an
+      // Generating takes longer the longer the music: a 300 s bed took 18 s on an
       // M3. A second for each second asked for, on top of the usual minute (#266).
       60_000 + params.duration * 1000,
     );
