@@ -69,6 +69,13 @@ export function badClip(wav: string, text: string): string | undefined {
   } catch (error) {
     return `not a WAV it can read (${error instanceof Error ? error.message : error})`;
   }
+  // decodeWav reads what's there of a cut-short file; the data chunk says how much there should be.
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  for (let at = 12; at + 8 <= bytes.length; at += 8 + view.getUint32(at + 4, true)) {
+    if (String.fromCharCode(...bytes.subarray(at, at + 4)) !== "data") continue;
+    if (at + 8 + view.getUint32(at + 4, true) > bytes.length) return "cut short";
+    break;
+  }
   let peak = 0;
   for (const v of pcm.samples) peak = Math.max(peak, Math.abs(v));
   if (peak < 300) return "silent";
