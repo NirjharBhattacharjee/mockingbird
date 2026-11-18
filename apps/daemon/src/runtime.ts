@@ -249,17 +249,21 @@ export function pinnedWhisper(
 
 /**
  * Why a whisper-server won't start, or undefined when `--help` runs: a build
- * for a newer glibc than this Linux has is there but can't load (#223).
+ * for a newer glibc than this Linux has is there but can't load (#223). Async,
+ * so the MCP server answers other calls meanwhile, and killed with SIGKILL at
+ * `ms`, which a wrapper can't ignore.
  */
-export function wontStart(program: string): string | undefined {
+export async function wontStart(program: string, ms = 10_000): Promise<string | undefined> {
   try {
-    const r = Bun.spawnSync([program, "--help"], {
-      stdout: "ignore",
-      stderr: "pipe",
-      timeout: 10_000,
-    });
-    if (r.exitCode === 0) return undefined;
-    return r.stderr.toString().trim().split("\n").at(-1) || `exit ${r.exitCode}`;
+    const p = Bun.spawn([program, "--help"], { stdout: "ignore", stderr: "pipe" });
+    const timer = setTimeout(() => p.kill("SIGKILL"), ms);
+    const code = await p.exited;
+    clearTimeout(timer);
+    if (p.signalCode === "SIGKILL") return `no answer to --help in ${ms / 1000} s`;
+    if (code === 0) return undefined;
+    // A child it left running can hold stderr open: read what's there, briefly.
+    const err = await Promise.race([new Response(p.stderr).text(), Bun.sleep(500).then(() => "")]);
+    return err.trim().split("\n").at(-1) || `exit ${code}`;
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
   }

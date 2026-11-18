@@ -15,7 +15,7 @@ import {
   writeFileSync,
   writeSync,
 } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 import { withStore } from "./dictionary.ts";
 import {
@@ -24,6 +24,7 @@ import {
   DEFAULT_ASR_MODEL,
   englishOnly,
   findAsrModel,
+  findWhisperServer,
   isWhisperFile,
   languageModels,
   MAC_ASR_MODEL,
@@ -570,24 +571,8 @@ async function installChrome(
     // Unpacked beside the target and renamed into place, so a half-unpacked Chrome is never found.
     const unpacking = `${pin.dir}.part`;
     rmSync(unpacking, { recursive: true, force: true });
-    // Windows has no unzip; its own tar.exe reads zips (not Git Bash's GNU tar, which can't).
     mkdirSync(unpacking, { recursive: true });
-    const unzip = Bun.spawnSync(
-      process.platform === "win32"
-        ? [
-            join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe"),
-            "-xf",
-            zip,
-            "-C",
-            unpacking,
-          ]
-        : ["unzip", "-q", zip, "-d", unpacking],
-      { stderr: "pipe" },
-    );
-    if (unzip.exitCode !== 0) {
-      rmSync(unpacking, { recursive: true, force: true });
-      throw new Error(`couldn't unpack ${zip}: ${unzip.stderr.toString().trim()}`);
-    }
+    unpack(zip, unpacking);
     rmSync(pin.dir, { recursive: true, force: true });
     renameSync(unpacking, pin.dir);
     rmSync(zip, { force: true });
@@ -596,6 +581,30 @@ async function installChrome(
     if (old.startsWith("chrome-headless-shell-") && join(bin, old) !== pin.dir) {
       rmSync(join(bin, old), { recursive: true, force: true });
     }
+  }
+}
+
+/**
+ * Unpacks `archive` (a .zip, or a .tar.gz) into `into`, which is beside it and
+ * exists. Windows has no unzip, and its own tar.exe reads zips, but not Git
+ * Bash's GNU tar, often first on the PATH, which takes "D:" for a remote host.
+ * tar.exe also can't open a path with non-ASCII letters in it, as a user
+ * folder can have, so it runs in the folder with names that are ASCII.
+ */
+function unpack(archive: string, into: string) {
+  const win = process.platform === "win32";
+  const argv = win
+    ? [
+        join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe"),
+        ...["-xf", basename(archive), "-C", basename(into)],
+      ]
+    : archive.endsWith(".zip")
+      ? ["unzip", "-q", archive, "-d", into]
+      : ["tar", "-xf", archive, "-C", into];
+  const r = Bun.spawnSync(argv, { stderr: "pipe", cwd: win ? dirname(archive) : undefined });
+  if (r.exitCode !== 0) {
+    rmSync(into, { recursive: true, force: true });
+    throw new Error(`couldn't unpack ${archive}: ${r.stderr.toString().trim()}`);
   }
 }
 
@@ -630,20 +639,33 @@ export async function pullWhisper(
     await pullFiles([pin.archive], bin, deps);
     const archive = join(bin, pin.archive.file);
     // Unpacked beside the target and renamed into place, so a half-unpacked one
-    // is never found. tar reads .zip too on Windows (bsdtar, since Windows 10).
+    // is never found.
     const unpacking = `${pin.dir}.part`;
     rmSync(unpacking, { recursive: true, force: true });
     mkdirSync(unpacking, { recursive: true });
-    // Windows' own tar.exe: Git Bash's GNU tar, often first on the PATH, takes
-    // "D:" for a remote host.
-    const tarExe =
-      process.platform === "win32"
-        ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
-        : "tar";
-    const tar = Bun.spawnSync([tarExe, "-xf", archive, "-C", unpacking], { stderr: "pipe" });
-    if (tar.exitCode !== 0) {
+    unpack(archive, unpacking);
+    rmSync(archive, { force: true });
+    // whisper.cpp's Ubuntu build needs a newer glibc than Bun does: on glibc
+    // 2.28-2.33 it unpacks but can't load (#223). It's tried where it was
+    // unpacked, so one that can't run is never where transcribe looks, and a
+    // working one there before (or on the PATH) stays the one used.
+    const starts = deps.starts ?? wontStart;
+    const why = await starts(join(unpacking, relative(pin.dir, pin.program)));
+    if (why) {
       rmSync(unpacking, { recursive: true, force: true });
-      throw new Error(`couldn't unpack ${archive}: ${tar.stderr.toString().trim()}`);
+      const other = findWhisperServer(process.env, home);
+      if (other && !(await starts(other))) {
+        log(
+          `whisper.cpp's whisper-server ${WHISPER_BUILD} doesn't run here (${why}); using ${other}.`,
+        );
+        return 0;
+      }
+      log(
+        `whisper.cpp's whisper-server ${WHISPER_BUILD} doesn't run on this computer: ${why}\n` +
+          "Install one built for it (`brew install whisper-cpp`, or build whisper.cpp from source) " +
+          "and put it on your PATH, or set MOCKINGBIRD_WHISPER_SERVER to it, then run this again.",
+      );
+      return 1;
     }
     // The one there stays until the new one is in place.
     const old = `${pin.dir}.old`;
@@ -656,20 +678,6 @@ export async function pullWhisper(
       throw error;
     }
     rmSync(old, { recursive: true, force: true });
-    rmSync(archive, { force: true });
-    // whisper.cpp's Ubuntu build needs a newer glibc than Bun does: on glibc
-    // 2.28-2.33 it unpacks but can't load (#223). Kept, it would hide a
-    // whisper-server on the PATH that works.
-    const why = (deps.starts ?? wontStart)(pin.program);
-    if (why) {
-      rmSync(pin.dir, { recursive: true, force: true });
-      log(
-        `whisper.cpp's whisper-server ${WHISPER_BUILD} doesn't run on this computer: ${why}\n` +
-          "Install one built for it (`brew install whisper-cpp`, or build whisper.cpp from source) " +
-          "and put it on your PATH, or set MOCKINGBIRD_WHISPER_SERVER to it.",
-      );
-      return 1;
-    }
   } finally {
     rmSync(lock, { force: true });
   }

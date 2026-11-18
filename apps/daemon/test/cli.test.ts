@@ -52,9 +52,19 @@ describe("mockingbird", () => {
   });
 });
 
-test("engineStatus says what's installed", () => {
+test("a whisper-server that ignores SIGTERM is killed at the deadline", async () => {
+  if (process.platform === "win32") return;
+  const dir = mkdtempSync(join(tmpdir(), "mb-hang-"));
+  const script = join(dir, "whisper-server");
+  writeFileSync(script, "#!/bin/sh\ntrap '' TERM\nsleep 30\n", { mode: 0o755 });
+  const started = performance.now();
+  expect(await wontStart(script, 300)).toContain("no answer");
+  expect(performance.now() - started).toBeLessThan(3000);
+});
+
+test("engineStatus says what's installed", async () => {
   const home = mkdtempSync(join(tmpdir(), "mb-status-"));
-  expect(engineStatus(home, () => null, { CLAUDE_CONFIG_DIR: home })).toEqual({
+  expect(await engineStatus(home, () => null, { CLAUDE_CONFIG_DIR: home })).toEqual({
     transcriptionModel: null,
     vadModel: false,
     ffmpeg: false,
@@ -65,20 +75,22 @@ test("engineStatus says what's installed", () => {
     dictionaryWords: 0,
     oldPlugin: null,
   });
-  expect(engineStatus(home, () => null, { MOCKINGBIRD_CHROME: process.execPath }).chrome).toBe(
-    true,
+  expect(
+    (await engineStatus(home, () => null, { MOCKINGBIRD_CHROME: process.execPath })).chrome,
+  ).toBe(true);
+  expect((await engineStatus(home, () => null, { MOCKINGBIRD_CHROME: "/no/chrome" })).chrome).toBe(
+    false,
   );
-  expect(engineStatus(home, () => null, { MOCKINGBIRD_CHROME: "/no/chrome" }).chrome).toBe(false);
   mkdirSync(join(home, "models"));
   writeFileSync(join(home, "models", "ggml-base.en.bin"), "");
   writeFileSync(join(home, "models", "silero_vad.onnx"), "");
   expect(
-    engineStatus(
+    await engineStatus(
       home,
       (n) => `/usr/bin/${n}`,
       {},
       () => ["libx264"],
-      () => undefined,
+      async () => undefined,
     ),
   ).toMatchObject({
     transcriptionModel: "ggml-base.en.bin",
@@ -89,32 +101,46 @@ test("engineStatus says what's installed", () => {
   });
   // One that's there but can't load (a build for a newer glibc) says why (#223).
   expect(
-    engineStatus(
+    await engineStatus(
       home,
       (n) => `/usr/bin/${n}`,
       {},
       () => [],
-      () => "GLIBC_2.38 not found",
+      async () => "GLIBC_2.38 not found",
     ),
   ).toMatchObject({ whisperServer: false, whisperServerError: "GLIBC_2.38 not found" });
-  expect(wontStart(process.execPath)).toBeUndefined();
-  expect(wontStart("/no/whisper-server")).toBeString();
+  expect(await wontStart(process.execPath)).toBeUndefined();
+  expect(await wontStart("/no/whisper-server")).toBeString();
   // A model named by path, outside models/, is the one in use (#223).
   const elsewhere = join(home, "ggml-small.bin");
   writeFileSync(elsewhere, "");
   expect(
-    engineStatus(home, () => null, { MOCKINGBIRD_ASR_MODEL: elsewhere }).transcriptionModel,
+    (await engineStatus(home, () => null, { MOCKINGBIRD_ASR_MODEL: elsewhere })).transcriptionModel,
   ).toBe(elsewhere);
   expect(
-    engineStatus(home, () => null, { MOCKINGBIRD_ASR_MODEL: "/no/ggml-x.bin" }).transcriptionModel,
+    (await engineStatus(home, () => null, { MOCKINGBIRD_ASR_MODEL: "/no/ggml-x.bin" }))
+      .transcriptionModel,
   ).toBeNull();
+  // One that's there but can't run says why, not "missing".
+  const noExec = join(home, "whisper-server");
+  writeFileSync(noExec, "");
+  const cant = await engineStatus(
+    home,
+    () => null,
+    { MOCKINGBIRD_WHISPER_SERVER: noExec },
+    () => [],
+  );
+  expect(cant.whisperServer).toBe(false);
+  expect(cant.whisperServerError).toBeString();
   // An override that names nothing isn't a whisper-server.
   expect(
-    engineStatus(
-      home,
-      () => null,
-      { MOCKINGBIRD_WHISPER_SERVER: "/no/whisper-server" },
-      () => [],
+    (
+      await engineStatus(
+        home,
+        () => null,
+        { MOCKINGBIRD_WHISPER_SERVER: "/no/whisper-server" },
+        () => [],
+      )
     ).whisperServer,
   ).toBe(false);
 });

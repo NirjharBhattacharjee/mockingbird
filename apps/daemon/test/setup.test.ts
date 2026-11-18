@@ -390,7 +390,9 @@ test("on Linux with no Homebrew, setup downloads the pinned whisper-server and d
   if (!pin) throw new Error("no pinned whisper-server for linux-x64");
   const asked: string[] = [];
   const which = (n: string) => (n === "ffmpeg" ? "/usr/bin/ffmpeg" : null);
-  const before = checks({ ...linux, home: h, mbHome: mb, which, env: {} });
+  // A full ffmpeg, faked: CI's runners have none on the PATH.
+  const run = () => ({ code: 0, out: ffmpegLists() });
+  const before = checks({ ...linux, home: h, mbHome: mb, which, run, env: {} });
   expect(before.find((c) => c.name === "whisper-server")?.fix).toContain("mockingbird models pull");
   await setup([], {
     ...linux,
@@ -398,7 +400,7 @@ test("on Linux with no Homebrew, setup downloads the pinned whisper-server and d
     mbHome: mb,
     env: {},
     which,
-    run: () => ({ code: 0, out: ffmpegLists() }),
+    run,
     ask: (q) => {
       asked.push(q);
       return true;
@@ -413,7 +415,7 @@ test("on Linux with no Homebrew, setup downloads the pinned whisper-server and d
   expect(asked.some((q) => q.includes("Homebrew"))).toBe(false);
   expect(asked[0]).toMatch(/^Download the speech models and whisper-server \(up to/);
   expect(
-    checks({ ...linux, home: h, mbHome: mb, which, env: {} }).find(
+    checks({ ...linux, home: h, mbHome: mb, which, run, env: {} }).find(
       (c) => c.name === "whisper-server",
     ),
   ).toMatchObject({ ok: true, detail: pin.program });
@@ -507,4 +509,49 @@ test("oldPlugin finds the pre-#140 mockingbird-studio plugin in Claude Code (#25
   expect(
     checks({ env, mbHome: dir, which: () => null }).find((c) => c.name === "old plugin")?.fix,
   ).toContain("/plugin uninstall mockingbird-studio");
+});
+
+test("doctor fails a whisper-server that won't start, an override that isn't there, and an ffmpeg that fails", () => {
+  const h = home();
+  const mb = join(h, ".mockingbird");
+  // Like Bun.which, a full path that's there comes back as it is.
+  const at = (n: string) =>
+    /(^|\/)(ffmpeg|whisper-server)$/.test(n) ? `/usr/bin/${n.split("/").at(-1)}` : null;
+  const glibc = checks({
+    ...mac,
+    home: h,
+    mbHome: mb,
+    env: {},
+    which: at,
+    run: (argv) =>
+      argv[1] === "--help"
+        ? { code: 127, out: "/lib64/libc.so.6: version `GLIBC_2.38' not found" }
+        : { code: 0, out: ffmpegLists() },
+  });
+  const server = glibc.find((c) => c.name === "whisper-server");
+  expect(server).toMatchObject({ ok: false });
+  expect(server?.detail).toContain("GLIBC_2.38");
+  expect(server?.fix).toContain("MOCKINGBIRD_WHISPER_SERVER");
+  const wrong = checks({
+    ...mac,
+    home: h,
+    mbHome: mb,
+    env: { MOCKINGBIRD_WHISPER_SERVER: "/no/whisper-server" },
+    which: none,
+    run: () => ({ code: 0, out: "" }),
+  }).find((c) => c.name === "whisper-server");
+  expect(wrong?.detail).toContain("isn't there");
+  expect(wrong?.fix).toStartWith("point MOCKINGBIRD_WHISPER_SERVER");
+  const ffmpeg = checks({
+    ...mac,
+    home: h,
+    mbHome: mb,
+    env: {},
+    which: at,
+    run: () => ({ code: 1, out: `${ffmpegLists()}\nSegmentation fault` }),
+  }).find((c) => c.name === "ffmpeg");
+  expect(ffmpeg).toMatchObject({
+    ok: false,
+    detail: "/usr/bin/ffmpeg won't run: Segmentation fault",
+  });
 });

@@ -1,12 +1,4 @@
-import {
-  accessSync,
-  constants,
-  existsSync,
-  realpathSync,
-  renameSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { main as dictionaryMain, readDictionary } from "./dictionary.ts";
@@ -145,16 +137,6 @@ async function pullOne(args: string[]): Promise<number> {
   return code;
 }
 
-/** Whether `path` is a file this user can run. */
-function runnable(path: string): boolean {
-  try {
-    accessSync(path, constants.X_OK);
-    return statSync(path).isFile();
-  } catch {
-    return false;
-  }
-}
-
 /** The Whisper model transcription would load, as a name in models/ or the path it's at. */
 function activeModel(home: string, env: Record<string, string | undefined>): string | null {
   const models = join(home, "models");
@@ -169,7 +151,7 @@ function activeModel(home: string, env: Record<string, string | undefined>): str
 }
 
 /** What `status` and the MCP `status` tool report. */
-export function engineStatus(
+export async function engineStatus(
   home = mockingbirdHome(),
   which = (name: string) => Bun.which(name),
   env = process.env,
@@ -177,8 +159,10 @@ export function engineStatus(
   starts = wontStart,
 ) {
   const server = findWhisperServer(env, home, which);
-  const found = server !== undefined && (runnable(server) || which(server) !== null);
-  const serverError = found ? (starts(server) ?? null) : null;
+  // One that's there but can't run (no execute bit, a missing loader) says why,
+  // not "missing": installing another wouldn't fix an override.
+  const found = server !== undefined && (existsSync(server) || which(server) !== null);
+  const serverError = found ? ((await starts(server)) ?? null) : null;
   let words = 0;
   try {
     words = readDictionary(home).length;
@@ -201,8 +185,8 @@ export function engineStatus(
   };
 }
 
-function status(): number {
-  const s = engineStatus();
+async function status(): Promise<number> {
+  const s = await engineStatus();
   const yes = (ok: boolean, missing: string) => (ok ? "installed" : `missing: ${missing}`);
   console.log(
     `transcription model: ${s.transcriptionModel ?? "missing: `mockingbird models pull`"}`,
