@@ -55,12 +55,12 @@ import { findChrome, fontFaces } from "./models.ts";
 import { clipsFrom, findPauses, measure } from "./pauses.ts";
 import {
   asrChoice,
+  checkChoice,
   type Engines,
   enginesFor,
   type ModelChoice,
   mockingbirdHome,
   requireFile,
-  startEngines,
   WHISPER_LANGUAGES,
 } from "./runtime.ts";
 import { scopes } from "./scopes.ts";
@@ -2992,38 +2992,61 @@ function heardFile(source: string, model: string, language: string): string {
   return join(mockingbirdHome(), "cache", "words", `${key}.json`);
 }
 
+/** The cache file each call is filling now: a second call for it waits (#235). */
+const filling = new Map<string, Promise<unknown>>();
+
+/** `fn` once no other call in this process is filling `file`. */
+async function serially<T>(file: string, fn: () => Promise<T>): Promise<T> {
+  const run = (filling.get(file) ?? Promise.resolve()).catch(() => {}).then(fn);
+  filling.set(file, run);
+  try {
+    return await run;
+  } finally {
+    if (filling.get(file) === run) filling.delete(file);
+  }
+}
+
 /**
  * Each source's words and silences over the stretches asked for (absolute
  * paths), heard once and kept, so a later call hears only what no call
- * before it did. A new stretch is heard with 2 s either side, as captions
- * are, and keeps the words whose middle is in it. Names are fixed from the
- * dictionary as the words are read, so a word added to the dictionary later
- * still applies.
+ * before it did. A new stretch is decoded and heard with 2 s either side, as
+ * captions are, and keeps the words whose middle is in it. Names are fixed
+ * from the dictionary as the words are read, so a word added to the
+ * dictionary later still applies. `choice` is the project's transcription;
+ * with the language on auto it's detected from the first stretch heard, as
+ * `transcribe` does.
+ * ponytail: calls are serialised per cache file in this process only; two
+ * engine processes filling one file at once keep the last one's words.
  */
 export async function sourceWords(
   sources: Map<string, Span[]>,
   log: (m: string) => void,
+  choice: ModelChoice = {},
 ): Promise<Map<string, { words: Word[]; gaps: Span[] }>> {
-  const { whisperModel, language } = asrChoice(log);
+  checkChoice(choice);
+  const env = {
+    ...process.env,
+    ...(choice.model ? { MOCKINGBIRD_ASR_MODEL: choice.model } : {}),
+    ...(choice.language ? { MOCKINGBIRD_LANGUAGE: choice.language } : {}),
+  };
+  const { whisperModel, language } = asrChoice(log, env);
   const spell = speller(log, language);
   const out = new Map<string, { words: Word[]; gaps: Span[] }>();
   let engines: Engines | undefined;
   try {
     for (const [source, spans] of sources) {
       const file = heardFile(requireFile(source, "File"), whisperModel, language);
-      let heard: Heard = { covered: [], words: [], gaps: [] };
-      try {
-        heard = JSON.parse(readFileSync(file, "utf8"));
-      } catch {
-        // Not heard yet, or a file from a crash: hear it again.
-      }
-      // Stretches less than 4 s apart are heard as one: their padding would overlap anyway.
-      const todo = union(uncovered(spans, heard.covered), 4);
-      if (todo.length) {
+      const heard = await serially(file, async () => {
+        let heard: Heard = { covered: [], words: [], gaps: [] };
+        try {
+          heard = JSON.parse(readFileSync(file, "utf8"));
+        } catch {
+          // Not heard yet, or a file from a crash: hear it again.
+        }
+        // Stretches less than 4 s apart are heard as one: their padding would overlap anyway.
+        const todo = union(uncovered(spans, heard.covered), 4);
+        if (!todo.length) return heard;
         if ((await probe(source)).audio) {
-          const audio = await loadAudio(source);
-          const rate = audio.sampleRate;
-          engines ??= await startEngines(log, undefined, undefined, { dtw: true });
           const before = heard.covered;
           const fresh = (middle: number, s: Span) =>
             middle >= s.from &&
@@ -3033,11 +3056,11 @@ export async function sourceWords(
             // Silences either side too, for a cut at the stretch's edge to land in.
             const around = { from: Math.max(0, s.from - 2), to: s.to + 2 };
             heard.gaps = union([...heard.gaps, ...(await silences(source, around))]);
-            const first = Math.max(0, Math.round((s.from - 2) * rate));
-            const last = Math.min(audio.samples.length, Math.round((s.to + 2) * rate));
-            const piece = { sampleRate: rate, samples: audio.samples.subarray(first, last) };
+            // Only this stretch decoded: a minute of an 8-hour source isn't 880 MiB of PCM.
+            const piece = await loadAudio(source, around);
+            engines ??= (await enginesFor(piece, choice, log, process.env, { dtw: true })).engines;
             const placed: (Word & { at?: [number, number] })[] = [];
-            for await (const c of hear(piece, (first / rate) * 1000, engines)) {
+            for await (const c of hear(piece, around.from * 1000, engines)) {
               for (const w of timedWords(c.heard, c.offsetMs)) {
                 const at: [number, number] | undefined =
                   w.atMs === undefined ? undefined : [w.atMs / 1000, (w.atEndMs ?? w.atMs) / 1000];
@@ -3056,7 +3079,8 @@ export async function sourceWords(
         const temp = `${file}.${process.pid}.tmp`;
         writeFileSync(temp, JSON.stringify(heard));
         renameSync(temp, file);
-      }
+        return heard;
+      });
       out.set(source, {
         words: heard.words.map((w) => ({ ...w, word: spell(w.word) })),
         gaps: heard.gaps,
@@ -3085,7 +3109,16 @@ function wantedFrom(p: Project, ops: unknown[], dir: string): Map<string, Span[]
 async function editProject(file: string, ops: unknown[], log: (m: string) => void) {
   if (!ops.some((o) => (o as { op?: unknown })?.op === "cut_words")) return edit(file, ops);
   const dir = dirname(file);
-  const heard = await sourceWords(wantedFrom(load(file).project, ops, dir), log);
+  // Hearing takes a while: if the project changed meanwhile (another edit
+  // added a clip), hear what it asks for now, so no clip is missing words (#235).
+  let project = load(file).project;
+  let heard: Awaited<ReturnType<typeof sourceWords>>;
+  for (;;) {
+    heard = await sourceWords(wantedFrom(project, ops, dir), log, project.transcription);
+    const now = load(file).project;
+    if (JSON.stringify(now) === JSON.stringify(project)) break;
+    project = now;
+  }
   return edit(
     file,
     ops,
@@ -3095,11 +3128,15 @@ async function editProject(file: string, ops: unknown[], log: (m: string) => voi
 }
 
 /** The words in the project in `file`'s cut, from the word cache. */
-async function projectTranscript(file: string, log: (m: string) => void) {
-  const { project, created } = load(file);
-  if (created) throw new Error(`No project at ${file}; make one with \`edit\`.`);
+async function projectTranscript(file: string, log: (m: string) => void, choice: ModelChoice) {
+  if (load(file).created) throw new Error(`No project at ${file}; make one with \`edit\`.`);
+  checkChoice(choice);
+  // A model or language given here is kept on the project, so cut_words,
+  // captions and render hear the words this transcript shows.
+  if (choice.model || choice.language) edit(file, [{ op: "set", transcription: choice }]);
+  const { project } = load(file);
   const dir = dirname(file);
-  const heard = await sourceWords(wantedFrom(project, [], dir), log);
+  const heard = await sourceWords(wantedFrom(project, [], dir), log, project.transcription);
   return transcript(project, file, (path) => heard.get(resolve(dir, path))?.words ?? []);
 }
 
@@ -3123,6 +3160,7 @@ async function cutCaptions(
   cut: ReturnType<typeof compile>,
   log: (m: string) => void,
   { perCue = 3, lit = true, upper = false }: { perCue?: number; lit?: boolean; upper?: boolean },
+  choice: ModelChoice = {},
 ): Promise<string> {
   const heard = await sourceWords(
     new Map(
@@ -3133,6 +3171,7 @@ async function cutCaptions(
       ]),
     ),
     log,
+    choice,
   );
   // Every word of the clip's source: wordCaptions keeps the ones inside each clip.
   const asr = (path: string): AsrWord[] =>
@@ -3412,7 +3451,10 @@ async function renderProject(
     });
   }
   // The sound alone needs nothing drawn, so nothing is transcribed for captions.
-  const said = cut.captions && !soundOnly ? await cutCaptions(cut, log, cut.captions) : undefined;
+  const said =
+    cut.captions && !soundOnly
+      ? await cutCaptions(cut, log, cut.captions, project.transcription)
+      : undefined;
   // A draft reads 4K from proxies; its size is still the source's, not the proxy's.
   const clips = draft ? await proxied(cut.clips) : cut.clips;
   const source = await probe(first);
@@ -3604,7 +3646,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
     {
       name: "transcribe",
       description:
-        "Transcribe an audio or video file on this Mac (anything ffmpeg reads: m4a, mp3, wav, mp4, mov, mkv) with mockingbird's local Whisper. Returns the text in lines timestamped [mm:ss], with names fixed from the user's dictionary. Takes a few minutes for an hour of audio. `from`/`to` (seconds) transcribe one stretch only; `words: true` gives every word's start and end ([mm:ss.cc-mm:ss.cc] word) to cut a clip on, so keep that to a few minutes at a time. With `project` (an `edit` project file) instead of `path`: the words in its cut, clip by clip, each line at its time in the finished video, to read the edit and choose words for `cut_words`. A project's sources are heard once and kept, so this is quick after the first time.",
+        "Transcribe an audio or video file on this Mac (anything ffmpeg reads: m4a, mp3, wav, mp4, mov, mkv) with mockingbird's local Whisper. Returns the text in lines timestamped [mm:ss], with names fixed from the user's dictionary. Takes a few minutes for an hour of audio. `from`/`to` (seconds) transcribe one stretch only; `words: true` gives every word's start and end ([mm:ss.cc-mm:ss.cc] word) to cut a clip on, so keep that to a few minutes at a time. With `project` (an `edit` project file) instead of `path`: the words in its cut, clip by clip, each line at its time in the finished video, to read the edit and choose words for `cut_words`. A project's sources are heard once and kept, so this is quick after the first time. `model` and `language` given with a project are kept on it, so cut_words, captions and render hear the same words.",
       inputSchema: {
         type: "object",
         properties: {
@@ -3627,11 +3669,8 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
       },
       run: (a) => {
         if (a.project !== undefined) {
-          // A project's words come from the word cache, heard with the user's settings.
-          if (a.model !== undefined || a.language !== undefined) {
-            throw new Error("`model` and `language` work with `path`, not with `project` yet.");
-          }
-          return projectTranscript(resolve(String(a.project)), log);
+          // A project's words come from the word cache, heard with its transcription or the user's settings.
+          return projectTranscript(resolve(String(a.project)), log, choiceOf(a));
         }
         if (a.path === undefined) throw new Error("Give a `path`, or a `project`.");
         return transcribe(
@@ -3935,7 +3974,9 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
       run: async (a) => {
         if (a.project !== undefined) {
           if (a.model !== undefined || a.language !== undefined) {
-            throw new Error("`model` and `language` work with `path`, not with `project` yet.");
+            throw new Error(
+              "A project's captions are heard with its transcription: give `model` and `language` to `transcribe` with the project.",
+            );
           }
           const file = resolve(String(a.project));
           const { project, created } = load(file);
@@ -3944,11 +3985,16 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
           if (!cut.clips.length)
             throw new Error(`${file} has no clips yet; add some with \`edit\`.`);
           const set = project.captions ?? {};
-          const srt = await cutCaptions(cut, log, {
-            perCue: Math.round(within(a.perCue, 1, 8, "perCue", set.perCue ?? 3)),
-            lit: a.lit === undefined ? (set.lit ?? true) : !!a.lit,
-            upper: a.upper === undefined ? (set.upper ?? false) : !!a.upper,
-          });
+          const srt = await cutCaptions(
+            cut,
+            log,
+            {
+              perCue: Math.round(within(a.perCue, 1, 8, "perCue", set.perCue ?? 3)),
+              lit: a.lit === undefined ? (set.lit ?? true) : !!a.lit,
+              upper: a.upper === undefined ? (set.upper ?? false) : !!a.upper,
+            },
+            project.transcription,
+          );
           return srt || "No speech in the cut.";
         }
         if (a.path === undefined) throw new Error("Give a `path` and `clips`, or a `project`.");

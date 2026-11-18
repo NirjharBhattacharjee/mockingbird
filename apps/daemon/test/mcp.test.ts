@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -34,6 +35,7 @@ import {
   seekClips,
   segments,
   soundOf,
+  sourceWords,
   spans,
   THREE_URL,
   tempo,
@@ -1166,6 +1168,64 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
       if (saved.model === undefined) delete process.env.MOCKINGBIRD_ASR_MODEL;
       if (saved.server === undefined) delete process.env.MOCKINGBIRD_WHISPER_SERVER;
       else process.env.MOCKINGBIRD_WHISPER_SERVER = saved.server;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 180_000);
+
+  test("two calls filling one word cache keep both, and transcribe keeps a project's model (#235)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mb-words-"));
+    const saved = { home: process.env.MOCKINGBIRD_HOME, model: process.env.MOCKINGBIRD_ASR_MODEL };
+    try {
+      const home = join(dir, "home");
+      mkdirSync(home);
+      symlinkSync(
+        join(saved.home ?? join(homedir(), ".mockingbird"), "models"),
+        join(home, "models"),
+      );
+      process.env.MOCKINGBIRD_HOME = home;
+      process.env.MOCKINGBIRD_ASR_MODEL = "ggml-base.en.bin";
+      const hello = join(dir, "hello.wav");
+      copyFileSync(join(import.meta.dir, "../../../bench/fixtures/hello.wav"), hello);
+      // Two stretches of one source at once: the second waits, then hears only its own.
+      const ask = (from: number, to: number) =>
+        sourceWords(new Map([[hello, [{ from, to }]]]), () => {});
+      await Promise.all([ask(0, 1.5), ask(3, 4.5)]);
+      const [cached] = readdirSync(join(home, "cache", "words"));
+      const heard = JSON.parse(readFileSync(join(home, "cache", "words", String(cached)), "utf8"));
+      expect(heard.covered).toEqual([
+        { from: 0, to: 1.5 },
+        { from: 3, to: 4.5 },
+      ]);
+
+      const tool = (name: string) =>
+        mcpTools(
+          async () => ({}),
+          () => {},
+        ).find((t) => t.name === name) as { run: (a: Record<string, unknown>) => Promise<string> };
+      const project = join(dir, "edit.json");
+      await tool("edit").run({
+        project,
+        ops: [{ op: "add", type: "clip", path: "hello.wav", from: 0, to: 4.5 }],
+      });
+      await expect(tool("transcribe").run({ project, model: "../data.db" })).rejects.toThrow(
+        "model takes a file name",
+      );
+      expect(JSON.parse(readFileSync(project, "utf8"))).not.toHaveProperty("transcription");
+      const said = await tool("transcribe").run({
+        project,
+        model: "ggml-base.en.bin",
+        language: "en",
+      });
+      expect(said.toLowerCase()).toContain("hello world");
+      expect(JSON.parse(readFileSync(project, "utf8")).transcription).toEqual({
+        model: "ggml-base.en.bin",
+        language: "en",
+      });
+    } finally {
+      process.env.MOCKINGBIRD_HOME = saved.home;
+      process.env.MOCKINGBIRD_ASR_MODEL = saved.model;
+      if (saved.home === undefined) delete process.env.MOCKINGBIRD_HOME;
+      if (saved.model === undefined) delete process.env.MOCKINGBIRD_ASR_MODEL;
       rmSync(dir, { recursive: true, force: true });
     }
   }, 180_000);

@@ -184,6 +184,12 @@ export type Project = {
    */
   level?: { target: number };
   look?: ProjectLook;
+  /**
+   * The Whisper model (a file in models/) and language its words are heard
+   * with, when not the user's settings: `transcribe` with the project sets it,
+   * so cut_words, captions and render hear what the transcript showed (#235).
+   */
+  transcription?: { model?: string; language?: string };
   clips: Clip[];
   texts: Text[];
   inserts: Insert[];
@@ -480,6 +486,14 @@ function captions(v: unknown, what: string): Captions | null {
 }
 
 /** `true`, or `{ target }` in LUFS (default -16): the project's `level`. */
+function transcription(v: unknown): Project["transcription"] {
+  const o = obj(v, "transcription", ["model", "language"]);
+  return clean({
+    model: maybe(o.model, (m) => str(m, "transcription.model")),
+    language: maybe(o.language, (l) => str(l, "transcription.language")),
+  });
+}
+
 function level(v: unknown): { target: number } | undefined {
   if (v === false || v === null) return undefined;
   if (v === true) return { target: -16 };
@@ -517,6 +531,7 @@ export function check(v: unknown): Project {
     "captions",
     "level",
     "look",
+    "transcription",
     "clips",
     "texts",
     "inserts",
@@ -540,6 +555,7 @@ export function check(v: unknown): Project {
     captions: maybe(o.captions, (c) => captions(c, "captions")),
     level: maybe(o.level, (v) => level(v)),
     look: maybe(o.look, (l) => look(l, "look")),
+    transcription: maybe(o.transcription, transcription),
     clips: list("clips").map((c, i) => clip(c, `clips[${i}]`)),
     texts: list("texts").map((t, i) => text(t, `texts[${i}]`)),
     inserts: list("inserts").map((t, i) => insert(t, `inserts[${i}]`)),
@@ -812,13 +828,23 @@ function spoken(p: Project, words: Words) {
 
 type Spoken = ReturnType<typeof spoken>;
 
-/** Where `query` is said in `said`, as the first word's position, in clip `scope` if given. */
-function places(said: Spoken, query: string[], scope?: string): number[] {
-  const found: number[] = [];
-  for (let at = 0; at + query.length <= said.length; at++) {
-    const run = said.slice(at, at + query.length);
-    if (scope && run.some((s) => s.clip.id !== scope)) continue;
-    if (run.every((s, k) => plain(s.word.word) === query[k])) found.push(at);
+/**
+ * Where `query` is said in `said`, as the first and last word's positions,
+ * in the clips `scope` names if given. A word can hold more than one: a
+ * dictionary correction makes "geminipro" "Gemini Pro" (#235).
+ */
+function places(said: Spoken, query: string[], scope?: Set<string>) {
+  const tokens = said.flatMap((s, i) => plainWords(s.word.word).map((t, k) => ({ t, i, k })));
+  const found: { first: number; last: number }[] = [];
+  for (let at = 0; at + query.length <= tokens.length; at++) {
+    const run = tokens.slice(at, at + query.length);
+    const first = run[0] as (typeof run)[number];
+    const last = run.at(-1) as (typeof run)[number];
+    // Whole words only: a quote starts on a word's first part and ends on its last.
+    const ends = plainWords((said[last.i] as Spoken[number]).word.word).length - 1;
+    if (first.k !== 0 || last.k !== ends) continue;
+    if (scope && run.some((r) => !scope.has((said[r.i] as Spoken[number]).clip.id))) continue;
+    if (run.every((r, k) => r.t === query[k])) found.push({ first: first.i, last: last.i });
   }
   return found;
 }
@@ -837,6 +863,8 @@ function cutSaid(
   last: number,
   notes: string[],
   gaps?: Gaps,
+  /** Gets the id of each clip a split makes. */
+  made?: Set<string>,
 ) {
   const cuts: { id: string; from: number; to: number }[] = [];
   for (let k = first; k <= last; k++) {
@@ -861,8 +889,9 @@ function cutSaid(
       a ? Math.min(a.from + MARGIN, (a.from + a.to) / 2) : from,
       b ? Math.max(b.to - MARGIN, (b.from + b.to) / 2) : to,
     ] as const;
-    // Both edges in one silence would cut nothing: keep Whisper's then.
-    if (snapped[1] - snapped[0] >= 0.05) [from, to] = snapped;
+    // Both edges in one silence would cut nothing, or a stretch of that
+    // silence and not the words: keep Whisper's then.
+    if (!(a && a === b) && snapped[1] - snapped[0] >= 0.05) [from, to] = snapped;
     const span = {
       id: clip.id,
       from: ms(Math.max(clip.from, from)),
@@ -885,6 +914,7 @@ function cutSaid(
       const second = freeId(p, "c");
       step(p, { op: "split", id, at: from, newId: second }, `cut_words`, notes);
       step(p, { op: "trim", id: second, from: to }, `cut_words`, notes);
+      made?.add(second);
     }
   }
   const length = cuts.reduce((sum, c) => sum + c.to - c.from, 0);
@@ -902,18 +932,20 @@ function cutSaid(
 function cutWords(p: Project, a: Obj, what: string, notes: string[], words?: Words, gaps?: Gaps) {
   obj(a, what, ["text", "from", "to", "clip", "all"]);
   if (!words) return fail(`${what}: cut_words needs the transcript, which only the engine has`);
-  const scope = maybe(a.clip, (c) => findClip(p, c).id);
+  const clipId = maybe(a.clip, (c) => findClip(p, c).id);
+  // The clip asked for, and what splitting it makes: its later words are there (#235).
+  const scope = clipId === undefined ? undefined : new Set([clipId]);
   const all = maybe(a.all, (b) => bool(b, `${what}.all`)) ?? false;
-  const where = scope ?? "the cut";
+  const where = clipId ?? "the cut";
   const query = (v: unknown, key: string) => {
     const q = plainWords(str(v, `${what}.${key}`));
     if (!q.length) fail(`${what}.${key} has no words`);
     return q;
   };
-  const listed = (said: Spoken, found: number[]) =>
+  const listed = (said: Spoken, found: { first: number }[]) =>
     found
       .slice(0, 5)
-      .map((at) => (said[at] as Spoken[number]).clip.id)
+      .map(({ first }) => (said[first] as Spoken[number]).clip.id)
       .join(", ");
   const missing = (text: unknown) =>
     `${what}: "${text}" isn't said in ${where}. Words match without case or punctuation; \`transcribe\` with the project shows the cut's words.`;
@@ -934,7 +966,7 @@ function cutWords(p: Project, a: Obj, what: string, notes: string[], words?: Wor
       const now = spoken(p, words);
       const at = places(now, q, scope)[0];
       if (at === undefined) break;
-      cutSaid(p, now, at, at + q.length - 1, notes, gaps);
+      cutSaid(p, now, at.first, at.last, notes, gaps, scope);
     }
     return;
   }
@@ -948,11 +980,11 @@ function cutWords(p: Project, a: Obj, what: string, notes: string[], words?: Wor
       `${what}: "${a.from}" is said ${begins.length} times (in ${listed(said, begins)}); add words to it or give its clip`,
     );
   }
-  const first = begins[0] as number;
+  const first = (begins[0] as { first: number }).first;
   // The first place `to` is said from there on, so a range can run across clips.
-  const stop = places(said, end).find((at) => at >= first);
+  const stop = places(said, end).find((at) => at.first >= first);
   if (stop === undefined) fail(`${what}: "${a.to}" isn't said after "${a.from}"`);
-  cutSaid(p, said, first, (stop as number) + end.length - 1, notes, gaps);
+  cutSaid(p, said, first, (stop as { last: number }).last, notes, gaps);
 }
 
 const OPS = ["add", "remove", "split", "trim", "move", "set", "cut_words"];
@@ -1015,7 +1047,9 @@ function step(p: Project, raw: unknown, what: string, notes: string[], words?: W
       }
       const id = a.newId === undefined ? freeId(p, "c") : str(a.newId, `${what}.newId`);
       // Where the split falls in the finished video, which a speed changes.
-      const offset = (at - c.from) / (c.speed ?? 1);
+      // To the millisecond, as what's on the clip is: an unrounded offset could
+      // round a 1 ms text's two ends to one time and fail the batch (#235).
+      const offset = ms((at - c.from) / (c.speed ?? 1));
       const second: Clip = { ...c, id, from: at };
       const f = offset / lengthOf(c);
       cutMasks(second, f, 1, at - c.from);
@@ -1086,7 +1120,7 @@ function step(p: Project, raw: unknown, what: string, notes: string[], words?: W
         }
       };
       if (id === undefined) {
-        obj(fields, what, ["size", "fps", "split", "captions", "level", "look"]);
+        obj(fields, what, ["size", "fps", "split", "captions", "level", "look", "transcription"]);
         merge(p as unknown as Obj);
         return;
       }
@@ -1342,18 +1376,32 @@ export function transcript(p: Project, file: string, words: Words): string {
   return lines.join("\n");
 }
 
-/** The sources a project and its ops ask for, and the stretches of each: what cut_words needs heard. */
+/**
+ * The sources a project and its ops ask for, and the stretches of each: what
+ * cut_words needs heard. Each clip there is after each op, so an add, trim or
+ * set earlier in the batch counts (#235).
+ */
 export function wanted(p: Project, ops: unknown[]): Map<string, { from: number; to: number }[]> {
   const out = new Map<string, { from: number; to: number }[]>();
-  const add = (path: string, from: number, to: number) =>
-    out.set(path, [...(out.get(path) ?? []), { from, to }]);
-  for (const c of p.clips) add(c.path, c.from, c.to);
-  for (const op of ops) {
-    const o = op as Obj;
-    if (o?.op === "add" && o.type === "clip" && typeof o.path === "string") {
-      const [from, to] = [Number(o.from), Number(o.to)];
-      if (from < to) add(o.path, from, to);
+  const seen = new Set<string>();
+  const take = (q: Project) => {
+    for (const c of q.clips) {
+      const key = JSON.stringify([c.path, c.from, c.to]);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.set(c.path, [...(out.get(c.path) ?? []), { from: c.from, to: c.to }]);
     }
+  };
+  const q = structuredClone(p);
+  take(q);
+  for (const op of ops) {
+    if ((op as Obj)?.op === "cut_words") continue;
+    try {
+      step(q, op, "op", []);
+    } catch {
+      break; // The real batch fails here too.
+    }
+    take(q);
   }
   return out;
 }

@@ -354,6 +354,24 @@ export function languageModels(home = mockingbirdHome()): [string, string][] {
 /** What one call asked for: a model file in models/, and a language code or "auto". */
 export type ModelChoice = { model?: string; language?: string };
 
+/** Throws unless `choice` names a file in models/ and a language Whisper knows. */
+export function checkChoice(choice: ModelChoice): void {
+  if (choice.model !== undefined && !isWhisperFile(choice.model)) {
+    throw new Error(
+      `model takes a file name in models/, like ggml-large-v3-turbo.bin; got ${choice.model}`,
+    );
+  }
+  if (
+    choice.language !== undefined &&
+    choice.language !== "auto" &&
+    !WHISPER_LANGUAGES.has(choice.language)
+  ) {
+    throw new Error(
+      `language takes a code Whisper knows, like en, bn or de, or auto; got ${choice.language}`,
+    );
+  }
+}
+
 /**
  * The engines for one transcription (#143). A `model` or `language` given
  * for the call wins over MOCKINGBIRD_ASR_MODEL and MOCKINGBIRD_LANGUAGE, and
@@ -369,28 +387,16 @@ export async function enginesFor(
   choice: ModelChoice,
   log: (message: string) => void,
   env: Record<string, string | undefined> = process.env,
+  { dtw = false } = {},
 ): Promise<{ engines: Engines; language: string; model: string; detected: boolean }> {
-  if (choice.model !== undefined && !isWhisperFile(choice.model)) {
-    throw new Error(
-      `model takes a file name in models/, like ggml-large-v3-turbo.bin; got ${choice.model}`,
-    );
-  }
-  if (
-    choice.language !== undefined &&
-    choice.language !== "auto" &&
-    !WHISPER_LANGUAGES.has(choice.language)
-  ) {
-    throw new Error(
-      `language takes a code Whisper knows, like en, bn or de, or auto; got ${choice.language}`,
-    );
-  }
+  checkChoice(choice);
   const callEnv = {
     ...env,
     ...(choice.model ? { MOCKINGBIRD_ASR_MODEL: choice.model } : {}),
     ...(choice.language ? { MOCKINGBIRD_LANGUAGE: choice.language } : {}),
   };
   const start = async (e: typeof callEnv) => {
-    const engines = await startEngines(log, freePort(), e);
+    const engines = await startEngines(log, freePort(), e, { dtw });
     return { engines, language: spokenLanguage(e), model: basename(engines.model) };
   };
   let first = await start(callEnv);
