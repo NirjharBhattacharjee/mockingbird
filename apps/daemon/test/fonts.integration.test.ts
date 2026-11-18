@@ -47,6 +47,24 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("shipped fonts (integratio
     expect((await draw(true)).equals(await draw(false))).toBe(false);
   }, 60_000);
 
+  // 直 and 骨 are drawn differently in Japan and China: as Japanese, a kanji
+  // takes Noto Sans JP's shape, not SC's (#224).
+  test("a Japanese caption's kanji take the Japanese shapes", async () => {
+    const draw = async (line: string, language: string) => {
+      const dir = mkdtempSync(join(tmpdir(), "fonts-han-"));
+      const [file] = (await drawCaptions([line], dir, 1080, 1920, {
+        chrome,
+        fonts,
+        language,
+      })) ?? [""];
+      keep(file as string, `caption-han-${language}-${line.length}.png`);
+      return readFileSync(file as string);
+    };
+    expect((await draw("直骨", "ja")).equals(await draw("直骨", "zh"))).toBe(false);
+    // Unknown language: kana in the captions makes them Japanese.
+    expect((await draw("直骨です", "en")).equals(await draw("直骨です", "ja"))).toBe(true);
+  }, 60_000);
+
   test("CJK titles are drawn in the shipped Noto", async () => {
     const dir = mkdtempSync(join(tmpdir(), "fonts-title-"));
     const titles = ["你好，世界", "日本語のタイトル", "안녕하세요"];

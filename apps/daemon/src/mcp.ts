@@ -61,6 +61,7 @@ import {
   type ModelChoice,
   mockingbirdHome,
   requireFile,
+  spokenLanguage,
   WHISPER_LANGUAGES,
 } from "./runtime.ts";
 import { scopes } from "./scopes.ts";
@@ -1824,7 +1825,12 @@ async function segmented(
     const wrap = noNetwork();
     const fonts = fontFaces();
     const images = lines.length
-      ? await drawCaptions(lines, dir, width ?? 1080, height, { chrome, wrap, fonts })
+      ? await drawCaptions(lines, dir, width ?? 1080, height, {
+          chrome,
+          wrap,
+          fonts,
+          language: spokenLanguage(),
+        })
       : [];
     if (!images) return undefined;
     const layers = [
@@ -2159,7 +2165,12 @@ async function render(
     const chrome = lines.length ? findChrome() : undefined;
     const wrap = noNetwork();
     const images = chrome
-      ? await drawCaptions(lines, dir, width ?? 1080, height, { chrome, wrap, fonts: fontFaces() })
+      ? await drawCaptions(lines, dir, width ?? 1080, height, {
+          chrome,
+          wrap,
+          fonts: fontFaces(),
+          language: spokenLanguage(),
+        })
       : undefined;
     const burn = !!text && !images && (await canBurn());
     sidecar = !!text && !images && !burn;
