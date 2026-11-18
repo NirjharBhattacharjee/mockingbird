@@ -90,6 +90,10 @@ what they leave open. Pace numbers come from
 | News or commentary | face plus screenshots of the source as `inserts`; highlight the number that matters | 1.2 to 2.5 | title pairing a heavy face with an italic serif; quotes on a card | `electronic.js` low, or none |
 | Listicle (any format) | as its format | as its format | a numbered header that ticks over and stays on screen | as its format |
 
+Every format also gets a grade: **color-grade** measures and corrects the
+picture, then adds the look its table gives for the format (a vlog warm or
+punchy, a talking head clean, a product film neutral).
+
 Keep the intent in view while editing: teaching keeps every step even if it's
 slow; selling ends on the call to action; entertainment can drop context to
 get to the laugh faster; documenting keeps things in the order they happened.

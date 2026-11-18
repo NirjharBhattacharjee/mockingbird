@@ -59,6 +59,8 @@ instead.
    Give each clip a `focus` on the speaker's face, or use `split` for a screen
    recording with a webcam (screen on top, webcam below, `captionsY: 0.5`).
    Punch in with `zoom` per **retention-editing**.
+   Grade each clip per **color-grade**: its `color` correction and the
+   look go in the clip's `effects`.
 6. **Render the cut.** One `render` call per short, `vertical: true` (or
    `split`), or a project per short from `edit`, with `set` giving it
    `size: "1080x1920"` and `captions: {}`. A project takes clips from more

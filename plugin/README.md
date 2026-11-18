@@ -76,8 +76,9 @@ so Claude doesn't see every tool twice.
 | `motion-graphics` | Animation as code for mockingbird's `motion` tool: a design kit, templates for shorts and explainers, and sound effects, set from a frame-by-frame study of twenty professional edits |
 | `look` | A look made for each video: read the transcript, settle the mood, write a style for this video using the 86 explainer styles as references, show it as a look board, and edit only once the user approves |
 | `music` | Background music written as code: five generators, an energy curve drawn from the edit, mixed and ducked under the speech |
-| `style-match` | Measure a video that worked and match its pace |
-| `reviewer` agent | Checks every render: size, loudness, black frames, opening, captions, framing |
+| `color-grade` | Grading by numbers with `scopes`: correct, match the shots, then one of five free LUT looks (clean, punchy, warm-film, teal-orange, faded) |
+| `style-match` | Measure a video that worked and match its pace and colour |
+| `reviewer` agent | Checks every render: size, loudness, black frames, colour, opening, captions, framing |
 
 ## Privacy
 
