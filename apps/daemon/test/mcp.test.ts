@@ -30,6 +30,7 @@ import {
   STYLES_URL,
   seekClips,
   segments,
+  soundOf,
   spans,
   THREE_URL,
   tempo,
@@ -1599,6 +1600,21 @@ test("motion fills in a page's `from \"KIT\"` with the kit's file URL, beside th
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("the speech is measured as the render hears it, gain and J cut included (#257)", () => {
+  const clip = {
+    path: "/a.mp4",
+    from: 2,
+    to: 4,
+    speed: 2,
+    effects: [{ name: "gain", db: 15 }],
+    sound: { from: 1.5, to: 4 },
+  };
+  // A project's level puts a gain on each clip: measuring without it would lift the speech twice.
+  expect(soundOf(clip, 0, { width: 1, height: 1, fps: 30, length: 1 })).toBe(
+    "[0:a]atrim=start=0:duration=2.5,asetpts=PTS-STARTPTS,atempo=2,volume=15dB",
+  );
 });
 
 test("level brings each source to the target once, within 30 dB (#265)", async () => {

@@ -77,15 +77,26 @@ function placed(cut: Compiled, fps: number): Placed[] {
   });
 }
 
-/** Items laid in lanes: each goes in the first lane free by its start. */
+/**
+ * Items laid in lanes, each lane in time order. An item goes one lane above
+ * the highest earlier item (in project order) it overlaps, so what the
+ * render draws over another stays above it in the editor too.
+ */
 function lanes<T extends { from: number; to: number }>(items: T[]): T[][] {
+  const lane: number[] = [];
+  items.forEach((item, i) => {
+    const under = items
+      .slice(0, i)
+      .map((e, k) => (e.from < item.to - 1e-6 && item.from < e.to - 1e-6 ? lane[k] : -1));
+    lane.push(Math.max(-1, ...(under as number[])) + 1);
+  });
   const out: T[][] = [];
-  for (const item of [...items].sort((a, b) => a.from - b.from)) {
-    const lane = out.find((l) => (l.at(-1) as T).to <= item.from + 1e-6);
-    if (lane) lane.push(item);
-    else out.push([item]);
-  }
-  return out;
+  items.forEach((item, i) => {
+    const k = lane[i] as number;
+    while (out.length <= k) out.push([]);
+    (out[k] as T[]).push(item);
+  });
+  return out.filter((l) => l.length).map((l) => l.sort((a, b) => a.from - b.from));
 }
 
 /**
@@ -108,8 +119,8 @@ function heard(cut: Compiled, info: (path: string) => Source) {
 }
 
 /** What the export leaves out, said plainly. */
-function left(cut: Compiled, fcpxml: boolean): string[] {
-  const notes: string[] = [];
+function left(cut: Compiled, fcpxml: boolean, more: string[] = []): string[] {
+  const notes: string[] = [...more];
   const fx = [...cut.clips, ...cut.inserts].filter((c) => c.effects?.length).length;
   if (fx) notes.push(`${fx} clips' and inserts' effects (grade, key, masks)`);
   if (cut.adjust.length) notes.push(`${cut.adjust.length} adjustment layers`);
@@ -130,6 +141,8 @@ function left(cut: Compiled, fcpxml: boolean): string[] {
     (c) => c.transition && !["fade", "dissolve"].includes(c.transition.type),
   ).length;
   if (wipes) notes.push(`${wipes} transitions other than a fade (they come in as dissolves)`);
+  const ducked = cut.sounds.filter((s) => s.path && s.duck).length;
+  if (ducked) notes.push(`the ducking of ${ducked} sounds under the speech`);
   if (!fcpxml && cut.sounds.some((s) => s.path && s.volume !== 1)) {
     notes.push("the sounds' volumes (OTIO has no standard gain; FCPXML keeps them)");
   }
@@ -220,8 +233,20 @@ export function toOtio(
   info: (path: string) => Source,
 ): { text: string; left: string[] } {
   const main = placed(cut, fps);
+  // OTIO lets a transition reach only into its two clips, and two can't overlap:
+  // one that doesn't fit beside the transitions before it comes in as a cut.
+  const fits = main.map((c, i) => {
+    const prev = main[i - 1];
+    return !!c.transition && !!prev && c.after <= c.length && c.before <= prev.length;
+  });
+  for (let i = 1; i < main.length; i++) {
+    const prev = main[i - 1] as Placed;
+    if (fits[i] && fits[i - 1] && prev.after + (main[i] as Placed).before > prev.length)
+      fits[i] = false;
+  }
+  const cuts = main.filter((c, i) => c.transition && !fits[i]).length;
   const pieces = (sound: boolean) =>
-    main.flatMap((c) => {
+    main.flatMap((c, i) => {
       const [from, length] = sound ? [c.sound.from, c.sound.length] : [c.from, c.length];
       const warp =
         c.speed === 1
@@ -237,7 +262,7 @@ export function toOtio(
             ];
 
       return [
-        ...(c.transition
+        ...(c.transition && fits[i]
           ? [
               {
                 OTIO_SCHEMA: "Transition.1",
@@ -308,7 +333,18 @@ export function toOtio(
     },
     metadata: { mockingbird: { size: cut.size } },
   };
-  return { text: `${JSON.stringify(timeline, null, 2)}\n`, left: left(cut, false) };
+  return {
+    text: `${JSON.stringify(timeline, null, 2)}\n`,
+    left: left(
+      cut,
+      false,
+      cuts
+        ? [
+            `${cuts} transitions longer than a clip beside them leaves room for (they come in as cuts)`,
+          ]
+        : [],
+    ),
+  };
 }
 
 // --- FCPXML 1.10 ------------------------------------------------------------

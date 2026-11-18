@@ -8,7 +8,8 @@ import { along, type Point } from "./track.ts";
 
 type Param = { min: number; max: number; default: number; about: string };
 /** What an effect is put on: the picture's size, and how long it lasts in the finished video. */
-export type Ctx = { width: number; height: number; length: number; fps: number };
+/** `speed` is the clip's (default 1): a tracked path's times are the source's, the graph's the output's. */
+export type Ctx = { width: number; height: number; length: number; fps: number; speed?: number };
 type Entry = {
   kind: "video" | "audio";
   about: string;
@@ -253,6 +254,9 @@ export function checkEffects(effects: unknown, what: string): Effect[] {
     for (const [key, value] of Object.entries(given)) {
       if (key === "mask") {
         if (entry.kind !== "video") throw new Error(`${at}: only a picture effect takes a mask`);
+        // Its new frames are made for the whole clip before any effect runs (#257).
+        if (name === "interpolate")
+          throw new Error(`${at}: interpolate makes the whole clip's frames; it takes no mask`);
         checkMask(value, `${at}.mask`);
         continue;
       }
@@ -274,7 +278,7 @@ export function checkEffects(effects: unknown, what: string): Effect[] {
           ...Object.keys(entry.params),
           ...(entry.files ?? []),
           ...Object.keys(entry.colors ?? {}),
-          ...(entry.kind === "video" ? ["mask"] : []),
+          ...(entry.kind === "video" && name !== "interpolate" ? ["mask"] : []),
         ].join(", ");
         throw new Error(`${at}: ${name} has no ${key}; it takes ${known}`);
       }
@@ -370,7 +374,8 @@ export function pictureSteps(
     flush(l("p"));
     steps.push(
       `${at}split${l("k")}${l("e")}`,
-      ...maskSteps(e.mask as Mask, ctx, l("m"), `${tag}${n}`),
+      // A letter between tag and index, as l() has: clip 1's effect 10 and clip 11's effect 0 differ.
+      ...maskSteps(e.mask as Mask, ctx, l("m"), `${tag}q${n}`),
       `${l("e")}${b.filter},format=yuva420p${l("f")}`,
       `${l("f")}${l("m")}alphamerge${l("x")}`,
       `${l("k")}${l("x")}overlay=format=auto${l("o")}`,
@@ -388,7 +393,9 @@ export function pictureSteps(
  */
 export function maskSteps(m: Mask, ctx: Ctx, out: string, tag: string): string[] {
   if (!m.path?.length) return [`${maskSource(m, ctx)}${out}`];
-  const { width: W, height: H, fps, length } = ctx;
+  const { width: W, height: H, fps, length, speed = 1 } = ctx;
+  // The path is timed in the source; at a speed, output time t is source time t*speed.
+  const at = speed === 1 ? "t" : `(t*${f(speed)})`;
   const pw = even((m.w ?? 0.2) * W);
   const ph = even((m.h ?? 0.2) * H);
   const d = f(Math.max(length, 1 / fps));
@@ -400,7 +407,7 @@ export function maskSteps(m: Mask, ctx: Ctx, out: string, tag: string): string[]
   return [
     `color=c=white:s=${pw}x${ph}:r=${fps}:d=${d}${round},format=yuv420p[${tag}ms]`,
     `color=c=black:s=${W}x${H}:r=${fps}:d=${d},format=yuv420p[${tag}mb]`,
-    `[${tag}mb][${tag}ms]overlay=x='${along(m.path, "x", "t", W)}':y='${along(m.path, "y", "t", H)}':shortest=1,format=gray${m.invert ? ",negate" : ""}${soft}${out}`,
+    `[${tag}mb][${tag}ms]overlay=x='${along(m.path, "x", at, W)}':y='${along(m.path, "y", at, H)}':shortest=1,format=gray${m.invert ? ",negate" : ""}${soft}${out}`,
   ];
 }
 
@@ -533,6 +540,6 @@ export function catalog(): string {
     })
     .join("\n")
     .concat(
-      '\n\nAny picture effect takes mask: { shape: "rect" | "ellipse" | "polygon", x, y, w, h (0-1 of the picture; a polygon has points: [[x, y], ...]), feather (0-0.5 of the width), invert, end: { x, y, w, h } to move a rect or ellipse there over the clip }, to apply it to that part of the frame only.',
+      '\n\nAny picture effect but interpolate takes mask: { shape: "rect" | "ellipse" | "polygon", x, y, w, h (0-1 of the picture; a polygon has points: [[x, y], ...]), feather (0-0.5 of the width), invert, end: { x, y, w, h } to move a rect or ellipse there over the clip }, to apply it to that part of the frame only.',
     );
 }

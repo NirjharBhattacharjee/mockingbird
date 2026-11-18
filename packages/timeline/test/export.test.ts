@@ -116,3 +116,59 @@ test("a looped sound repeats, a wipe and OTIO's lost gain are reported, b-roll i
   expect(x.text).toContain('srcEnable="video" name="b.mp4"');
   expect(x.left.join("; ")).not.toContain("volumes");
 });
+
+test("an insert over an earlier one stays above it in both formats (#257)", () => {
+  // A[0,1], B[0,5], C[1,4]: the render draws C over B.
+  const stacked = compile(
+    check({
+      version: 1,
+      clips: [{ id: "c1", path: "/m/a.mp4", from: 0, to: 6 }],
+      inserts: [
+        { id: "A", path: "/m/A.mp4", from: 0, to: 1 },
+        { id: "B", path: "/m/B.mp4", from: 0, to: 5 },
+        { id: "C", path: "/m/C.mp4", from: 1, to: 4 },
+      ],
+    }),
+    "/m",
+  );
+  const tracks = JSON.parse(toOtio(stacked, "cut", 30, () => source).text).tracks.children;
+  const lane = (file: string) =>
+    tracks.findIndex((k: { children: { name?: string }[] }) =>
+      k.children.some((c) => c.name === file),
+    );
+  expect(lane("C.mp4")).toBeGreaterThan(lane("B.mp4"));
+  expect(lane("B.mp4")).toBeGreaterThan(lane("A.mp4"));
+  const x = toFcpxml(stacked, "cut", "1280x720", 30, () => source).text;
+  const fcpLane = (file: string) =>
+    Number(x.match(new RegExp(`lane="(\\d+)"[^>]*name="${file}"`))?.[1]);
+  expect(fcpLane("C.mp4")).toBeGreaterThan(fcpLane("B.mp4"));
+});
+
+test("OTIO: transitions with no room in their clips come in as cuts, and ducking is reported (#257)", () => {
+  // Three 2 s clips with 1.5 s fades into the second and third: the middle one is too short for both.
+  const fades = compile(
+    check({
+      version: 1,
+      clips: [
+        { id: "c1", path: "/m/a.mp4", from: 0, to: 2 },
+        { id: "c2", path: "/m/a.mp4", from: 2, to: 4, transition: { type: "fade", duration: 1.5 } },
+        { id: "c3", path: "/m/a.mp4", from: 4, to: 6, transition: { type: "fade", duration: 1.5 } },
+      ],
+      audio: [{ id: "s1", path: "/m/bed.wav", at: 0, duck: true }],
+    }),
+    "/m",
+  );
+  const o = toOtio(fades, "cut", 30, () => source);
+  const v1 = JSON.parse(o.text).tracks.children[0].children as {
+    OTIO_SCHEMA: string;
+    in_offset?: { value: number };
+    out_offset?: { value: number };
+  }[];
+  // The middle clip is 15 frames cut to cut; each fade needs 22 or 23 of them, so neither fits.
+  expect(v1.filter((c) => c.OTIO_SCHEMA === "Transition.1")).toHaveLength(0);
+  expect(o.left.join("; ")).toContain("2 transitions longer than a clip beside them");
+  expect(o.left.join("; ")).toContain("the ducking of 1 sounds");
+  expect(toFcpxml(fades, "cut", "1280x720", 30, () => source).left.join("; ")).toContain(
+    "the ducking of 1 sounds",
+  );
+});

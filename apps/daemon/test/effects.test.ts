@@ -11,6 +11,10 @@ test("effects are checked against the catalog", () => {
   expect(() => checkEffects([{ name: "color", exposure: 9 }], "fx")).toThrow("from -3 to 3");
   expect(() => checkEffects([{ name: "color", warmth: 1 }], "fx")).toThrow("has no warmth");
   expect(() => checkEffects([{ name: "lut" }], "fx")).toThrow("needs file");
+  // interpolate's frames are made for the whole clip, so a mask would be ignored (#257).
+  expect(() =>
+    checkEffects([{ name: "interpolate", mask: { shape: "rect", w: 0.5, h: 0.5 } }], "fx"),
+  ).toThrow("takes no mask");
   expect(() => checkEffects({ name: "color" }, "fx")).toThrow("must be a list");
 });
 

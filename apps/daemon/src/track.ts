@@ -110,13 +110,15 @@ function score(
  * Follows `box` (0-1 of the picture, where the subject is at `from`) to
  * `to`. Returns its top left over time, `KEEP` points a second, and the
  * lowest match on the way (under about 0.5, it was probably lost there).
+ * It gives the event loop a turn every second of frames, so the server
+ * answers other calls while a long window is followed.
  */
-export function follow(
+export async function follow(
   list: Uint8Array[],
   width: number,
   height: number,
   box: Box,
-): { points: { x: number; y: number }[]; worst: number } {
+): Promise<{ points: { x: number; y: number }[]; worst: number }> {
   const w = Math.max(4, Math.round(box.w * width));
   const h = Math.max(4, Math.round(box.h * height));
   // Kept inside the frame once the box is at least 4 px, so a corner box reads no pixel past it.
@@ -129,7 +131,8 @@ export function follow(
   let worst = 1;
   // Far enough for fast motion at 15 frames a second: a sixth of the width.
   const reach = Math.round(width / 6);
-  for (const img of list.slice(1)) {
+  for (const [n, img] of list.slice(1).entries()) {
+    if (n % RATE === RATE - 1) await new Promise((r) => setImmediate(r));
     let best = { x, y, s: -2 };
     const look = (cx: number, cy: number) => {
       if (cx < 0 || cy < 0 || cx + w > width || cy + h > height) return;
@@ -164,7 +167,7 @@ export async function track(
   aspect: number,
 ): Promise<{ points: Point[]; worst: number }> {
   const { list, height } = await frames(path, from, to, aspect);
-  const { points, worst } = follow(list, WIDTH, height, box);
+  const { points, worst } = await follow(list, WIDTH, height, box);
   const step = RATE / KEEP;
   const kept = points
     .map((p, i) => ({ ...p, i }))

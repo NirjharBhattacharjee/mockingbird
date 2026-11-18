@@ -38,6 +38,7 @@ import type { SpeechSegment } from "@mockingbird/vad";
 import { audioStats } from "./audio-stats.ts";
 import { addEntries, formatEntry, readDictionary } from "./dictionary.ts";
 import {
+  type Ctx,
   catalog,
   checkEffects,
   checkPath,
@@ -639,6 +640,22 @@ type Shaped = Clip & { silent?: boolean; sdr?: string };
  * split's clips are brought to it before their areas are taken). A `silent`
  * clip's sound is silence; an `sdr` clip's picture goes through those filters first. Ends in [v], and [a] if there's sound.
  */
+/**
+ * Clip `i`'s sound as the render hears it, from input `i`: its own stretch
+ * (a J or L cut's), its speed and its sound effects. speechGain measures
+ * this, so a `gain` effect (a project's `level`) isn't lifted twice.
+ */
+export function soundOf(clip: Shaped, i: number, ctx: Ctx): string {
+  const start = opened(clip).from;
+  const heard = clip.sound ?? clip;
+  const acut = clip.sound
+    ? `atrim=start=${heard.from - start}:duration=${heard.to - heard.from},`
+    : "";
+  const speed = clip.speed && clip.speed !== 1 ? `,${tempo(clip.speed)}` : "";
+  const fx = effectFilters(clip.effects, ctx).audio;
+  return `[${i}:a]${acut}asetpts=PTS-STARTPTS${speed}${fx ? `,${fx}` : ""}`;
+}
+
 export function renderGraph(
   clips: Shaped[],
   {
@@ -696,7 +713,7 @@ export function renderGraph(
       ? `trim=start=${clip.from - start}:duration=${clip.to - clip.from},`
       : "";
     const [width, height] = size.split("x").map(Number) as [number, number];
-    const ctx = { width, height, fps, length: lengthOf(clip) };
+    const ctx = { width, height, fps, length: lengthOf(clip), speed: clip.speed ?? 1 };
     const fx = effectFilters(clip.effects, ctx);
     const head = `[${i}:v]${clip.sdr ? `${clip.sdr},` : ""}${cut}setpts=PTS-STARTPTS${speed},${SQUARE}${look}`;
     // A masked effect needs labels of its own (#198); the rest stay one chain.
@@ -709,12 +726,9 @@ export function renderGraph(
       : `${head}${fx.video ? `,${fx.video}` : ""}${tb}[v${i}]`;
     if (!audio) return v;
     const heard = clip.sound ?? clip;
-    const acut = clip.sound
-      ? `atrim=start=${heard.from - start}:duration=${heard.to - heard.from},`
-      : "";
     const a = clip.silent
       ? `aevalsrc=0:c=stereo:s=48000:d=${(heard.to - heard.from) / (clip.speed ?? 1)}[a${i}]`
-      : `[${i}:a]${acut}asetpts=PTS-STARTPTS${speed ? `,${tempo(clip.speed as number)}` : ""}${fx.audio ? `,${fx.audio}` : ""}[a${i}]`;
+      : `${soundOf(clip, i, ctx)}[a${i}]`;
     return `${v};${a}`;
   });
   const inputs = clips.map((_, i) => (audio ? `[v${i}][a${i}]` : `[v${i}]`)).join("");
@@ -1280,7 +1294,13 @@ function integrated(said: string): number {
  */
 async function speechGain(input: string[], streams: string[]): Promise<number> {
   if (!streams.length) return 0;
-  const graph = `${streams.join("")}concat=n=${streams.length}:v=0:a=1,ebur128=framelog=quiet`;
+  // A stream is an input's label ("[0:a]") or a chain ending in its own label.
+  const labels = streams.map((s) => s.match(/\[[^\]]+\]$/)?.[0] ?? s);
+  const chains = streams.filter((s, i) => s !== labels[i]);
+  const graph = [
+    ...chains,
+    `${labels.join("")}concat=n=${streams.length}:v=0:a=1,ebur128=framelog=quiet`,
+  ].join(";");
   const proc = Bun.spawn(
     ["ffmpeg", "-nostdin", "-nostats", ...input, "-filter_complex", graph, "-f", "null", "-"],
     { stderr: "pipe" },
@@ -2110,7 +2130,11 @@ async function render(
       audio && sounds.length
         ? await speechGain(
             seekClips(path, clips),
-            shaped.flatMap((c, i) => (c.silent ? [] : [`[${i}:a]`])),
+            shaped.flatMap((c, i) => {
+              if (c.silent) return [];
+              const ctx = { width: 1, height: 1, fps: rate, length: lengthOf(c) };
+              return [`${soundOf(c, i, ctx)}[m${i}]`];
+            }),
           )
         : 0;
     const graph = renderGraph(shaped, {
@@ -3741,7 +3765,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
     {
       name: "track",
       description:
-        "Follow a box through a video: give where the subject is at `from` (x, y, w, h, 0-1 of the picture) and get its top left over time, five points a second, `at` seconds from `from`. Give the points as a mask's `path` (with the box's w and h) to keep a blur or a grade on a moving face, plate or logo. They're in the source picture, so they line up with the clip when it isn't reframed. `worst` is the weakest match on the way: under about 0.5 the subject was probably lost there; track shorter stretches.",
+        "Follow a box through a video: give where the subject is at `from` (x, y, w, h, 0-1 of the picture) and get its top left over time, five points a second, `at` seconds from `from`. Give the points as a mask's `path` (with the box's w and h) to keep a blur or a grade on a moving face, plate or logo. They're in the source picture, so they line up with the clip when it isn't reframed. `worst` is the weakest match on the way: under about 0.5 the subject was probably lost there; track shorter stretches. Up to two minutes a call.",
       inputSchema: {
         type: "object",
         properties: {
@@ -3765,7 +3789,8 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
         const path = requireFile(resolve(String(a.path)), "File");
         const source = await probe(path);
         const from = within(a.from, 0, source.seconds, "from", 0);
-        const end = Math.min(source.seconds, from + 600);
+        // Two minutes at most: every frame is held at 320 wide, about 330 MB for a 9:16 window.
+        const end = Math.min(source.seconds, from + 120);
         const to = within(a.to, from, end, "to", end);
         const b = (a.box ?? {}) as Record<string, unknown>;
         const box = {

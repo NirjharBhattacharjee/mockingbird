@@ -49,7 +49,7 @@ with `"args": ["/c", "C:\\Users\\<you>\\.mockingbird\\bin\\mockingbird.cmd", "mc
 | `transcribe(project)` | The words in a project's cut, clip by clip, each line at its time in the finished video: the edit as text, to choose what `cut_words` cuts. See [Text-based editing](#text-based-editing). |
 | `effects` | The effects catalog: each effect's name, whether it's on the picture or the sound, and its settings with ranges and defaults; see [Effects](#effects). |
 | `export(project, format, out)` | A project as FCPXML 1.10 and OpenTimelineIO, to finish the cut in Final Cut, Resolve or Premiere; see [Exporting to an editor](#exporting-to-an-editor). |
-| `track(path, from, to, box)` | Follows a box through a video by template matching on frames shrunk to 320 wide: its top left over time, five points a second, to give a mask as its `path` so a blur or a grade stays on a moving face, plate or logo. A test pattern moving across a busy 1280x720 background was followed for 6 s in 0.38 s, at most 4.4 px off. `worst` under about 0.5 means it was lost. |
+| `track(path, from, to, box)` | Follows a box through a video by template matching on frames shrunk to 320 wide: its top left over time, five points a second, to give a mask as its `path` so a blur or a grade stays on a moving face, plate or logo. A test pattern moving across a busy 1280x720 background was followed for 6 s in 0.38 s, at most 4.4 px off. `worst` under about 0.5 means it was lost. A call follows up to two minutes (`to` is held there): every frame is kept at 320 wide while it runs, so track a long take a shot at a time. |
 | `sync(paths, window)` | Lines up recordings of one take (cameras, a separate recorder) by their sound: each file's offset against the first, for a multicam edit. Two cameras offset by 1.234 s, with different mic tone, gain and room noise, came out at 1.234 s (0.0 ms off) in 0.44 s. |
 | `scopes(path, from, to, every)` | What a colourist reads off the scopes, as numbers: luma, the histogram's thirds, clipping, saturation and skin's distance from the skin-tone line; see [Effects](#effects). An HDR source is measured after it's brought to SDR, as `render` will show it. |
 | `audio_stats(path, from, to)` | What a file's sound measures, since the agent can't listen: see [Measuring sound](#measuring-sound). |
@@ -435,7 +435,7 @@ framing, and a clip with effects is always encoded, never stream-copied.
 | `reverse` | picture and sound | plays the clip backwards; keep it short, it's held in memory |
 | `interpolate` | picture | smooth slow motion: a clip at speed under 1 gets new in-between frames instead of repeats. In a 0.25x clip, repeated frames went from 89 of 118 to 7, but 4 s at 720p took 9.5 s to render instead of 0.7 |
 
-Any picture effect takes a `mask` to apply it to part of the frame only:
+Any picture effect except `interpolate` (whose new frames are made for the whole clip) takes a `mask` to apply it to part of the frame only:
 `{shape: "rect" | "ellipse" | "polygon", x, y, w, h, feather, invert, end}`.
 Sizes are 0–1 of the picture, a polygon has `points: [[x, y], ...]`,
 `feather` softens the edge (0–0.5 of the width), and `end: {x, y, w, h}`
@@ -517,11 +517,13 @@ The export carries:
   by whole frames around its cut;
 - inserts on video tracks above the clips;
 - texts, as Basic Title titles in FCPXML and markers in OTIO;
-- sounds on their own audio tracks, with their volume;
+- sounds on their own audio tracks, with their volume in FCPXML (OTIO has
+  no standard gain, so its export lists the volumes as left out);
 - in OTIO, speed changes and J and L cuts too.
 
 What an editor can't take this way (effects, framing, split screens,
-generated beds, word captions) is listed in the reply, so it can be redone
+generated beds, word captions, ducking, and in OTIO a transition with no
+room for it in the clips beside it, which comes in as a cut) is listed in the reply, so it can be redone
 there.
 
 Checked on a three-clip project with a dissolve, a 2x clip with a J cut, two

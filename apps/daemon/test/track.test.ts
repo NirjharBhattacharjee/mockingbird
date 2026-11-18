@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import { maskSteps } from "../src/effects.ts";
+import { maskSteps, pictureSteps } from "../src/effects.ts";
 import { renderGraph } from "../src/mcp.ts";
 import { along, follow } from "../src/track.ts";
 
-test("track follows a textured square across noisy frames (#200)", () => {
+test("track follows a textured square across noisy frames (#200)", async () => {
   const [W, H] = [160, 90];
   let seed = 3;
   const rnd = () => {
@@ -20,7 +20,12 @@ test("track follows a textured square across noisy frames (#200)", () => {
         img[(20 + k + j) * W + 10 + 2 * k + i] = texture[(j >> 2) * 4 + (i >> 2)] as number;
     return img;
   });
-  const { points, worst } = follow(list, W, H, { x: 10 / W, y: 20 / H, w: 16 / W, h: 16 / H });
+  const { points, worst } = await follow(list, W, H, {
+    x: 10 / W,
+    y: 20 / H,
+    w: 16 / W,
+    h: 16 / H,
+  });
   expect(points.at(-1)).toEqual({ x: 10 + 2 * 29, y: 20 + 29 });
   expect(worst).toBeGreaterThan(0.8);
 });
@@ -53,6 +58,32 @@ test("a mask with a path moves a drawn box with overlay", () => {
   expect(steps[2]?.endsWith("[m]")).toBe(true);
 });
 
+test("a masked path reads source time on a sped-up clip, and labels stay apart (#257)", () => {
+  const mask = {
+    shape: "rect" as const,
+    path: [
+      { at: 0, x: 0, y: 0 },
+      { at: 2, x: 0.5, y: 0.5 },
+    ],
+  };
+  const fast = maskSteps(
+    mask,
+    { width: 640, height: 360, fps: 30, length: 1, speed: 2 },
+    "[m]",
+    "c0",
+  );
+  expect(fast[2]).toContain("lt((t*2),2)");
+  // Clip 1's effect 10 and clip 11's effect 0.
+  const blur = { name: "blur", sigma: 4, mask };
+  const ctx = { width: 640, height: 360, fps: 30, length: 2 };
+  const effects = (n: number) => Array.from({ length: n + 1 }, () => blur);
+  const a = pictureSteps(effects(10), "[a]", "[ao]", ctx, "c1").join(";");
+  const b = pictureSteps(effects(0), "[b]", "[bo]", ctx, "c11").join(";");
+  const labels = (g: string) => new Set(g.match(/\[[a-z0-9]+m[sb]\]/g));
+  const shared = [...labels(a)].filter((l) => labels(b).has(l));
+  expect(shared).toEqual([]);
+});
+
 test("an insert's box follows a path, timed from the insert's start (#200)", () => {
   const graph = renderGraph([{ from: 0, to: 4 }], {
     audio: false,
@@ -80,13 +111,13 @@ test("an insert's box follows a path, timed from the insert's start (#200)", () 
   );
 });
 
-test("a box that doesn't move is found where it was, and a corner box stays in the frame", () => {
+test("a box that doesn't move is found where it was, and a corner box stays in the frame", async () => {
   const [W, H] = [320, 180];
   const img = new Uint8Array(W * H);
   img[80 * W + 100] = 255;
-  const still = follow([img, img, img], W, H, { x: 100 / W, y: 80 / H, w: 4 / W, h: 4 / H });
+  const still = await follow([img, img, img], W, H, { x: 100 / W, y: 80 / H, w: 4 / W, h: 4 / H });
   expect(still.points.at(-1)).toEqual({ x: 100, y: 80 });
-  const corner = follow([img, img], W, H, { x: 0.99, y: 0.99, w: 0.01, h: 0.01 });
+  const corner = await follow([img, img], W, H, { x: 0.99, y: 0.99, w: 0.01, h: 0.01 });
   expect(corner.points[0]).toEqual({ x: W - 4, y: H - 4 });
   expect(Number.isNaN(corner.worst)).toBe(false);
 });
