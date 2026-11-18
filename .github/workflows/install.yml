@@ -70,7 +70,7 @@ jobs:
           # The engine must get this home, not fall back to the default one.
           # Compared inside cmd: echoing it would go through the code page.
           $env:WANT_HOME = $mb
-          cmd /v:on /c "call `"$shim`" --version >nul & if /i `"!MOCKINGBIRD_HOME!`"==`"%WANT_HOME%`" (exit 0) else (echo the shim set another MOCKINGBIRD_HOME & exit 1)"
+          cmd /v:on /c "call `"$shim`" --version >nul && if /i `"!MOCKINGBIRD_HOME!`"==`"%WANT_HOME%`" (exit 0) else (echo the shim set another MOCKINGBIRD_HOME & exit 1)"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         shell: powershell
       # SmartScreen only steps in for a file with the Mark of the Web, which

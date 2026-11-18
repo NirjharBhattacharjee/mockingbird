@@ -69,10 +69,10 @@ function helped(
   return false;
 }
 
-/** Runs a probe, killed at 10 s so a hung program can't hold up doctor. */
-const runIt = (argv: string[]) => {
+/** Runs a command; a probe passes `timeout`, so a hung program can't hold up doctor. */
+const runIt = (argv: string[], timeout?: number) => {
   try {
-    const r = Bun.spawnSync(argv, { stderr: "pipe", timeout: 10_000, killSignal: "SIGKILL" });
+    const r = Bun.spawnSync(argv, { stderr: "pipe", timeout, killSignal: "SIGKILL" });
     return { code: r.exitCode ?? 1, out: `${r.stdout}${r.stderr}` };
   } catch (error) {
     return { code: 127, out: error instanceof Error ? error.message : String(error) };
@@ -137,7 +137,8 @@ export const OLD_PLUGIN_FIX =
 /** Every check, in the order `doctor` prints them. `needed` ones decide its exit code. */
 export function checks(deps: SetupDeps = {}): Check[] {
   const which = deps.which ?? ((name: string) => Bun.which(name));
-  const run = deps.run ?? runIt;
+  // Probes only: setup's own `brew install` takes minutes, and runs without one.
+  const run = deps.run ?? ((argv: string[]) => runIt(argv, 10_000));
   const mb = deps.mbHome ?? mockingbirdHome();
   const brew = which("brew") ? "`brew install" : "install";
   const list: Check[] = [];
