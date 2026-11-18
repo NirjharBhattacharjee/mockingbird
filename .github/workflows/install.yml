@@ -68,9 +68,10 @@ jobs:
           & $shim status
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # The engine must get this home, not fall back to the default one.
-          [Console]::OutputEncoding = [Text.Encoding]::UTF8
-          $got = (cmd /v:on /c "call `"$shim`" --version >nul & echo !MOCKINGBIRD_HOME!" | Select-Object -Last 1).Trim()
-          if ($got -ne $mb) { throw "the shim set MOCKINGBIRD_HOME to '$got', not '$mb'" }
+          # Compared inside cmd: echoing it would go through the code page.
+          $env:WANT_HOME = $mb
+          cmd /v:on /c "call `"$shim`" --version >nul & if /i `"!MOCKINGBIRD_HOME!`"==`"%WANT_HOME%`" (exit 0) else (echo the shim set another MOCKINGBIRD_HOME & exit 1)"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         shell: powershell
       # SmartScreen only steps in for a file with the Mark of the Web, which
       # browsers add and Invoke-WebRequest doesn't (#159): what the installer
