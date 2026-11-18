@@ -5,9 +5,10 @@
  * rates here are optimistic; the comparison between models is what counts.
  * Real recordings with a hand-checked transcript belong in bench/voice/.
  */
-import { existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { wordDiff } from "../packages/asr/src/index.ts";
+import { decodeWav } from "../packages/audio/src/index.ts";
 
 export type Sentence = { text: string; names: string[] };
 
@@ -51,7 +52,38 @@ export type Clip = { wav: string; voice: Voice; sentence: Sentence };
 
 const DIR = join(import.meta.dir, "corpus");
 
-/** Every voice saying every sentence, generating any clip that's missing. */
+/**
+ * Words a second, a clip's length against its text. `say` now and then writes
+ * a clip that isn't the sentence (Tara once took 6.6 s of babble over a 3.9 s
+ * line), and every model then scores it as errors, which read as the models
+ * getting worse (#211). The 64 good clips speak at 2.3-4.1 words a second.
+ */
+export function wordsPerSecond(wav: string, text: string): number {
+  const { samples, sampleRate } = decodeWav(readFileSync(wav));
+  return text.split(/\s+/).length / (samples.length / sampleRate);
+}
+
+const SANE = { min: 2, max: 5 };
+
+function speak(voice: Voice, text: string, wav: string) {
+  const aiff = wav.replace(/\.wav$/, ".aiff");
+  const tmp = wav.replace(/\.wav$/, ".part.wav");
+  const say = Bun.spawnSync(["say", "-v", voice.name, "-o", aiff, text]);
+  if (say.exitCode !== 0) throw new Error(`say -v ${voice.name} failed: ${say.stderr}`);
+  const convert = Bun.spawnSync([..."afconvert -f WAVE -d LEI16@16000 -c 1".split(" "), aiff, tmp]);
+  rmSync(aiff, { force: true });
+  if (convert.exitCode !== 0) {
+    rmSync(tmp, { force: true });
+    throw new Error(`afconvert failed for ${wav}: ${convert.stderr}`);
+  }
+  // Renamed into place only once complete, so a half-written clip is never reused.
+  renameSync(tmp, wav);
+}
+
+/**
+ * Every voice saying every sentence, generating any clip that's missing and
+ * again any that's too slow or fast to be the sentence, cached ones included.
+ */
 export function corpus(): Clip[] {
   mkdirSync(DIR, { recursive: true });
   const clips: Clip[] = [];
@@ -60,23 +92,18 @@ export function corpus(): Clip[] {
       // Named after the text too, so editing a sentence makes a new clip
       // rather than scoring the old audio against the new words.
       const wav = join(DIR, `${voice.name}-${i + 1}-${Bun.hash(sentence.text).toString(36)}.wav`);
-      if (!existsSync(wav)) {
-        const aiff = wav.replace(/\.wav$/, ".aiff");
-        const tmp = wav.replace(/\.wav$/, ".part.wav");
-        const say = Bun.spawnSync(["say", "-v", voice.name, "-o", aiff, sentence.text]);
-        if (say.exitCode !== 0) throw new Error(`say -v ${voice.name} failed: ${say.stderr}`);
-        const convert = Bun.spawnSync([
-          ..."afconvert -f WAVE -d LEI16@16000 -c 1".split(" "),
-          aiff,
-          tmp,
-        ]);
-        rmSync(aiff, { force: true });
-        if (convert.exitCode !== 0) {
-          rmSync(tmp, { force: true });
-          throw new Error(`afconvert failed for ${wav}: ${convert.stderr}`);
+      for (let tries = 0; ; tries++) {
+        if (!existsSync(wav)) speak(voice, sentence.text, wav);
+        const rate = wordsPerSecond(wav, sentence.text);
+        if (rate >= SANE.min && rate <= SANE.max) break;
+        rmSync(wav);
+        if (tries === 2) {
+          throw new Error(
+            `say -v ${voice.name} keeps saying sentence ${i + 1} at ${rate.toFixed(1)} words a second, ` +
+              `not ${SANE.min}-${SANE.max}: listen to it with \`say -v ${voice.name} "${sentence.text}"\``,
+          );
         }
-        // Renamed into place only once complete, so a half-written clip is never reused.
-        renameSync(tmp, wav);
+        console.error(`${wav} is ${rate.toFixed(1)} words a second; making it again`);
       }
       clips.push({ wav, voice, sentence });
     });
