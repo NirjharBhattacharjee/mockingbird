@@ -124,6 +124,101 @@ export function spring(t, { from = 0, to = 1, start = 0, stiffness = 100, dampin
   }
   return from + (to - from) * done;
 }
+export function noise(x, seed = 0) {
+  const i = Math.floor(x);
+  const f = x - i;
+  const a = hash(i + seed * 1013.7) * 2 - 1;
+  const b = hash(i + 1 + seed * 1013.7) * 2 - 1;
+  return a + (b - a) * f * f * (3 - 2 * f);
+}
+export function shake(t, at, { amount = 18, dur = 0.5, freq = 24, seed = 1 } = {}) {
+  const d = t - at;
+  if (d < 0 || d > dur)
+    return { x: 0, y: 0, roll: 0 };
+  const k = (1 - d / dur) ** 2;
+  return {
+    x: noise(d * freq, seed) * amount * k,
+    y: noise(d * freq, seed + 1) * amount * k,
+    roll: noise(d * freq, seed + 2) * 0.0012 * amount * k
+  };
+}
+export function handheld(t, amount = 1, seed = 7) {
+  return {
+    x: (noise(t * 0.6, seed) * 14 + noise(t * 2.3, seed + 3) * 3) * amount,
+    y: (noise(t * 0.5, seed + 1) * 10 + noise(t * 2.1, seed + 4) * 3) * amount,
+    roll: noise(t * 0.4, seed + 5) * 0.008 * amount
+  };
+}
+export const REST = { x: 0, y: 0, sx: 0, sy: 0, zoom: 1, roll: 0, z: 0 };
+function settle(t, at, dur, zeta) {
+  const stiffness = (7 / dur) ** 2;
+  return spring(t, { start: at, stiffness, damping: 2 * zeta * Math.sqrt(stiffness) });
+}
+export function move(t, mv, cam = REST) {
+  const s = mv.strength ?? 1;
+  const dur = mv.dur ?? 1.6;
+  if (t < mv.at)
+    return cam;
+  const c = { ...cam };
+  switch (mv.preset) {
+    case "push-in":
+      c.z += 0.12 * s * settle(t, mv.at, dur, 0.95);
+      break;
+    case "dolly":
+      c.x += 0.07 * s * settle(t, mv.at, dur, 0.95);
+      break;
+    case "crash-zoom":
+      c.zoom *= 1 + 0.45 * s * settle(t, mv.at, dur, 0.45);
+      break;
+    case "whip-pan":
+      c.x += 0.5 * s * settle(t, mv.at, dur, 0.7);
+      break;
+    case "orbit": {
+      const p = settle(t, mv.at, dur, 0.95);
+      c.x += 0.09 * s * p;
+      c.roll += 0.02 * s * p;
+      c.zoom *= 1 + 0.05 * s * Math.sin(Math.PI * Math.min(1, p));
+      break;
+    }
+    case "handheld": {
+      if (t > mv.at + (mv.dur ?? Number.POSITIVE_INFINITY))
+        break;
+      const h = handheld(t - mv.at, s);
+      c.sx += h.x;
+      c.sy += h.y;
+      c.roll += h.roll;
+      break;
+    }
+    case "dolly-zoom": {
+      const z = 0.4 * s * settle(t, mv.at, dur, 0.95);
+      c.z += z;
+      c.zoom *= 1 - z;
+      break;
+    }
+  }
+  return c;
+}
+export function cameraAt(t, { moves = [], shakes = [], seed = 1 } = {}) {
+  let cam = REST;
+  for (const mv of moves)
+    cam = move(t, mv, cam);
+  for (const [i, s] of shakes.entries()) {
+    const k = shake(t, s.at, { amount: s.amount, seed: seed + i * 17 });
+    cam = { ...cam, sx: cam.sx + k.x, sy: cam.sy + k.y, roll: cam.roll + k.roll };
+  }
+  return cam;
+}
+const depthScale = (depth, cam) => cam.zoom * (1 + depth) / Math.max(0.05, 1 + depth - cam.z);
+export function project(x, y, depth, cam, W, H, u = 1) {
+  const scale = depthScale(depth, cam);
+  const k = 1 / Math.max(0.05, 1 + depth);
+  const cx = W / 2;
+  const cy = H / 2;
+  const dx = (x - cx - cam.x * W * k) * scale + cam.sx * u;
+  const dy = (y - cy - cam.y * H * k) * scale + cam.sy * u;
+  const [c, s] = [Math.cos(cam.roll), Math.sin(cam.roll)];
+  return { x: cx + dx * c - dy * s, y: cy + dx * s + dy * c, scale };
+}
 const GRAIN = new URL("assets/grain.png", import.meta.url).href;
 const pictures = new Map;
 export function picture(path) {
@@ -144,7 +239,10 @@ export function picture(path) {
   }
   return img;
 }
-export function page(draw, { audio } = {}) {
+export function page(draw, {
+  audio,
+  blur
+} = {}) {
   const m = globalThis.mockingbird;
   const canvas = document.createElement("canvas");
   canvas.width = m.width;
@@ -156,11 +254,28 @@ export function page(draw, { audio } = {}) {
   if (audio)
     m.audio = audio(m);
   picture(GRAIN);
-  m.draw = (t) => {
-    ctx.reset();
+  const frame = (c, t) => {
+    c.reset();
     if (m.video)
-      ctx.drawImage(m.video, 0, 0, m.width, m.height);
-    return draw(ctx, t, m);
+      c.drawImage(m.video, 0, 0, m.width, m.height);
+    return draw(c, t, m);
+  };
+  const { samples = 4, shutter = 0.5 } = blur === true ? {} : blur || { samples: 1 };
+  if (samples <= 1) {
+    m.draw = (t) => frame(ctx, t);
+    return;
+  }
+  const sum = new OffscreenCanvas(m.width, m.height);
+  const sctx = sum.getContext("2d");
+  m.draw = async (t) => {
+    sctx.reset();
+    for (let i = 0;i < samples; i++) {
+      await frame(ctx, t - shutter / m.fps * (i / (samples - 1)));
+      sctx.globalAlpha = 1 / (i + 1);
+      sctx.drawImage(canvas, 0, 0);
+    }
+    ctx.reset();
+    ctx.drawImage(sum, 0, 0);
   };
 }
 export function kit(ctx, t, m, theme = THEMES.night) {
@@ -194,6 +309,112 @@ export function kit(ctx, t, m, theme = THEMES.night) {
     ctx.setTransform(m0.a, m0.b, m0.c, m0.d, m0.e - far, m0.f);
     draw();
   });
+  const rad = (T.light ?? 90) * Math.PI / 180;
+  const beam = { x: -Math.cos(rad), y: Math.sin(rad) };
+  const drop = (distance, blur = distance * 2.5, color = "rgba(0,0,0,0.45)") => {
+    ctx.shadowColor = color;
+    ctx.shadowBlur = blur * u;
+    ctx.shadowOffsetX = beam.x * distance * u;
+    ctx.shadowOffsetY = beam.y * distance * u;
+  };
+  function rim(x, y, w, h, r = 24 * u, strength = 0.55) {
+    layer(() => {
+      const [cx, cy] = [x + w / 2, y + h / 2];
+      const reach = (Math.abs(beam.x) * w + Math.abs(beam.y) * h) / 2;
+      const g = ctx.createLinearGradient(cx - beam.x * reach, cy - beam.y * reach, cx + beam.x * reach, cy + beam.y * reach);
+      g.addColorStop(0, `rgba(255,255,255,${strength})`);
+      g.addColorStop(0.45, "rgba(255,255,255,0)");
+      ctx.strokeStyle = g;
+      ctx.lineWidth = 2 * u;
+      ctx.beginPath();
+      ctx.roundRect(x, y, w, h, r);
+      ctx.stroke();
+    });
+  }
+  function sweep(at, dur = 1.1, strength = 0.35) {
+    const p = (t - at) / dur;
+    if (p <= 0 || p >= 1)
+      return;
+    layer(() => {
+      const span = Math.hypot(W, H);
+      const pos = (expo(p) * 1.4 - 0.2) * span;
+      const [x0, y0] = [W / 2 - beam.x * span / 2, H / 2 - beam.y * span / 2];
+      const g = ctx.createLinearGradient(x0 + beam.x * (pos - 120 * u), y0 + beam.y * (pos - 120 * u), x0 + beam.x * (pos + 120 * u), y0 + beam.y * (pos + 120 * u));
+      g.addColorStop(0, "rgba(255,255,255,0)");
+      g.addColorStop(0.5, `rgba(255,255,255,${strength * Math.sin(Math.PI * p)})`);
+      g.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.globalCompositeOperation = "screen";
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, H);
+    });
+  }
+  const spare = [];
+  const canvasLike = (w, h, i) => {
+    spare[i] ??= new OffscreenCanvas(1, 1);
+    const c = spare[i];
+    if (c.width !== w || c.height !== h)
+      [c.width, c.height] = [w, h];
+    return c;
+  };
+  function defocus(paint, blur) {
+    const under = canvasLike(W, H, 0);
+    const u0 = under.getContext("2d");
+    u0.clearRect(0, 0, W, H);
+    u0.drawImage(ctx.canvas, 0, 0);
+    layer(() => {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, W, H);
+    });
+    paint();
+    let src = ctx.canvas;
+    let [w, h] = [W, H];
+    let i = 1;
+    while (i === 1 || W / w < blur / 1.5 && w > 8) {
+      [w, h] = [Math.ceil(w / 2), Math.ceil(h / 2)];
+      const c = canvasLike(w, h, i++);
+      const c2 = c.getContext("2d");
+      c2.clearRect(0, 0, w, h);
+      c2.imageSmoothingQuality = "high";
+      c2.drawImage(src, 0, 0, w, h);
+      src = c;
+    }
+    layer(() => {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, W, H);
+      ctx.drawImage(under, 0, 0);
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(src, 0, 0, w, h, 0, 0, W, H);
+    });
+  }
+  function view({
+    moves = [],
+    shakes = [],
+    focus = 0,
+    aperture = 0,
+    seed = 1
+  } = {}) {
+    const cam = cameraAt(t, { moves, shakes, seed });
+    return {
+      ...cam,
+      layer(depth, paint) {
+        const placed = () => layer(() => {
+          const scale = depthScale(depth, cam);
+          const k = 1 / Math.max(0.05, 1 + depth);
+          ctx.translate(W / 2, H / 2);
+          ctx.rotate(cam.roll);
+          ctx.translate(cam.sx * u, cam.sy * u);
+          ctx.scale(scale, scale);
+          ctx.translate(-W / 2 - cam.x * W * k, -H / 2 - cam.y * H * k);
+          paint();
+        });
+        const blur = Math.abs(depth - focus) * aperture * u;
+        if (blur < 1.5)
+          return placed();
+        defocus(placed, blur);
+      },
+      project: (x, y, depth = 0) => project(x, y, depth, cam, W, H, u)
+    };
+  }
   function backdrop({ drift = 1, grid = false, opacity = 1 } = {}) {
     layer(() => {
       fade(opacity);
@@ -338,6 +559,7 @@ export function kit(ctx, t, m, theme = THEMES.night) {
     punches = [],
     shakes = [],
     moves = [],
+    presets = [],
     drift = 0.045
   } = {}) {
     const still = {
@@ -364,23 +586,22 @@ export function kit(ctx, t, m, theme = THEMES.night) {
     let fx = focus.x + (shot % 2 ? 0.04 : -0.02) * (shot ? 1 : 0);
     let fy = focus.y;
     for (const mv of moves) {
-      const b = presence(t, mv.at, mv.out, 0.9, 0.8);
-      if (!b)
+      if (t < mv.at || t > mv.out + 1.5)
         continue;
+      const there = spring(t, { start: mv.at, stiffness: 40, damping: 11 });
+      const back = spring(t, { start: mv.out - 0.6, stiffness: 40, damping: 11 });
+      const b = clamp(there - back, 0, 1.1);
       zoom = lerp(zoom, mv.zoom, b);
       fx = lerp(fx, mv.x, b);
       fy = lerp(fy, mv.y, b);
     }
-    let sx = 0;
-    let sy = 0;
-    for (const s of shakes) {
-      const d = t - s.at;
-      if (d < 0 || d > 0.5)
-        continue;
-      const k = (s.amount ?? 18) * u * (1 - d / 0.5) ** 2;
-      sx += Math.sin(d * 90) * k;
-      sy += Math.cos(d * 70) * k;
-    }
+    const cam = cameraAt(t, { moves: presets, shakes });
+    zoom *= cam.zoom;
+    fx += cam.x;
+    fy += cam.y;
+    const sx = cam.sx * u;
+    const sy = cam.sy * u;
+    const roll = cam.roll;
     const draw = (z, a = 1) => {
       const sw = area.w / z;
       const sh = area.h / z;
@@ -391,8 +612,9 @@ export function kit(ctx, t, m, theme = THEMES.night) {
         ctx.beginPath();
         ctx.rect(area.x, area.y, area.w, area.h);
         ctx.clip();
-        const over = 1 + (Math.abs(sx) + Math.abs(sy)) / Math.min(area.w, area.h);
+        const over = 1 + (Math.abs(sx) + Math.abs(sy)) / Math.min(area.w, area.h) + Math.abs(roll) * 1.2;
         ctx.translate(area.x + area.w / 2 + sx, area.y + area.h / 2 + sy);
+        ctx.rotate(roll);
         ctx.scale(over, over);
         ctx.drawImage(m.video, x0, y0, sw, sh, -area.w / 2, -area.h / 2, area.w, area.h);
       });
@@ -443,9 +665,7 @@ export function kit(ctx, t, m, theme = THEMES.night) {
       ctx.translate(x + w / 2, y + h / 2);
       ctx.scale(s, s);
       ctx.translate(-w / 2, -h / 2);
-      ctx.shadowColor = "rgba(0,0,0,0.5)";
-      ctx.shadowBlur = 50 * u;
-      ctx.shadowOffsetY = 18 * u;
+      drop(18, 50, "rgba(0,0,0,0.5)");
       ctx.fillStyle = "#000";
       ctx.beginPath();
       ctx.roundRect(0, 0, w, h, r * u);
@@ -541,9 +761,7 @@ export function kit(ctx, t, m, theme = THEMES.night) {
               ctx.shadowColor = alpha(T.accent, 0.8);
               ctx.shadowBlur = 40 * u;
             } else {
-              ctx.shadowColor = "rgba(0,0,0,0.45)";
-              ctx.shadowBlur = 24 * u;
-              ctx.shadowOffsetY = 8 * u;
+              drop(8, 24, "rgba(0,0,0,0.45)");
             }
             if (gradient && p.color === T.ink) {
               const g = ctx.createLinearGradient(-p.w / 2, -size * u * 0.5, p.w / 2, size * u * 0.5);
@@ -696,9 +914,7 @@ export function kit(ctx, t, m, theme = THEMES.night) {
       ctx.beginPath();
       ctx.roundRect(pill.x - padX, -padY, pill.w + padX * 2, padY * 2, 18 * u);
       ctx.fill();
-      ctx.shadowColor = "rgba(0,0,0,0.55)";
-      ctx.shadowBlur = 18 * u;
-      ctx.shadowOffsetY = 6 * u;
+      drop(6, 18, "rgba(0,0,0,0.55)");
       ctx.textBaseline = "middle";
       l.pieces.forEach((p, k) => {
         ctx.font = p.font;
@@ -919,9 +1135,7 @@ export function kit(ctx, t, m, theme = THEMES.night) {
       ctx.translate(-w / 2, -h / 2);
       const R = r * u;
       layer(() => {
-        ctx.shadowColor = "rgba(0,0,0,0.45)";
-        ctx.shadowBlur = 60 * u;
-        ctx.shadowOffsetY = 24 * u;
+        drop(24, 60, "rgba(0,0,0,0.45)");
         ctx.fillStyle = alpha(T.bg[1], T.dark ? 0.55 : 0.6);
         ctx.beginPath();
         ctx.roundRect(0, 0, w, h, R);
@@ -1250,9 +1464,7 @@ export function kit(ctx, t, m, theme = THEMES.night) {
       const s = lerp(0.85, 1, a);
       ctx.scale(s, s);
       fade(a);
-      ctx.shadowColor = "rgba(0,0,0,0.5)";
-      ctx.shadowBlur = 70 * u;
-      ctx.shadowOffsetY = 30 * u;
+      drop(30, 70, "rgba(0,0,0,0.5)");
       ctx.fillStyle = "#111";
       ctx.beginPath();
       ctx.roundRect(-w / 2, -h / 2, w, h, r * u);
@@ -1334,6 +1546,10 @@ export function kit(ctx, t, m, theme = THEMES.night) {
     scrim,
     flash,
     camera,
+    view,
+    drop,
+    rim,
+    sweep,
     pip,
     layout,
     title,

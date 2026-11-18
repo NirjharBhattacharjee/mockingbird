@@ -107,11 +107,39 @@ takes `at` and usually `out` (seconds) and animates itself in and out.
 | Layer | Calls |
 |---|---|
 | Atmosphere | `backdrop({ grid })` drifting gradient lights · `bokeh()` · `leak(at)` light leak · `flash(at)` · `scrim({ y })` dark band behind text · `vignette()` · `grain()` |
-| Footage | `camera({ area, focus, cuts, framings, punches, shakes, moves })` returns `{ zoom, project(x, y) }` · `pip({ src, x, y, w, h })` webcam bubble |
+| Footage | `camera({ area, focus, cuts, framings, punches, shakes, moves, presets })` returns `{ zoom, project(x, y) }` · `pip({ src, x, y, w, h })` webcam bubble |
+| Scene camera | `view({ moves, shakes, focus, aperture })` returns `cam`; draw each layer with `cam.layer(depth, () => …)` · `cam.project(x, y, depth)` |
+| Light | `drop(distance)` a shadow away from the theme's `light` · `rim(x, y, w, h)` lit edge · `sweep(at)` a band of light crossing the frame |
 | Type | `title({ lines, style: "rise" \| "slam" \| "blur", glow, gradient })` · `kicker()` · `counter()` · `typewriter()` · `captions({ y, size })` · `quote()` |
 | Marks | `ring()` · `arrow()` · `highlight()` · `stroke(path, length, p)` · `reticle()` · `spotlight()` |
 | Cards and structure | `glass({ inner })` · `lowerThird()` · `chapter()` · `checklist()` · `progress()` · `photo()` · `bars()` · `wipe(at)` |
 | Helpers | `words(cues)` · `cutPoints(cues, every)` · `presence(t, at, out)` · `expo` · `hash(n)` · `sfx(name)` |
+
+**The camera** (`view`, and `camera`'s `presets` over footage) moves on
+named presets, each `{ preset, at, dur, strength }`: `push-in` (a slow
+dolly in), `dolly` (a sideways track), `crash-zoom` (fast, lands with a
+bounce), `whip-pan`, `orbit`, `handheld` (drift for as long as `dur`, all
+of it if not given) and `dolly-zoom` (the subject holds its size while the
+background stretches away). Pick one or two a scene; don't write moves by
+hand. Layers have a depth: 0 is the subject, 1 is far behind and moves half
+as much, -0.3 is in front. That difference is the parallax. Draw the
+backdrop at 1 or more, the subject at 0, a title or particles in front.
+`aperture: 4` to 8 softens layers away from `focus`. `shakes: [{ at,
+amount }]` are noise that dies away, for a hit. All of it is a function of
+`t`, so frames repeat exactly.
+
+```js
+const cam = k.view({ moves: [{ preset: "push-in", at: 0, dur: 3 }, { preset: "handheld", at: 0, strength: 0.5 }], shakes: [{ at: 2.0 }], aperture: 6 });
+cam.layer(1.5, () => k.backdrop({ grid: true }));
+cam.layer(0, () => drawDiagram(k));
+cam.layer(-0.25, () => k.title({ lines, at: 0.1 }));
+```
+
+**Motion blur**: `page(draw, { blur: true })` draws each frame four times
+over half a frame and averages them, so moves, shakes and whip pans smear
+as a camera's would. It costs about 4x the drawing: a 4 s explainer at 720p
+went from 6 s to 30 s, a 6 s 9:16 short from 6 s to 30 s. Turn it on for
+the final render, off while iterating.
 
 A title's `lines` are runs, so one line can mix faces:
 `[[{ text: "Read the " }, { text: "docs", italic: true, family: T.serif, color: T.accent }]]`.
@@ -176,8 +204,12 @@ These come from the style study; the templates already follow them.
   leak. `k.ctx` and `k.m` are there for pieces you draw yourself, so a
   helper function only needs `k`; a `glass` card's `inner` draws in the
   card's own coordinates.
-- `ctx.filter = "blur(…)"` blurs the whole frame and is slow; for soft text
-  the kit draws a shadow instead.
+- `ctx.filter = "blur(…)"` blurs the whole frame and is slow (with motion
+  blur, about 10x the whole render); for soft text the kit draws a shadow
+  instead, and `view`'s `aperture` shrinks and enlarges the layer.
+- No Tailwind or any other CSS framework in a motion page: canvas and
+  hand-written CSS only. A framework from a CDN can't load anyway, since
+  motion's Chrome has no network.
 - The video is drawn under each frame. To zoom or pan, `camera` redraws it;
   for anything custom, `ctx.drawImage(m.video, sx, sy, sw, sh, dx, dy, dw, dh)`.
 

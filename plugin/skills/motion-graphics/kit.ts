@@ -35,6 +35,12 @@ export type Theme = {
   display: string;
   serif: string;
   mono: string;
+  /**
+   * Where the one light comes from, in degrees: 90 is straight above, 135
+   * the upper left (#275). Shadows fall away from it, rims catch it, a sweep
+   * travels with it. Straight above if not given.
+   */
+  light?: number;
 };
 
 // Installed on every Mac; system-ui is SF Pro there.
@@ -204,6 +210,176 @@ export function spring(
   return from + (to - from) * done;
 }
 
+// ---------------------------------------------------------------- the camera (#274)
+
+/**
+ * Smooth noise in [-1, 1] for any x: hashed values at whole numbers, eased
+ * between. Seeded and free of Math.random, so every render draws the same
+ * frames. Wander a little with it rather than wobble on a sine.
+ */
+export function noise(x: number, seed = 0) {
+  const i = Math.floor(x);
+  const f = x - i;
+  const a = hash(i + seed * 1013.7) * 2 - 1;
+  const b = hash(i + 1 + seed * 1013.7) * 2 - 1;
+  return a + (b - a) * f * f * (3 - 2 * f);
+}
+
+/**
+ * A hit's shake at `t`, from `at`: noise that fades out as the square of
+ * what's left (Eiserloh's "trauma"), in units (a pixel at 1080), plus a
+ * little roll in radians. Zero outside [at, at + dur].
+ */
+export function shake(t: number, at: number, { amount = 18, dur = 0.5, freq = 24, seed = 1 } = {}) {
+  const d = t - at;
+  if (d < 0 || d > dur) return { x: 0, y: 0, roll: 0 };
+  const k = (1 - d / dur) ** 2;
+  return {
+    x: noise(d * freq, seed) * amount * k,
+    y: noise(d * freq, seed + 1) * amount * k,
+    roll: noise(d * freq, seed + 2) * 0.0012 * amount * k,
+  };
+}
+
+/** A handheld camera's drift at `t`: a slow wander plus a faster tremor, in units and radians. */
+export function handheld(t: number, amount = 1, seed = 7) {
+  return {
+    x: (noise(t * 0.6, seed) * 14 + noise(t * 2.3, seed + 3) * 3) * amount,
+    y: (noise(t * 0.5, seed + 1) * 10 + noise(t * 2.1, seed + 4) * 3) * amount,
+    roll: noise(t * 0.4, seed + 5) * 0.008 * amount,
+  };
+}
+
+/** The camera's moves Claude picks from, each with a strength and a duration. */
+export type Preset =
+  | "push-in"
+  | "dolly"
+  | "crash-zoom"
+  | "whip-pan"
+  | "orbit"
+  | "handheld"
+  | "dolly-zoom";
+export type CameraMove = { preset: Preset; at: number; dur?: number; strength?: number };
+/**
+ * Where the camera is: `x`, `y` shift what it looks at (0-1 of the frame),
+ * `sx`, `sy` shake it in units, `zoom` scales, `roll` turns (radians), and
+ * `z` dollies it toward the scene (depth units, see `project`).
+ */
+export type Cam = {
+  x: number;
+  y: number;
+  sx: number;
+  sy: number;
+  zoom: number;
+  roll: number;
+  z: number;
+};
+export const REST: Cam = { x: 0, y: 0, sx: 0, sy: 0, zoom: 1, roll: 0, z: 0 };
+
+/**
+ * How far a move has gone at `t`: a spring released at `at` that settles in
+ * about `dur` seconds. `zeta` under 1 overshoots: crash zooms land with a
+ * bounce, pushes barely.
+ */
+function settle(t: number, at: number, dur: number, zeta: number) {
+  const stiffness = (7 / dur) ** 2;
+  return spring(t, { start: at, stiffness, damping: 2 * zeta * Math.sqrt(stiffness) });
+}
+
+/** One move's share of the camera at `t`, laid over `cam`. At rest before `at`. */
+export function move(t: number, mv: CameraMove, cam: Cam = REST): Cam {
+  const s = mv.strength ?? 1;
+  const dur = mv.dur ?? 1.6;
+  if (t < mv.at) return cam;
+  const c = { ...cam };
+  switch (mv.preset) {
+    case "push-in":
+      // A dolly in, not a zoom: near layers grow more than far ones.
+      c.z += 0.12 * s * settle(t, mv.at, dur, 0.95);
+      break;
+    case "dolly":
+      c.x += 0.07 * s * settle(t, mv.at, dur, 0.95);
+      break;
+    case "crash-zoom":
+      c.zoom *= 1 + 0.45 * s * settle(t, mv.at, dur, 0.45);
+      break;
+    case "whip-pan":
+      c.x += 0.5 * s * settle(t, mv.at, dur, 0.7);
+      break;
+    case "orbit": {
+      const p = settle(t, mv.at, dur, 0.95);
+      c.x += 0.09 * s * p;
+      c.roll += 0.02 * s * p;
+      c.zoom *= 1 + 0.05 * s * Math.sin(Math.PI * Math.min(1, p));
+      break;
+    }
+    case "handheld": {
+      if (t > mv.at + (mv.dur ?? Number.POSITIVE_INFINITY)) break;
+      const h = handheld(t - mv.at, s);
+      c.sx += h.x;
+      c.sy += h.y;
+      c.roll += h.roll;
+      break;
+    }
+    case "dolly-zoom": {
+      // The camera moves in while the lens widens: the subject (depth 0) holds
+      // its size, and everything behind it stretches away.
+      const z = 0.4 * s * settle(t, mv.at, dur, 0.95);
+      c.z += z;
+      c.zoom *= 1 - z;
+      break;
+    }
+  }
+  return c;
+}
+
+/** Every move, handheld drift and shake at `t`, laid over each other. */
+export function cameraAt(
+  t: number,
+  { moves = [] as CameraMove[], shakes = [] as { at: number; amount?: number }[], seed = 1 } = {},
+): Cam {
+  let cam = REST;
+  for (const mv of moves) cam = move(t, mv, cam);
+  for (const [i, s] of shakes.entries()) {
+    const k = shake(t, s.at, { amount: s.amount, seed: seed + i * 17 });
+    cam = { ...cam, sx: cam.sx + k.x, sy: cam.sy + k.y, roll: cam.roll + k.roll };
+  }
+  return cam;
+}
+
+/**
+ * How much the camera scales a layer `depth` away: the lens's zoom scales
+ * every layer alike, and dollying in (`z`) grows near layers more than far.
+ */
+const depthScale = (depth: number, cam: Cam) =>
+  (cam.zoom * (1 + depth)) / Math.max(0.05, 1 + depth - cam.z);
+
+/**
+ * Where a point (x, y in pixels) on a layer `depth` away lands through
+ * `cam`, in a frame W x H with unit `u`. At rest every layer is where it was
+ * drawn. Depth 0 is the subject's plane; 1 is as far behind it again, so a
+ * pan or dolly moves it half as much; -0.5 is in front and moves twice as
+ * much. That difference is the parallax.
+ */
+export function project(
+  x: number,
+  y: number,
+  depth: number,
+  cam: Cam,
+  W: number,
+  H: number,
+  u = 1,
+) {
+  const scale = depthScale(depth, cam);
+  const k = 1 / Math.max(0.05, 1 + depth);
+  const cx = W / 2;
+  const cy = H / 2;
+  const dx = (x - cx - cam.x * W * k) * scale + cam.sx * u;
+  const dy = (y - cy - cam.y * H * k) * scale + cam.sy * u;
+  const [c, s] = [Math.cos(cam.roll), Math.sin(cam.roll)];
+  return { x: cx + dx * c - dy * s, y: cy + dx * s + dy * c, scale };
+}
+
 // ---------------------------------------------------------------- the page
 
 // The page loads it as a URL: a native "D:/..." path reads as a URL scheme on Windows.
@@ -239,10 +415,21 @@ export function picture(path: string) {
  * canvas the size of the video, the video's frames (`mockingbird.drawVideo`)
  * drawn first on each frame from a fresh canvas state, then `draw(ctx, t, m)`.
  * `audio(m)` gives the sounds, as `mockingbird.audio` takes them.
+ *
+ * `blur` turns on motion blur (#274): each frame is drawn `samples` times,
+ * spread over the `shutter` (a share of a frame; 0.5 is film's 180°) before
+ * it, and averaged, so whatever moves smears along its path. It costs about
+ * `samples` times the drawing.
  */
 export function page(
   draw: (ctx: any, t: number, m: any) => void,
-  { audio }: { audio?: (m: any) => unknown[] } = {},
+  {
+    audio,
+    blur,
+  }: {
+    audio?: (m: any) => unknown[];
+    blur?: boolean | { samples?: number; shutter?: number };
+  } = {},
 ) {
   const m = (globalThis as any).mockingbird;
   const canvas = document.createElement("canvas");
@@ -254,10 +441,30 @@ export function page(
   m.drawVideo = true;
   if (audio) m.audio = audio(m);
   picture(GRAIN);
-  m.draw = (t: number) => {
+  const frame = (c: any, t: number) => {
+    c.reset();
+    if (m.video) c.drawImage(m.video, 0, 0, m.width, m.height);
+    return draw(c, t, m);
+  };
+  const { samples = 4, shutter = 0.5 } = blur === true ? {} : blur || { samples: 1 };
+  if (samples <= 1) {
+    m.draw = (t: number) => frame(ctx, t);
+    return;
+  }
+  // Each sample is drawn on the page's own canvas and added to `sum`: a blur
+  // filter drawn straight onto a canvas that isn't shown took 25x as long.
+  const sum = new OffscreenCanvas(m.width, m.height);
+  const sctx = sum.getContext("2d");
+  m.draw = async (t: number) => {
+    // A running average: sample i goes over the ones before at 1/(i+1).
+    sctx.reset();
+    for (let i = 0; i < samples; i++) {
+      await frame(ctx, t - (shutter / m.fps) * (i / (samples - 1)));
+      sctx.globalAlpha = 1 / (i + 1);
+      sctx.drawImage(canvas, 0, 0);
+    }
     ctx.reset();
-    if (m.video) ctx.drawImage(m.video, 0, 0, m.width, m.height);
-    return draw(ctx, t, m);
+    ctx.drawImage(sum, 0, 0);
   };
 }
 
@@ -310,6 +517,156 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
       ctx.setTransform(m0.a, m0.b, m0.c, m0.d, m0.e - far, m0.f);
       draw();
     });
+
+  // ------------------------------------------------------------ light (#275)
+
+  /** Which way the light travels across the frame, as a unit vector (canvas y points down). */
+  const rad = ((T.light ?? 90) * Math.PI) / 180;
+  const beam = { x: -Math.cos(rad), y: Math.sin(rad) };
+
+  /** A drop shadow `distance` units long, falling away from the theme's light. */
+  const drop = (distance: number, blur = distance * 2.5, color = "rgba(0,0,0,0.45)") => {
+    ctx.shadowColor = color;
+    ctx.shadowBlur = blur * u;
+    ctx.shadowOffsetX = beam.x * distance * u;
+    ctx.shadowOffsetY = beam.y * distance * u;
+  };
+
+  /**
+   * A thin highlight on the edge of a rounded box that faces the light,
+   * fading toward the far side, as the light catches its rim.
+   */
+  function rim(x: number, y: number, w: number, h: number, r = 24 * u, strength = 0.55) {
+    layer(() => {
+      const [cx, cy] = [x + w / 2, y + h / 2];
+      const reach = (Math.abs(beam.x) * w + Math.abs(beam.y) * h) / 2;
+      const g = ctx.createLinearGradient(
+        cx - beam.x * reach,
+        cy - beam.y * reach,
+        cx + beam.x * reach,
+        cy + beam.y * reach,
+      );
+      g.addColorStop(0, `rgba(255,255,255,${strength})`);
+      g.addColorStop(0.45, "rgba(255,255,255,0)");
+      ctx.strokeStyle = g;
+      ctx.lineWidth = 2 * u;
+      ctx.beginPath();
+      ctx.roundRect(x, y, w, h, r);
+      ctx.stroke();
+    });
+  }
+
+  /** A band of light crossing the frame along the light's direction, from `at` for `dur` seconds. */
+  function sweep(at: number, dur = 1.1, strength = 0.35) {
+    const p = (t - at) / dur;
+    if (p <= 0 || p >= 1) return;
+    layer(() => {
+      const span = Math.hypot(W, H);
+      const pos = (expo(p) * 1.4 - 0.2) * span;
+      const [x0, y0] = [W / 2 - (beam.x * span) / 2, H / 2 - (beam.y * span) / 2];
+      const g = ctx.createLinearGradient(
+        x0 + beam.x * (pos - 120 * u),
+        y0 + beam.y * (pos - 120 * u),
+        x0 + beam.x * (pos + 120 * u),
+        y0 + beam.y * (pos + 120 * u),
+      );
+      g.addColorStop(0, "rgba(255,255,255,0)");
+      g.addColorStop(0.5, `rgba(255,255,255,${strength * Math.sin(Math.PI * p)})`);
+      g.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.globalCompositeOperation = "screen";
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, H);
+    });
+  }
+
+  // ------------------------------------------------------------ the scene camera (#274)
+
+  const spare: any[] = [];
+  const canvasLike = (w: number, h: number, i: number) => {
+    spare[i] ??= new OffscreenCanvas(1, 1);
+    const c = spare[i];
+    if (c.width !== w || c.height !== h) [c.width, c.height] = [w, h];
+    return c;
+  };
+  /**
+   * Draws `paint` out of focus by about `blur` pixels: alone on a cleared
+   * canvas, shrunk and scaled back up, then laid over what was there. A blur
+   * filter over the frame cost 10x the whole render once motion blur read
+   * the frame back; this is a few copies.
+   * ponytail: halving steps leave a soft blockiness at big blurs; a real
+   * gaussian pass if a look needs creamy bokeh.
+   */
+  function defocus(paint: () => void, blur: number) {
+    const under = canvasLike(W, H, 0);
+    const u0 = under.getContext("2d");
+    u0.clearRect(0, 0, W, H);
+    u0.drawImage(ctx.canvas, 0, 0);
+    layer(() => {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, W, H);
+    });
+    paint();
+    // Halve until a pixel is about the blur's size, then draw it back up smoothed.
+    let src: any = ctx.canvas;
+    let [w, h] = [W, H];
+    let i = 1;
+    // At least once: drawing the canvas back onto itself would lose the layer.
+    while (i === 1 || (W / w < blur / 1.5 && w > 8)) {
+      [w, h] = [Math.ceil(w / 2), Math.ceil(h / 2)];
+      const c = canvasLike(w, h, i++);
+      const c2 = c.getContext("2d");
+      c2.clearRect(0, 0, w, h);
+      c2.imageSmoothingQuality = "high";
+      c2.drawImage(src, 0, 0, w, h);
+      src = c;
+    }
+    layer(() => {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, W, H);
+      ctx.drawImage(under, 0, 0);
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(src, 0, 0, w, h, 0, 0, W, H);
+    });
+  }
+
+  /**
+   * A camera for any scene, footage or not. Draw each layer through it with
+   * `cam.layer(depth, draw)`: depth 0 is the subject's plane, 1 is far
+   * behind (moves half as much), -0.4 is in front. `moves` are named
+   * presets on the spring; `shakes` are noise that fades out. With
+   * `aperture`, layers away from `focus` blur by how far off they are.
+   */
+  function view({
+    moves = [] as CameraMove[],
+    shakes = [] as { at: number; amount?: number }[],
+    focus = 0,
+    aperture = 0,
+    seed = 1,
+  } = {}) {
+    const cam = cameraAt(t, { moves, shakes, seed });
+    return {
+      ...cam,
+      /** Draw `paint` on a layer `depth` away, moved and blurred by the camera. */
+      layer(depth: number, paint: () => void) {
+        const placed = () =>
+          layer(() => {
+            const scale = depthScale(depth, cam);
+            const k = 1 / Math.max(0.05, 1 + depth);
+            ctx.translate(W / 2, H / 2);
+            ctx.rotate(cam.roll);
+            ctx.translate(cam.sx * u, cam.sy * u);
+            ctx.scale(scale, scale);
+            ctx.translate(-W / 2 - cam.x * W * k, -H / 2 - cam.y * H * k);
+            paint();
+          });
+        const blur = Math.abs(depth - focus) * aperture * u;
+        if (blur < 1.5) return placed();
+        defocus(placed, blur);
+      },
+      /** Where a point (pixels) on a layer `depth` away is on the canvas, to pin something to it. */
+      project: (x: number, y: number, depth = 0) => project(x, y, depth, cam, W, H, u),
+    };
+  }
 
   // ------------------------------------------------------------ atmosphere
 
@@ -489,7 +846,8 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
    * camera that never sits still: each cut is a new framing (jump cuts on a
    * single take read as edits), every shot drifts in slowly, punches spring
    * in on the words that matter, hits shake, and each cut lands with a
-   * zoom blur.
+   * zoom blur. `presets` are the scene camera's named moves (see `view`),
+   * laid over all of that.
    */
   function camera({
     area = { x: 0, y: 0, w: W, h: H } as Area,
@@ -499,6 +857,7 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
     punches = [] as Punch[],
     shakes = [] as Shake[],
     moves = [] as Move[],
+    presets = [] as CameraMove[],
     drift = 0.045,
   } = {}) {
     const still = {
@@ -522,22 +881,24 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
     // Alternate the focus a little between shots, as a second camera angle would.
     let fx = focus.x + (shot % 2 ? 0.04 : -0.02) * (shot ? 1 : 0);
     let fy = focus.y;
+    // A glide there and back on the spring, so it has weight: it eases off
+    // with a hint of overshoot instead of stopping on a curve (#274).
     for (const mv of moves) {
-      const b = presence(t, mv.at, mv.out, 0.9, 0.8);
-      if (!b) continue;
+      if (t < mv.at || t > mv.out + 1.5) continue;
+      const there = spring(t, { start: mv.at, stiffness: 40, damping: 11 });
+      const back = spring(t, { start: mv.out - 0.6, stiffness: 40, damping: 11 });
+      const b = clamp(there - back, 0, 1.1);
       zoom = lerp(zoom, mv.zoom, b);
       fx = lerp(fx, mv.x, b);
       fy = lerp(fy, mv.y, b);
     }
-    let sx = 0;
-    let sy = 0;
-    for (const s of shakes) {
-      const d = t - s.at;
-      if (d < 0 || d > 0.5) continue;
-      const k = (s.amount ?? 18) * u * (1 - d / 0.5) ** 2;
-      sx += Math.sin(d * 90) * k;
-      sy += Math.cos(d * 70) * k;
-    }
+    const cam = cameraAt(t, { moves: presets, shakes });
+    zoom *= cam.zoom;
+    fx += cam.x;
+    fy += cam.y;
+    const sx = cam.sx * u;
+    const sy = cam.sy * u;
+    const roll = cam.roll;
     const draw = (z: number, a = 1) => {
       // The source rectangle is the area shrunk by z around the focus, kept inside the area.
       const sw = area.w / z;
@@ -549,8 +910,11 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
         ctx.beginPath();
         ctx.rect(area.x, area.y, area.w, area.h);
         ctx.clip();
-        const over = 1 + (Math.abs(sx) + Math.abs(sy)) / Math.min(area.w, area.h);
+        // Bigger by what the shake and roll would otherwise uncover at the edges.
+        const over =
+          1 + (Math.abs(sx) + Math.abs(sy)) / Math.min(area.w, area.h) + Math.abs(roll) * 1.2;
         ctx.translate(area.x + area.w / 2 + sx, area.y + area.h / 2 + sy);
+        ctx.rotate(roll);
         ctx.scale(over, over);
         ctx.drawImage(m.video, x0, y0, sw, sh, -area.w / 2, -area.h / 2, area.w, area.h);
       });
@@ -615,9 +979,7 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
       ctx.translate(x + w / 2, y + h / 2);
       ctx.scale(s, s);
       ctx.translate(-w / 2, -h / 2);
-      ctx.shadowColor = "rgba(0,0,0,0.5)";
-      ctx.shadowBlur = 50 * u;
-      ctx.shadowOffsetY = 18 * u;
+      drop(18, 50, "rgba(0,0,0,0.5)");
       ctx.fillStyle = "#000";
       ctx.beginPath();
       ctx.roundRect(0, 0, w, h, r * u);
@@ -740,9 +1102,7 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
               ctx.shadowColor = alpha(T.accent, 0.8);
               ctx.shadowBlur = 40 * u;
             } else {
-              ctx.shadowColor = "rgba(0,0,0,0.45)";
-              ctx.shadowBlur = 24 * u;
-              ctx.shadowOffsetY = 8 * u;
+              drop(8, 24, "rgba(0,0,0,0.45)");
             }
             if (gradient && p.color === T.ink) {
               const g = ctx.createLinearGradient(
@@ -950,9 +1310,7 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
       ctx.beginPath();
       ctx.roundRect(pill.x - padX, -padY, pill.w + padX * 2, padY * 2, 18 * u);
       ctx.fill();
-      ctx.shadowColor = "rgba(0,0,0,0.55)";
-      ctx.shadowBlur = 18 * u;
-      ctx.shadowOffsetY = 6 * u;
+      drop(6, 18, "rgba(0,0,0,0.55)");
       ctx.textBaseline = "middle";
       l.pieces.forEach((p, k) => {
         ctx.font = p.font;
@@ -1258,9 +1616,7 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
       ctx.translate(-w / 2, -h / 2);
       const R = r * u;
       layer(() => {
-        ctx.shadowColor = "rgba(0,0,0,0.45)";
-        ctx.shadowBlur = 60 * u;
-        ctx.shadowOffsetY = 24 * u;
+        drop(24, 60, "rgba(0,0,0,0.45)");
         ctx.fillStyle = alpha(T.bg[1], T.dark ? 0.55 : 0.6);
         ctx.beginPath();
         ctx.roundRect(0, 0, w, h, R);
@@ -1663,9 +2019,7 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
       const s = lerp(0.85, 1, a);
       ctx.scale(s, s);
       fade(a);
-      ctx.shadowColor = "rgba(0,0,0,0.5)";
-      ctx.shadowBlur = 70 * u;
-      ctx.shadowOffsetY = 30 * u;
+      drop(30, 70, "rgba(0,0,0,0.5)");
       ctx.fillStyle = "#111";
       ctx.beginPath();
       ctx.roundRect(-w / 2, -h / 2, w, h, r * u);
@@ -1763,6 +2117,10 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
     scrim,
     flash,
     camera,
+    view,
+    drop,
+    rim,
+    sweep,
     pip,
     layout,
     title,
