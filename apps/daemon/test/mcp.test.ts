@@ -1634,6 +1634,26 @@ describe("look (#262)", () => {
     }
   });
 
+  test("a look outside the plugin finds the kit's sounds in the plugin (#263)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mb-look-"));
+    try {
+      const file = join(dir, "loud.ts");
+      writeFileSync(
+        file,
+        'import { sfx } from "KIT";\nimport { frame } from "STYLES";\nexport const whoosh = sfx("whoosh");\nexport default { id: "loud", name: "Loud", category: "Test", make: (ctx: any, t: number, m: any) => frame(m) };\n',
+      );
+      const code = readFileSync(await buildLook(file), "utf8");
+      // The kit isn't bundled: the page imports the plugin's kit.js, whose sounds sit beside it.
+      expect(code).toContain(KIT_URL);
+      expect(code).not.toContain("assets/sfx/");
+      expect(existsSync(join(dirname(fileURLToPath(KIT_URL)), "assets", "sfx", "whoosh.wav"))).toBe(
+        true,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("a mistake in a look comes back with where it is", async () => {
     const dir = mkdtempSync(join(tmpdir(), "mb-look-"));
     try {

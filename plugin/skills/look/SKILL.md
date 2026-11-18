@@ -233,8 +233,11 @@ for, and ask: go ahead, or what should change?
 
 ## 5. Revise until they say yes
 
-Refine the look they picked (keep its file, or rename it `look.ts`). Take
-their words literally ("warmer", "less busy", "the title's too thin") and
+Refine the look they picked (keep its file, or rename it `look.ts`). If the
+project already has this look approved, clear that first, before changing
+the file: `{ "op": "set", "look": { "file": "…", "mood": "…", "approved": false } }`.
+The `look` tool rebuilds the module the edit imports, so an approval left in
+place would cover a look the user hasn't seen. Take their words literally ("warmer", "less busy", "the title's too thin") and
 change only that. Render the board again. If they don't like any of the three,
 draw new cards and make three new looks; if the vibe itself was wrong, go back
 to step 2 with three new moods.

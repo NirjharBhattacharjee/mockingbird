@@ -2291,8 +2291,9 @@ export type Board = {
 /**
  * Builds the look the agent wrote at `file` (TypeScript or JavaScript) into
  * one module beside it, `<name>.look.js`, that a page imports. Its imports of
- * "STYLES" (the styles and their helpers) and "KIT" are bundled in, so the page
- * needs nothing else. A mistake comes back with its line. Returns the module's path.
+ * "STYLES" (the styles and their helpers) are bundled in; "KIT" stays an
+ * import of the plugin's kit.js. A mistake comes back with its line. Returns
+ * the module's path.
  */
 /** A build message with its place: `file:line:column: message`, then the line. */
 function where(log: unknown): string {
@@ -2312,7 +2313,7 @@ export async function buildLook(
   if (!/\.(ts|js|mjs)$/i.test(file)) {
     throw new Error(`A look is a .ts or .js module; ${file} isn't one.`);
   }
-  const named = { STYLES: join(MOTION, "styles", "index.ts"), KIT: join(MOTION, "kit.ts") };
+  const styles = join(MOTION, "styles", "index.ts");
   let built: Awaited<ReturnType<typeof Bun.build>>;
   try {
     built = await Bun.build({
@@ -2323,8 +2324,13 @@ export async function buildLook(
         {
           name: "mockingbird-look",
           setup(b) {
-            b.onResolve({ filter: /^(STYLES|KIT)$/ }, (a) => ({
-              path: named[a.path as keyof typeof named],
+            b.onResolve({ filter: /^STYLES$/ }, () => ({ path: styles }));
+            // The kit stays the plugin's kit.js, imported by its file URL, not
+            // bundled: its sounds and grain are found beside it, and a bundled
+            // copy would look for them beside the look (#263).
+            b.onResolve({ filter: /^KIT$|[\\/]kit\.ts$/ }, () => ({
+              path: KIT_URL,
+              external: true,
             }));
           },
         },
@@ -2413,33 +2419,37 @@ async function lookBoard(
 ): Promise<string> {
   if (own) requireFile(own, "Board page");
   if (path) requireFile(path, "File");
+  // Claimed before anything is written, so a taken `out` leaves nothing behind.
+  const { clip: target, sheet } = boardTarget(file, out);
   // This board's own build, so a rebuild running alongside can't swap it out;
   // the stable <name>.look.js beside it is what the edit's pages import.
   const stamp = `${process.pid}-${randomUUID()}`;
-  const mine = await buildLook(file, join(dirname(file), `.${basename(file)}.${stamp}.look.js`));
+  const mine = join(dirname(file), `.${basename(file)}.${stamp}.look.js`);
   const module = join(dirname(file), `${basename(file, extname(file))}.look.js`);
-  copyFileSync(mine, module);
-  const url = JSON.stringify(pathToFileURL(mine).href);
-  // Inline as data, never as code: "<" escaped so a title can't close the script,
-  // and given through callbacks so "$&" in it isn't a replacement pattern.
-  const words = JSON.stringify(board).replace(/</g, "\\u003c");
   const template = own ?? LOOK_BOARD;
   const page = join(dirname(own ?? file), `.${basename(template)}.board-${stamp}.html`);
-  writeFileSync(
-    page,
-    readFileSync(template, "utf8")
-      .replace('from "LOOK"', () => `from ${url}`)
-      .replace('const BOARD = "BOARD";', () => `const BOARD = ${words};`),
-  );
-  const { clip: target, sheet } = boardTarget(file, out);
   let drawn: string;
   try {
+    await buildLook(file, mine);
+    copyFileSync(mine, module);
+    const url = JSON.stringify(pathToFileURL(mine).href);
+    // Inline as data, never as code: "<" escaped so a title can't close the script,
+    // and given through callbacks so "$&" in it isn't a replacement pattern.
+    const words = JSON.stringify(board).replace(/</g, "\\u003c");
+    writeFileSync(
+      page,
+      readFileSync(template, "utf8")
+        .replace('from "LOOK"', () => `from ${url}`)
+        .replace('const BOARD = "BOARD";', () => `const BOARD = ${words};`),
+    );
     drawn = await motion(
       page,
       path ? { path, duration, out: target } : { size, duration, out: target },
     );
+    // Twelve stills over the clip as drawn: over a shorter `path`, it's shorter than `duration`.
+    const length = (await probe(target)).seconds || duration;
     await ffmpeg(
-      ["-i", target, "-vf", `fps=12/${duration},scale=480:-2,tile=4x3`, "-frames:v", "1", sheet],
+      ["-i", target, "-vf", `fps=12/${length},scale=480:-2,tile=4x3`, "-frames:v", "1", sheet],
       "make the contact sheet",
     );
   } catch (error) {
