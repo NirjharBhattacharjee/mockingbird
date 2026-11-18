@@ -8,6 +8,7 @@ import {
   curve,
   frame,
   type Look,
+  leftOf,
   type Pt,
   progress,
   type Style,
@@ -101,9 +102,10 @@ function make(ctx: any, t: number, m: any): Look {
       const s = text.toUpperCase();
       const tw = crisp(s, px, D0).width;
       const rise = R((1 - step(progress(t, at, 0.2), 5)) * 20);
-      panel(X(x), Y(y) + rise, tw + 10, px + 7);
+      const left = R(leftOf(X(x), tw + 10, o.align));
+      panel(left, Y(y) + rise, tw + 10, px + 7);
       const n = Math.ceil(s.length * progress(t, at + 0.2, dur));
-      if (n > 0) say(s.slice(0, n), X(x) + 5, Y(y) + rise + (px + 7) / 2, px, D0);
+      if (n > 0) say(s.slice(0, n), left + 5, Y(y) + rise + (px + 7) / 2, px, D0);
     },
     label(text, x, y, o = {}) {
       const { size = 44, at = 0, dur = 0.3, tone = "ink", align = "center" } = o;

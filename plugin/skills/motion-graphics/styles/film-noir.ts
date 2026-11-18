@@ -12,6 +12,7 @@ import {
   grain,
   hash,
   type Look,
+  leftOf,
   type Pt,
   progress,
   type Style,
@@ -114,7 +115,7 @@ function make(ctx: any, t: number, m: any): Look {
       const tw = ctx.measureText(s.toUpperCase()).width;
       const w = tw + 50 * u;
       const h = size * 2.3 * u;
-      const cx = X(x) + w / 2;
+      const cx = leftOf(X(x), w, o.align) + w / 2;
       const cy = Y(y) + h / 2;
       ctx.translate(cx, cy);
       ctx.rotate((1 - p) * Math.PI * 4 - 0.025);

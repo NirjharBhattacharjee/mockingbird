@@ -7,6 +7,7 @@ import {
   curve,
   frame,
   type Look,
+  leftOf,
   type Pt,
   progress,
   type Style,
@@ -132,7 +133,9 @@ function make(ctx: any, t: number, m: any): Look {
       const row = Math.floor(Y(y) / rh) * 3;
       c.fillRect(0, row, bw, 6);
       const n = Math.ceil(text.length * progress(t, at, dur));
-      say(text.toUpperCase().slice(0, n), X(x), (row / 3 + 1) * rh, COL.yellow, true);
+      // Anchored by the whole title, so it doesn't slide while it types on.
+      const left = leftOf(X(x), text.length * cw, o.align);
+      say(text.toUpperCase().slice(0, n), left, (row / 3 + 1) * rh, COL.yellow, true);
     },
     label(text, x, y, o = {}) {
       const { at = 0, tone = "ink", align = "center" } = o;

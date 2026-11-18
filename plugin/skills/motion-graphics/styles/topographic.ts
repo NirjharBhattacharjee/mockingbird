@@ -15,6 +15,7 @@ import {
   frame,
   hash,
   type Look,
+  leftOf,
   type Pt,
   progress,
   type Style,
@@ -229,10 +230,11 @@ function make(ctx: any, t: number, m: any): Look {
       const w = ctx.measureText(s.toUpperCase()).width + 36 * u;
       ctx.letterSpacing = "0px";
       const h = size * 1.7 * u;
-      cartouche(X(x), Y(y), w, h, p);
+      const left = leftOf(X(x), w, o.align);
+      cartouche(left, Y(y), w, h, p);
       ctx.save();
       ctx.globalAlpha = p;
-      caps(s, X(x) + 18 * u, Y(y) + h / 2, size, INK, "left");
+      caps(s, left + 18 * u, Y(y) + h / 2, size, INK, "left");
       ctx.restore();
     },
     label(s, x, y, o = {}) {

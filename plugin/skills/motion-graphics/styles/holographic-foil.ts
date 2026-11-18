@@ -9,6 +9,7 @@ import {
   frame,
   hash,
   type Look,
+  leftOf,
   type Pt,
   progress,
   type Style,
@@ -182,7 +183,7 @@ function make(ctx: any, t: number, m: any): Look {
       const w = ctx.measureText(s).width + 40 * u;
       ctx.restore();
       const h = size * 1.6 * u;
-      const [x0, y0] = [X(x), Y(y)];
+      const [x0, y0] = [leftOf(X(x), w, o.align), Y(y)];
       slapped(x0 + w / 2, y0 + h / 2, at, () => {
         rounded(x0 - 4 * u, y0 - 4 * u, w + 8 * u, h + 8 * u, 14 * u);
         ctx.fillStyle = "#F4F4FA";

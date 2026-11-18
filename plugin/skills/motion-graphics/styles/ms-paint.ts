@@ -168,7 +168,7 @@ function make(ctx: any, t: number, m: any): Look {
     title(text, o = {}) {
       const { x = 0.02, y = 0.07, size = 46, at = 0, dur = 0.9 } = o;
       if (t < at) return;
-      typed(text, X(x), Y(y), size, "#000080", at, dur);
+      typed(text, X(x), Y(y), size, "#000080", at, dur, o.align);
     },
     label(text, x, y, o = {}) {
       const { at = 0, dur = 0.4, size = 36, tone = "ink", align = "center" } = o;

@@ -10,6 +10,7 @@ import {
   frame,
   hash,
   type Look,
+  leftOf,
   type Pt,
   type Style,
   type Tone,
@@ -116,15 +117,16 @@ function make(ctx: any, t0: number, m: any): Look {
     title(s, o = {}) {
       const { x = 0.035, y = 0.08, size = 46, at = 0 } = o;
       if (!stamp(at)) return;
-      caps(s, X(x), Y(y), size, INK);
       ctx.font = font(size);
       ctx.letterSpacing = `${Math.round(size * 0.14 * u)}px`;
       const w = ctx.measureText(s.toUpperCase()).width;
       ctx.letterSpacing = "0px";
+      const left = leftOf(X(x), w, o.align);
+      caps(s, left, Y(y), size, INK);
       // the rule steps out in stamp-sized pieces
       const steps = clamp(Math.floor((t - at) * 12) / 6);
       ctx.fillStyle = INK;
-      ctx.fillRect(X(x), Y(y) + size * 0.75 * u, w * steps, 3 * u);
+      ctx.fillRect(left, Y(y) + size * 0.75 * u, w * steps, 3 * u);
     },
     label(s, x, y, o = {}) {
       const { size = 28, align = "center", tone = "ink", at = 0 } = o;
