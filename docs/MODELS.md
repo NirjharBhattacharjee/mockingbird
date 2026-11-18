@@ -276,7 +276,9 @@ The spike's script is on #109.
   `large-v3` Q5_0 from a pinned Hugging Face commit and Silero VAD v6.2.2
   from GitHub, prints each URL, and checks each against a pinned sha256
   (`MODEL_FILES` in `apps/daemon/src/models.ts`). An interrupted download is
-  continued, and one that doesn't match is deleted. `models pull <name or
+  continued, and one that doesn't match is deleted. A 5xx, a timeout or a
+  dropped connection is tried again, three tries in all, 2 and 4 seconds
+  apart; a 404 or a checksum mismatch isn't. `models pull <name or
   URL>` downloads one more model the same way, against the sha256 Hugging
   Face gives or `--sha256` (§5). whisper-server's build is pinned the same
   way (`pinnedWhisper` in `apps/daemon/src/runtime.ts`).

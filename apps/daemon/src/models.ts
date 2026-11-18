@@ -83,16 +83,45 @@ export type PullFileDeps = {
   log?: (message: string) => void;
   /** Bytes written so far, and the size the server gave (0 if it gave none). */
   onProgress?: (done: number, total: number) => void;
+  /** How a retry waits; Bun.sleep, injected in tests. */
+  wait?: (ms: number) => Promise<void>;
 };
+
+/** A failed download that trying again won't fix: a 4xx, or the wrong bytes. */
+class FinalError extends Error {}
+
+const TRIES = 3;
 
 /**
  * Downloads one model into `dir`, unless a file with the right checksum is
- * already there. Returns whether it downloaded anything.
+ * already there. Returns whether it downloaded anything. A 5xx, a timeout or
+ * a dropped connection is tried again (#214), continuing from what arrived;
+ * a 404 or a checksum mismatch isn't.
  */
 export async function pullFile(
   model: ModelFile,
   dir: string,
-  { fetch: get = fetch, log = () => {}, onProgress = () => {} }: PullFileDeps = {},
+  deps: PullFileDeps = {},
+): Promise<boolean> {
+  const { log = () => {}, wait = Bun.sleep } = deps;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await pullOnce(model, dir, deps);
+    } catch (error) {
+      if (error instanceof FinalError || attempt === TRIES) throw error;
+      const seconds = 2 * attempt;
+      log(
+        `${error instanceof Error ? error.message : String(error)}; trying again in ${seconds} s`,
+      );
+      await wait(seconds * 1000);
+    }
+  }
+}
+
+async function pullOnce(
+  model: ModelFile,
+  dir: string,
+  { fetch: get = fetch, log = () => {}, onProgress = () => {} }: PullFileDeps,
 ): Promise<boolean> {
   const path = join(dir, model.file);
   if (existsSync(path) && (await sha256Of(path)) === model.sha256) {
@@ -122,7 +151,8 @@ export async function pullFile(
     response = await get(model.url, {});
   }
   if (!response.ok || !response.body) {
-    throw new Error(`couldn't download ${model.file}: HTTP ${response.status}`);
+    const message = `couldn't download ${model.file}: HTTP ${response.status}`;
+    throw response.status >= 500 ? new Error(message) : new FinalError(message);
   }
   // 206 is the rest of the file; a server that ignores the range sends all of it.
   const from = response.status === 206 ? have : 0;
@@ -140,7 +170,7 @@ export async function pullFile(
   }
   if ((await sha256Of(part)) !== model.sha256) {
     rmSync(part, { force: true });
-    throw new Error(
+    throw new FinalError(
       `${model.file} didn't match its expected checksum. Run this again; if it keeps happening, please open an issue.`,
     );
   }
@@ -208,7 +238,12 @@ async function pullFiles(files: ModelFile[], dir: string, deps: PullDeps) {
       deps.progress?.(progressLine([{ name: model.name, done, total }]));
     };
     try {
-      await pullFile(model, dir, { fetch: deps.fetch, log, onProgress: progress });
+      await pullFile(model, dir, {
+        fetch: deps.fetch,
+        log,
+        onProgress: progress,
+        wait: deps.wait,
+      });
     } finally {
       // A pull that has ended leaves the line straight away, so the last
       // thing shown is never a stale byte count.
