@@ -15,7 +15,7 @@ import { agents, codexMentions } from "../src/agents.ts";
 import { PLUGIN } from "../src/guide.ts";
 import { pinnedChrome } from "../src/models.ts";
 import { DEFAULT_ASR_MODEL } from "../src/runtime.ts";
-import { checks, commandPath, doctor, setup } from "../src/setup.ts";
+import { checks, commandPath, doctor, oldPlugin, setup } from "../src/setup.ts";
 
 /** A home with Cursor, Gemini CLI, VS Code and Codex folders, `mockingbird` in .local/bin, and no `claude` command. */
 function home() {
@@ -427,3 +427,21 @@ test("the plugin's launcher answers MCP itself when mockingbird isn't installed"
   expect(replies[4].error.code).toBe(-32602);
   // PowerShell can take seconds to start on a busy Windows runner (#215).
 }, 30_000);
+
+test("oldPlugin finds the pre-#140 mockingbird-studio plugin in Claude Code (#256)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "mb-claude-"));
+  const env = { CLAUDE_CONFIG_DIR: dir };
+  expect(oldPlugin(env)).toBe(false);
+  mkdirSync(join(dir, "plugins"));
+  const file = join(dir, "plugins", "installed_plugins.json");
+  writeFileSync(file, JSON.stringify({ version: 2, plugins: { "mockingbird@mockingbird": [] } }));
+  expect(oldPlugin(env)).toBe(false);
+  writeFileSync(
+    file,
+    JSON.stringify({ version: 2, plugins: { "mockingbird-studio@mockingbird-studio": [] } }),
+  );
+  expect(oldPlugin(env)).toBe(true);
+  expect(
+    checks({ env, mbHome: dir, which: () => null }).find((c) => c.name === "old plugin")?.fix,
+  ).toContain("/plugin uninstall mockingbird-studio");
+});

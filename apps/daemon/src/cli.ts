@@ -24,7 +24,7 @@ import {
 import { main as recordMain } from "./record.ts";
 import { retireDictation } from "./retire.ts";
 import { ffmpegMissing, findWhisperServer, mockingbirdHome, pinnedWhisper } from "./runtime.ts";
-import { doctor, setup } from "./setup.ts";
+import { doctor, OLD_PLUGIN_FIX, oldPlugin, setup } from "./setup.ts";
 import { main as transcribeMain, UsageError } from "./transcribe.ts";
 import { uninstall } from "./uninstall.ts";
 
@@ -170,6 +170,8 @@ export function engineStatus(
     whisperServer: server !== undefined && (runnable(server) || which(server) !== null),
     chrome: findChrome(env, home) !== undefined,
     dictionaryWords: words,
+    /** The pre-#140 mockingbird-studio plugin is installed: tell the user to switch (#256). */
+    oldPlugin: oldPlugin(env) ? OLD_PLUGIN_FIX : null,
   };
 }
 
@@ -194,6 +196,8 @@ function status(): number {
   console.log(`whisper-server:      ${yes(s.whisperServer, getWhisper)}`);
   console.log(`chrome:              ${yes(s.chrome, "`mockingbird models pull chrome`")}`);
   console.log(`dictionary:          ${s.dictionaryWords} words`);
+  if (s.oldPlugin)
+    console.log(`old plugin:          mockingbird-studio is installed: ${s.oldPlugin}`);
   return s.transcriptionModel &&
     s.vadModel &&
     s.ffmpeg &&

@@ -3594,7 +3594,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
     {
       name: "status",
       description:
-        "Whether mockingbird is ready: the transcription model in use, and whether ffmpeg and whisper-server are installed.",
+        "Whether mockingbird is ready: the transcription model in use, and whether ffmpeg and whisper-server are installed. A non-null `oldPlugin` means Claude Code still has the out-of-date mockingbird-studio plugin; tell the user how to switch.",
       inputSchema: { type: "object", properties: {} },
       run: async () => JSON.stringify(await status()),
     },
