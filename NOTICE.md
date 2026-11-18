@@ -38,5 +38,8 @@ three.js authors), in
 It's bundled into one file with `bun build --minify` from the npm package, and
 its licence is in `three.LICENSE` beside it. It's shipped rather than
 downloaded because motion pages run with no network; `motion` fills in a
-page's `from "THREE"` with it (#270).
+page's `from "THREE"` with it (#270). Six of its add-ons from the same
+version (`RoomEnvironment`, `EffectComposer`, `RenderPass`,
+`UnrealBloomPass`, `BokehPass`, `OutputPass`) are bundled the same way into
+`three-addons.min.js` for `from "THREE_ADDONS"` (#275).
 

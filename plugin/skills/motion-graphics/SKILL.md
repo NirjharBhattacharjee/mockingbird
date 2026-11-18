@@ -228,11 +228,20 @@ the Mac's GPU. Start from [templates/three.html](./templates/three.html).
   frame put `m.video` on a `THREE.Texture` with `needsUpdate = true`. An
   ImageBitmap ignores `flipY`, so flip it with `repeat.set(1, -1)` and
   `offset.set(0, 1)`.
-- **Only core three.js is shipped.** Addons (text geometry, loaders, post
-  effects) aren't there. Build shapes from core geometry, or draw text on a
-  canvas and use it as a texture.
+- **Light it like a film, as the template does.** `from "THREE_ADDONS"`
+  gives `RoomEnvironment` (soft light from every side), `EffectComposer`,
+  `RenderPass`, `UnrealBloomPass`, `BokehPass` (depth of field) and
+  `OutputPass`. Use AgX tone mapping, one key light, and bloom on HDR values
+  before `OutputPass` tone-maps them. Only something brighter than white
+  should glow; footage on a screen goes on as an emissive map just under
+  white. Other add-ons (text geometry, loaders) aren't shipped: build shapes
+  from core geometry, or draw text on a canvas and use it as a texture.
+- **Move the camera with the kit's presets**: `import { cameraAt } from
+  "KIT"` and turn `cameraAt(t, { moves, shakes })` into a position, a field
+  of view and a roll, as the template's `place(t)` does.
 - **Speed:** on an M3, 10 s of a lit, shadowed 1080p scene with footage took
-  33.4 s. 3D costs about five times what a 2D page does, so use it for the
+  33.4 s. The template's environment, bloom and depth of field took 4 s of
+  720p from 5.9 s to 10.0 s. 3D costs about five times what a 2D page does, so use it for the
   moments that need depth.
 
 ## When it fails

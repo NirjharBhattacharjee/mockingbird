@@ -562,7 +562,7 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
     if (p <= 0 || p >= 1) return;
     layer(() => {
       const span = Math.hypot(W, H);
-      const pos = (expo(p) * 1.4 - 0.2) * span;
+      const pos = (p * 1.4 - 0.2) * span;
       const [x0, y0] = [W / 2 - (beam.x * span) / 2, H / 2 - (beam.y * span) / 2];
       const g = ctx.createLinearGradient(
         x0 + beam.x * (pos - 120 * u),
@@ -1637,6 +1637,8 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
         ctx.beginPath();
         ctx.roundRect(0, 0, w, h, R);
         ctx.fill();
+        // The edge catches the theme's light, if it names one (#275).
+        if (T.light !== undefined) return rim(0, 0, w, h, R);
         const edge = ctx.createLinearGradient(0, 0, w, h);
         edge.addColorStop(0, "rgba(255,255,255,0.45)");
         edge.addColorStop(0.4, "rgba(255,255,255,0.08)");

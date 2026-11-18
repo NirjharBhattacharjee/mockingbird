@@ -2386,15 +2386,24 @@ export const STYLES_URL = pathToFileURL(
 export const THREE_URL = pathToFileURL(
   join(PLUGIN, "skills", "motion-graphics", "vendor", "three.module.min.js"),
 ).href;
+/** three.js's add-ons for light and post-processing (#275): RoomEnvironment, EffectComposer, bloom, depth of field. */
+export const THREE_ADDONS_URL = pathToFileURL(
+  join(PLUGIN, "skills", "motion-graphics", "vendor", "three-addons.min.js"),
+).href;
 /** What a page can import by name, and where each one is. */
-const NAMED = { KIT: KIT_URL, STYLES: STYLES_URL, THREE: THREE_URL };
+const NAMED = {
+  KIT: KIT_URL,
+  STYLES: STYLES_URL,
+  THREE: THREE_URL,
+  THREE_ADDONS: THREE_ADDONS_URL,
+};
 
 /**
  * A template imports the kit `from "KIT"`, and motion fills it in (#213): an
  * agent replacing it by hand hit the template's comment first, and a Windows
  * path isn't a URL. The filled-in copy goes beside the page, so the page's own
- * files are where it says. `from "STYLES"` and `from "THREE"` are filled in
- * the same way. Returns the page to load: `script` itself when it imports none.
+ * files are where it says. `from "STYLES"`, `from "THREE"` and
+ * `from "THREE_ADDONS"` are filled in the same way. Returns the page to load: `script` itself when it imports none.
  */
 export function withKit(script: string): string {
   const html = readFileSync(script, "utf8");
@@ -2491,7 +2500,7 @@ async function motion(
     fonts: fontFaces(),
     videoFilters,
     // A three.js page draws on the GPU; 2D pages keep software rendering's exact pixels (#270).
-    gpu: gpu ?? readFileSync(script, "utf8").includes('from "THREE"'),
+    gpu: gpu ?? /from "THREE(_ADDONS)?"/.test(readFileSync(script, "utf8")),
   };
   let said: string;
   try {
