@@ -2751,23 +2751,34 @@ async function clipWords(
   choice: ModelChoice = {},
 ) {
   const words: AsrWord[][] = clips.map(() => []);
-  // The first clip's source, loaded once: the language is detected from that
-  // clip (what's captioned first), and the loop below reuses the file.
-  const opening = clips[0];
-  const openingSource = opening ? (opening.path ?? path) : undefined;
+  // The language is detected from the opening clips (what's captioned
+  // first), up to a minute of them, so an opening on a silent clip still
+  // reaches speech. The last source loaded is kept for the loop below.
   let loaded: { source: string; file: PcmAudio } | undefined;
-  let sample: PcmAudio = { sampleRate: 16_000, samples: new Int16Array(0) };
-  if (opening && openingSource && (await probe(requireFile(openingSource, "File"))).audio) {
-    const file = await loadAudio(openingSource);
-    loaded = { source: openingSource, file };
-    const rate = file.sampleRate;
-    sample = {
-      sampleRate: rate,
-      samples: file.samples.subarray(
-        Math.round(opening.from * rate),
-        Math.round(opening.to * rate),
-      ),
-    };
+  const pieces: Int16Array[] = [];
+  let rate = 16_000;
+  let left = 60; // seconds
+  for (const c of clips) {
+    if (left <= 0) break;
+    const source = c.path ?? path;
+    if (!(await probe(requireFile(source, "File"))).audio) continue;
+    if (loaded?.source !== source) loaded = { source, file: await loadAudio(source) };
+    // One rate in the sample: a WAV kept at its own rate isn't joined to the others.
+    if (pieces.length && loaded.file.sampleRate !== rate) continue;
+    rate = loaded.file.sampleRate;
+    const seconds = Math.min(c.to - c.from, left);
+    const first = Math.round(c.from * rate);
+    pieces.push(loaded.file.samples.subarray(first, first + Math.round(seconds * rate)));
+    left -= seconds;
+  }
+  const sample: PcmAudio = {
+    sampleRate: rate,
+    samples: new Int16Array(pieces.reduce((n, p) => n + p.length, 0)),
+  };
+  let at = 0;
+  for (const p of pieces) {
+    sample.samples.set(p, at);
+    at += p.length;
   }
   // A whisper-server per call, since two requests can run at once.
   const { engines, language } = await enginesFor(sample, choice, log);
@@ -2777,6 +2788,8 @@ async function clipWords(
       const mine = clips.flatMap((c, i) => ((c.path ?? path) === source ? [{ c, i }] : []));
       if (!(await probe(requireFile(source, "File"))).audio) continue;
       const file = loaded?.source === source ? loaded.file : await loadAudio(source);
+      // Done with once this source is heard: several long recordings don't pile up.
+      loaded = undefined;
       const rate = file.sampleRate;
       const stretches = spans(mine.map(({ c }) => c));
       const heard: AsrWord[][] = [];

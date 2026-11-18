@@ -136,6 +136,16 @@ async function pullOnce(
   // Named for the checksum it's heading for, so a partial of another
   // version of the file is never continued into this one.
   const part = `${path}.${model.sha256.slice(0, 12)}.part`;
+  // A partial an older pull left, named without a checksum or for another
+  // version, can't be continued into this one: it's 1 GB of nothing kept.
+  for (const old of readdirSync(dir)) {
+    const stale =
+      old === `${model.file}.part` || /^[0-9a-f]{12}\.part$/.test(old.slice(model.file.length + 1));
+    if (old.startsWith(`${model.file}.`) && stale && join(dir, old) !== part) {
+      rmSync(join(dir, old), { force: true });
+      log(`removed ${old}, a partial download of another version`);
+    }
+  }
   const have = existsSync(part) ? statSync(part).size : 0;
   if (have > 0 && (await sha256Of(part)) === model.sha256) {
     renameSync(part, path);
@@ -738,7 +748,7 @@ export function listModels(deps: ModelsDeps = {}): SpeechModel[] {
   }
   let inUse: string | undefined;
   try {
-    const saved = savedModelFor(spokenLanguage(env), home);
+    const saved = savedModelFor(spokenLanguage(env), home, dir);
     inUse = basename(findAsrModel(dir, env.MOCKINGBIRD_ASR_MODEL, () => {}, saved));
   } catch {
     // None installed: nothing is in use.

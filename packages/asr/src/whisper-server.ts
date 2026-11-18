@@ -73,7 +73,10 @@ export class WhisperServerEngine implements AsrEngine {
     private readonly language = "en",
   ) {}
 
-  async transcribe(audio: PcmAudio, { vocabulary }: TranscribeOptions = {}): Promise<AsrResult> {
+  async transcribe(
+    audio: PcmAudio,
+    { vocabulary, language }: TranscribeOptions = {},
+  ): Promise<AsrResult> {
     const form = new FormData();
     form.append("file", new Blob([encodeWav(audio)], { type: "audio/wav" }), "segment.wav");
     form.append("response_format", "verbose_json");
@@ -81,7 +84,7 @@ export class WhisperServerEngine implements AsrEngine {
     // large-v3-turbo is multilingual: pinning the language stops it drifting
     // to another one on accented English. Pinned to the wrong one, it
     // translates: German pinned to English comes out as broken English.
-    form.append("language", this.language);
+    form.append("language", language ?? this.language);
     // Whisper spells a name it doesn't know phonetically ("Nerj Herbata
     // Chargy"); given the word up front it writes it properly.
     if (vocabulary) form.append("prompt", vocabulary);

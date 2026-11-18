@@ -157,10 +157,14 @@ fixed one name and bent two others the model had right ("Bhattacharjee" →
 - **Detection:** with the language on `auto`, no `model` given,
   `MOCKINGBIRD_ASR_MODEL` unset, and at least one model mapped to a
   language, the call transcribes the first stretch of
-  speech (up to 30 s) with the default model, reads the language Whisper
-  names ("german"), and, if the map has another model for it, restarts on
-  that one. That costs one extra model load, only when the model changes.
-  The transcript's first line says which language and model it used.
+  speech (up to 30 s) with the saved global model (`models use`), reads the
+  language Whisper names ("german"), and, if the map has another model for
+  it, restarts on that one. That costs one extra model load, only when the
+  model changes; when it doesn't, the later chunks are held to the language
+  heard rather than detected again. A `.en` global model can't detect, so a
+  multilingual model from the map does it; with none, the call stays on the
+  `.en` model and says detection can't run. The transcript's first line says
+  which language and model it used.
 - Mixed speech in one video is transcribed with the model chosen from the
   start. For Bangla and English in one sentence, give `language` (and the
   model) rather than rely on detection.
