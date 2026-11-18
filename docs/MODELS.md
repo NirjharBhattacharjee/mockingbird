@@ -186,15 +186,16 @@ Word error is summed over the corpus (total edits over total words).
 | small.en-q5_1 | 190 MB | 0.5 s | 456 MB | 290 ms | 304 ms | 5.9% | 6.5% | 8/32 |
 | base.en | 148 MB | 0.3 s | 322 MB | 103 ms | 109 ms | 8.5% | 7.5% | 5/32 |
 | large-v3 | 3095 MB | 2.1 s | 3351 MB | 1620 ms | 1721 ms | 3.2% | 3.9% | 17/32 |
+| small-q5_1 (multilingual, 2026-11-18) | 190 MB | 0.3 s | 329 MB | 309 ms | 346 ms | 6.9% | 7.5% | 4/32 |
 
 Re-run on 2026-11-18, same Mac: every WER and name count above came out the
 same. A run on 2026-11-06 read 27.4% for large-v3-q5_0 and 68.1% en_IN
 (#211). The models hadn't changed: `say` had written about 5 ms of silence
 for all 16 Aman and Tara clips, so every model lost every word in them.
 `say` also gets a single clip wrong now and then (Tara once took 6.6 s of
-babble over a 3.9 s line). The corpus now makes again any clip outside 2-5
-words a second, cached ones included, and stops if `say` keeps getting one
-wrong. The good clips run at 2.3-4.1.
+babble over a 3.9 s line). The corpus now makes again any clip that's silent,
+won't decode or runs outside 2-5 words a second, cached ones included, and
+stops if `say` keeps getting one wrong. The good clips run at 2.3-4.1.
 
 **On a CPU (#202).** On Windows and Linux, whisper-server is whisper.cpp's
 CPU build, and an Intel Mac has no Metal to speak of. On `windows-latest`
@@ -211,7 +212,7 @@ each:
 
 Turbo barely helps on a CPU: it shares large-v3's encoder, which is most of
 the work there. So off Apple Silicon the default is multilingual `small`
-Q5_1, which runs at half real time even on 2 cores. On the bench above, small-q5_1
+Q5_1, which runs at half real time even on 2 cores. In the table above, multilingual small-q5_1
 reads 6.9% (7.5% en_IN) against large-v3-q5_0's 3.2%, and 4/32 names against
 17/32. So on a PC, names lean on the dictionary.
 `mockingbird models pull large-v3-turbo` and `models use` it on a fast PC.

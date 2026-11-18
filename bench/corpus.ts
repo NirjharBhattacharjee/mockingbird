@@ -52,37 +52,51 @@ export type Clip = { wav: string; voice: Voice; sentence: Sentence };
 
 const DIR = join(import.meta.dir, "corpus");
 
-/**
- * Words a second, a clip's length against its text. `say` now and then writes
- * a clip that isn't the sentence (Tara once took 6.6 s of babble over a 3.9 s
- * line), and every model then scores it as errors, which read as the models
- * getting worse (#211). The 64 good clips speak at 2.3-4.1 words a second.
- */
-export function wordsPerSecond(wav: string, text: string): number {
-  const { samples, sampleRate } = decodeWav(readFileSync(wav));
-  return text.split(/\s+/).length / (samples.length / sampleRate);
-}
-
 const SANE = { min: 2, max: 5 };
 
-function speak(voice: Voice, text: string, wav: string) {
-  const aiff = wav.replace(/\.wav$/, ".aiff");
-  const tmp = wav.replace(/\.wav$/, ".part.wav");
+/**
+ * Why the clip at `wav` isn't the sentence, or undefined if it is. `say` now
+ * and then writes a clip that isn't the sentence: 5 ms of nothing, or (Tara
+ * once) 6.6 s of babble over a 3.9 s line. Every model then scores it as
+ * errors, which reads as the models getting worse (#211). The 64 good clips
+ * speak at 2.3-4.1 words a second.
+ */
+export function badClip(wav: string, text: string): string | undefined {
+  let pcm: ReturnType<typeof decodeWav>;
+  const bytes = readFileSync(wav); // a filesystem error is thrown, not mistaken for a bad clip
+  try {
+    pcm = decodeWav(bytes);
+  } catch (error) {
+    return `not a WAV it can read (${error instanceof Error ? error.message : error})`;
+  }
+  let peak = 0;
+  for (const v of pcm.samples) peak = Math.max(peak, Math.abs(v));
+  if (peak < 300) return "silent";
+  const rate = text.split(/\s+/).length / (pcm.samples.length / pcm.sampleRate);
+  if (rate < SANE.min || rate > SANE.max) {
+    return `${rate.toFixed(1)} words a second, not ${SANE.min}-${SANE.max}`;
+  }
+  return undefined;
+}
+
+/** `voice` saying `text` into `out`, a 16 kHz mono WAV. */
+function speak(voice: Voice, text: string, out: string) {
+  const aiff = out.replace(/\.wav$/, ".aiff");
   const say = Bun.spawnSync(["say", "-v", voice.name, "-o", aiff, text]);
   if (say.exitCode !== 0) throw new Error(`say -v ${voice.name} failed: ${say.stderr}`);
-  const convert = Bun.spawnSync([..."afconvert -f WAVE -d LEI16@16000 -c 1".split(" "), aiff, tmp]);
+  const convert = Bun.spawnSync([..."afconvert -f WAVE -d LEI16@16000 -c 1".split(" "), aiff, out]);
   rmSync(aiff, { force: true });
   if (convert.exitCode !== 0) {
-    rmSync(tmp, { force: true });
-    throw new Error(`afconvert failed for ${wav}: ${convert.stderr}`);
+    rmSync(out, { force: true });
+    throw new Error(`afconvert failed for ${out}: ${convert.stderr}`);
   }
-  // Renamed into place only once complete, so a half-written clip is never reused.
-  renameSync(tmp, wav);
 }
 
 /**
- * Every voice saying every sentence, generating any clip that's missing and
- * again any that's too slow or fast to be the sentence, cached ones included.
+ * Every voice saying every sentence. A clip that's missing or bad, cached
+ * ones included, is made again at its own temporary name and checked before
+ * it's renamed into place, so two runs sharing the corpus never delete or
+ * read each other's half-made clips.
  */
 export function corpus(): Clip[] {
   mkdirSync(DIR, { recursive: true });
@@ -92,18 +106,19 @@ export function corpus(): Clip[] {
       // Named after the text too, so editing a sentence makes a new clip
       // rather than scoring the old audio against the new words.
       const wav = join(DIR, `${voice.name}-${i + 1}-${Bun.hash(sentence.text).toString(36)}.wav`);
-      for (let tries = 0; ; tries++) {
-        if (!existsSync(wav)) speak(voice, sentence.text, wav);
-        const rate = wordsPerSecond(wav, sentence.text);
-        if (rate >= SANE.min && rate <= SANE.max) break;
-        rmSync(wav);
-        if (tries === 2) {
+      let why = existsSync(wav) ? badClip(wav, sentence.text) : "missing";
+      for (let tries = 0; why; tries++) {
+        if (tries === 3) {
           throw new Error(
-            `say -v ${voice.name} keeps saying sentence ${i + 1} at ${rate.toFixed(1)} words a second, ` +
-              `not ${SANE.min}-${SANE.max}: listen to it with \`say -v ${voice.name} "${sentence.text}"\``,
+            `say -v ${voice.name} keeps getting sentence ${i + 1} wrong (${why}): listen with \`say -v ${voice.name} "${sentence.text}"\``,
           );
         }
-        console.error(`${wav} is ${rate.toFixed(1)} words a second; making it again`);
+        if (why !== "missing") console.error(`${wav}: ${why}; making it again`);
+        const part = `${wav.replace(/\.wav$/, "")}.${process.pid}-${tries}.part.wav`;
+        speak(voice, sentence.text, part);
+        why = badClip(part, sentence.text);
+        if (why) rmSync(part, { force: true });
+        else renameSync(part, wav);
       }
       clips.push({ wav, voice, sentence });
     });
