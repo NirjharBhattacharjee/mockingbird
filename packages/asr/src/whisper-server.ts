@@ -45,6 +45,17 @@ export function parseVerboseJson(body: VerboseJson): AsrResult {
       ...(w.t_dtw !== undefined && w.t_dtw >= 0 && { atMs: w.t_dtw * 10 }),
     })),
   );
+  // After a long pause whisper-server can give a run of tokens the start of
+  // the segment's end while their ends are right (#253). Such a token starts
+  // at its DTW point, or where the token before it ended.
+  let prevEnd = 0;
+  for (const w of words) {
+    if (w.startMs > w.endMs) {
+      const at = w.atMs !== undefined && w.atMs <= w.endMs ? w.atMs : prevEnd;
+      w.startMs = Math.min(at, w.endMs);
+    }
+    prevEnd = Math.max(prevEnd, w.endMs);
+  }
   // Punctuation tokens score low even when the speech was heard clearly.
   const spoken = words.filter((w) => /[\p{L}\p{N}]/u.test(w.word));
   const confidence = spoken.length
