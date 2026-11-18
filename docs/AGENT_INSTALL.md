@@ -45,9 +45,7 @@ ls -l ~/.local/bin/mockingbird 2>/dev/null && ~/.local/bin/mockingbird status
 
 - `uname -sm` must print one of `Darwin arm64`, `Darwin x86_64`,
   `Linux x86_64` or `Linux aarch64`. Anything else isn't supported, so tell
-  the person and stop. Motion graphics need a Mac with Apple Silicon for
-  now, and on Linux captions become a subtitle track instead of being drawn
-  on the video. Tell the person before going on.
+  the person and stop. Every tool works on all four.
 - **On a Mac**, the `brew` line must print a path. If it only lists
   `/opt/homebrew/bin/brew` or `/usr/local/bin/brew`, Homebrew is installed
   but not on your PATH. Start each command below with
@@ -75,9 +73,7 @@ if (Test-Path $mb) { & $mb status }
 ```
 
 - The first line must print `AMD64`. Windows on ARM isn't supported yet, so
-  tell the person and stop. On Windows, mockingbird has no motion graphics
-  yet, and captions become a subtitle track instead of being drawn on the
-  video. Tell the person before going on.
+  tell the person and stop.
 - The list must include `winget`, or both `git` and `ffmpeg`. The installer
   uses winget to get whichever of Git and ffmpeg is missing, and Windows may
   ask the person to allow that. If neither is there, **(person)** ask them to
@@ -204,9 +200,12 @@ Windows:
 
 It exits 0 when everything mockingbird needs is there. A line starting `✗`
 is something missing, with a `fix:` line under it. Run that, or run step 2
-again. A line starting `!` is optional. On Linux and Windows `captions` and
-`motion` show `!`, and on an Intel Mac `motion` does, which is expected. The last lines list
-the coding agents on this computer and whether each has mockingbird.
+again. A line starting `!` is optional but worth fixing: `chrome` means the
+installer couldn't download the Chrome that captions, motion and music draw
+in, and `old plugin` means Claude Code still has the out-of-date
+mockingbird-studio plugin. Run the `fix:` line, asking the person first for
+anything in Claude Code. The last lines list the coding agents on this
+computer and whether each has mockingbird.
 `--json` gives the same as JSON.
 
 ## 4. Connect it to yourself
@@ -245,9 +244,8 @@ then call the `status` tool to check.
 
 For Claude Code, the plugin is another way in: `/plugin marketplace add
 NirjharBhattacharjee/mockingbird`, then `/plugin install mockingbird@mockingbird`.
-It brings the skills too. Use one or the other, not both, or every tool shows
-up twice. The plugin's launcher is a shell script, so on Windows use
-`setup` instead.
+It brings the skills too, and works on Windows as well. Use one or the
+other, not both, or every tool shows up twice.
 
 ## 5. Hand it over
 
