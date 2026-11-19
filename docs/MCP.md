@@ -666,13 +666,18 @@ against 199 s in software.
   are drawn in Japanese, Chinese or Korean shapes by the captions first: any
   kana makes them Japanese, any Hangul Korean. Han alone goes by
   `MOCKINGBIRD_LANGUAGE` when it's `ja`, `zh` or `ko`, and Chinese otherwise.
-- **A font the page doesn't have fails the render** (#276), naming it: the
-  first family of every canvas `font` and of every element with text must be
+- **A font the page doesn't have is a warning** (#276): the first family of
+  every canvas `font` and of every element with text that's drawn should be
   one of those, or one the page loads with `@font-face`. A generic family
   (`sans-serif`, `system-ui`) or a system font (`Futura`, `Helvetica Neue`)
-  first is refused, since Chrome would draw something different on every
-  machine. If a pinned font isn't downloaded, the error says to run
-  `mockingbird models pull chrome`.
+  first draws something different on every machine, so the render finishes
+  in Chrome's fallback and `motion`'s result ends with a warning naming the
+  font. If a pinned font isn't downloaded, the warning says to run
+  `mockingbird models pull chrome`. Captions whose style's font isn't
+  downloaded are drawn in a fallback the same way, and `render`'s result
+  says so. `doctor` names the missing fonts. (#276 asked for a failure; the
+  user chose a warning, so a missing font degrades a render rather than
+  breaking it.)
 - **The page** is the size of the video, with a transparent background.
   Anything Chrome draws works: CSS, SVG, gradients, blend modes, filters,
   the fonts above or ones loaded with `@font-face`, images by relative

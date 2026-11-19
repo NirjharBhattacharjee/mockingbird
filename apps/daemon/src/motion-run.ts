@@ -32,6 +32,7 @@ try {
     process.exit(0);
   }
   let sounds: unknown[] = [];
+  const warnings: string[] = [];
   const frames = await renderHtml(script, {
     ...options,
     chrome,
@@ -39,8 +40,9 @@ try {
     onLoad: ({ audio }) => {
       sounds = soundsOf(audio, `${script}'s \`mockingbird.audio\``);
     },
+    onWarning: (w) => warnings.push(w),
   });
-  console.log(JSON.stringify({ frames, sounds }));
+  console.log(JSON.stringify({ frames, sounds, warnings }));
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);

@@ -160,8 +160,9 @@ Anton, Bebas Neue, Oswald, Archivo Black, Playfair Display, Space Grotesk,
 Montserrat, Bangers, Nunito, Cormorant Garamond, Fraunces, Caveat, Kalam,
 VT323, Space Mono, Silkscreen, Courier Prime, Comic Neue, Arvo, and the Noto
 families for other scripts. Any other font, or a generic like `sans-serif`
-first, fails the render with its name, since Chrome would draw a different
-system font on every machine.
+first, draws a different system font on every machine: the render finishes,
+and `motion`'s result ends with a warning naming it. Fix the page when you
+see one.
 
 **Sounds**: `sfx("whoosh" | "pop" | "tick" | "impact" | "riser" |
 "shimmer" | "click")`, made for the kit, free to use. Return them from the

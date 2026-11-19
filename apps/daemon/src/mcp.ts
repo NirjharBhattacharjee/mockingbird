@@ -2036,18 +2036,19 @@ async function segmented(
   }
 }
 
+/** The pinned fonts for drawing captions: whichever are downloaded. */
+function captionFonts(_lines: string[], _style: CaptionStyle): PageFont[] {
+  return fontFaces();
+}
+
 /**
- * The pinned fonts for drawing `lines` in `style`. Throws if the style's
- * font isn't pulled, since Chrome would draw a system font in its place (#276).
+ * A warning for render's result when the captions' font isn't downloaded:
+ * they're drawn in a fallback, not refused (#276; degrade, don't break).
  */
-function captionFonts(lines: string[], style: CaptionStyle): PageFont[] {
-  const fonts = fontFaces();
-  if (lines.length && findChrome() && !fonts.some((f) => f.family === style.font)) {
-    throw new Error(
-      `The captions' font, ${style.font}, isn't downloaded: run \`mockingbird models pull chrome\`.`,
-    );
-  }
-  return fonts;
+export function captionFontWarning(captions: string | undefined, style: CaptionStyle): string {
+  if (!captions?.trim() || !findChrome() || fontFaces().some((f) => f.family === style.font))
+    return "";
+  return `. Warning: the captions' font, ${style.font}, isn't downloaded, so they're drawn in a fallback font; run \`mockingbird models pull chrome\``;
 }
 
 /**
@@ -2061,7 +2062,13 @@ function captionFonts(lines: string[], style: CaptionStyle): PageFont[] {
  * framed to `size` (default the first clip's source) at `fps` (default its
  * rate), so clips from different sources join.
  */
-async function render(
+async function render(...args: Parameters<typeof renderCut>): Promise<string> {
+  const said = await renderCut(...args);
+  const o = args[2] ?? {};
+  return said + captionFontWarning(o.captions, o.captionStyle ?? captionStyle(undefined));
+}
+
+async function renderCut(
   path: string,
   clips: Clip[],
   {
@@ -2244,7 +2251,7 @@ async function render(
       // Its own length, which rounding to whole frames can leave a hair short of the clips'.
       const { seconds } = await probe(joined);
       // Framed and split already; this pass lays everything else over it.
-      return await render(joined, [{ from: 0, to: seconds }], {
+      return await renderCut(joined, [{ from: 0, to: seconds }], {
         captions,
         captionsY,
         captionStyle: style,
@@ -2610,15 +2617,17 @@ async function motion(
     if (page !== script) rmSync(page, { force: true });
   }
   let frames = 0;
+  let warnings: string[] = [];
   let work: string | undefined;
   try {
     // The runner's last line; a script's own console.log comes before it. A
     // script that exits early leaves none, and the claimed target goes with the error.
-    let result: { frames?: unknown; sounds?: unknown } = {};
+    let result: { frames?: unknown; sounds?: unknown; warnings?: unknown } = {};
     try {
       result = JSON.parse(said.trim().split("\n").at(-1) || "{}") ?? {};
     } catch {}
     frames = Number(result.frames);
+    warnings = Array.isArray(result.warnings) ? result.warnings.map(String) : [];
     if (!Number.isInteger(frames) || frames < 1) {
       throw new Error("the motion script stopped without drawing; did it call process.exit?");
     }
@@ -2666,7 +2675,9 @@ async function motion(
     if (work) rmSync(work, { recursive: true, force: true });
   }
   const took = ((performance.now() - started) / 1000).toFixed(1);
-  return `${target} (${clock((frames / fps) * 1000)}, ${width}x${height}, ${fps} fps), drawn in ${took} s`;
+  // A font the page lacked was drawn in a fallback; say so (#276).
+  const warned = warnings.length ? `. Warning: ${warnings.join(" ")}` : "";
+  return `${target} (${clock((frames / fps) * 1000)}, ${width}x${height}, ${fps} fps), drawn in ${took} s${warned}`;
 }
 
 const MOTION = join(PLUGIN, "skills", "motion-graphics");
