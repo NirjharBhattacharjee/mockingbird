@@ -191,7 +191,7 @@ function make(ctx: any, t: number, m: any): Look {
           fy,
           `700 ${Math.round(size * u)}px ${SERIF}`,
           TONE.ink,
-          "left",
+          o.align ?? "left",
           4,
         ),
       );

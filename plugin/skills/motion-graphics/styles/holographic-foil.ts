@@ -9,6 +9,7 @@ import {
   frame,
   hash,
   type Look,
+  leftOf,
   type Pt,
   progress,
   type Style,
@@ -182,7 +183,9 @@ function make(ctx: any, t: number, m: any): Look {
       const w = ctx.measureText(s).width + 40 * u;
       ctx.restore();
       const h = size * 1.6 * u;
-      const [x0, y0] = [X(x), Y(y)];
+      // Aligned by the white border 4u outside the card; left-aligned stays where it was.
+      const x0 = o.align && o.align !== "left" ? leftOf(X(x), w + 8 * u, o.align) + 4 * u : X(x);
+      const y0 = Y(y);
       slapped(x0 + w / 2, y0 + h / 2, at, () => {
         rounded(x0 - 4 * u, y0 - 4 * u, w + 8 * u, h + 8 * u, 14 * u);
         ctx.fillStyle = "#F4F4FA";

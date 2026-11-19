@@ -12,6 +12,7 @@ import {
   frame,
   hash,
   type Look,
+  leftOf,
   type Pt,
   roughen,
   type Style,
@@ -195,7 +196,7 @@ function make(ctx: any, t: number, m: any): Look {
       const w = ctx.measureText(s.toUpperCase()).width + 40 * u;
       ctx.restore();
       const h = size * 1.5 * u;
-      const l = X(x);
+      const l = leftOf(X(x), w, o.align);
       const tp = Y(y) - h / 2;
       peeled(l, tp, w, h, at, dur, () => {
         // The red reduction banner with cream letters cut out of it.

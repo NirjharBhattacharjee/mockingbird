@@ -9,6 +9,7 @@ import {
   frame,
   hash,
   type Look,
+  leftOf,
   type Pt,
   type Style,
   spring,
@@ -98,12 +99,13 @@ function make(ctx: any, t: number, m: any): Look {
       ctx.globalAlpha = clamp((t - at) / 0.2);
       ctx.font = letter(size);
       const tw = ctx.measureText(s.toUpperCase()).width + 34 * u;
+      const left = leftOf(X(x), tw, o.align);
       ctx.fillStyle = "#FFE45C";
-      ctx.fillRect(X(x), Y(y), tw, size * 1.5 * u);
+      ctx.fillRect(left, Y(y), tw, size * 1.5 * u);
       ctx.lineWidth = 4 * u;
       ctx.strokeStyle = INK;
-      ctx.strokeRect(X(x), Y(y), tw, size * 1.5 * u);
-      letters(s, X(x) + 16 * u, Y(y) + size * 0.78 * u, size, INK, "left");
+      ctx.strokeRect(left, Y(y), tw, size * 1.5 * u);
+      letters(s, left + 16 * u, Y(y) + size * 0.78 * u, size, INK, "left");
       ctx.restore();
     },
     label(s, x, y, o = {}) {
