@@ -30,8 +30,8 @@ const INK: Record<Tone, string> = {
 const LAPIS = "#24448F";
 const ROSE = "#B0526E";
 const VELLUM = "#EADBB4";
-const BOOK = '"Luminari", "Palatino", "Book Antiqua", "Georgia", serif';
-const INITIAL = '"Palatino", "Book Antiqua", "Georgia", serif';
+const BOOK = '"Cormorant Garamond", serif';
+const INITIAL = '"Charis SIL", serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

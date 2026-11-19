@@ -33,8 +33,7 @@ const TEXT: Record<Tone, string> = {
   bad: "#E25A3C",
   muted: "#7C76A8",
 };
-const FACE =
-  '"Arial Rounded MT Bold", "Nunito", "Avenir Next", "Helvetica Neue", Arial, sans-serif';
+const FACE = '"Nunito", sans-serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

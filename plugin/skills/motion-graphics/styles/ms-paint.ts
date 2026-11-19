@@ -30,8 +30,8 @@ const FILL: Record<Tone, string> = {
   bad: "#FF8040",
   muted: "#C0C0C0",
 };
-const HAND = '"Comic Sans MS", "Chalkboard SE", "Marker Felt", cursive';
-const UI = "Tahoma, Verdana, Arial, sans-serif";
+const HAND = '"Comic Neue", cursive';
+const UI = "'Inter', sans-serif";
 const SWATCH = [
   "#000000",
   "#808080",

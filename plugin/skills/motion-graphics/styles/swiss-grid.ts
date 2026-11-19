@@ -28,7 +28,7 @@ const TONE: Record<Tone, string> = {
   bad: RED,
   muted: "#8C8C88",
 };
-const GROTESK = '"Helvetica Neue", "Neue Haas Grotesk Display Pro", Helvetica, Arial, sans-serif';
+const GROTESK = '"Inter", sans-serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

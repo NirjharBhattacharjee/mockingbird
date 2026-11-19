@@ -20,7 +20,7 @@ import {
 
 const NAVY = "#1A1C33";
 const TINT: Record<Tone, number> = { ink: 200, accent: 280, good: 140, bad: 350, muted: 230 };
-const HEAVY = '"Avenir Next", "Futura", "Helvetica Neue", Arial, sans-serif';
+const HEAVY = '"Montserrat", sans-serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

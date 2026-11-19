@@ -29,9 +29,8 @@ const GREY: Record<Tone, string> = {
   bad: "#D8D8D8",
   muted: "#8A8A8A",
 };
-const BOLD =
-  '"Futura Condensed ExtraBold", "Impact", "Haettenschweiler", "Arial Narrow", sans-serif';
-const BLACK = '"Didot", "Bodoni 72", "Times New Roman", serif';
+const BOLD = '"Oswald", sans-serif';
+const BLACK = '"Playfair Display", serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

@@ -30,7 +30,7 @@ const SLAB: Record<Tone, string> = {
   bad: RED,
   muted: "#6B6B6B",
 };
-const HEAVY = '"Archivo Black", "Arial Black", "Helvetica Neue", Helvetica, Arial, sans-serif';
+const HEAVY = '"Archivo Black", sans-serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

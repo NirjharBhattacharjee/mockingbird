@@ -32,7 +32,7 @@ const TONE: Record<Tone, string> = {
   muted: "#8DA9C8",
 };
 const PIGMENTS = ["#1F2A5C", "#C9962E", "#8DA9C8", "#C8B28A", "#2E6F73"];
-const SERIF = '"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif';
+const SERIF = '"Charis SIL", serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

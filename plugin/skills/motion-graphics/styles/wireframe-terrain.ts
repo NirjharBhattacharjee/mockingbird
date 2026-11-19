@@ -28,7 +28,7 @@ const TONE: Record<Tone, string> = {
   bad: "#FF5470",
   muted: "#4F6A9A",
 };
-const MONO = '"JetBrains Mono", "SF Mono", Menlo, Consolas, monospace';
+const MONO = '"JetBrains Mono", monospace';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

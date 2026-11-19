@@ -28,7 +28,7 @@ const LEAD: Record<Tone, string> = {
   bad: "#C2362F",
   muted: "#8E8A82",
 };
-const HAND = '"Noteworthy", "Bradley Hand", "Segoe Print", "Comic Sans MS", cursive';
+const HAND = '"Caveat", cursive';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

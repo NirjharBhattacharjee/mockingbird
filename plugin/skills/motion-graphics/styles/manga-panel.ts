@@ -18,9 +18,9 @@ import {
 
 const INK = "#111111";
 const PAPER = "#F4F1E9";
-const LETTER = '"Anime Ace", "Comic Sans MS", "Chalkboard SE", "Marker Felt", sans-serif';
-const BOLD = '"Helvetica Neue", "Arial Black", Arial, sans-serif';
-const SFX = '"Hiragino Kaku Gothic StdN", "Hiragino Sans", "Yu Gothic", "Noto Sans JP", sans-serif';
+const LETTER = '"Bangers", sans-serif';
+const BOLD = '"Inter", sans-serif';
+const SFX = '"Inter", sans-serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

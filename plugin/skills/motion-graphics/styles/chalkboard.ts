@@ -25,7 +25,7 @@ const CHALK: Record<Tone, string> = {
   bad: "#F4A3BF",
   muted: "#AFC2B6",
 };
-const HAND = '"Chalkboard SE", "Chalkboard", "Marker Felt", "Comic Sans MS", cursive';
+const HAND = '"Comic Neue", cursive';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

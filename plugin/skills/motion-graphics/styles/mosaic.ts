@@ -23,7 +23,7 @@ const TILE: Record<Tone, string[]> = {
   bad: ["#A8322C", "#C2463A", "#8A241F"],
   muted: ["#9C9488", "#8A8276", "#B0A99C"],
 };
-const SERIF = '"Hoefler Text", "Baskerville", "Palatino", Georgia, serif';
+const SERIF = '"Playfair Display", serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

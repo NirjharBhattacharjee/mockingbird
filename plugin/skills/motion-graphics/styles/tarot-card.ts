@@ -30,7 +30,7 @@ const LINE: Record<Tone, string> = {
   bad: "#E0714F",
   muted: "#9C8A5A",
 };
-const SERIF = '"Cormorant Garamond", "Didot", "Palatino", "Georgia", serif';
+const SERIF = '"Cormorant Garamond", serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

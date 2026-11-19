@@ -27,7 +27,7 @@ const PAINT: Record<Tone, [string, string, string]> = {
   bad: ["#5A140E", "#E0432B", "#FFB08E"],
   muted: ["#232B4A", "#8FA3C8", "#D5E0F2"],
 };
-const FACE = '"Cooper Black", "Rockwell Extra Bold", "Bookman Old Style", Georgia, serif';
+const FACE = '"Fraunces", serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

@@ -27,7 +27,7 @@ const GLOW: Record<Tone, [string, string]> = {
   bad: ["#FF5C9A", "#FF3D6E"],
   muted: ["#6E7BB0", "#4A5490"],
 };
-const SANS = '"SF Pro Display", "Inter", "Helvetica Neue", Arial, sans-serif';
+const SANS = '"Montserrat", sans-serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

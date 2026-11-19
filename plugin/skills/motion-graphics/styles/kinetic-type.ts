@@ -20,8 +20,8 @@ import {
 
 const BLACK = "#0B0B0B";
 const ACID = "#E2FF3D";
-const BLOCK = '"Anton", "Bebas Neue", "Impact", "Haettenschweiler", "Arial Narrow", sans-serif';
-const MONO = '"JetBrains Mono", "SF Mono", Menlo, Consolas, monospace';
+const BLOCK = '"Anton", sans-serif';
+const MONO = '"JetBrains Mono", monospace';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

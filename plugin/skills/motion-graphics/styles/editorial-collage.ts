@@ -22,8 +22,8 @@ const PAPER = "#EFE6D3";
 const BLACK = "#151413";
 const RED = "#D23B2E";
 const HILITE = "rgba(255,214,0,0.78)";
-const COND = '"Anton", "Bebas Neue", "Oswald", Impact, "Arial Narrow", sans-serif';
-const SERIF = '"Georgia", "Times New Roman", serif';
+const COND = '"Anton", sans-serif';
+const SERIF = '"Charis SIL", serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

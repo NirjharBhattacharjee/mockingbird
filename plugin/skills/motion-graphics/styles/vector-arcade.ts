@@ -147,7 +147,7 @@ function make(ctx: any, t: number, m: any): Look {
     beam(lines, color, Math.max(1.2, size / 28));
     if (plain.length) {
       ctx.save();
-      ctx.font = `600 ${Math.round(7 * k)}px ui-monospace, Menlo, monospace`;
+      ctx.font = `600 ${Math.round(7 * k)}px "JetBrains Mono", monospace`;
       ctx.fillStyle = color;
       ctx.shadowColor = color;
       ctx.shadowBlur = 8 * u;

@@ -33,7 +33,7 @@ const THREAD: Record<Tone, string> = {
   bad: "#B8322A",
   muted: "#5A8A86",
 };
-const ROUND = '"Arial Rounded MT Bold", "Nunito", "Varela Round", "Avenir Next", Arial, sans-serif';
+const ROUND = '"Nunito", sans-serif';
 const PRINTS = [
   "#C9786A",
   "#D9B95E",

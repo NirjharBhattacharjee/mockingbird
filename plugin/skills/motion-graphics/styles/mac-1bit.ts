@@ -13,7 +13,7 @@ import {
   type Tone,
 } from "./look.ts";
 
-const FONT = '"Geneva", "Chicago", "Helvetica Neue", Arial, sans-serif';
+const FONT = '"Inter", sans-serif';
 /** 8x8 patterns, one row per byte: 1 is a black pixel. */
 const PAT: Record<string, number[]> = {
   grey: [0xaa, 0x55, 0xaa, 0x55, 0xaa, 0x55, 0xaa, 0x55],

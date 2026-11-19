@@ -35,7 +35,7 @@ const SKY = [
   "#B44A8E",
   "#D86A84",
 ];
-const FONT = 'Verdana, "DejaVu Sans", Tahoma, Arial, sans-serif';
+const FONT = '"Inter", sans-serif';
 
 /** Snap a 0-1 entrance to whole steps, the way sprites move. */
 const step = (p: number, n: number) => Math.floor(clamp(p) * n) / n;

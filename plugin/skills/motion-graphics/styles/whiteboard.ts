@@ -26,7 +26,7 @@ const INK: Record<Tone, string> = {
   bad: "#D9343F",
   muted: "#7A8088",
 };
-const HAND = '"Marker Felt", "Chalkboard SE", "Comic Sans MS", cursive';
+const HAND = '"Kalam", cursive';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

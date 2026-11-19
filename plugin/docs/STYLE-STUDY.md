@@ -163,7 +163,7 @@ in turn), a sticker or a scribble every couple of seconds, a sound on each.
 | Shorts change picture every 1.2 to 2.5 s | `cutPoints(cues, every)` puts a new framing on a word start every couple of seconds |
 | Staggered, soft reveals | `title` (rise, slam or blur, about 60 ms a word), `kicker` (types on), `counter`, `typewriter`, `stroke`, `ring`, `arrow`, `highlight` |
 | Structure on screen | `checklist`, `progress`, `chapter`, `lowerThird` |
-| Mixed type | lines are runs: `{ text, weight, italic, family, color }`; themes carry a display face, an italic serif (Charter) and a mono (Menlo) |
+| Mixed type | lines are runs: `{ text, weight, italic, family, color }`; themes carry a display face, an italic serif (Charis SIL) and a mono (JetBrains Mono), all pinned (#276) |
 | Captions as part of the design | `captions`: groups pop in, a pill in the accent colour slides from word to word under the voice |
 | A sound on every beat | seven sounds made for the kit (`sfx("pop")` and so on); the templates' `audio` exports put five of them on their beats, and `tick` and `riser` are there for counters and reveals |
 | Five looks | `THEMES`: `night` (launch film), `punch` (shorts), `studio` (product), `neon` (Kurzgesagt), `paper` (maps) |

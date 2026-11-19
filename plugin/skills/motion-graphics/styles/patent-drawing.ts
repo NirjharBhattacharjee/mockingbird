@@ -29,8 +29,8 @@ const COLOR: Record<Tone, string> = {
   bad: RED,
   muted: "#6E665A",
 };
-const SERIF = '"Century Schoolbook", "Baskerville", "Times New Roman", Georgia, serif';
-const MONO = '"Courier New", Courier, monospace';
+const SERIF = '"Charis SIL", serif';
+const MONO = '"Courier Prime", monospace';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

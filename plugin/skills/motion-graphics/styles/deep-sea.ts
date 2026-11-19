@@ -27,8 +27,8 @@ const GLOW: Record<Tone, string> = {
   bad: "#FF5FCB",
   muted: "#3E7F9C",
 };
-const SERIF = '"Iowan Old Style", "Palatino", "Book Antiqua", Georgia, serif';
-const MONO = '"SF Mono", Menlo, Consolas, monospace';
+const SERIF = '"Charis SIL", serif';
+const MONO = '"JetBrains Mono", monospace';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

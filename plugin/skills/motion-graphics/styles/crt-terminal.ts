@@ -23,7 +23,7 @@ const GLOW: Record<Tone, string> = {
   muted: "#1F9A44",
 };
 const BG = "#031207";
-const MONO = '"VT323", "Menlo", "Consolas", "Courier New", monospace';
+const MONO = '"VT323", monospace';
 
 function make(ctx: any, t: number, m: any): Look {
   const full = frame(m);

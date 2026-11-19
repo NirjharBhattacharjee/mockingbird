@@ -25,8 +25,7 @@ const TONE: Record<Tone, string> = {
   bad: "#FF4D7D",
   muted: "#9A95C8",
 };
-const ROUND =
-  '"Arial Rounded MT Bold", "Nunito", "Avenir Next", "Helvetica Neue", Arial, sans-serif';
+const ROUND = '"Nunito", sans-serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

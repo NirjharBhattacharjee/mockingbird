@@ -30,7 +30,7 @@ const TONE: Record<Tone, string> = {
   bad: "#D0645A",
   muted: "#7A6640",
 };
-const DECO = '"Futura", "Avenir Next", "Gill Sans", "Century Gothic", sans-serif';
+const DECO = '"Montserrat", sans-serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);
