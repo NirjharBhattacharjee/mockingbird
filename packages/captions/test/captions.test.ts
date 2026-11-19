@@ -59,7 +59,9 @@ test("splits a caption into paragraphs of words, *marked* ones lit", () => {
 
 test("Han characters take the shapes of the caption's language (#224)", () => {
   expect(hanOrder("ja", ["直"])).toEqual(["JP", "SC", "KR"]);
-  expect(hanOrder("zh", ["です"])).toEqual(["SC", "JP", "KR"]);
+  // Kana in the captions outweigh a zh setting: the captions are Japanese.
+  expect(hanOrder("zh", ["です"])).toEqual(["JP", "SC", "KR"]);
+  expect(hanOrder("zh", ["骨"])).toEqual(["SC", "JP", "KR"]);
   expect(hanOrder("ko", [])).toEqual(["KR", "JP", "SC"]);
   // Not one of the three: the captions decide.
   expect(hanOrder("auto", ["骨", "です"])).toEqual(["JP", "SC", "KR"]);

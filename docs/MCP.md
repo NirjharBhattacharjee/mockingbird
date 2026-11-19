@@ -646,9 +646,9 @@ against 199 s in software.
   CSS (the full names), and
   each loads the first time text needs it. Captions use Inter, then the Noto
   family for the script. Han characters are drawn in Japanese, Chinese or
-  Korean shapes by `MOCKINGBIRD_LANGUAGE` when it's `ja`, `zh` or `ko`;
-  otherwise by the captions themselves: any kana makes them Japanese, any
-  Hangul Korean, and Chinese if there's neither.
+  Korean shapes by the captions first: any kana makes them Japanese, any
+  Hangul Korean. Han alone goes by `MOCKINGBIRD_LANGUAGE` when it's `ja`,
+  `zh` or `ko`, and Chinese otherwise.
 - **The page** is the size of the video, with a transparent background.
   Anything Chrome draws works: CSS, SVG, gradients, blend modes, filters,
   fonts installed on the Mac or loaded with `@font-face`, images by relative

@@ -485,15 +485,30 @@ function captions(v: unknown, what: string): Captions | null {
   });
 }
 
-/** `true`, or `{ target }` in LUFS (default -16): the project's `level`. */
+/**
+ * The project's `transcription`: a model's file name in models/ (no folder)
+ * and a Whisper language code or auto, checked for shape here; the engine
+ * checks the model is there and the code is one Whisper knows.
+ */
 function transcription(v: unknown): Project["transcription"] {
   const o = obj(v, "transcription", ["model", "language"]);
   return clean({
-    model: maybe(o.model, (m) => str(m, "transcription.model")),
-    language: maybe(o.language, (l) => str(l, "transcription.language")),
+    model: maybe(o.model, (m) => {
+      const file = str(m, "transcription.model");
+      if (!/^[^/\\]+\.bin$/.test(file))
+        fail(`transcription.model is a file name in models/, like ggml-large-v3.bin; got ${file}`);
+      return file;
+    }),
+    language: maybe(o.language, (l) => {
+      const code = str(l, "transcription.language");
+      if (!/^(auto|[a-z]{2,3})$/.test(code))
+        fail(`transcription.language is a Whisper code like en or de, or auto; got ${code}`);
+      return code;
+    }),
   });
 }
 
+/** `true`, or `{ target }` in LUFS (default -16): the project's `level`. */
 function level(v: unknown): { target: number } | undefined {
   if (v === false || v === null) return undefined;
   if (v === true) return { target: -16 };
@@ -1400,7 +1415,8 @@ export function wanted(p: Project, ops: unknown[]): Map<string, { from: number; 
     try {
       step(q, op, "op", []);
     } catch {
-      break; // The real batch fails here too.
+      // A clip a cut_words split made, or a batch that fails anyway: the ops after still count.
+      continue;
     }
     take(q);
   }

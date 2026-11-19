@@ -57,6 +57,7 @@ import { clipsFrom, findPauses, measure } from "./pauses.ts";
 import {
   asrChoice,
   checkChoice,
+  choiceEnv,
   type Engines,
   enginesFor,
   languageModels,
@@ -2770,27 +2771,20 @@ async function clipWords(
   const words: AsrWord[][] = clips.map(() => []);
   // The language is detected from the opening clips (what's captioned
   // first), up to a minute of them, so an opening on a silent clip still
-  // reaches speech. The last source loaded is kept for the loop below.
-  let loaded: { source: string; file: PcmAudio } | undefined;
+  // reaches speech. Only those seconds are decoded, never a whole recording.
   const pieces: Int16Array[] = [];
-  let rate = 16_000;
   let left = 60; // seconds
   for (const c of clips) {
     if (left <= 0) break;
     const source = c.path ?? path;
     if (!(await probe(requireFile(source, "File"))).audio) continue;
-    if (loaded?.source !== source) loaded = { source, file: await loadAudio(source) };
-    // One rate in the sample: a WAV kept at its own rate isn't joined to the others.
-    if (pieces.length && loaded.file.sampleRate !== rate) continue;
-    rate = loaded.file.sampleRate;
     const seconds = Math.min(c.to - c.from, left);
-    const first = Math.round(c.from * rate);
-    // A copy, so a long recording isn't kept whole just for its opening seconds.
-    pieces.push(loaded.file.samples.slice(first, first + Math.round(seconds * rate)));
+    pieces.push((await loadAudio(source, { from: c.from, to: c.from + seconds })).samples);
     left -= seconds;
   }
+  // loadAudio gives 16 kHz mono, so the pieces join as they are.
   const sample: PcmAudio = {
-    sampleRate: rate,
+    sampleRate: 16_000,
     samples: new Int16Array(pieces.reduce((n, p) => n + p.length, 0)),
   };
   let at = 0;
@@ -2805,9 +2799,7 @@ async function clipWords(
     for (const source of new Set(clips.map((c) => c.path ?? path))) {
       const mine = clips.flatMap((c, i) => ((c.path ?? path) === source ? [{ c, i }] : []));
       if (!(await probe(requireFile(source, "File"))).audio) continue;
-      const file = loaded?.source === source ? loaded.file : await loadAudio(source);
-      // Done with once this source is heard: several long recordings don't pile up.
-      loaded = undefined;
+      const file = await loadAudio(source);
       const rate = file.sampleRate;
       const stretches = spans(mine.map(({ c }) => c));
       const heard: AsrWord[][] = [];
@@ -2959,8 +2951,12 @@ export function align(words: (Word & { at?: [number, number] })[], gaps: Span[])
   });
 }
 
-/** A source's words and silences as heard so far, and the stretches they cover. */
-type Heard = { covered: Span[]; words: Word[]; gaps: Span[] };
+/**
+ * A source's words and silences as heard so far, and the stretches they
+ * cover. `language` is the one detected for it on auto, kept so every later
+ * stretch of it is heard in the same language.
+ */
+type Heard = { covered: Span[]; words: Word[]; gaps: Span[]; language?: string };
 
 /**
  * The silences in `source` from `from` to `to` seconds: 80 ms or more under
@@ -3042,13 +3038,7 @@ export async function sourceWords(
   choice: ModelChoice = {},
 ): Promise<Map<string, { words: Word[]; gaps: Span[] }>> {
   checkChoice(choice);
-  const env = {
-    ...process.env,
-    ...(choice.model ? { MOCKINGBIRD_ASR_MODEL: choice.model } : {}),
-    ...(choice.language ? { MOCKINGBIRD_LANGUAGE: choice.language } : {}),
-  };
-  const { whisperModel, language } = asrChoice(log, env);
-  const spell = speller(log, language);
+  const { whisperModel, language } = asrChoice(log, choiceEnv(choice, process.env));
   // On auto, detection picks the model from the language map: a changed map is other words.
   const heardAs = language === "auto" ? `auto ${JSON.stringify(languageModels())}` : language;
   const out = new Map<string, { words: Word[]; gaps: Span[] }>();
@@ -3066,41 +3056,65 @@ export async function sourceWords(
         // Stretches less than 4 s apart are heard as one: their padding would overlap anyway.
         const todo = union(uncovered(spans, heard.covered), 4);
         if (!todo.length) return heard;
-        if ((await probe(source)).audio) {
-          const before = heard.covered;
-          const fresh = (middle: number, s: Span) =>
-            middle >= s.from &&
-            middle < s.to &&
-            !before.some((c) => middle >= c.from && middle < c.to);
-          for (const s of todo) {
-            // Silences either side too, for a cut at the stretch's edge to land in.
-            const around = { from: Math.max(0, s.from - 2), to: s.to + 2 };
-            heard.gaps = union([...heard.gaps, ...(await silences(source, around))]);
-            // Only this stretch decoded: a minute of an 8-hour source isn't 880 MiB of PCM.
-            const piece = await loadAudio(source, around);
+        // On auto, each source is detected on its own, once: the language heard
+        // first is kept with its words, and later stretches are held to it.
+        let mine: Engines | undefined;
+        const enginesHere = async (piece: PcmAudio) => {
+          if (language !== "auto") {
             engines ??= (await enginesFor(piece, choice, log, process.env, { dtw: true })).engines;
-            const placed: (Word & { at?: [number, number] })[] = [];
-            for await (const c of hear(piece, around.from * 1000, engines)) {
-              for (const w of timedWords(c.heard, c.offsetMs)) {
-                const at: [number, number] | undefined =
-                  w.atMs === undefined ? undefined : [w.atMs / 1000, (w.atEndMs ?? w.atMs) / 1000];
-                placed.push({ word: w.word, start: w.startMs / 1000, end: w.endMs / 1000, at });
+            return engines;
+          }
+          if (!mine) {
+            const held = heard.language ? { ...choice, language: heard.language } : choice;
+            const picked = await enginesFor(piece, held, log, process.env, { dtw: true });
+            mine = picked.engines;
+            if (picked.language !== "auto") heard.language = picked.language;
+          }
+          return mine;
+        };
+        try {
+          if ((await probe(source)).audio) {
+            const before = heard.covered;
+            const fresh = (middle: number, s: Span) =>
+              middle >= s.from &&
+              middle < s.to &&
+              !before.some((c) => middle >= c.from && middle < c.to);
+            for (const s of todo) {
+              // Silences either side too, for a cut at the stretch's edge to land in.
+              const around = { from: Math.max(0, s.from - 2), to: s.to + 2 };
+              heard.gaps = union([...heard.gaps, ...(await silences(source, around))]);
+              // Only this stretch decoded: a minute of an 8-hour source isn't 880 MiB of PCM.
+              const piece = await loadAudio(source, around);
+              const using = await enginesHere(piece);
+              const placed: (Word & { at?: [number, number] })[] = [];
+              for await (const c of hear(piece, around.from * 1000, using)) {
+                for (const w of timedWords(c.heard, c.offsetMs)) {
+                  const at: [number, number] | undefined =
+                    w.atMs === undefined
+                      ? undefined
+                      : [w.atMs / 1000, (w.atEndMs ?? w.atMs) / 1000];
+                  placed.push({ word: w.word, start: w.startMs / 1000, end: w.endMs / 1000, at });
+                }
+              }
+              // A word belongs to the stretch its middle is in: by its DTW points where it has them.
+              for (const w of align(placed, heard.gaps)) {
+                if (fresh((w.start + w.end) / 2, s)) heard.words.push(w);
               }
             }
-            // A word belongs to the stretch its middle is in: by its DTW points where it has them.
-            for (const w of align(placed, heard.gaps)) {
-              if (fresh((w.start + w.end) / 2, s)) heard.words.push(w);
-            }
           }
+          heard.covered = union([...heard.covered, ...todo]);
+          heard.words.sort((a, b) => a.start - b.start);
+          mkdirSync(dirname(file), { recursive: true });
+          const temp = `${file}.${process.pid}.tmp`;
+          writeFileSync(temp, JSON.stringify(heard));
+          renameSync(temp, file);
+          return heard;
+        } finally {
+          await (mine as Engines | undefined)?.close();
         }
-        heard.covered = union([...heard.covered, ...todo]);
-        heard.words.sort((a, b) => a.start - b.start);
-        mkdirSync(dirname(file), { recursive: true });
-        const temp = `${file}.${process.pid}.tmp`;
-        writeFileSync(temp, JSON.stringify(heard));
-        renameSync(temp, file);
-        return heard;
       });
+      // Names are fixed as English ones only when the words are English.
+      const spell = speller(log, heard.language ?? language);
       out.set(source, {
         words: heard.words.map((w) => ({ ...w, word: spell(w.word) })),
         gaps: heard.gaps,
@@ -3144,15 +3158,23 @@ export function transcriptionAt(p: Project, ops: unknown[]): ModelChoice | undef
 async function editProject(file: string, ops: unknown[], log: (m: string) => void) {
   if (!ops.some((o) => (o as { op?: unknown })?.op === "cut_words")) return edit(file, ops);
   const dir = dirname(file);
-  // Hearing takes a while: if the project changed meanwhile (another edit
-  // added a clip), hear what it asks for now, so no clip is missing words (#235).
-  let project = load(file).project;
+  // Hearing takes a while: if what the project asks to be heard changed
+  // meanwhile (another edit added a clip), hear that too, so no clip is
+  // missing words (#235). A text or a size changed alongside doesn't count.
+  // ponytail: an edit landing between the last check and the save isn't seen;
+  // a lock file if agents edit one project at once.
+  const asks = (p: Project) => {
+    const spans = wantedFrom(p, ops, dir);
+    const choice = transcriptionAt(p, ops);
+    return { spans, choice, key: JSON.stringify([[...spans], choice]) };
+  };
+  let want = asks(load(file).project);
   let heard: Awaited<ReturnType<typeof sourceWords>>;
   for (;;) {
-    heard = await sourceWords(wantedFrom(project, ops, dir), log, transcriptionAt(project, ops));
-    const now = load(file).project;
-    if (JSON.stringify(now) === JSON.stringify(project)) break;
-    project = now;
+    heard = await sourceWords(want.spans, log, want.choice);
+    const now = asks(load(file).project);
+    if (now.key === want.key) break;
+    want = now;
   }
   return edit(
     file,
@@ -3166,9 +3188,16 @@ async function editProject(file: string, ops: unknown[], log: (m: string) => voi
 async function projectTranscript(file: string, log: (m: string) => void, choice: ModelChoice) {
   if (load(file).created) throw new Error(`No project at ${file}; make one with \`edit\`.`);
   checkChoice(choice);
-  // A model or language given here is kept on the project, so cut_words,
-  // captions and render hear the words this transcript shows.
-  if (choice.model || choice.language) edit(file, [{ op: "set", transcription: choice }]);
+  const models = join(mockingbirdHome(), "models");
+  if (choice.model && !existsSync(join(models, choice.model))) {
+    throw new Error(`${choice.model} isn't in ${models}; \`mockingbird models\` lists what is.`);
+  }
+  // A model or language given here is kept on the project, over what it had,
+  // so cut_words, captions and render hear the words this transcript shows.
+  if (choice.model || choice.language) {
+    const transcription = { ...load(file).project.transcription, ...choice };
+    edit(file, [{ op: "set", transcription }]);
+  }
   const { project } = load(file);
   const dir = dirname(file);
   const heard = await sourceWords(wantedFrom(project, [], dir), log, project.transcription);

@@ -354,6 +354,18 @@ export function languageModels(home = mockingbirdHome()): [string, string][] {
 /** What one call asked for: a model file in models/, and a language code or "auto". */
 export type ModelChoice = { model?: string; language?: string };
 
+/** `env` with a call's model and language over the settings, as a transcription reads them. */
+export function choiceEnv<E extends Record<string, string | undefined>>(
+  choice: ModelChoice,
+  env: E,
+) {
+  return {
+    ...env,
+    ...(choice.model ? { MOCKINGBIRD_ASR_MODEL: choice.model } : {}),
+    ...(choice.language ? { MOCKINGBIRD_LANGUAGE: choice.language } : {}),
+  };
+}
+
 /** Throws unless `choice` names a file in models/ and a language Whisper knows. */
 export function checkChoice(choice: ModelChoice): void {
   if (choice.model !== undefined && !isWhisperFile(choice.model)) {
@@ -390,11 +402,7 @@ export async function enginesFor(
   { dtw = false } = {},
 ): Promise<{ engines: Engines; language: string; model: string; detected: boolean }> {
   checkChoice(choice);
-  const callEnv = {
-    ...env,
-    ...(choice.model ? { MOCKINGBIRD_ASR_MODEL: choice.model } : {}),
-    ...(choice.language ? { MOCKINGBIRD_LANGUAGE: choice.language } : {}),
-  };
+  const callEnv = choiceEnv(choice, env);
   const start = async (e: typeof callEnv) => {
     const engines = await startEngines(log, freePort(), e, { dtw });
     return { engines, language: spokenLanguage(e), model: basename(engines.model) };

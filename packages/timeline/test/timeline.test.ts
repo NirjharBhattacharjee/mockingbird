@@ -545,6 +545,32 @@ test("a split just before a move on a sped-up clip leaves the move on the second
   expect(project.clips[1]?.moves?.[0]?.at).toBe(0);
 });
 
+test("transcription is a model's file name and a language code (#235)", () => {
+  const base = { version: 1, clips: [], texts: [], inserts: [], audio: [] };
+  expect(
+    check({ ...base, transcription: { model: "ggml-base.en.bin", language: "en" } }).transcription,
+  ).toEqual({
+    model: "ggml-base.en.bin",
+    language: "en",
+  });
+  expect(() => check({ ...base, transcription: { model: "../data.db" } })).toThrow(
+    "transcription.model",
+  );
+  expect(() => check({ ...base, transcription: { language: "english" } })).toThrow(
+    "transcription.language",
+  );
+});
+
+test("wanted goes on past an op on a clip only cut_words makes (#235)", () => {
+  const p = check({ version: 1, clips: [{ id: "c1", path: "a.mp4", from: 0, to: 4 }] });
+  const ops = [
+    { op: "cut_words", text: "um" },
+    { op: "trim", id: "c2", from: 3 },
+    { op: "add", type: "clip", path: "new.mov", from: 1, to: 2 },
+  ];
+  expect(wanted(p, ops).get("new.mov")).toEqual([{ from: 1, to: 2 }]);
+});
+
 test("wanted counts a trim earlier in the batch than cut_words (#235)", () => {
   const p = check({ version: 1, clips: [{ id: "c1", path: "a.mp4", from: 2, to: 4 }] });
   const ops = [

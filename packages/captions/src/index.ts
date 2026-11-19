@@ -55,19 +55,19 @@ const HIGHLIGHT = "rgb(255, 214, 0)";
 /**
  * Chinese, Japanese and Korean share Han characters, drawn in each one's own
  * shapes: the first of Noto's three a caption lists draws them (#224). By
- * the language when it's one of the three; otherwise by the captions
- * themselves: any kana is Japanese, any Hangul Korean, and Chinese if neither.
+ * the captions first: any kana is Japanese, any Hangul Korean. Han alone
+ * goes by the language when it's one of the three, and Chinese otherwise.
  */
 export function hanOrder(language: string | undefined, texts: string[]): string[] {
   const all = texts.join("");
-  const first =
-    language === "ja" || language === "ko" || language === "zh"
-      ? language
-      : /[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(all)
-        ? "ja"
-        : /\p{Script=Hangul}/u.test(all)
-          ? "ko"
-          : "zh";
+  // What the captions show wins: the setting is the user's, the captions may be another language's.
+  const first = /[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(all)
+    ? "ja"
+    : /\p{Script=Hangul}/u.test(all)
+      ? "ko"
+      : language === "ja" || language === "ko" || language === "zh"
+        ? language
+        : "zh";
   return { ja: ["JP", "SC", "KR"], ko: ["KR", "JP", "SC"], zh: ["SC", "JP", "KR"] }[first];
 }
 
