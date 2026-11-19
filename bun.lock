@@ -16,6 +16,7 @@
         "@mockingbird/asr": "workspace:*",
         "@mockingbird/audio": "workspace:*",
         "@mockingbird/captions": "workspace:*",
+        "@mockingbird/matte": "workspace:*",
         "@mockingbird/motion": "workspace:*",
         "@mockingbird/store": "workspace:*",
         "@mockingbird/timeline": "workspace:*",
@@ -35,6 +36,12 @@
       "name": "@mockingbird/captions",
       "dependencies": {
         "@mockingbird/motion": "workspace:*",
+      },
+    },
+    "packages/matte": {
+      "name": "@mockingbird/matte",
+      "dependencies": {
+        "onnxruntime-node": "1.30.0",
       },
     },
     "packages/motion": {
@@ -80,6 +87,8 @@
     "@mockingbird/captions": ["@mockingbird/captions@workspace:packages/captions"],
 
     "@mockingbird/daemon": ["@mockingbird/daemon@workspace:apps/daemon"],
+
+    "@mockingbird/matte": ["@mockingbird/matte@workspace:packages/matte"],
 
     "@mockingbird/motion": ["@mockingbird/motion@workspace:packages/motion"],
 

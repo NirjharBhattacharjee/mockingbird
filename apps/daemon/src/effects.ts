@@ -27,10 +27,11 @@ type Entry = {
  * Where a picture effect applies, when not the whole frame (#198): a
  * rectangle, an ellipse or a polygon, in 0-1 of the width and height,
  * softened by `feather` (0-1 of the width), outside it with `invert`. A
- * rectangle or ellipse with `end` moves to that box over the clip.
+ * rectangle or ellipse with `end` moves to that box over the clip. A
+ * `subject` mask is the person in the frame, found by MODNet (#260).
  */
 export type Mask = {
-  shape: "rect" | "ellipse" | "polygon";
+  shape: "rect" | "ellipse" | "polygon" | "subject";
   x?: number;
   y?: number;
   w?: number;
@@ -41,6 +42,11 @@ export type Mask = {
   end?: { x: number; y: number; w: number; h: number };
   /** A rect or ellipse following a path, its top left `at` seconds into the clip: what `track` gives. */
   path?: Point[];
+  /** A subject mask's video, made by render before the graph (subject.ts), never by hand, and its source's size. */
+  file?: string;
+  size?: string;
+  /** That video as filters, framed like the clip: set by renderGraph. */
+  source?: string;
 };
 
 const DEFAULT_CTX: Ctx = { width: 1920, height: 1080, length: 0, fps: 30 };
@@ -392,6 +398,12 @@ export function pictureSteps(
  * out per frame, not per pixel as geq's would be.
  */
 export function maskSteps(m: Mask, ctx: Ctx, out: string, tag: string): string[] {
+  if (m.shape === "subject") {
+    if (!m.source)
+      throw new Error("A subject mask goes on a clip's effects, not a layer or insert's.");
+    const soft = m.feather ? `,gblur=sigma=${f(m.feather * ctx.width)}` : "";
+    return [`${m.source},format=gray${m.invert ? ",negate" : ""}${soft}${out}`];
+  }
   if (!m.path?.length) return [`${maskSource(m, ctx)}${out}`];
   const { width: W, height: H, fps, length, speed = 1 } = ctx;
   // The path is timed in the source; at a speed, output time t is source time t*speed.
@@ -485,8 +497,13 @@ function checkMask(v: unknown, at: string): void {
   const extra = Object.keys(m).filter((k) => !keys.includes(k));
   if (extra.length)
     throw new Error(`${at} has no ${extra.join(", ")}; it takes ${keys.join(", ")}`);
-  if (!["rect", "ellipse", "polygon"].includes(String(m.shape))) {
-    throw new Error(`${at}.shape must be rect, ellipse or polygon`);
+  if (!["rect", "ellipse", "polygon", "subject"].includes(String(m.shape))) {
+    throw new Error(`${at}.shape must be rect, ellipse, polygon or subject`);
+  }
+  if (m.shape === "subject") {
+    const shaped = ["x", "y", "w", "h", "points", "end", "path"].filter((k) => m[k] !== undefined);
+    if (shaped.length)
+      throw new Error(`${at}: a subject mask finds its own shape; drop ${shaped.join(", ")}`);
   }
   const unit = (n: unknown, what: string, lo = 0, hi = 1) => {
     if (n === undefined) return;
@@ -542,6 +559,6 @@ export function catalog(): string {
     })
     .join("\n")
     .concat(
-      '\n\nAny picture effect but interpolate takes mask: { shape: "rect" | "ellipse" | "polygon", x, y, w, h (0-1 of the picture; a polygon has points: [[x, y], ...]), feather (0-0.5 of the width), invert, end: { x, y, w, h } to move a rect or ellipse there over the clip }, to apply it to that part of the frame only.',
+      '\n\nAny picture effect but interpolate takes mask: { shape: "rect" | "ellipse" | "polygon" | "subject", x, y, w, h (0-1 of the picture; a polygon has points: [[x, y], ...]), feather (0-0.5 of the width), invert, end: x, y, w, h to move a rect or ellipse there over the clip }, to apply it to that part of the frame only. "subject" is the person in the frame, found per frame by MODNet (`mockingbird models pull modnet` first): with invert, a blur or a grade on everything but them.',
     );
 }

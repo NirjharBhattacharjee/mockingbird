@@ -23,6 +23,7 @@ its eval and its benchmarks, is in git: `git show v0.3.2:docs/MODELS.md`.
 7. [Adapting Whisper to one voice: no-go](#7-adapting-whisper-to-one-voice-no-go)
 8. [Acquisition, storage & integrity](#8-acquisition-storage--integrity)
 9. [Licensing](#9-licensing)
+10. [Subject masks — MODNet](#10-subject-masks--modnet)
 
 ---
 
@@ -33,6 +34,7 @@ its eval and its benchmarks, is in git: `git show v0.3.2:docs/MODELS.md`.
 | **Silero VAD** v6.2.2 | finds the speech in a file, so Whisper hears speech and not silence | `onnxruntime-node`, in-process | 2 MB |
 | **Whisper `large-v3`, Q5_0** (Apple Silicon Macs) | speech to text with word times | `whisper.cpp`'s `whisper-server`, a subprocess per call on a free `127.0.0.1` port | 1.08 GB |
 | **Whisper `small`, Q5_1** (Windows, Linux, Intel Macs) | the same, on the CPU | the same | 190 MB |
+| **MODNet**, fp32, only after `models pull modnet` | finds the person in a frame, for a `subject` mask (§10) | `onnxruntime-node`, in-process | 26 MB |
 
 ## 2. Speech detection — Silero VAD
 
@@ -294,7 +296,9 @@ The spike's script is on #109.
   apart; a 404 or a checksum mismatch isn't. `models pull <name or
   URL>` downloads one more model the same way, against the sha256 Hugging
   Face gives or `--sha256` (§5). whisper-server's build is pinned the same
-  way (`pinnedWhisper` in `apps/daemon/src/runtime.ts`).
+  way (`pinnedWhisper` in `apps/daemon/src/runtime.ts`). `models pull
+  modnet` fetches MODNet the same way (`MODNET_FILE`); a plain `models pull`
+  doesn't, since only a subject mask needs it.
 - They're plain files in `~/.mockingbird/models/`. `data.db` keeps only file
   names: the one chosen for every language (`asr_model`), and one per
   language picked with `--language` (`asr_model.<code>`).
@@ -309,7 +313,41 @@ their own terms:
 | `whisper.cpp` | MIT |
 | Whisper weights | MIT (OpenAI) |
 | Silero VAD | MIT |
+| MODNet | Apache-2.0 (ZHKKKe/MODNet; the ONNX export from Xenova/modnet) |
 | ffmpeg | LGPL or GPL depending on the build; mockingbird uses the system's and ships none |
 
 Check a model's card before adding it to `MODEL_FILES`: weights and the code
 that runs them often carry different licenses.
+
+## 10. Subject masks — MODNet
+
+A mask with `shape: "subject"` (#260) is MODNet's matte of each frame:
+how much of each pixel is the person, 0 to 255. MODNet is a portrait
+matting model (Apache-2.0, trained for people facing the camera), 26 MB as
+fp32 ONNX, pinned to a Hugging Face commit of Xenova/modnet. It runs on
+`onnxruntime-node`, which Silero already uses (`packages/matte`). Frames are
+scaled so the short side is 512 and both sides are multiples of 32, the
+shape it was trained at, and the matte is scaled back to the source's shape
+before the clip's framing.
+
+Picked over MobileSAM (Apache-2.0, any object, but it needs a point or a box
+for each subject) because a talking head is the job, and over Robust Video
+Matting, which is GPL.
+
+Measured on an M3 (16 GB), 8 s of a 1080p talking head at 60 fps (a NASA
+interview, public domain), the background blurred:
+
+| | Time |
+|---|---|
+| render, no effects | 3.8 s |
+| render, `blur` on the whole frame | 6.8 s |
+| making the mask, 480 frames at 896x512 | 146 s (about 300 ms a frame) |
+| render with the mask cached | 8.9 s |
+| the same, cropped vertical | 9.2 s |
+
+A frame takes about 250 ms in onnxruntime on the CPU with its default
+threads. Four threads took 320 ms and eight 417 ms; CoreML took 1061 ms, since it can
+run only 176 of the graph's 236 nodes. The mask is made once per stretch of
+a source and kept in `~/.mockingbird/cache/masks/`, so re-rendering an edit
+doesn't make it again.
+

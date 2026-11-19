@@ -73,6 +73,19 @@ export const MODEL_FILES: ModelFile[] = [
   },
 ];
 
+/**
+ * MODNet (Apache-2.0), the portrait matting model subject masks run (#260):
+ * `models pull modnet` fetches it, never a plain pull, since only a subject
+ * mask needs it. The fp32 export from Xenova/modnet, at a pinned commit.
+ */
+export const MODNET_FILE: ModelFile = {
+  name: "MODNet",
+  file: "modnet.onnx",
+  url: "https://huggingface.co/Xenova/modnet/resolve/fa2fa546052fba4c08921230a26cc69a333fca12/onnx/model.onnx",
+  sha256: "07c308cf0fc7e6e8b2065a12ed7fc07e1de8febb7dc7839d7b7f15dd66584df9",
+  bytes: 25_888_640,
+};
+
 export async function sha256Of(path: string): Promise<string> {
   const hasher = new Bun.CryptoHasher("sha256");
   for await (const chunk of createReadStream(path)) hasher.update(chunk as Buffer);
@@ -780,7 +793,7 @@ export function listModels(deps: ModelsDeps = {}): SpeechModel[] {
 
 const USAGE =
   "usage: mockingbird models | models use <file> [--language <code>] | models use --default [--language <code>]\n" +
-  "       models pull [<name or URL> [--sha256 <hex>] [--as <ggml-name.bin>]]";
+  "       models pull [<name or URL> [--sha256 <hex>] [--as <ggml-name.bin>]] | models pull chrome | models pull modnet";
 
 /** Where `models pull <name>` finds an official model: whisper.cpp's own Hugging Face repo. */
 const OFFICIAL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/";

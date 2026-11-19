@@ -50,6 +50,7 @@ import {
   wordCaptions,
 } from "../src/mcp.ts";
 import { findChrome } from "../src/models.ts";
+import { mockingbirdHome } from "../src/runtime.ts";
 
 const echo = {
   name: "echo",
@@ -794,6 +795,34 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
         ...["-of", "csv=p=0", file],
       ]).stdout.toString(),
     );
+
+  // Needs MODNet: `mockingbird models pull modnet`.
+  test.skipIf(!existsSync(join(mockingbirdHome(), "models", "modnet.onnx")))(
+    "a subject mask is made once, kept, and blurs around the person (#260)",
+    async () => {
+      const dir = mkdtempSync(join(tmpdir(), "mb-subject-"));
+      try {
+        const src = join(dir, "talk.mp4");
+        Bun.spawnSync([
+          ...["ffmpeg", "-nostdin", "-loglevel", "error", "-f", "lavfi"],
+          ...["-i", "testsrc2=size=320x180:rate=10:duration=2", src],
+        ]);
+        const blur = { name: "blur", radius: 8, mask: { shape: "subject", invert: true } };
+        const before = existsSync(join(mockingbirdHome(), "cache", "masks"))
+          ? readdirSync(join(mockingbirdHome(), "cache", "masks")).length
+          : 0;
+        await run({ path: src, clips: [{ from: 0.5, to: 1.7, effects: [blur] }] });
+        const out = join(dir, "talk-short-1.mp4");
+        expect(seconds(out)).toBeCloseTo(1.2, 1);
+        const masks = readdirSync(join(mockingbirdHome(), "cache", "masks"));
+        expect(masks.length).toBeGreaterThanOrEqual(before);
+        expect(masks.some((f) => f.endsWith(".mkv"))).toBe(true);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+    120_000,
+  );
 
   // Needs the pinned Chrome (or MOCKINGBIRD_CHROME), which generates the bed.
   test.skipIf(!findChrome())(

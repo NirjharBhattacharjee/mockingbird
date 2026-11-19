@@ -6,6 +6,7 @@
     "@mockingbird/asr": "workspace:*",
     "@mockingbird/audio": "workspace:*",
     "@mockingbird/captions": "workspace:*",
+    "@mockingbird/matte": "workspace:*",
     "@mockingbird/motion": "workspace:*",
     "@mockingbird/store": "workspace:*",
     "@mockingbird/timeline": "workspace:*",
