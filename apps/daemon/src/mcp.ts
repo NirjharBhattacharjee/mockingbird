@@ -18,8 +18,17 @@ import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { type AsrWord, stripNonSpeech } from "@mockingbird/asr";
 import { loadAudio, type PcmAudio } from "@mockingbird/audio";
-import { type Cue, drawCaptions, hanOrder, parseSrt } from "@mockingbird/captions";
-import type { MusicParams } from "@mockingbird/motion";
+import {
+  CAPTION_FONTS,
+  CAPTION_PRESETS,
+  type CaptionStyle,
+  type Cue,
+  captionStyle,
+  drawCaptions,
+  hanOrder,
+  parseSrt,
+} from "@mockingbird/captions";
+import type { MusicParams, PageFont } from "@mockingbird/motion";
 import { noNetwork } from "@mockingbird/motion/sandbox";
 import { applyCorrections, correctNames } from "@mockingbird/store";
 import {
@@ -602,6 +611,32 @@ export type Sound = { at: number; volume: number; loop: boolean; duck: boolean }
 
 /** Where caption images sit unless told: a little below the middle, where Shorts and Reels leave room for text. */
 export const CAPTIONS_Y = 0.7;
+
+/** render's `captionStyle`, and a project's `captions.style` (#276). */
+const CAPTION_STYLE_SCHEMA = {
+  description: `How the captions and texts look: a preset's name (${Object.keys(CAPTION_PRESETS).join(", ")}; default classic, white Inter 700 with a black outline and the *spoken* word yellow), or an object with \`preset\` and any of: font (${CAPTION_FONTS.join(", ")}), weight, upper (capitals, which get 0.06 em of tracking), tracking (em), fill, stroke and active (colours; active is the *spoken* word's), outline (0-0.5 of the text height), shadow, pill (a colour behind the spoken word) and maxChars (about this many characters a line). subtitle suits long-form; creator and pill suit Shorts.`,
+  oneOf: [
+    { type: "string", enum: Object.keys(CAPTION_PRESETS) },
+    {
+      type: "object",
+      properties: {
+        preset: { type: "string", enum: Object.keys(CAPTION_PRESETS) },
+        font: { type: "string", enum: [...CAPTION_FONTS] },
+        weight: { type: "number" },
+        upper: { type: "boolean" },
+        tracking: { type: "number" },
+        fill: { type: "string" },
+        stroke: { type: "string" },
+        active: { type: "string" },
+        pill: { type: "string" },
+        outline: { type: "number" },
+        shadow: { type: "boolean" },
+        maxChars: { type: "number" },
+      },
+      additionalProperties: false,
+    },
+  ],
+};
 
 /** The loudness Shorts, Reels, TikTok and YouTube play at: EBU R128 integrated, in LUFS. */
 const LUFS = -14;
@@ -1810,6 +1845,7 @@ async function segmented(
     split,
     cues,
     captionsY,
+    style,
     texts,
     inserts,
     adjust,
@@ -1827,6 +1863,7 @@ async function segmented(
     split?: { top: Area; bottom: Area };
     cues: Cue[];
     captionsY: number;
+    style: CaptionStyle;
     texts: Text[];
     inserts: (Insert & { sdr?: string })[];
     adjust: { from: number; to: number; effects: Effect[] }[];
@@ -1844,7 +1881,7 @@ async function segmented(
     const [width, height] = (split ? "1080x1920" : size).split("x").map(Number);
     const chrome = lines.length ? findChrome() : undefined;
     const wrap = noNetwork();
-    const fonts = fontFaces();
+    const fonts = captionFonts(lines, style);
     const language = spoken ?? spokenLanguage();
     // Which shapes Han characters take: in the segment key, since it changes what's drawn.
     const han = hanOrder(language, lines);
@@ -1854,6 +1891,7 @@ async function segmented(
           wrap,
           fonts,
           language,
+          style,
         })
       : [];
     if (!images) return undefined;
@@ -1905,6 +1943,7 @@ async function segmented(
             // The fonts are pinned, so which are there says what they draw.
             fonts.map((f) => f.url),
             han,
+            style,
             laid.map((l) => [l.start, l.end, l.y, l.text]),
             shown.map(({ path: f, ...rest }) => ({
               ...rest,
@@ -1998,6 +2037,20 @@ async function segmented(
 }
 
 /**
+ * The pinned fonts for drawing `lines` in `style`. Throws if the style's
+ * font isn't pulled, since Chrome would draw a system font in its place (#276).
+ */
+function captionFonts(lines: string[], style: CaptionStyle): PageFont[] {
+  const fonts = fontFaces();
+  if (lines.length && findChrome() && !fonts.some((f) => f.family === style.font)) {
+    throw new Error(
+      `The captions' font, ${style.font}, isn't downloaded: run \`mockingbird models pull chrome\`.`,
+    );
+  }
+  return fonts;
+}
+
+/**
  * Cuts `clips` out of a video and joins them into one MP4, optionally 9:16
  * or split, with captions, text, inserts and sounds. The client chooses all
  * of those; this only runs ffmpeg. Captions are drawn as images with Core
@@ -2017,6 +2070,7 @@ async function render(
     split,
     captions,
     captionsY = CAPTIONS_Y,
+    captionStyle: style = captionStyle(undefined),
     texts = [],
     inserts = [],
     adjust = [],
@@ -2036,6 +2090,8 @@ async function render(
     split?: { top: Area; bottom: Area };
     captions?: string;
     captionsY?: number;
+    /** How the captions and texts look (#276); `classic` if not given. */
+    captionStyle?: CaptionStyle;
     texts?: Text[];
     inserts?: Insert[];
     /** Adjustment layers (#198): effects on everything under the text, each for its stretch. */
@@ -2162,6 +2218,7 @@ async function render(
       split,
       cues: captions?.trim() ? parseSrt(captions.trim()) : [],
       captionsY,
+      style,
       texts,
       inserts: placed,
       adjust,
@@ -2190,6 +2247,7 @@ async function render(
       return await render(joined, [{ from: 0, to: seconds }], {
         captions,
         captionsY,
+        captionStyle: style,
         texts,
         inserts,
         adjust,
@@ -2222,8 +2280,9 @@ async function render(
       ? await drawCaptions(lines, dir, width ?? 1080, height, {
           chrome,
           wrap,
-          fonts: fontFaces(),
+          fonts: captionFonts(lines, style),
           language: language ?? spokenLanguage(),
+          style,
         })
       : undefined;
     const burn = !!text && !images && (await canBurn());
@@ -3625,6 +3684,7 @@ async function renderProject(
     split: cut.split,
     captions: said,
     captionsY: cut.captions?.y ?? CAPTIONS_Y,
+    captionStyle: captionStyle(cut.captions?.style, "captions.style"),
     texts: soundOnly ? [] : cut.texts,
     inserts: laid.inserts,
     adjust: soundOnly ? [] : cut.adjust,
@@ -3852,7 +3912,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
 - {op:"trim", id, from?, to?}: a clip's source times; what's on it stays on the same picture
 - {op:"move", id, index}: a clip to another place in the cut
 - {op:"cut_words", text, clip?, all?} or {op:"cut_words", from, to, clip?}: cut words out of the cut by quoting them from \`transcribe\` with the project (no case or punctuation needed): \`text\` must be said once (or give \`clip\`, or \`all: true\` for every time), and from/to cuts from the first words through the last, across clips. Cuts land in the pauses, 0.2 s from the words kept; clips are split, trimmed or removed to do it
-- {op:"set", id, ...fields}: change an item (null clears a field); without id, the project's size ("1080x1920" makes it vertical, cropping each clip around its focus), fps, split {top, bottom} and captions {perCue?, lit?, upper?, y?} (null for none). Ids are given out as c1, t1, b1, a1.`,
+- {op:"set", id, ...fields}: change an item (null clears a field); without id, the project's size ("1080x1920" makes it vertical, cropping each clip around its focus), fps, split {top, bottom} and captions {perCue?, lit?, upper?, y?, style?} (null for none; style is as render's captionStyle). Ids are given out as c1, t1, b1, a1.`,
       inputSchema: {
         type: "object",
         properties: {
@@ -3942,6 +4002,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
             description:
               "Where the middle of the captions sits, 0-1 of the height (default 0.7). 0.5 puts them on a split's seam.",
           },
+          captionStyle: CAPTION_STYLE_SCHEMA,
           texts: {
             type: "array",
             description:
@@ -4060,6 +4121,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
               : undefined,
             captions: a.captions === undefined ? undefined : String(a.captions),
             captionsY: within(a.captionsY, 0, 1, "captionsY", CAPTIONS_Y),
+            captionStyle: captionStyle(a.captionStyle),
             texts: items(a.texts).map((t, i) => ({
               text: String(t.text ?? ""),
               ...stretch(t, `texts[${i}]`),

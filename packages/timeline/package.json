@@ -5,5 +5,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./export": "./src/export.ts"
+  },
+  "dependencies": {
+    "@mockingbird/captions": "workspace:*"
   }
 }

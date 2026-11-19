@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { drawCaptions } from "@mockingbird/captions";
 import { renderHtml } from "@mockingbird/motion";
 import { findChrome, fontFaces } from "../src/models.ts";
@@ -90,7 +91,44 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("shipped fonts (integratio
       return readFileSync(png);
     };
     for (const i of titles.keys()) {
-      expect((await frame(i, true)).equals(await frame(i, false))).toBe(false);
+      expect((await frame(i, true)).length).toBeGreaterThan(0);
+      // Without them, Chrome would draw a system font or boxes; the render fails instead (#276).
+      await expect(frame(i, false)).rejects.toThrow(/"Noto Sans SC" .*isn't loaded/);
     }
   }, 180_000);
+
+  // Every style's whole explainer, one style a frame, drawn through the page's
+  // font check: a family that isn't pinned, or isn't pulled, fails the render.
+  test("every motion style renders in the pinned fonts", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "fonts-styles-"));
+    const motion = join(import.meta.dir, "../../../plugin/skills/motion-graphics");
+    const template = readFileSync(join(motion, "templates/styles.html"), "utf8");
+    const page = join(dir, "styles.html");
+    writeFileSync(
+      page,
+      template
+        .replace('from "KIT"', `from ${JSON.stringify(pathToFileURL(join(motion, "kit.js")).href)}`)
+        .replace(
+          'from "STYLES"',
+          `from ${JSON.stringify(pathToFileURL(join(motion, "styles.js")).href)}`,
+        )
+        .replace(
+          "const look = style(STYLE, ctx, t, m);",
+          "const look = style(Object.keys(STYLES)[m.frame], ctx, 7, m);",
+        ),
+    );
+    const out = join(dir, "styles.mp4");
+    const count = Object.keys((await import(join(motion, "styles/index.ts"))).STYLES).length;
+    const drawn = await renderHtml(page, {
+      chrome: chrome as string,
+      out,
+      width: 960,
+      height: 540,
+      fps: 1,
+      duration: count,
+      fonts,
+    });
+    expect(drawn).toBe(count);
+    keep(out, "styles.mp4");
+  }, 300_000);
 });

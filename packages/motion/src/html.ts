@@ -32,12 +32,58 @@ export type PageFont = { family: string; url: string; weight: string; style: str
  * Registers `fonts` with the page, unloaded, as @font-face rules would: each
  * loads the first time text needs it, and the frame waits for it.
  */
+/**
+ * Page script defining `checkFonts(dom)` (#276). Chrome draws text whose font
+ * the page doesn't have in a system font, and says nothing, so the same page
+ * looks different on every machine. This throws instead when the first family
+ * of a canvas's `font`, or with `dom` of any element holding text, isn't one
+ * in `document.fonts` (a pinned font, or the page's own @font-face), or is
+ * only a generic like `sans-serif`.
+ */
+export const fontCheck = `
+  const fontsAsked = new Set();
+  const fontsSeen = new Set();
+  for (const P of [CanvasRenderingContext2D.prototype, OffscreenCanvasRenderingContext2D.prototype]) {
+    const d = Object.getOwnPropertyDescriptor(P, "font");
+    Object.defineProperty(P, "font", { ...d, set(v) { fontsAsked.add(v); d.set.call(this, v); } });
+  }
+  const unquote = (s) => s.trim().replace(/^["']|["']$/g, "");
+  const parsed = document.createElement("span").style;
+  const firstFamily = (families) => unquote(families.split(",")[0] ?? "");
+  const checkFamily = (first, where) => {
+    if (!first || fontsSeen.has(first)) return;
+    const have = [...new Set([...document.fonts].map((f) => unquote(f.family)))];
+    const hint = "Use one of the fonts the page has (" + (have.join(", ") || "none") + "), or load one with @font-face.";
+    if (/^(serif|sans-serif|monospace|cursive|fantasy|system-ui|ui-[a-z-]+|emoji|math|fangsong)$/.test(first))
+      throw new Error(where + " names no font, only the generic " + first + ", which draws differently on every machine. " + hint);
+    if (!have.includes(first))
+      throw new Error("the font " + JSON.stringify(first) + " (" + where + ") isn't loaded, so Chrome would draw a system font in its place. If it's one of mockingbird's fonts, run \\\`mockingbird models pull chrome\\\`. " + hint);
+    fontsSeen.add(first);
+  };
+  const checkFonts = (dom) => {
+    for (const font of fontsAsked) {
+      parsed.font = "";
+      parsed.font = font;
+      checkFamily(firstFamily(parsed.fontFamily), "a canvas's font " + JSON.stringify(font));
+    }
+    fontsAsked.clear();
+    if (!dom || !document.body) return;
+    const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+      const el = n.parentElement;
+      if (!n.textContent.trim() || !el || el.closest("script, style")) continue;
+      checkFamily(firstFamily(getComputedStyle(el).fontFamily), "<" + el.tagName.toLowerCase() + ">'s text");
+    }
+  };
+`;
+
 export const pageFonts = (fonts: PageFont[]) =>
   `for (const f of ${JSON.stringify(fonts)}) document.fonts.add(new FontFace(f.family, "url(" + JSON.stringify(f.url) + ")", { weight: f.weight, style: f.style }));`;
 
 export function pageClock(scene: PageScene, epoch: number, fonts: PageFont[] = []): string {
   return `(() => {
   ${pageFonts(fonts)}
+  ${fontCheck}
   let now = 0;
   const born = new WeakMap();
   const callbacks = new Map();
@@ -78,6 +124,7 @@ export function pageClock(scene: PageScene, epoch: number, fonts: PageFont[] = [
     async ready() {
       if (document.readyState !== "complete") await new Promise((r) => addEventListener("load", r, { once: true }));
       await document.fonts.ready;
+      checkFonts(true);
       for (const a of document.getAnimations()) born.set(a, 0);
       const audio = m.audio === undefined ? null : JSON.parse(JSON.stringify(m.audio));
       return { errors, audio, drawVideo: m.drawVideo === true };
@@ -111,6 +158,7 @@ export function pageClock(scene: PageScene, epoch: number, fonts: PageFont[] = [
         seek();
         // A font draw used for the first time loads now; the frame waits for it.
         await document.fonts.ready;
+        checkFonts(false);
         this.check();
       }
     },
@@ -125,6 +173,7 @@ export function pageClock(scene: PageScene, epoch: number, fonts: PageFont[] = [
     // After the last frame: anything still running gets a turn to fail.
     async done() {
       await new Promise((r) => setTimeout(r, 0));
+      checkFonts(true);
       this.check();
     },
   } });

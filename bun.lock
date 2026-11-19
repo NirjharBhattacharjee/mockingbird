@@ -52,6 +52,9 @@
     },
     "packages/timeline": {
       "name": "@mockingbird/timeline",
+      "dependencies": {
+        "@mockingbird/captions": "workspace:*",
+      },
     },
     "packages/vad": {
       "name": "@mockingbird/vad",

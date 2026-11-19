@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
+import { captionStyle } from "@mockingbird/captions";
 
 /**
  * An edit kept in a file, `project.json` (#148): the clips that make the cut
@@ -162,7 +163,14 @@ export type Sound = {
 };
 
 /** Word-by-word captions, made for the cut as it is when it's rendered. */
-export type Captions = { perCue?: number; lit?: boolean; upper?: boolean; y?: number };
+export type Captions = {
+  perCue?: number;
+  lit?: boolean;
+  upper?: boolean;
+  y?: number;
+  /** How they look: a preset's name or `{ preset?, ...fields }`, as render's captionStyle (#276). */
+  style?: string | Record<string, unknown>;
+};
 
 /**
  * The video's look (#262): a style file the agent wrote for this video, the
@@ -293,7 +301,7 @@ const INSERT = ["id", "path", "clip", "from", "to", "box", "blend", "effects", "
 const ADJUST = ["id", "clip", "from", "to", "effects"];
 const SOUND = ["id", "path", "generator", "clip", "at", "volume", "loop", "duck"];
 const GENERATED = ["generator", "tempo", "key", "energy", "seed", "length"];
-const CAPTIONS = ["perCue", "lit", "upper", "y"];
+const CAPTIONS = ["perCue", "lit", "upper", "y", "style"];
 const LOOK = ["file", "mood", "approved", "skipped"];
 
 function look(v: unknown, what: string): ProjectLook {
@@ -482,6 +490,15 @@ function captions(v: unknown, what: string): Captions | null {
     lit: maybe(o.lit, (b) => bool(b, `${what}.lit`)),
     upper: maybe(o.upper, (b) => bool(b, `${what}.upper`)),
     y: maybe(o.y, (n) => num(n, `${what}.y`, 0, 1)),
+    // Checked here, kept as written, so the project file reads as it was set.
+    style: maybe(o.style, (v) => {
+      try {
+        captionStyle(v, `${what}.style`);
+      } catch (e) {
+        fail((e as Error).message);
+      }
+      return v as Captions["style"];
+    }),
   });
 }
 

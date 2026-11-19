@@ -41,16 +41,26 @@ export function parseSrt(srt: string): Cue[] {
 
 /**
  * Text height: a share of a tall video's width, as Shorts captions are, or of
- * a wide video's height, as subtitles are (#127). The outline is a share of it.
+ * a wide video's height, as subtitles are (#127). A style's outline is a share of it.
  */
 const TALL_TEXT = 0.075;
 const WIDE_TEXT = 0.05;
-const OUTLINE = 0.2;
 /** How much of the width a line may take before it wraps: subtitles keep clear of the corners. */
 const TALL_LINE = 0.9;
 const WIDE_LINE = 0.6;
-/** The colour of a word written `*like this*`: the spoken word in word-by-word captions. */
-const HIGHLIGHT = "rgb(255, 214, 0)";
+/** The families a caption can be set in: each one `models pull chrome` downloads (#276). */
+export const CAPTION_FONTS = [
+  "Inter",
+  "Montserrat",
+  "Anton",
+  "Archivo Black",
+  "Bebas Neue",
+  "Oswald",
+  "Bangers",
+  "Space Grotesk",
+  "Playfair Display",
+  "Charis SIL",
+] as const;
 
 /**
  * Chinese, Japanese and Korean share Han characters, drawn in each one's own
@@ -71,14 +81,167 @@ export function hanOrder(language: string | undefined, texts: string[]): string[
   return { ja: ["JP", "SC", "KR"], ko: ["KR", "JP", "SC"], zh: ["SC", "JP", "KR"] }[first];
 }
 
-/** Inter, then Noto for scripts Inter lacks (Han in `han`'s order), then whatever the system has. */
-const families = (han: string[]) =>
+/**
+ * How captions look. `outline` is the stroke's share of the text height;
+ * `tracking` is letter spacing in em; `active` colours a word written
+ * `*like this*` (the spoken word), on a `pill` of that colour if one is set;
+ * `maxChars` narrows a line to about that many characters.
+ */
+export type CaptionStyle = {
+  font: (typeof CAPTION_FONTS)[number];
+  weight: number;
+  upper: boolean;
+  tracking: number;
+  fill: string;
+  stroke: string;
+  outline: number;
+  shadow: boolean;
+  active: string;
+  pill?: string;
+  maxChars?: number;
+};
+
+/**
+ * Named looks. `classic` is how captions have always looked. `subtitle` is
+ * restrained, for long-form: mixed case, a thin outline and a shadow, about
+ * 42 characters a line (Netflix's limit), no lit word. `creator` is the
+ * Shorts canon: Montserrat 900 in capitals, a thick outline, the spoken
+ * word yellow. `pill` puts the spoken word on a yellow pill.
+ */
+export const CAPTION_PRESETS = {
+  classic: {
+    font: "Inter",
+    weight: 700,
+    upper: false,
+    tracking: 0,
+    fill: "#FFFFFF",
+    stroke: "#000000",
+    outline: 0.2,
+    shadow: false,
+    active: "rgb(255, 214, 0)",
+  },
+  subtitle: {
+    font: "Inter",
+    weight: 600,
+    upper: false,
+    tracking: 0,
+    fill: "#FFFFFF",
+    stroke: "#000000",
+    outline: 0.08,
+    shadow: true,
+    active: "#FFFFFF",
+    maxChars: 42,
+  },
+  creator: {
+    font: "Montserrat",
+    weight: 900,
+    upper: true,
+    tracking: 0.06,
+    fill: "#FFFFFF",
+    stroke: "#000000",
+    outline: 0.28,
+    shadow: true,
+    active: "#FFD600",
+  },
+  pill: {
+    font: "Montserrat",
+    weight: 800,
+    upper: true,
+    tracking: 0.05,
+    fill: "#FFFFFF",
+    stroke: "#000000",
+    outline: 0.16,
+    shadow: false,
+    active: "#111111",
+    pill: "#FFD600",
+  },
+} satisfies Record<string, CaptionStyle>;
+
+const COLOUR = /^(#[0-9a-f]{3,8}|rgba?\([\d.,\s%]+\)|[a-z]+)$/i;
+
+/**
+ * A caption style from a preset's name, or `{ preset?, ...fields }` laid
+ * over that preset (default `classic`). Throws, naming `what`, on anything
+ * it doesn't know. Capitals get 0.06 em of tracking unless it's given.
+ */
+export function captionStyle(v: unknown, what = "captionStyle"): CaptionStyle {
+  const presets: Record<string, CaptionStyle> = CAPTION_PRESETS;
+  const named = (name: unknown) => {
+    const p = presets[String(name)];
+    if (!p) {
+      throw new Error(
+        `${what}: no preset ${JSON.stringify(name)}; there's ${Object.keys(presets).join(", ")}`,
+      );
+    }
+    return p;
+  };
+  if (v === undefined || v === null) return CAPTION_PRESETS.classic;
+  if (typeof v === "string") return named(v);
+  if (typeof v !== "object" || Array.isArray(v)) {
+    throw new Error(`${what} is a preset's name or an object of fields`);
+  }
+  const o = v as Record<string, unknown>;
+  const fields = [
+    "preset",
+    "font",
+    "weight",
+    "upper",
+    "tracking",
+    "fill",
+    "stroke",
+    "outline",
+    "shadow",
+    "active",
+    "pill",
+    "maxChars",
+  ];
+  const unknown = Object.keys(o).filter((k) => !fields.includes(k));
+  if (unknown.length)
+    throw new Error(`${what}: no field ${unknown.join(", ")}; there's ${fields.join(", ")}`);
+  const out: CaptionStyle = { ...named(o.preset ?? "classic") };
+  const num = (k: string, lo: number, hi: number) => {
+    const n = Number(o[k]);
+    if (!(Number.isFinite(n) && n >= lo && n <= hi))
+      throw new Error(`${what}.${k} is a number from ${lo} to ${hi}`);
+    return n;
+  };
+  const colour = (k: string) => {
+    const c = String(o[k]);
+    if (!COLOUR.test(c))
+      throw new Error(`${what}.${k} is a colour like #FFD600 or rgb(255, 214, 0)`);
+    return c;
+  };
+  if (o.font !== undefined) {
+    if (!(CAPTION_FONTS as readonly string[]).includes(String(o.font))) {
+      throw new Error(`${what}.font is one of ${CAPTION_FONTS.join(", ")}`);
+    }
+    out.font = String(o.font) as CaptionStyle["font"];
+  }
+  if (o.weight !== undefined) out.weight = Math.round(num("weight", 100, 1000));
+  if (o.upper !== undefined) {
+    out.upper = !!o.upper;
+    if (out.upper && o.tracking === undefined) out.tracking = Math.max(out.tracking, 0.06);
+  }
+  if (o.tracking !== undefined) out.tracking = num("tracking", -0.05, 0.3);
+  if (o.outline !== undefined) out.outline = num("outline", 0, 0.5);
+  if (o.maxChars !== undefined) out.maxChars = Math.round(num("maxChars", 8, 80));
+  if (o.shadow !== undefined) out.shadow = !!o.shadow;
+  for (const k of ["fill", "stroke", "active", "pill"] as const) {
+    if (o[k] !== undefined) out[k] = colour(k);
+  }
+  return out;
+}
+
+/**
+ * The style's font, then Noto for scripts it lacks (Han in `han`'s order). No
+ * system font: one would draw differently on every machine (#276).
+ */
+const families = (font: string, han: string[]) =>
   [
-    "Inter",
+    `"${font}"`,
     ...["Bengali", "Devanagari", "Arabic", "Hebrew", "Thai", "Tamil", ...han].map(
       (script) => `"Noto Sans ${script}"`,
     ),
-    "system-ui",
     "sans-serif",
   ].join(",");
 
@@ -99,10 +262,11 @@ export function pieces(text: string): Piece[][] {
 }
 
 /**
- * Draws each of `texts` into `dir` as a transparent PNG: white bold text
- * with a black outline, centred, sized and wrapped for a video `side` pixels
- * wide and `height` high (9:16 if not given), as wide as the video. A word
- * written `*like this*` is drawn in HIGHLIGHT. A word too long for a line,
+ * Draws each of `texts` into `dir` as a transparent PNG in `style` (white
+ * bold text with a black outline unless told otherwise), centred, sized and
+ * wrapped for a video `side` pixels wide and `height` high (9:16 if not
+ * given), as wide as the video. A word written `*like this*` is drawn in the
+ * style's `active` colour. A word too long for a line,
  * like a Japanese sentence with no spaces, breaks between characters.
  *
  * It's drawn as HTML in the headless Chrome at `chrome`, so captions look
@@ -121,13 +285,24 @@ export async function drawCaptions(
     wrap,
     fonts = [],
     language,
-  }: { chrome?: string; wrap?: string[]; fonts?: PageFont[]; language?: string } = {},
+    style = CAPTION_PRESETS.classic,
+  }: {
+    chrome?: string;
+    wrap?: string[];
+    fonts?: PageFont[];
+    language?: string;
+    style?: CaptionStyle;
+  } = {},
 ): Promise<string[] | undefined> {
   if (!chromePath) return undefined;
   const tall = height >= side;
   const size = Math.round(tall ? side * TALL_TEXT : height * WIDE_TEXT);
-  const outline = size * OUTLINE;
-  const margin = (side * (1 - (tall ? TALL_LINE : WIDE_LINE))) / 2;
+  const outline = size * style.outline;
+  // ponytail: a character is taken as half the text height wide, so maxChars is about that many.
+  const margin = Math.max(
+    (side * (1 - (tall ? TALL_LINE : WIDE_LINE))) / 2,
+    style.maxChars ? (side - style.maxChars * size * 0.5) / 2 : 0,
+  );
   let chrome: Chrome | undefined;
   try {
     chrome = await launchChrome(chromePath, { wrap });
@@ -166,16 +341,33 @@ export async function drawCaptions(
     });
     // The outline is a stroke centred on each glyph's edge with the fill painted
     // over its inner half, as Core Graphics drew it before #155.
-    const style = [
+    const css = [
       `width:${side}px`,
       "box-sizing:border-box",
       `padding:${outline}px ${margin}px`,
       "text-align:center",
-      `font:700 ${size}px/normal ${families(hanOrder(language, texts))}`,
-      "color:#fff",
-      `-webkit-text-stroke:${outline}px #000`,
+      `font:${style.weight} ${size}px/normal ${families(style.font, hanOrder(language, texts))}`,
+      `color:${style.fill}`,
+      `-webkit-text-stroke:${outline}px ${style.stroke}`,
       "paint-order:stroke fill",
       "overflow-wrap:anywhere",
+      ...(style.upper ? ["text-transform:uppercase"] : []),
+      ...(style.tracking ? [`letter-spacing:${style.tracking}em`] : []),
+      ...(style.shadow ? [`text-shadow:0 ${size * 0.05}px ${size * 0.2}px rgba(0,0,0,0.6)`] : []),
+    ].join(";");
+    // The spoken word: its colour, on a pill without the outline if there's one.
+    const lit = [
+      `color:${style.active}`,
+      ...(style.pill
+        ? [
+            `background:${style.pill}`,
+            "-webkit-text-stroke:0",
+            "text-shadow:none",
+            "padding:0 0.18em",
+            "border-radius:0.22em",
+            "box-decoration-break:clone",
+          ]
+        : []),
     ].join(";");
     const files: string[] = [];
     for (const [n, text] of texts.entries()) {
@@ -188,14 +380,14 @@ export async function drawCaptions(
           while (document.readyState !== "complete") await new Promise((r) => setTimeout(r, 10));
           document.body.style.margin = "0";
           const box = document.createElement("div");
-          box.style.cssText = ${JSON.stringify(style)};
+          box.style.cssText = ${JSON.stringify(css)};
           ${JSON.stringify(pieces(text))}.forEach((words, p) => {
             if (p) box.append(document.createElement("br"));
             words.forEach((word, w) => {
               if (w) box.append(" ");
               const span = document.createElement("span");
               span.textContent = word.text;
-              if (word.lit) span.style.color = ${JSON.stringify(HIGHLIGHT)};
+              if (word.lit) span.style.cssText = ${JSON.stringify(lit)};
               box.append(span);
             });
           });

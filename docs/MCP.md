@@ -83,6 +83,7 @@ with `MCP_TOOL_TIMEOUT` (milliseconds) if a long file stops partway.
 | `split` | `{ top, bottom }`: two areas of the source, each `{ x, y, w, h }` from 0 to 1, each scaled to fill half of a 1080x1920 frame. This is for a screen recording with a webcam in a corner: the screen on top, the webcam below. Clips' focus and zoom don't apply. |
 | `captions` | SRT text timed to the finished video (from `captions`, or written by the client), drawn onto the picture. A word written `*like this*` is drawn yellow. |
 | `captionsY` | Where the middle of the captions sits, 0 to 1 of the height (default 0.7). Use 0.5 for a split, so they sit on the seam. |
+| `captionStyle` | How the captions and texts look (#276): a preset's name, or `{ preset, ...fields }` over one. `classic` (the default) is white Inter 700, a black outline, the spoken word yellow. `subtitle` is for long-form: mixed case, a thin outline and a shadow, about 42 characters a line, no lit word. `creator` is Montserrat 900 in capitals with a thick outline. `pill` puts the spoken word on a yellow pill. Fields: `font` (Inter, Montserrat, Anton, Archivo Black, Bebas Neue, Oswald, Bangers, Space Grotesk, Playfair Display, Charis SIL), `weight`, `upper` (capitals get 0.06 em of tracking unless `tracking` is given), `tracking` (em), `fill`, `stroke`, `active` and `pill` (colours), `outline` (0 to 0.5 of the text height), `shadow`, `maxChars`. A project sets the same thing as `captions.style`. |
 | `texts` | `[{ text, from, to, y }]`: more text drawn the same way over a stretch of the finished video, such as a title for the first seconds. |
 | `inserts` | `[{ path, from, to }]`: pictures or videos laid over the whole frame for a stretch of the finished video (b-roll) while the speech carries on. They sit under the captions and are scaled to fill. A video's own sound isn't used. |
 | `audio` | `[{ path, at, volume, loop, duck }]`: sounds mixed under the speech from `at` seconds in. Music is `loop: true, duck: true` at about 0.15: it repeats to the end and drops while someone speaks (auto-editor's defaults: 85% down once the speech is above 4%, in 100 ms, back up in 500 ms). `volume` is relative to the speech brought to −14 LUFS first, so it means the same on a quiet recording as on a loud one. A sound effect is a path and an `at`. |
@@ -408,11 +409,12 @@ the client.
 
 Captions are drawn onto the picture: white bold text with a black outline,
 centred a little below the middle (or at `captionsY`), wrapped to fit, with
-words marked `*like this*` in yellow. In a tall video the text is 7.5% of
+words marked `*like this*` in yellow, unless `captionStyle` picks another
+look. In a tall video the text is 7.5% of
 the width, as Shorts captions are; in a wide one it's 5% of the height and
 wraps at 60% of the width, as subtitles do, clear of a webcam in a corner. mockingbird draws each cue
-as an image in the same pinned headless Chrome as `motion` (white bold
-system font, a black outline under it, as HTML), and ffmpeg lays it over the
+as an image in the same pinned headless Chrome as `motion` (the style's
+pinned font, an outline under it, as HTML), and ffmpeg lays it over the
 video, so this works with Homebrew's `ffmpeg`, which has no libass, and
 looks the same on every OS. Emoji and non-Latin scripts come out as Chrome
 draws them; a word too long for a line breaks between characters. Each
@@ -660,10 +662,17 @@ against 199 s in software.
   `Fraunces`, `Caveat`, `Kalam`, `VT323`, `Space Mono`, `Silkscreen`,
   `Courier Prime`, `Comic Neue`, `Arvo`), in CSS or a canvas's `font` (the
   full names), and each loads the first time text needs it. Captions use
-  Inter, then the Noto family for the script. Han characters are drawn in
-  Japanese, Chinese or Korean shapes by the captions first: any kana makes
-  them Japanese, any Hangul Korean. Han alone goes by `MOCKINGBIRD_LANGUAGE`
-  when it's `ja`, `zh` or `ko`, and Chinese otherwise.
+  their style's font, then the Noto family for the script. Han characters
+  are drawn in Japanese, Chinese or Korean shapes by the captions first: any
+  kana makes them Japanese, any Hangul Korean. Han alone goes by
+  `MOCKINGBIRD_LANGUAGE` when it's `ja`, `zh` or `ko`, and Chinese otherwise.
+- **A font the page doesn't have fails the render** (#276), naming it: the
+  first family of every canvas `font` and of every element with text must be
+  one of those, or one the page loads with `@font-face`. A generic family
+  (`sans-serif`, `system-ui`) or a system font (`Futura`, `Helvetica Neue`)
+  first is refused, since Chrome would draw something different on every
+  machine. If a pinned font isn't downloaded, the error says to run
+  `mockingbird models pull chrome`.
 - **The page** is the size of the video, with a transparent background.
   Anything Chrome draws works: CSS, SVG, gradients, blend modes, filters,
   the fonts above or ones loaded with `@font-face`, images by relative
