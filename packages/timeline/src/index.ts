@@ -164,6 +164,13 @@ export type Sound = {
 /** Word-by-word captions, made for the cut as it is when it's rendered. */
 export type Captions = { perCue?: number; lit?: boolean; upper?: boolean; y?: number };
 
+/**
+ * The video's look (#262): a style file the agent wrote for this video, the
+ * mood it was made for, and whether the user approved it. Graphics in the edit
+ * are drawn with it; editing waits for `approved`.
+ */
+export type ProjectLook = { file: string; mood?: string; approved?: boolean };
+
 export type Project = {
   version: 1;
   /** The finished picture, `WxH`; default the first clip's source. */
@@ -176,6 +183,7 @@ export type Project = {
    * sound and brings it to `target` LUFS with a `gain` on its clips.
    */
   level?: { target: number };
+  look?: ProjectLook;
   clips: Clip[];
   texts: Text[];
   inserts: Insert[];
@@ -280,6 +288,16 @@ const ADJUST = ["id", "clip", "from", "to", "effects"];
 const SOUND = ["id", "path", "generator", "clip", "at", "volume", "loop", "duck"];
 const GENERATED = ["generator", "tempo", "key", "energy", "seed", "length"];
 const CAPTIONS = ["perCue", "lit", "upper", "y"];
+const LOOK = ["file", "mood", "approved"];
+
+function look(v: unknown, what: string): ProjectLook {
+  const o = obj(v, what, LOOK);
+  return clean({
+    file: str(o.file, `${what}.file`),
+    mood: maybe(o.mood, (m) => str(m, `${what}.mood`)),
+    approved: maybe(o.approved, (b) => bool(b, `${what}.approved`)),
+  });
+}
 
 function point(v: unknown, what: string): Point {
   const p = obj(v, what, ["x", "y"]);
@@ -478,6 +496,7 @@ export function check(v: unknown): Project {
     "split",
     "captions",
     "level",
+    "look",
     "clips",
     "texts",
     "inserts",
@@ -500,6 +519,7 @@ export function check(v: unknown): Project {
     }),
     captions: maybe(o.captions, (c) => captions(c, "captions")),
     level: maybe(o.level, (v) => level(v)),
+    look: maybe(o.look, (l) => look(l, "look")),
     clips: list("clips").map((c, i) => clip(c, `clips[${i}]`)),
     texts: list("texts").map((t, i) => text(t, `texts[${i}]`)),
     inserts: list("inserts").map((t, i) => insert(t, `inserts[${i}]`)),
@@ -1046,7 +1066,7 @@ function step(p: Project, raw: unknown, what: string, notes: string[], words?: W
         }
       };
       if (id === undefined) {
-        obj(fields, what, ["size", "fps", "split", "captions", "level"]);
+        obj(fields, what, ["size", "fps", "split", "captions", "level", "look"]);
         merge(p as unknown as Obj);
         return;
       }
@@ -1124,6 +1144,9 @@ export function outline(p: Project, file: string): string {
       ? `captions on${p.captions.perCue ? ` (${p.captions.perCue} a cue)` : ""}`
       : undefined,
     p.level ? `sources levelled to ${p.level.target} LUFS` : undefined,
+    p.look
+      ? `look ${basename(p.look.file)}${p.look.mood ? ` (${p.look.mood})` : ""}, ${p.look.approved ? "approved" : "not approved yet"}`
+      : undefined,
   ].filter(Boolean);
   const line = (t: Text | Insert | Sound | Adjust, base: number) => {
     if ("at" in t) {

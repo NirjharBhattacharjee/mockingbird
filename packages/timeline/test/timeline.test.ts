@@ -778,3 +778,25 @@ test("a split or trim keeps a clip's mask on the picture it was on (#257)", () =
     y: 0,
   });
 });
+
+describe("look (#262)", () => {
+  const empty: Project = { version: 1, clips: [], texts: [], inserts: [], audio: [] };
+
+  test("set keeps the look, and the outline says whether it's approved", () => {
+    const { project } = apply(empty, [{ op: "set", look: { file: "/p/dusk.ts", mood: "calm" } }]);
+    expect(project.look).toEqual({ file: "/p/dusk.ts", mood: "calm" });
+    expect(outline(project, "p.json")).toContain("look dusk.ts (calm), not approved yet");
+    const approved = apply(project, [
+      { op: "set", look: { file: "/p/dusk.ts", mood: "calm", approved: true } },
+    ]).project;
+    expect(outline(approved, "p.json")).toContain("look dusk.ts (calm), approved");
+    expect(apply(approved, [{ op: "set", look: null }]).project.look).toBeUndefined();
+  });
+
+  test("a misspelt look field is an error", () => {
+    expect(() => check({ ...empty, look: { file: "/p/a.ts", aproved: true } })).toThrow(
+      "look has no aproved",
+    );
+    expect(() => check({ ...empty, look: { mood: "calm" } })).toThrow("look.file");
+  });
+});

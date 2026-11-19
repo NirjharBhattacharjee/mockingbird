@@ -158,7 +158,17 @@ function make(ctx: any, t: number, m: any): Look {
     title(text, o = {}) {
       const { x = 0.035, y = 0.06, size = 46, at = 0, dur = 0.9 } = o;
       if (t < at) return;
-      blocks(text.toUpperCase(), X(x), Y(y) + size * u * 0.6, size, "#FFE14A", "#FF2E4A", at, dur);
+      blocks(
+        text.toUpperCase(),
+        X(x),
+        Y(y) + size * u * 0.6,
+        size,
+        "#FFE14A",
+        "#FF2E4A",
+        at,
+        dur,
+        o.align,
+      );
     },
     label(text, x, y, o = {}) {
       const { at = 0, dur = 0.3, tone = "ink", align = "center" } = o;

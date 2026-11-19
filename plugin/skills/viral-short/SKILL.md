@@ -32,6 +32,9 @@ instead.
   sets the framing, pace, graphics and music this playbook leaves open.
 - If the user gave a reference video they want to match, run **style-match**
   on it first.
+- If the short will have graphics or titles, run **look** first (`guide("look")`):
+  design this video's look with the user, and start cutting only after they
+  approve it. Skip it when they say to.
 
 ## Steps
 
@@ -70,6 +73,12 @@ instead.
    (a hook that slams in, a new framing every couple of seconds, punch-ins
    and pops on the keywords, two or three callouts, pill captions, a sound
    on each beat), run with `motion` over the cut and the SRT from step 4.
+   If the user approved a look (**look**), draw the hook, callouts and
+   titles with it instead of the template's `THEMES.punch`: import the built
+   look the `look` tool named and call its pieces (`title`, `label`, `stat`
+   and any of its own). The template's pill captions keep `THEMES.punch`;
+   the look doesn't style them yet. Keep the template's hook, callouts and
+   titles only when the look was skipped.
 8. **Review.** Hand the file to the **reviewer** agent with what the short
    is meant to be. Fix what it finds and render again (a new file each time);
    don't argue with a failed check.

@@ -10,6 +10,7 @@ import {
   frame,
   hash,
   type Look,
+  leftOf,
   type Pt,
   type Style,
   type Tone,
@@ -145,7 +146,9 @@ function make(ctx: any, t: number, m: any): Look {
       const text = s.toUpperCase();
       ctx.save();
       ctx.font = `400 ${Math.round(size * u)}px ${WOOD}`;
-      let cx = X(x);
+      const gap = size * 0.02 * u;
+      const full = [...text].reduce((s, ch) => s + ctx.measureText(ch).width + gap, 0) - gap;
+      let cx = leftOf(X(x), full, o.align);
       const step = dur / text.length;
       for (const [i, ch] of [...text].entries()) {
         const w = ctx.measureText(ch).width;
@@ -154,7 +157,7 @@ function make(ctx: any, t: number, m: any): Look {
           ctx.globalAlpha *= tone;
           wood(ch, cx, Y(y), size, i >= text.lastIndexOf(" ") + 1 ? RED : BLACK);
         });
-        cx += w + size * 0.02 * u;
+        cx += w + gap;
       }
       ctx.restore();
     },

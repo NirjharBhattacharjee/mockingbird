@@ -9,6 +9,7 @@ test("every skill in plugin/ and the reviewer are playbooks", () => {
     "captions",
     "hooks",
     "long-form",
+    "look",
     "motion-graphics",
     "music",
     "retention-editing",

@@ -148,7 +148,7 @@ function make(ctx: any, t0: number, m: any): Look {
     },
     title(s, o = {}) {
       const { x = 0.03, y = 0.09, size = 66, at = 0 } = o;
-      slab(s, X(x), Y(y), size, BLACK, CREAM, at, "left");
+      slab(s, X(x), Y(y), size, BLACK, CREAM, at, o.align ?? "left");
     },
     label(s, x, y, o = {}) {
       const { size = 36, align = "center", tone = "ink", at = 0 } = o;

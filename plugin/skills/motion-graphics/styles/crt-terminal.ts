@@ -8,6 +8,7 @@ import {
   curve,
   frame,
   type Look,
+  leftOf,
   type Pt,
   progress,
   type Style,
@@ -138,7 +139,10 @@ function make(ctx: any, t: number, m: any): Look {
       if (t < at) return;
       const s = chars(`> ${text}`, at, 22);
       const typing = s.length < text.length + 2;
-      say(s, X(x), Y(y) + 20 * u, size, GLOW.ink, "left", typing || t - at < 2.5);
+      // Anchored by the whole line, so it doesn't slide while it types on.
+      ctx.font = `${Math.round(size * u)}px ${MONO}`;
+      const left = leftOf(X(x), ctx.measureText(`> ${text}`).width, o.align);
+      say(s, left, Y(y) + 20 * u, size, GLOW.ink, "left", typing || t - at < 2.5);
       if (!typing) {
         ctx.save();
         ctx.font = `${Math.round(size * u)}px ${MONO}`;
@@ -146,7 +150,7 @@ function make(ctx: any, t: number, m: any): Look {
         ctx.restore();
         say(
           "=".repeat(Math.round(tw / (size * u * 0.6))),
-          X(x),
+          left,
           Y(y) + 20 * u + size * u * 0.75,
           size * 0.6,
           GLOW.muted,

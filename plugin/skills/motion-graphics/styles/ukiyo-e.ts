@@ -12,6 +12,7 @@ import {
   frame,
   hash,
   type Look,
+  leftOf,
   type Pt,
   progress,
   type Style,
@@ -173,16 +174,18 @@ function make(ctx: any, t: number, m: any): Look {
       ctx.font = font(size);
       const w = ctx.measureText(s).width + 44 * u;
       const h = size * 1.7 * u;
-      cartouche(X(x), Y(y), w, h, pr);
+      // The seal sits 36 units past the cartouche, inside the width that's aligned.
+      const left = leftOf(X(x), w + 36 * u, o.align);
+      cartouche(left, Y(y), w, h, pr);
       ctx.save();
       ctx.globalAlpha = pr.color;
-      text(ctx, s, X(x) + 22 * u, Y(y) + h / 2, font(size), SUMI);
+      text(ctx, s, left + 22 * u, Y(y) + h / 2, font(size), SUMI);
       // seal
       ctx.fillStyle = BLOCK.bad;
-      ctx.fillRect(X(x) + w + 10 * u, Y(y) + 4 * u, 26 * u, 26 * u);
+      ctx.fillRect(left + w + 10 * u, Y(y) + 4 * u, 26 * u, 26 * u);
       ctx.strokeStyle = CARD;
       ctx.lineWidth = 2 * u;
-      ctx.strokeRect(X(x) + w + 14 * u, Y(y) + 8 * u, 18 * u, 18 * u);
+      ctx.strokeRect(left + w + 14 * u, Y(y) + 8 * u, 18 * u, 18 * u);
       ctx.restore();
     },
     label(s, x, y, o = {}) {

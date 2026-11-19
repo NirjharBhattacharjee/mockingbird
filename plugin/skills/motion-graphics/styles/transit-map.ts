@@ -10,6 +10,7 @@ import {
   expo,
   frame,
   type Look,
+  leftOf,
   type Pt,
   progress,
   type Style,
@@ -169,7 +170,7 @@ function make(ctx: any, t: number, m: any): Look {
       ctx.font = font(size, 700);
       const w = ctx.measureText(s).width + 90 * u;
       const h = size * 1.9 * u;
-      const [bx, by] = [X(x), Y(y)];
+      const [bx, by] = [leftOf(X(x), w, o.align), Y(y)];
       ctx.save();
       ctx.beginPath();
       ctx.rect(bx, by, w * p, h);

@@ -65,6 +65,10 @@ watercolour, neon sign, pixel art, a CRT terminal, risograph, stained
 glass and the rest. `STYLES` lists them by id, each with a name and a
 family.
 
+These are references. For a real edit, the **look** playbook (`guide("look")`)
+has you invent a look for the video from them and get the user's approval
+first. Use a named style as it is only when the user asks for it.
+
 Every style draws the same pieces, so a scene written once renders in any
 of them:
 

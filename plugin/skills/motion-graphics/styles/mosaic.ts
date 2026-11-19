@@ -8,6 +8,7 @@ import {
   frame,
   hash,
   type Look,
+  leftOf,
   type Pt,
   progress,
   type Style,
@@ -199,8 +200,9 @@ function make(ctx: any, t: number, m: any): Look {
       ctx.font = `700 ${Math.round(size * u)}px ${SERIF}`;
       const w = ctx.measureText(s).width + 40 * u;
       const h = size * 1.6 * u;
-      plaque(X(x), Y(y) - h / 2, w, h, p * 1.6);
-      setText(s, X(x) + 20 * u, Y(y), size, (p - 0.3) / 0.7, "#7E1F1A", "#F3EEE2", "left");
+      const left = leftOf(X(x), w, o.align);
+      plaque(left, Y(y) - h / 2, w, h, p * 1.6);
+      setText(s, left + 20 * u, Y(y), size, (p - 0.3) / 0.7, "#7E1F1A", "#F3EEE2", "left");
       ctx.restore();
     },
     label(s, x, y, o = {}) {

@@ -13,6 +13,7 @@ import {
   frame,
   hash,
   type Look,
+  leftOf,
   type Pt,
   progress,
   type Style,
@@ -149,12 +150,13 @@ function make(ctx: any, t: number, m: any): Look {
       const { x = 0.04, y = 0.09, size = 62, at = 0 } = o;
       dropped(at, () => {
         ctx.font = font(size, 700);
+        const left = leftOf(X(x), ctx.measureText(s.toLowerCase()).width, o.align);
         ctx.fillStyle = BLACK;
         ctx.textAlign = "left";
         ctx.textBaseline = "middle";
-        ctx.fillText(s.toLowerCase(), X(x), Y(y));
+        ctx.fillText(s.toLowerCase(), left, Y(y));
         ctx.fillStyle = RED;
-        ctx.fillRect(X(x), Y(y) + size * 0.65 * u, 14 * u, 14 * u);
+        ctx.fillRect(left, Y(y) + size * 0.65 * u, 14 * u, 14 * u);
       });
     },
     label(s, x, y, o = {}) {

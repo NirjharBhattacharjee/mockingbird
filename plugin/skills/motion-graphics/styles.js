@@ -695,7 +695,7 @@ function make2(ctx, t, m) {
       const { x = 0.035, y = 0.06, size = 46, at = 0, dur = 0.9 } = o;
       if (t < at)
         return;
-      blocks(text.toUpperCase(), X(x), Y(y) + size * u * 0.6, size, "#FFE14A", "#FF2E4A", at, dur);
+      blocks(text.toUpperCase(), X(x), Y(y) + size * u * 0.6, size, "#FFE14A", "#FF2E4A", at, dur, o.align);
     },
     label(text, x, y, o = {}) {
       const { at = 0, dur = 0.3, tone = "ink", align = "center" } = o;
@@ -1322,12 +1322,13 @@ function make4(ctx, t, m) {
       const { x = 0.04, y = 0.09, size = 62, at = 0 } = o;
       dropped(at, () => {
         ctx.font = font(size, 700);
+        const left = leftOf(X(x), ctx.measureText(s.toLowerCase()).width, o.align);
         ctx.fillStyle = BLACK;
         ctx.textAlign = "left";
         ctx.textBaseline = "middle";
-        ctx.fillText(s.toLowerCase(), X(x), Y(y));
+        ctx.fillText(s.toLowerCase(), left, Y(y));
         ctx.fillStyle = RED;
-        ctx.fillRect(X(x), Y(y) + size * 0.65 * u, 14 * u, 14 * u);
+        ctx.fillRect(left, Y(y) + size * 0.65 * u, 14 * u, 14 * u);
       });
     },
     label(s, x, y, o = {}) {
@@ -3291,12 +3292,13 @@ function make10(ctx, t, m) {
       ctx.globalAlpha = clamp((t - at) / 0.2);
       ctx.font = letter(size);
       const tw = ctx.measureText(s.toUpperCase()).width + 34 * u;
+      const left = leftOf(X(x), tw, o.align);
       ctx.fillStyle = "#FFE45C";
-      ctx.fillRect(X(x), Y(y), tw, size * 1.5 * u);
+      ctx.fillRect(left, Y(y), tw, size * 1.5 * u);
       ctx.lineWidth = 4 * u;
       ctx.strokeStyle = INK2;
-      ctx.strokeRect(X(x), Y(y), tw, size * 1.5 * u);
-      letters(s, X(x) + 16 * u, Y(y) + size * 0.78 * u, size, INK2, "left");
+      ctx.strokeRect(left, Y(y), tw, size * 1.5 * u);
+      letters(s, left + 16 * u, Y(y) + size * 0.78 * u, size, INK2, "left");
       ctx.restore();
     },
     label(s, x, y, o = {}) {
@@ -3534,7 +3536,7 @@ function make11(ctx, t0, m) {
     },
     title(s, o = {}) {
       const { x = 0.03, y = 0.09, size = 66, at = 0 } = o;
-      slab(s, X(x), Y(y), size, BLACK2, CREAM4, at, "left");
+      slab(s, X(x), Y(y), size, BLACK2, CREAM4, at, o.align ?? "left");
     },
     label(s, x, y, o = {}) {
       const { size = 36, align = "center", tone = "ink", at = 0 } = o;
@@ -4596,13 +4598,15 @@ function make14(ctx, t, m) {
         return;
       const s = chars(`> ${text}`, at, 22);
       const typing = s.length < text.length + 2;
-      say(s, X(x), Y(y) + 20 * u, size, GLOW.ink, "left", typing || t - at < 2.5);
+      ctx.font = `${Math.round(size * u)}px ${MONO3}`;
+      const left = leftOf(X(x), ctx.measureText(`> ${text}`).width, o.align);
+      say(s, left, Y(y) + 20 * u, size, GLOW.ink, "left", typing || t - at < 2.5);
       if (!typing) {
         ctx.save();
         ctx.font = `${Math.round(size * u)}px ${MONO3}`;
         const tw = ctx.measureText(s).width;
         ctx.restore();
-        say("=".repeat(Math.round(tw / (size * u * 0.6))), X(x), Y(y) + 20 * u + size * u * 0.75, size * 0.6, GLOW.muted);
+        say("=".repeat(Math.round(tw / (size * u * 0.6))), left, Y(y) + 20 * u + size * u * 0.75, size * 0.6, GLOW.muted);
       }
     },
     label(text, x, y, o = {}) {
@@ -5770,9 +5774,12 @@ function make18(ctx, t, m) {
       const words = s.toUpperCase().split(" ");
       const half = Math.ceil(words.length / 2);
       const lines = [words.slice(0, half).join(" "), words.slice(half).join(" ")].filter(Boolean);
+      ctx.font = `400 ${Math.round(size * u)}px ${COND}`;
+      const reach = Math.max(...lines.map((l, i) => i * 26 * u + ctx.measureText(l).width + size * 0.5 * u));
+      const left = leftOf(X(x), reach, o.align);
       lines.forEach((line, i) => {
         const ly = Y(y) + i * size * 1.25 * u;
-        const lx = X(x) + i * 26 * u;
+        const lx = left + i * 26 * u;
         dropped(lx, ly, at + i * dur / 2, i + 3, () => {
           const w = strip(line, lx, ly, size, BLACK3, "#FAF7EF", 11 + i);
           if (i === lines.length - 1) {
@@ -5794,9 +5801,10 @@ function make18(ctx, t, m) {
       ctx.font = `400 ${Math.round(size * u)}px ${COND}`;
       const w = ctx.measureText(s.toUpperCase()).width + size * 0.5 * u;
       ctx.restore();
-      dropped(X(x), Y(y), at, x * 7 + y, () => {
+      const left = leftOf(X(x), w, o.align ?? "center");
+      dropped(left + w / 2, Y(y), at, x * 7 + y, () => {
         const bg = tone === "bad" ? RED3 : BLACK3;
-        strip(s.toUpperCase(), X(x) - w / 2, Y(y), size, "#F7F2E6", bg, x * 99);
+        strip(s.toUpperCase(), left, Y(y), size, "#F7F2E6", bg, x * 99);
       });
     },
     node(x, y, r, o = {}) {
@@ -6785,9 +6793,11 @@ function make21(ctx, t, m) {
       ctx.save();
       ctx.font = `400 ${Math.round(size * u)}px ${BOLD}`;
       const tw = ctx.measureText(s.toUpperCase()).width;
-      const w = tw + 50 * u;
+      ctx.font = `700 ${Math.round(size * 0.32 * u)}px ${BLACK4}`;
+      const head = ctx.measureText("The Evening Wire").width;
+      const w = Math.max(tw, head) + 50 * u;
       const h = size * 2.3 * u;
-      const cx = X(x) + w / 2;
+      const cx = leftOf(X(x), w, o.align) + w / 2;
       const cy = Y(y) + h / 2;
       ctx.translate(cx, cy);
       ctx.rotate((1 - p) * Math.PI * 4 - 0.025);
@@ -7816,10 +7826,11 @@ function make24(ctx, t, m) {
       const s = text.toUpperCase();
       const tw = crisp(s, px, D0).width;
       const rise = R((1 - step(progress(t, at, 0.2), 5)) * 20);
-      panel(X(x), Y(y) + rise, tw + 10, px + 7);
+      const left = R(leftOf(X(x), tw + 10, o.align));
+      panel(left, Y(y) + rise, tw + 10, px + 7);
       const n = Math.ceil(s.length * progress(t, at + 0.2, dur));
       if (n > 0)
-        say(s.slice(0, n), X(x) + 5, Y(y) + rise + (px + 7) / 2, px, D0);
+        say(s.slice(0, n), left + 5, Y(y) + rise + (px + 7) / 2, px, D0);
     },
     label(text, x, y, o = {}) {
       const { size = 44, at = 0, dur = 0.3, tone = "ink", align = "center" } = o;
@@ -8768,7 +8779,8 @@ function make27(ctx, t, m) {
       const w = ctx.measureText(s).width + 40 * u;
       ctx.restore();
       const h = size * 1.6 * u;
-      const [x0, y0] = [X(x), Y(y)];
+      const x0 = o.align && o.align !== "left" ? leftOf(X(x), w + 8 * u, o.align) + 4 * u : X(x);
+      const y0 = Y(y);
       slapped(x0 + w / 2, y0 + h / 2, at, () => {
         rounded(x0 - 4 * u, y0 - 4 * u, w + 8 * u, h + 8 * u, 14 * u);
         ctx.fillStyle = "#F4F4FA";
@@ -9128,7 +9140,8 @@ function make28(ctx, t, m) {
       if (p <= 0)
         return;
       const S = size * 1.7 * u;
-      const bx = X(x);
+      ctx.font = `700 ${Math.round(size * u)}px ${BOOK}`;
+      const bx = leftOf(X(x), S + 6 * u + ctx.measureText(s.slice(1)).width, o.align);
       const by = Y(y) - S * 0.55;
       ctx.save();
       ctx.globalAlpha = p;
@@ -10096,14 +10109,16 @@ function make31(ctx, t0, m) {
       const { x = 0.035, y = 0.08, size = 46, at = 0 } = o;
       if (!stamp(at))
         return;
-      caps(s, X(x), Y(y), size, INK5);
       ctx.font = font(size);
-      ctx.letterSpacing = `${Math.round(size * 0.14 * u)}px`;
-      const w = ctx.measureText(s.toUpperCase()).width;
+      const gap = Math.round(size * 0.14 * u);
+      ctx.letterSpacing = `${gap}px`;
+      const w = ctx.measureText(s.toUpperCase()).width - gap;
       ctx.letterSpacing = "0px";
+      const left = leftOf(X(x), w, o.align);
+      caps(s, left, Y(y), size, INK5);
       const steps = clamp(Math.floor((t - at) * 12) / 6);
       ctx.fillStyle = INK5;
-      ctx.fillRect(X(x), Y(y) + size * 0.75 * u, w * steps, 3 * u);
+      ctx.fillRect(left, Y(y) + size * 0.75 * u, w * steps, 3 * u);
     },
     label(s, x, y, o = {}) {
       const { size = 28, align = "center", tone = "ink", at = 0 } = o;
@@ -10959,7 +10974,9 @@ function make34(ctx, t, m) {
       const text = s.toUpperCase();
       ctx.save();
       ctx.font = `400 ${Math.round(size * u)}px ${WOOD}`;
-      let cx = X(x);
+      const gap = size * 0.02 * u;
+      const full = [...text].reduce((s, ch) => s + ctx.measureText(ch).width + gap, 0) - gap;
+      let cx = leftOf(X(x), full, o.align);
       const step = dur / text.length;
       for (const [i, ch] of [...text].entries()) {
         const w = ctx.measureText(ch).width;
@@ -10968,7 +10985,7 @@ function make34(ctx, t, m) {
           ctx.globalAlpha *= tone;
           wood(ch, cx, Y(y), size, i >= text.lastIndexOf(" ") + 1 ? RED4 : BLACK6);
         });
-        cx += w + size * 0.02 * u;
+        cx += w + gap;
       }
       ctx.restore();
     },
@@ -11586,7 +11603,7 @@ function make36(ctx, t, m) {
       const w = ctx.measureText(s.toUpperCase()).width + 40 * u;
       ctx.restore();
       const h = size * 1.5 * u;
-      const l = X(x);
+      const l = leftOf(X(x), w, o.align);
       const tp = Y(y) - h / 2;
       peeled(l, tp, w, h, at, dur, () => {
         trace(ctx, roughen([
@@ -13576,8 +13593,9 @@ function make42(ctx, t, m) {
       ctx.font = `700 ${Math.round(size * u)}px ${SERIF7}`;
       const w = ctx.measureText(s).width + 40 * u;
       const h = size * 1.6 * u;
-      plaque(X(x), Y(y) - h / 2, w, h, p * 1.6);
-      setText(s, X(x) + 20 * u, Y(y), size, (p - 0.3) / 0.7, "#7E1F1A", "#F3EEE2", "left");
+      const left = leftOf(X(x), w, o.align);
+      plaque(left, Y(y) - h / 2, w, h, p * 1.6);
+      setText(s, left + 20 * u, Y(y), size, (p - 0.3) / 0.7, "#7E1F1A", "#F3EEE2", "left");
       ctx.restore();
     },
     label(s, x, y, o = {}) {
@@ -13887,7 +13905,7 @@ function make43(ctx, t, m) {
       const { x = 0.02, y = 0.07, size = 46, at = 0, dur = 0.9 } = o;
       if (t < at)
         return;
-      typed(text, X(x), Y(y), size, "#000080", at, dur);
+      typed(text, X(x), Y(y), size, "#000080", at, dur, o.align);
     },
     label(text, x, y, o = {}) {
       const { at = 0, dur = 0.4, size = 36, tone = "ink", align = "center" } = o;
@@ -23301,8 +23319,10 @@ function make72(ctx, t, m) {
       c.fillStyle = COL3.blue;
       const row = Math.floor(Y(y) / rh) * 3;
       c.fillRect(0, row, bw, 6);
-      const n = Math.ceil(text.length * progress(t, at, dur));
-      say(text.toUpperCase().slice(0, n), X(x), (row / 3 + 1) * rh, COL3.yellow, true);
+      const caps = text.toUpperCase();
+      const n = Math.ceil(caps.length * progress(t, at, dur));
+      const left = leftOf(X(x), caps.length * cw, o.align);
+      say(caps.slice(0, n), left, (row / 3 + 1) * rh, COL3.yellow, true);
     },
     label(text, x, y, o = {}) {
       const { at = 0, tone = "ink", align = "center" } = o;
@@ -23536,8 +23556,9 @@ function make73(ctx, t, m) {
       ctx.font = `700 ${Math.round(size * u)}px ${HUD}`;
       const w = ctx.measureText(s).width + 24 * u;
       ctx.fillStyle = "rgba(20,10,40,0.55)";
-      ctx.fillRect(X(x), Y(y) - size * 0.8 * u, w, size * 1.6 * u);
-      hudText(s.slice(0, n), X(x) + 12 * u, Y(y), size);
+      const left = leftOf(X(x), w, o.align);
+      ctx.fillRect(left, Y(y) - size * 0.8 * u, w, size * 1.6 * u);
+      hudText(s.slice(0, n), left + 12 * u, Y(y), size);
       ctx.restore();
     },
     label(s, x, y, o = {}) {
@@ -23912,10 +23933,11 @@ function make74(ctx, t, m) {
       const w = ctx.measureText(s.toUpperCase()).width + 36 * u;
       ctx.letterSpacing = "0px";
       const h = size * 1.7 * u;
-      cartouche(X(x), Y(y), w, h, p);
+      const left = leftOf(X(x), w, o.align);
+      cartouche(left, Y(y), w, h, p);
       ctx.save();
       ctx.globalAlpha = p;
-      caps(s, X(x) + 18 * u, Y(y) + h / 2, size, INK19, "left");
+      caps(s, left + 18 * u, Y(y) + h / 2, size, INK19, "left");
       ctx.restore();
     },
     label(s, x, y, o = {}) {
@@ -24229,7 +24251,7 @@ function make75(ctx, t, m) {
       ctx.font = font(size, 700);
       const w = ctx.measureText(s).width + 90 * u;
       const h = size * 1.9 * u;
-      const [bx, by] = [X(x), Y(y)];
+      const [bx, by] = [leftOf(X(x), w, o.align), Y(y)];
       ctx.save();
       ctx.beginPath();
       ctx.rect(bx, by, w * p, h);
@@ -24807,15 +24829,16 @@ function make77(ctx, t, m) {
       ctx.font = font(size);
       const w = ctx.measureText(s).width + 44 * u;
       const h = size * 1.7 * u;
-      cartouche(X(x), Y(y), w, h, pr);
+      const left = leftOf(X(x), w + 36 * u, o.align);
+      cartouche(left, Y(y), w, h, pr);
       ctx.save();
       ctx.globalAlpha = pr.color;
-      text(ctx, s, X(x) + 22 * u, Y(y) + h / 2, font(size), SUMI);
+      text(ctx, s, left + 22 * u, Y(y) + h / 2, font(size), SUMI);
       ctx.fillStyle = BLOCK4.bad;
-      ctx.fillRect(X(x) + w + 10 * u, Y(y) + 4 * u, 26 * u, 26 * u);
+      ctx.fillRect(left + w + 10 * u, Y(y) + 4 * u, 26 * u, 26 * u);
       ctx.strokeStyle = CARD2;
       ctx.lineWidth = 2 * u;
-      ctx.strokeRect(X(x) + w + 14 * u, Y(y) + 8 * u, 18 * u, 18 * u);
+      ctx.strokeRect(left + w + 14 * u, Y(y) + 8 * u, 18 * u, 18 * u);
       ctx.restore();
     },
     label(s, x, y, o = {}) {
@@ -25183,7 +25206,7 @@ function make78(ctx, t, m) {
     title(text, o = {}) {
       const { x = 0.035, y = 0.06, size = 54, at = 0, dur = 0.5 } = o;
       const fy = Y(y) + size * u * 0.6;
-      glitch(at, dur, fy - size * u, fy + size * u, () => split(text.toUpperCase(), X(x), fy, `700 ${Math.round(size * u)}px ${SERIF18}`, TONE18.ink, "left", 4));
+      glitch(at, dur, fy - size * u, fy + size * u, () => split(text.toUpperCase(), X(x), fy, `700 ${Math.round(size * u)}px ${SERIF18}`, TONE18.ink, o.align ?? "left", 4));
     },
     label(text, x, y, o = {}) {
       const { at = 0, dur = 0.3, size = 38, tone = "ink", align = "center" } = o;
@@ -27930,5 +27953,25 @@ function style(id, ctx, t, m) {
 }
 export {
   STYLES,
-  style
+  along,
+  alpha,
+  arrowhead,
+  clamp,
+  counting,
+  curve,
+  easeIn,
+  ellipse,
+  expo,
+  frame,
+  grain,
+  hash,
+  leftOf,
+  lerp,
+  progress,
+  roughen,
+  spring,
+  style,
+  text,
+  trace,
+  vignette
 };

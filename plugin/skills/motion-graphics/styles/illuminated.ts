@@ -12,6 +12,7 @@ import {
   frame,
   hash,
   type Look,
+  leftOf,
   type Pt,
   progress,
   type Style,
@@ -205,7 +206,8 @@ function make(ctx: any, t: number, m: any): Look {
       if (p <= 0) return;
       // The initial: a gilded capital on a lapis and rose square.
       const S = size * 1.7 * u;
-      const bx = X(x);
+      ctx.font = `700 ${Math.round(size * u)}px ${BOOK}`;
+      const bx = leftOf(X(x), S + 6 * u + ctx.measureText(s.slice(1)).width, o.align);
       const by = Y(y) - S * 0.55;
       ctx.save();
       ctx.globalAlpha = p;

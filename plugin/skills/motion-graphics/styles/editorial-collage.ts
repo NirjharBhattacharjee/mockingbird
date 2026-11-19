@@ -11,6 +11,7 @@ import {
   frame,
   hash,
   type Look,
+  leftOf,
   type Pt,
   roughen,
   type Style,
@@ -153,9 +154,15 @@ function make(ctx: any, t: number, m: any): Look {
       // Words cut out one by one; the last one gets the highlighter.
       const half = Math.ceil(words.length / 2);
       const lines = [words.slice(0, half).join(" "), words.slice(half).join(" ")].filter(Boolean);
+      // The block's width: each strip as strip() measures it, the second one stepped in.
+      ctx.font = `400 ${Math.round(size * u)}px ${COND}`;
+      const reach = Math.max(
+        ...lines.map((l, i) => i * 26 * u + ctx.measureText(l).width + size * 0.5 * u),
+      );
+      const left = leftOf(X(x), reach, o.align);
       lines.forEach((line, i) => {
         const ly = Y(y) + i * size * 1.25 * u;
-        const lx = X(x) + i * 26 * u;
+        const lx = left + i * 26 * u;
         dropped(lx, ly, at + (i * dur) / 2, i + 3, () => {
           const w = strip(line, lx, ly, size, BLACK, "#FAF7EF", 11 + i);
           if (i === lines.length - 1) {
@@ -177,9 +184,10 @@ function make(ctx: any, t: number, m: any): Look {
       ctx.font = `400 ${Math.round(size * u)}px ${COND}`;
       const w = ctx.measureText(s.toUpperCase()).width + size * 0.5 * u;
       ctx.restore();
-      dropped(X(x), Y(y), at, x * 7 + y, () => {
+      const left = leftOf(X(x), w, o.align ?? "center");
+      dropped(left + w / 2, Y(y), at, x * 7 + y, () => {
         const bg = tone === "bad" ? RED : BLACK;
-        strip(s.toUpperCase(), X(x) - w / 2, Y(y), size, "#F7F2E6", bg, x * 99);
+        strip(s.toUpperCase(), left, Y(y), size, "#F7F2E6", bg, x * 99);
       });
     },
     node(x, y, r, o = {}) {

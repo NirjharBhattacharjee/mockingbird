@@ -10,6 +10,7 @@ import {
   grain,
   hash,
   type Look,
+  leftOf,
   type Pt,
   progress,
   type Style,
@@ -131,8 +132,9 @@ function make(ctx: any, t: number, m: any): Look {
       ctx.font = `700 ${Math.round(size * u)}px ${HUD}`;
       const w = ctx.measureText(s).width + 24 * u;
       ctx.fillStyle = "rgba(20,10,40,0.55)";
-      ctx.fillRect(X(x), Y(y) - size * 0.8 * u, w, size * 1.6 * u);
-      hudText(s.slice(0, n), X(x) + 12 * u, Y(y), size);
+      const left = leftOf(X(x), w, o.align);
+      ctx.fillRect(left, Y(y) - size * 0.8 * u, w, size * 1.6 * u);
+      hudText(s.slice(0, n), left + 12 * u, Y(y), size);
       ctx.restore();
     },
     label(s, x, y, o = {}) {
