@@ -467,7 +467,8 @@ export function page(
     // A running average: sample i goes over the ones before at 1/(i+1).
     sctx.reset();
     for (let i = 0; i < samples; i++) {
-      await frame(ctx, t - (shutter / m.fps) * (i / (samples - 1)));
+      // Not before 0: there's nothing there, so a first frame would come out faint.
+      await frame(ctx, Math.max(0, t - (shutter / m.fps) * (i / (samples - 1))));
       sctx.globalAlpha = 1 / (i + 1);
       sctx.drawImage(canvas, 0, 0);
     }
@@ -477,6 +478,9 @@ export function page(
 }
 
 // ---------------------------------------------------------------- the kit
+
+/** Scratch canvases for defocus, snapshot and glitch, kept between frames rather than made for each. */
+const SPARE: any[] = [];
 
 export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as Theme) {
   const W: number = m.width;
@@ -589,10 +593,9 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
 
   // ------------------------------------------------------------ the scene camera (#274)
 
-  const spare: any[] = [];
   const canvasLike = (w: number, h: number, i: number) => {
-    spare[i] ??= new OffscreenCanvas(1, 1);
-    const c = spare[i];
+    SPARE[i] ??= new OffscreenCanvas(1, 1);
+    const c = SPARE[i];
     if (c.width !== w || c.height !== h) [c.width, c.height] = [w, h];
     return c;
   };
@@ -913,9 +916,21 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
         for (const [i, [px, py]] of inner.entries()) i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
         ctx.closePath();
         ctx.clip();
-        ctx.strokeStyle = "rgba(0,0,0,0.35)";
+        // Soft by a shadow, not ctx.filter, which blurs the whole frame every
+        // frame: the edge is stroked far off the canvas and only its shadow
+        // lands here, inside the clip.
+        // As soften() does: the offset is in canvas pixels, whatever the transform.
+        const far = (W + H) * 4;
+        const m0 = ctx.getTransform();
+        ctx.shadowColor = "rgba(0,0,0,0.35)";
+        ctx.shadowBlur = 8 * u * Math.hypot(m0.a, m0.b);
+        ctx.shadowOffsetX = far;
+        ctx.setTransform(m0.a, m0.b, m0.c, m0.d, m0.e - far, m0.f);
+        ctx.beginPath();
+        for (const [i, [px, py]] of inner.entries()) i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+        ctx.closePath();
+        ctx.strokeStyle = "#000";
         ctx.lineWidth = 6 * u;
-        ctx.filter = `blur(${Math.round(4 * u)}px)`;
         ctx.stroke();
       });
       tape(x - P * 0.4, y - P * 0.2, -0.6);
@@ -993,7 +1008,8 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
         ctx.drawImage(img, -W0 / 2, -H0 / 2, W0, H0);
         return;
       }
-      ctx.font = font(W0 / Math.max(3, (text ?? "").length * 0.62), 900);
+      // font() scales by u itself, so the size is in units, like w.
+      ctx.font = font(w / Math.max(3, (text ?? "").length * 0.62), 900);
       const tw = ctx.measureText(text ?? "").width;
       const th = W0 * 0.42;
       layer(() => {
@@ -1287,19 +1303,29 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
     for (const mv of moves) {
       if (t < mv.at || t > mv.out + 1.5) continue;
       const there = spring(t, { start: mv.at, stiffness: 40, damping: 11 });
-      const back = spring(t, { start: mv.out - 0.6, stiffness: 40, damping: 11 });
+      // Back from 0.6 s before out, or halfway for a shorter move, so it gets there first.
+      const back = spring(t, {
+        start: Math.max(mv.out - 0.6, (mv.at + mv.out) / 2),
+        stiffness: 40,
+        damping: 11,
+      });
       const b = clamp(there - back, 0, 1.1);
       zoom = lerp(zoom, mv.zoom, b);
       fx = lerp(fx, mv.x, b);
       fy = lerp(fy, mv.y, b);
     }
     const cam = cameraAt(t, { moves: presets, shakes });
-    zoom *= cam.zoom;
+    // The footage is the subject, at depth 0: a dolly in (push-in) grows it,
+    // and a dolly zoom holds it. Never wider than the footage itself.
+    zoom = Math.max(1, zoom * depthScale(0, cam));
     fx += cam.x;
     fy += cam.y;
     const sx = cam.sx * u;
     const sy = cam.sy * u;
     const roll = cam.roll;
+    // Bigger by what the shake and roll would otherwise uncover at the edges.
+    const over =
+      1 + (Math.abs(sx) + Math.abs(sy)) / Math.min(area.w, area.h) + Math.abs(roll) * 1.2;
     const draw = (z: number, a = 1) => {
       // The source rectangle is the area shrunk by z around the focus, kept inside the area.
       const sw = area.w / z;
@@ -1311,9 +1337,6 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
         ctx.beginPath();
         ctx.rect(area.x, area.y, area.w, area.h);
         ctx.clip();
-        // Bigger by what the shake and roll would otherwise uncover at the edges.
-        const over =
-          1 + (Math.abs(sx) + Math.abs(sy)) / Math.min(area.w, area.h) + Math.abs(roll) * 1.2;
         ctx.translate(area.x + area.w / 2 + sx, area.y + area.h / 2 + sy);
         ctx.rotate(roll);
         ctx.scale(over, over);
@@ -1334,10 +1357,16 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
     const y0 = clamp(area.y + area.h * fy - sh / 2, area.y, area.y + area.h - sh);
     return {
       zoom,
-      project: (x: number, y: number) => ({
-        x: area.x + ((area.x + x * area.w - x0) / sw) * area.w + sx,
-        y: area.y + ((area.y + y * area.h - y0) / sh) * area.h + sy,
-      }),
+      // Through the same shake, roll and scale the footage is drawn with.
+      project: (x: number, y: number) => {
+        const lx = ((area.x + x * area.w - x0) / sw - 0.5) * area.w * over;
+        const ly = ((area.y + y * area.h - y0) / sh - 0.5) * area.h * over;
+        const [c, s] = [Math.cos(roll), Math.sin(roll)];
+        return {
+          x: area.x + area.w / 2 + sx + lx * c - ly * s,
+          y: area.y + area.h / 2 + sy + lx * s + ly * c,
+        };
+      },
     };
   }
 
