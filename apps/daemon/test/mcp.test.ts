@@ -1650,6 +1650,35 @@ test("the speech is measured as the render hears it, gain and J cut included (#2
   );
 });
 
+test("a draft with graphics waits for the look too, and an approved look has to be there (#264)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mb-gate-"));
+  try {
+    const tool = (name: string) =>
+      mcpTools(
+        async () => ({}),
+        () => {},
+      ).find((t) => t.name === name) as { run: (a: Record<string, unknown>) => Promise<string> };
+    const project = join(dir, "edit.json");
+    await tool("edit").run({
+      project,
+      ops: [
+        { op: "add", type: "clip", path: "talk.mp4", from: 0, to: 3 },
+        { op: "add", type: "text", text: "Hi", clip: "c1", from: 0, to: 1 },
+      ],
+    });
+    await expect(tool("render").run({ project, draft: true })).rejects.toThrow(
+      "hasn't approved a look",
+    );
+    await tool("edit").run({
+      project,
+      ops: [{ op: "set", look: { file: "gone.ts", approved: true } }],
+    });
+    await expect(tool("render").run({ project })).rejects.toThrow("isn't there");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("level brings each source to the target once, within 30 dB (#265)", async () => {
   const loud: Record<string, number> = {
     "/a.mp4": -39.7,

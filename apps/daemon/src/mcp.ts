@@ -3346,9 +3346,17 @@ async function renderProject(
 ) {
   const { project, created } = load(file);
   if (created) throw new Error(`No project at ${file}; make one with \`edit\`.`);
-  // A draft or the sound alone is a check of the cut; the finished video waits for the look (#264).
-  const gate = draft || soundOnly ? undefined : lookGate(project);
+  // The sound alone draws nothing; any picture with graphics waits for the look,
+  // a draft too, since it has every text and overlay in it (#264).
+  const gate = soundOnly ? undefined : lookGate(project);
   if (gate) throw new Error(gate);
+  const { approved: yes, file: lookFile } = project.look ?? {};
+  const approved = yes && lookFile ? resolve(dirname(file), lookFile) : undefined;
+  if (!soundOnly && approved && !existsSync(approved)) {
+    throw new Error(
+      `The approved look ${approved} isn't there. Draw it again with \`look\` and get the user's yes before rendering.`,
+    );
+  }
   const cut = compile(project, dirname(file));
   const first = cut.clips[0]?.path;
   if (!first) throw new Error(`${file} has no clips yet; add some with \`edit\`.`);

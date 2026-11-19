@@ -144,8 +144,9 @@ call and changing the cut doesn't break the timing of what's laid over it
   records that the user said to edit without one. The outline shows it.
   `render` refuses a project with graphics (texts or HTML overlays) until its
   look is approved or skipped, and the refusal says what to ask the user
-  (#264). A draft, a sound-only render and a cut with no graphics aren't
-  held back.
+  (#264). A draft is held back too, since it has every text and overlay in
+  it; a sound-only render and a cut with no graphics aren't. An approved
+  look whose file is gone is refused as well.
 - **`split`** is `render`'s split; its clips are brought to the first
   clip's size first. A split always comes out 1080x1920, so `size` is that
   or left out.
