@@ -395,7 +395,8 @@ export function maskSteps(m: Mask, ctx: Ctx, out: string, tag: string): string[]
   if (!m.path?.length) return [`${maskSource(m, ctx)}${out}`];
   const { width: W, height: H, fps, length, speed = 1 } = ctx;
   // The path is timed in the source; at a speed, output time t is source time t*speed.
-  const at = speed === 1 ? "t" : `(t*${f(speed)})`;
+  // Unrounded, as setpts has it: at 0.250049x a rounded speed puts the mask 44 px behind by 470 s.
+  const at = speed === 1 ? "t" : `(t*${speed})`;
   const pw = even((m.w ?? 0.2) * W);
   const ph = even((m.h ?? 0.2) * H);
   const d = f(Math.max(length, 1 / fps));

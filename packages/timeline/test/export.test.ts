@@ -136,12 +136,16 @@ test("an insert over an earlier one stays above it in both formats (#257)", () =
     tracks.findIndex((k: { children: { name?: string }[] }) =>
       k.children.some((c) => c.name === file),
     );
+  // Every insert is there (a lost one would read -1 or NaN), then in order.
+  for (const f of ["A.mp4", "B.mp4", "C.mp4"]) expect(lane(f)).toBeGreaterThan(0);
   expect(lane("C.mp4")).toBeGreaterThan(lane("B.mp4"));
   expect(lane("B.mp4")).toBeGreaterThan(lane("A.mp4"));
   const x = toFcpxml(stacked, "cut", "1280x720", 30, () => source).text;
   const fcpLane = (file: string) =>
     Number(x.match(new RegExp(`lane="(\\d+)"[^>]*name="${file}"`))?.[1]);
+  for (const f of ["A.mp4", "B.mp4", "C.mp4"]) expect(fcpLane(f)).toBeGreaterThan(0);
   expect(fcpLane("C.mp4")).toBeGreaterThan(fcpLane("B.mp4"));
+  expect(fcpLane("B.mp4")).toBeGreaterThan(fcpLane("A.mp4"));
 });
 
 test("OTIO: transitions with no room in their clips come in as cuts, and ducking is reported (#257)", () => {
@@ -189,4 +193,31 @@ test("a still insert gets media as long as the cut, not ffprobe's 0 s (#257)", (
   const o = JSON.parse(toOtio(card, "cut", 30, info).text);
   const v2 = o.tracks.children[1].children.find((c: { name?: string }) => c.name === "card.png");
   expect(v2.media_references.DEFAULT_MEDIA.available_range.duration.value).toBe(180);
+});
+
+test("OTIO: a transition that fits to the frame stays, and a J cut's short sound gets a cut on A1 (#257)", () => {
+  const otio = (clips: unknown[]) => {
+    const o = toOtio(compile(check({ version: 1, clips }), "/m"), "cut", 30, () => source);
+    const [v1, , a1] = JSON.parse(o.text).tracks.children as {
+      children: { OTIO_SCHEMA: string }[];
+    }[];
+    const n = (t?: { children: { OTIO_SCHEMA: string }[] }) =>
+      (t?.children ?? []).filter((c) => c.OTIO_SCHEMA === "Transition.1").length;
+    return { picture: n(v1), sound: n(a1), left: o.left.join("; ") };
+  };
+  // 2.3 s and 1.51 s with a 1.5 s fade: the incoming clip has exactly the 22 frames it needs.
+  const exact = otio([
+    { id: "c1", path: "/m/a.mp4", from: 0, to: 2.3 },
+    { id: "c2", path: "/m/a.mp4", from: 3, to: 4.51, transition: { type: "fade", duration: 1.5 } },
+  ]);
+  expect(exact.picture).toBe(1);
+  // A 1 s fade into c2 and a 1.4 s J cut into c3: c2's picture has room, its sound doesn't.
+  const j = otio([
+    { id: "c1", path: "/m/a.mp4", from: 0, to: 2 },
+    { id: "c2", path: "/m/a.mp4", from: 2, to: 4, transition: { type: "fade", duration: 1 } },
+    { id: "c3", path: "/m/a.mp4", from: 4, to: 6, lead: 1.4 },
+  ]);
+  expect(j.picture).toBe(1);
+  expect(j.sound).toBe(0);
+  expect(j.left).toContain("transitions' sound");
 });

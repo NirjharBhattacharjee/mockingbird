@@ -82,7 +82,18 @@ function placed(cut: Compiled, fps: number): Placed[] {
  * the highest earlier item (in project order) it overlaps, so what the
  * render draws over another stays above it in the editor too.
  */
-function lanes<T extends { from: number; to: number }>(items: T[]): T[][] {
+function lanes<T extends { from: number; to: number }>(items: T[], byTime = false): T[][] {
+  // Sounds add up whatever their order, so they go in the first lane free by
+  // their start: a looped bed's thousands of repeats stay one lane, quickly.
+  if (byTime) {
+    const out: T[][] = [];
+    for (const item of [...items].sort((a, b) => a.from - b.from)) {
+      const lane = out.find((l) => (l.at(-1) as T).to <= item.from + 1e-6);
+      if (lane) lane.push(item);
+      else out.push([item]);
+    }
+    return out;
+  }
   const lane: number[] = [];
   items.forEach((item, i) => {
     const under = items
@@ -250,16 +261,31 @@ export function toOtio(
   const main = placed(cut, fps);
   // OTIO lets a transition reach only into its two clips, and two can't overlap:
   // one that doesn't fit beside the transitions before it comes in as a cut.
-  const fits = main.map((c, i) => {
-    const prev = main[i - 1];
-    return !!c.transition && !!prev && c.after <= c.length && c.before <= prev.length;
-  });
-  for (let i = 1; i < main.length; i++) {
-    const prev = main[i - 1] as Placed;
-    if (fits[i] && fits[i - 1] && prev.after + (main[i] as Placed).before > prev.length)
-      fits[i] = false;
-  }
-  const cuts = main.filter((c, i) => c.transition && !fits[i]).length;
+  // In whole frames, so an exact fit isn't lost to floating point. The sound
+  // track is checked on its own lengths: a J or L cut can leave a clip's sound
+  // shorter than its picture.
+  const frames = (t: number) => Math.round(t * fps);
+  const fitting = (length: (c: Placed) => number) => {
+    const fits = main.map((c, i) => {
+      const prev = main[i - 1];
+      return (
+        !!c.transition &&
+        !!prev &&
+        frames(c.after) <= frames(length(c)) &&
+        frames(c.before) <= frames(length(prev))
+      );
+    });
+    for (let i = 1; i < main.length; i++) {
+      const prev = main[i - 1] as Placed;
+      const both = frames(prev.after) + frames((main[i] as Placed).before);
+      if (fits[i] && fits[i - 1] && both > frames(length(prev))) fits[i] = false;
+    }
+    return fits;
+  };
+  const fitsPicture = fitting((c) => c.length);
+  const fitsSound = fitting((c) => c.sound.length);
+  const cuts = main.filter((c, i) => c.transition && !fitsPicture[i]).length;
+  const soundCuts = main.filter((c, i) => c.transition && fitsPicture[i] && !fitsSound[i]).length;
   const pieces = (sound: boolean) =>
     main.flatMap((c, i) => {
       const [from, length] = sound ? [c.sound.from, c.sound.length] : [c.from, c.length];
@@ -277,7 +303,7 @@ export function toOtio(
             ];
 
       return [
-        ...(c.transition && fits[i]
+        ...(c.transition && (sound ? fitsSound : fitsPicture)[i]
           ? [
               {
                 OTIO_SCHEMA: "Transition.1",
@@ -315,7 +341,7 @@ export function toOtio(
   ];
   const audio = [
     ...(main.some((c) => info(c.path).audio) ? [track("A1", "Audio", pieces(true))] : []),
-    ...lanes(heard(cut, info)).map((lane, k) =>
+    ...lanes(heard(cut, info), true).map((lane, k) =>
       track(
         `A${k + 2}`,
         "Audio",
@@ -350,15 +376,18 @@ export function toOtio(
   };
   return {
     text: `${JSON.stringify(timeline, null, 2)}\n`,
-    left: left(
-      cut,
-      false,
-      cuts
+    left: left(cut, false, [
+      ...(cuts
         ? [
             `${cuts} transitions longer than a clip beside them leaves room for (they come in as cuts)`,
           ]
-        : [],
-    ),
+        : []),
+      ...(soundCuts
+        ? [
+            `${soundCuts} transitions' sound, where a J or L cut leaves too little of it (a cut on A1)`,
+          ]
+        : []),
+    ]),
   };
 }
 
@@ -461,7 +490,7 @@ export function toFcpxml(
       );
     }
   });
-  lanes(heard(cut, info)).forEach((lane, k) => {
+  lanes(heard(cut, info), true).forEach((lane, k) => {
     for (const s of lane) {
       const h = host(s.from);
       const db = s.volume > 0 ? (20 * Math.log10(s.volume)).toFixed(1) : "-96";

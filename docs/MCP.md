@@ -49,7 +49,7 @@ with `"args": ["/c", "C:\\Users\\<you>\\.mockingbird\\bin\\mockingbird.cmd", "mc
 | `transcribe(project)` | The words in a project's cut, clip by clip, each line at its time in the finished video: the edit as text, to choose what `cut_words` cuts. See [Text-based editing](#text-based-editing). |
 | `effects` | The effects catalog: each effect's name, whether it's on the picture or the sound, and its settings with ranges and defaults; see [Effects](#effects). |
 | `export(project, format, out)` | A project as FCPXML 1.10 and OpenTimelineIO, to finish the cut in Final Cut, Resolve or Premiere; see [Exporting to an editor](#exporting-to-an-editor). |
-| `track(path, from, to, box)` | Follows a box through a video by template matching on frames shrunk to 320 wide: its top left over time, five points a second, to give a mask as its `path` so a blur or a grade stays on a moving face, plate or logo. A test pattern moving across a busy 1280x720 background was followed for 6 s in 0.38 s, at most 4.4 px off. `worst` under about 0.5 means it was lost. A call follows up to two minutes (`to` is held there): every frame is kept at 320 wide while it runs, so track a long take a shot at a time. |
+| `track(path, from, to, box)` | Follows a box through a video by template matching on frames shrunk to 320 wide: its top left over time, five points a second, to give a mask as its `path` so a blur or a grade stays on a moving face, plate or logo. A test pattern moving across a busy 1280x720 background was followed for 6 s in 0.38 s, at most 4.4 px off. `worst` under about 0.5 means it was lost. A call follows up to two minutes: give `to` no later than `from` + 120 s (or the end of the video), since a longer window is refused. Every frame is kept at 320 wide while it runs, so track a long take a shot at a time. |
 | `sync(paths, window)` | Lines up recordings of one take (cameras, a separate recorder) by their sound: each file's offset against the first, for a multicam edit. Two cameras offset by 1.234 s, with different mic tone, gain and room noise, came out at 1.234 s (0.0 ms off) in 0.44 s. It compares the first `window` seconds (default 120, up to 1200) and finds offsets up to half of that, so recordings started further apart need a longer window. |
 | `scopes(path, from, to, every)` | What a colourist reads off the scopes, as numbers: luma, the histogram's thirds, clipping, saturation and skin's distance from the skin-tone line; see [Effects](#effects). An HDR source is measured after it's brought to SDR, as `render` will show it. |
 | `audio_stats(path, from, to)` | What a file's sound measures, since the agent can't listen: see [Measuring sound](#measuring-sound). |
@@ -521,10 +521,14 @@ The export carries:
   no standard gain, so its export lists the volumes as left out);
 - in OTIO, speed changes and J and L cuts too.
 
-What an editor can't take this way (effects, framing, split screens,
-generated beds, word captions, ducking, and in OTIO a transition with no
-room for it in the clips beside it, which comes in as a cut) is listed in the reply, so it can be redone
-there.
+What an editor can't take this way is listed in the reply, so it can be
+redone there. Before choosing a format, these are what to rebuild after
+either export: effects (grades, keys, masks), adjustment layers, framing
+(focus, zoom, moves), split screens, inserts' boxes, blend modes and moves
+(they come in full frame), generated music beds, the word captions and
+ducking. FCPXML also leaves out speed changes and J and L cuts, which OTIO
+keeps; OTIO leaves out sound volumes, and a transition with no room for it
+in the clips beside it (picture or sound) comes in as a cut.
 
 Checked on a three-clip project with a dissolve, a 2x clip with a J cut, two
 titles, an insert and a sound: OpenTimelineIO 0.18.1 read the `.otio`, and
