@@ -46,8 +46,9 @@ ls -l ~/.local/bin/mockingbird 2>/dev/null && ~/.local/bin/mockingbird status
 - `uname -sm` must print one of `Darwin arm64`, `Darwin x86_64`,
   `Linux x86_64` or `Linux aarch64`. Anything else isn't supported, so tell
   the person and stop. Every tool works on all four, except on
-  `Linux aarch64`: Chrome has no build for it, so captions come out as a
-  plain subtitle track and `motion` and `music` don't run.
+  `Linux aarch64`: Chrome has no build for it, so `motion` and `music`
+  don't run, and ffmpeg draws captions in plain type instead (or, if
+  ffmpeg has no `subtitles` filter, writes them as a separate subtitle track).
 - **On a Mac**, the `brew` line must print a path. If it only lists
   `/opt/homebrew/bin/brew` or `/usr/local/bin/brew`, Homebrew is installed
   but not on your PATH. Start each command below with
