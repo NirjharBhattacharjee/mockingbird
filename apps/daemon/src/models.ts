@@ -15,7 +15,7 @@ import {
   writeFileSync,
   writeSync,
 } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 import { withStore } from "./dictionary.ts";
 import {
@@ -24,6 +24,7 @@ import {
   DEFAULT_ASR_MODEL,
   englishOnly,
   findAsrModel,
+  findWhisperServer,
   isWhisperFile,
   languageModels,
   MAC_ASR_MODEL,
@@ -33,6 +34,7 @@ import {
   spokenLanguage,
   WHISPER_BUILD,
   WHISPER_LANGUAGES,
+  wontStart,
 } from "./runtime.ts";
 
 /** `name` is what the progress line calls it; `bytes` is its size, shown before a download. */
@@ -82,16 +84,45 @@ export type PullFileDeps = {
   log?: (message: string) => void;
   /** Bytes written so far, and the size the server gave (0 if it gave none). */
   onProgress?: (done: number, total: number) => void;
+  /** How a retry waits; Bun.sleep, injected in tests. */
+  wait?: (ms: number) => Promise<void>;
 };
+
+/** A failed download that trying again won't fix: a 4xx, or the wrong bytes. */
+class FinalError extends Error {}
+
+const TRIES = 3;
 
 /**
  * Downloads one model into `dir`, unless a file with the right checksum is
- * already there. Returns whether it downloaded anything.
+ * already there. Returns whether it downloaded anything. A 5xx, a 429, a
+ * timeout or a dropped connection is tried again (#214), continuing from what
+ * arrived; a 404 or a checksum mismatch isn't.
  */
 export async function pullFile(
   model: ModelFile,
   dir: string,
-  { fetch: get = fetch, log = () => {}, onProgress = () => {} }: PullFileDeps = {},
+  deps: PullFileDeps = {},
+): Promise<boolean> {
+  const { log = () => {}, wait = Bun.sleep } = deps;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await pullOnce(model, dir, deps);
+    } catch (error) {
+      if (error instanceof FinalError || attempt === TRIES) throw error;
+      const seconds = 2 * attempt;
+      log(
+        `${error instanceof Error ? error.message : String(error)}; trying again in ${seconds} s`,
+      );
+      await wait(seconds * 1000);
+    }
+  }
+}
+
+async function pullOnce(
+  model: ModelFile,
+  dir: string,
+  { fetch: get = fetch, log = () => {}, onProgress = () => {} }: PullFileDeps,
 ): Promise<boolean> {
   const path = join(dir, model.file);
   if (existsSync(path) && (await sha256Of(path)) === model.sha256) {
@@ -121,7 +152,10 @@ export async function pullFile(
     response = await get(model.url, {});
   }
   if (!response.ok || !response.body) {
-    throw new Error(`couldn't download ${model.file}: HTTP ${response.status}`);
+    const message = `couldn't download ${model.file}: HTTP ${response.status}`;
+    // A 5xx, 429 (too many requests) or 408 (timed out) can pass; another 4xx won't.
+    const passing = response.status >= 500 || response.status === 429 || response.status === 408;
+    throw passing ? new Error(message) : new FinalError(message);
   }
   // 206 is the rest of the file; a server that ignores the range sends all of it.
   const from = response.status === 206 ? have : 0;
@@ -139,7 +173,7 @@ export async function pullFile(
   }
   if ((await sha256Of(part)) !== model.sha256) {
     rmSync(part, { force: true });
-    throw new Error(
+    throw new FinalError(
       `${model.file} didn't match its expected checksum. Run this again; if it keeps happening, please open an issue.`,
     );
   }
@@ -207,7 +241,12 @@ async function pullFiles(files: ModelFile[], dir: string, deps: PullDeps) {
       deps.progress?.(progressLine([{ name: model.name, done, total }]));
     };
     try {
-      await pullFile(model, dir, { fetch: deps.fetch, log, onProgress: progress });
+      await pullFile(model, dir, {
+        fetch: deps.fetch,
+        log,
+        onProgress: progress,
+        wait: deps.wait,
+      });
     } finally {
       // A pull that has ended leaves the line straight away, so the last
       // thing shown is never a stale byte count.
@@ -534,24 +573,8 @@ async function installChrome(
     // Unpacked beside the target and renamed into place, so a half-unpacked Chrome is never found.
     const unpacking = `${pin.dir}.part`;
     rmSync(unpacking, { recursive: true, force: true });
-    // Windows has no unzip; its own tar.exe reads zips (not Git Bash's GNU tar, which can't).
     mkdirSync(unpacking, { recursive: true });
-    const unzip = Bun.spawnSync(
-      process.platform === "win32"
-        ? [
-            join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe"),
-            "-xf",
-            zip,
-            "-C",
-            unpacking,
-          ]
-        : ["unzip", "-q", zip, "-d", unpacking],
-      { stderr: "pipe" },
-    );
-    if (unzip.exitCode !== 0) {
-      rmSync(unpacking, { recursive: true, force: true });
-      throw new Error(`couldn't unpack ${zip}: ${unzip.stderr.toString().trim()}`);
-    }
+    unpack(zip, unpacking);
     rmSync(pin.dir, { recursive: true, force: true });
     renameSync(unpacking, pin.dir);
     rmSync(zip, { force: true });
@@ -564,11 +587,37 @@ async function installChrome(
 }
 
 /**
+ * Unpacks `archive` (a .zip, or a .tar.gz) into `into`, which is beside it and
+ * exists. Windows has no unzip, and its own tar.exe reads zips, but not Git
+ * Bash's GNU tar, often first on the PATH, which takes "D:" for a remote host.
+ * tar.exe also can't open a path with non-ASCII letters in it, as a user
+ * folder can have, so it runs in the folder with names that are ASCII.
+ */
+function unpack(archive: string, into: string) {
+  const win = process.platform === "win32";
+  const argv = win
+    ? [
+        join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe"),
+        ...["-xf", basename(archive), "-C", basename(into)],
+      ]
+    : archive.endsWith(".zip")
+      ? ["unzip", "-q", archive, "-d", into]
+      : ["tar", "-xf", archive, "-C", into];
+  const r = Bun.spawnSync(argv, { stderr: "pipe", cwd: win ? dirname(archive) : undefined });
+  if (r.exitCode !== 0) {
+    rmSync(into, { recursive: true, force: true });
+    throw new Error(`couldn't unpack ${archive}: ${r.stderr.toString().trim()}`);
+  }
+}
+
+/**
  * `mockingbird models pull` on Linux and Windows also downloads whisper-server
  * and unpacks it into `~/.mockingbird/bin`. Returns 0 where there's no pin
  * (macOS: Homebrew's).
  */
-export async function pullWhisper(deps: PullDeps & { force?: boolean } = {}): Promise<number> {
+export async function pullWhisper(
+  deps: PullDeps & { force?: boolean; starts?: typeof wontStart } = {},
+): Promise<number> {
   const log = deps.log ?? ((m: string) => console.error(m));
   const home = deps.home ?? mockingbirdHome();
   const pin = pinnedWhisper(home);
@@ -577,6 +626,13 @@ export async function pullWhisper(deps: PullDeps & { force?: boolean } = {}): Pr
   // unpacks it again, to repair a damaged one.
   if (existsSync(pin.program) && !deps.force) {
     log(`whisper-server ${WHISPER_BUILD} is downloaded`);
+    return 0;
+  }
+  // The override always wins, so the pin would never run: where whisper.cpp's
+  // build can't (glibc 2.28-2.33), every pull would fetch it again for nothing.
+  const override = process.env.MOCKINGBIRD_WHISPER_SERVER;
+  if (override && !deps.force) {
+    log(`whisper-server: using ${override} (MOCKINGBIRD_WHISPER_SERVER), not downloading one`);
     return 0;
   }
   const bin = join(home, "bin");
@@ -592,20 +648,33 @@ export async function pullWhisper(deps: PullDeps & { force?: boolean } = {}): Pr
     await pullFiles([pin.archive], bin, deps);
     const archive = join(bin, pin.archive.file);
     // Unpacked beside the target and renamed into place, so a half-unpacked one
-    // is never found. tar reads .zip too on Windows (bsdtar, since Windows 10).
+    // is never found.
     const unpacking = `${pin.dir}.part`;
     rmSync(unpacking, { recursive: true, force: true });
     mkdirSync(unpacking, { recursive: true });
-    // Windows' own tar.exe: Git Bash's GNU tar, often first on the PATH, takes
-    // "D:" for a remote host.
-    const tarExe =
-      process.platform === "win32"
-        ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
-        : "tar";
-    const tar = Bun.spawnSync([tarExe, "-xf", archive, "-C", unpacking], { stderr: "pipe" });
-    if (tar.exitCode !== 0) {
+    unpack(archive, unpacking);
+    rmSync(archive, { force: true });
+    // whisper.cpp's Ubuntu build needs a newer glibc than Bun does: on glibc
+    // 2.28-2.33 it unpacks but can't load (#223). It's tried where it was
+    // unpacked, so one that can't run is never where transcribe looks, and a
+    // working one there before (or on the PATH) stays the one used.
+    const starts = deps.starts ?? wontStart;
+    const why = await starts(join(unpacking, relative(pin.dir, pin.program)));
+    if (why) {
       rmSync(unpacking, { recursive: true, force: true });
-      throw new Error(`couldn't unpack ${archive}: ${tar.stderr.toString().trim()}`);
+      const other = findWhisperServer(process.env, home);
+      if (other && !(await starts(other))) {
+        log(
+          `whisper.cpp's whisper-server ${WHISPER_BUILD} doesn't run here (${why}); using ${other}.`,
+        );
+        return 0;
+      }
+      log(
+        `whisper.cpp's whisper-server ${WHISPER_BUILD} doesn't run on this computer: ${why}\n` +
+          "Install one built for it (`brew install whisper-cpp`, or build whisper.cpp from source) " +
+          "and put it on your PATH, or set MOCKINGBIRD_WHISPER_SERVER to it, then run this again.",
+      );
+      return 1;
     }
     // The one there stays until the new one is in place.
     const old = `${pin.dir}.old`;
@@ -618,7 +687,6 @@ export async function pullWhisper(deps: PullDeps & { force?: boolean } = {}): Pr
       throw error;
     }
     rmSync(old, { recursive: true, force: true });
-    rmSync(archive, { force: true });
   } finally {
     rmSync(lock, { force: true });
   }

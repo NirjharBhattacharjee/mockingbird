@@ -14,8 +14,18 @@ import { join } from "node:path";
 import { agents, codexMentions } from "../src/agents.ts";
 import { PLUGIN } from "../src/guide.ts";
 import { pinnedChrome } from "../src/models.ts";
-import { DEFAULT_ASR_MODEL } from "../src/runtime.ts";
+import { DEFAULT_ASR_MODEL, FFMPEG_NEEDS, pinnedWhisper } from "../src/runtime.ts";
 import { checks, commandPath, doctor, oldPlugin, setup } from "../src/setup.ts";
+
+/** What a full ffmpeg prints for `-encoders` and `-filters`, less `without`. */
+const ffmpegLists = (without: string[] = []) =>
+  [...FFMPEG_NEEDS.encoders, ...FFMPEG_NEEDS.filters]
+    .filter((n) => !without.includes(n))
+    .map((n) => ` V..... ${n}  something`)
+    .join("\n");
+
+/** A Mac, so Homebrew's whisper-cpp is the one asked for, whatever runs the tests. */
+const mac = { platform: "darwin", arch: "arm64" };
 
 /** A home with Cursor, Gemini CLI, VS Code and Codex folders, `mockingbird` in .local/bin, and no `claude` command. */
 function home() {
@@ -210,6 +220,7 @@ test("setup installs missing tools and models after asking, then adds the agents
   let chromePulled = false;
   const tools = new Set(["brew"]);
   const code = await setup([], {
+    ...mac,
     home: h,
     mbHome: mb,
     env: {},
@@ -217,7 +228,7 @@ test("setup installs missing tools and models after asking, then adds the agents
     run: (argv) => {
       ran.push(argv.join(" "));
       if (argv[0] === "brew") for (const t of ["ffmpeg", "whisper-server"]) tools.add(t);
-      return { code: 0, out: argv[0] === "ffmpeg" ? "libx264" : "" };
+      return { code: 0, out: argv[0] === "ffmpeg" ? ffmpegLists() : "" };
     },
     ask: (q) => {
       asked.push(q);
@@ -261,8 +272,9 @@ test("a no to the download still adds the agents, and setup exits 1 for the miss
   const code = await setup([], {
     home: h,
     mbHome: join(h, ".mockingbird"),
+    ...mac,
     which: (n) => `/opt/homebrew/bin/${n}`,
-    run: () => ({ code: 0, out: "libx264" }),
+    run: () => ({ code: 0, out: ffmpegLists() }),
     ask: (q) => !q.startsWith("Download"),
     log: () => {},
   });
@@ -342,7 +354,7 @@ test("an empty or cut-short pinned speech model counts as damaged", () => {
 
 test("doctor's needed checks name a fix", () => {
   const h = home();
-  const broken = checks({ home: h, mbHome: join(h, "mb"), which: none }).filter(
+  const broken = checks({ ...mac, home: h, mbHome: join(h, "mb"), which: none }).filter(
     (c) => !c.ok && c.needed,
   );
   expect(broken.map((c) => [c.name, c.fix])).toEqual([
@@ -354,6 +366,70 @@ test("doctor's needed checks name a fix", () => {
     ],
     ["speech detection model", "`mockingbird models pull`"],
   ]);
+});
+
+test("doctor names every encoder and filter ffmpeg lacks, not only libx264 (#223)", () => {
+  const h = home();
+  const list = (without: string[]) =>
+    checks({
+      home: h,
+      mbHome: join(h, "mb"),
+      which: (n) => (n === "ffmpeg" ? "/usr/bin/ffmpeg" : null),
+      run: () => ({ code: 0, out: ffmpegLists(without) }),
+    });
+  // A missing filter is named, but isn't needed: only the tool using it stops.
+  const filter = list(["sidechaincompress"]);
+  expect(filter.find((c) => c.name === "ffmpeg")).toMatchObject({ ok: true });
+  expect(filter.find((c) => c.name === "ffmpeg filters")).toMatchObject({
+    ok: false,
+    needed: false,
+    detail:
+      "/usr/bin/ffmpeg is built without sidechaincompress; the tools that use them won't work",
+  });
+  // A missing encoder is: render can't write a file.
+  expect(list(["libx264"]).find((c) => c.name === "ffmpeg")).toMatchObject({
+    ok: false,
+    detail: "/usr/bin/ffmpeg is built without libx264, which render encodes with",
+  });
+});
+
+test("on Linux with no Homebrew, setup downloads the pinned whisper-server and doctor sees it (#223)", async () => {
+  const h = home();
+  const mb = join(h, ".mockingbird");
+  const linux = { platform: "linux", arch: "x64" };
+  const pin = pinnedWhisper(mb, "linux-x64");
+  if (!pin) throw new Error("no pinned whisper-server for linux-x64");
+  const asked: string[] = [];
+  const which = (n: string) => (n === "ffmpeg" ? "/usr/bin/ffmpeg" : null);
+  // A full ffmpeg, faked: CI's runners have none on the PATH.
+  const run = () => ({ code: 0, out: ffmpegLists() });
+  const before = checks({ ...linux, home: h, mbHome: mb, which, run, env: {} });
+  expect(before.find((c) => c.name === "whisper-server")?.fix).toContain("mockingbird models pull");
+  await setup([], {
+    ...linux,
+    home: h,
+    mbHome: mb,
+    env: {},
+    which,
+    run,
+    ask: (q) => {
+      asked.push(q);
+      return true;
+    },
+    pull: async () => {
+      mkdirSync(join(pin.program, ".."), { recursive: true });
+      writeFileSync(pin.program, "", { mode: 0o755 });
+      return 0;
+    },
+    log: () => {},
+  });
+  expect(asked.some((q) => q.includes("Homebrew"))).toBe(false);
+  expect(asked[0]).toMatch(/^Download the speech models and whisper-server \(up to/);
+  expect(
+    checks({ ...linux, home: h, mbHome: mb, which, run, env: {} }).find(
+      (c) => c.name === "whisper-server",
+    ),
+  ).toMatchObject({ ok: true, detail: pin.program });
 });
 
 test("a model MOCKINGBIRD_ASR_MODEL points at outside models/ counts", () => {
@@ -444,4 +520,49 @@ test("oldPlugin finds the pre-#140 mockingbird-studio plugin in Claude Code (#25
   expect(
     checks({ env, mbHome: dir, which: () => null }).find((c) => c.name === "old plugin")?.fix,
   ).toContain("/plugin uninstall mockingbird-studio");
+});
+
+test("doctor fails a whisper-server that won't start, an override that isn't there, and an ffmpeg that fails", () => {
+  const h = home();
+  const mb = join(h, ".mockingbird");
+  // Like Bun.which, a full path that's there comes back as it is.
+  const at = (n: string) =>
+    /(^|\/)(ffmpeg|whisper-server)$/.test(n) ? `/usr/bin/${n.split("/").at(-1)}` : null;
+  const glibc = checks({
+    ...mac,
+    home: h,
+    mbHome: mb,
+    env: {},
+    which: at,
+    run: (argv) =>
+      argv[1] === "--help"
+        ? { code: 127, out: "/lib64/libc.so.6: version `GLIBC_2.38' not found" }
+        : { code: 0, out: ffmpegLists() },
+  });
+  const server = glibc.find((c) => c.name === "whisper-server");
+  expect(server).toMatchObject({ ok: false });
+  expect(server?.detail).toContain("GLIBC_2.38");
+  expect(server?.fix).toContain("MOCKINGBIRD_WHISPER_SERVER");
+  const wrong = checks({
+    ...mac,
+    home: h,
+    mbHome: mb,
+    env: { MOCKINGBIRD_WHISPER_SERVER: "/no/whisper-server" },
+    which: none,
+    run: () => ({ code: 0, out: "" }),
+  }).find((c) => c.name === "whisper-server");
+  expect(wrong?.detail).toContain("isn't there");
+  expect(wrong?.fix).toStartWith("point MOCKINGBIRD_WHISPER_SERVER");
+  const ffmpeg = checks({
+    ...mac,
+    home: h,
+    mbHome: mb,
+    env: {},
+    which: at,
+    run: () => ({ code: 1, out: `${ffmpegLists()}\nSegmentation fault` }),
+  }).find((c) => c.name === "ffmpeg");
+  expect(ffmpeg).toMatchObject({
+    ok: false,
+    detail: "/usr/bin/ffmpeg won't run: Segmentation fault",
+  });
 });

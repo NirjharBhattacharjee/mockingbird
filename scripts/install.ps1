@@ -167,13 +167,20 @@ if (-not (Test-Path $cli) -and (Get-Command go -ErrorAction SilentlyContinue)) {
 # the PATH and runs the command, or the TypeScript CLI without one.
 $binDir = Join-Path $mbHome "bin"
 $run = if (Test-Path $cli) { "`"$cli`" %*" } else { "`"$bun`" `"$dir\apps\daemon\src\cli.ts`" %*" }
-Set-Content -Encoding ASCII (Join-Path $binDir "mockingbird.cmd") @"
+# cmd.exe reads a batch file in the console's code page, so a letter outside
+# it (a user name in another script) breaks a path written out, and a chcp
+# inside the file makes cmd misread the lines after it. So paths are written
+# as variables cmd expands whole: the shim's own folder as %~dp0 (the home is
+# its parent, Bun is in it) and the user's folder as %USERPROFILE%\.
+# ponytail: a clone outside the user's folder with such a letter isn't covered.
+$shim = @"
 @echo off
 rem Written by scripts\install.ps1. Run it again after moving the clone.
-if not defined MOCKINGBIRD_HOME set "MOCKINGBIRD_HOME=$mbHome"
+if not defined MOCKINGBIRD_HOME for %%i in ("%~dp0..") do set "MOCKINGBIRD_HOME=%%~fi"
 set "PATH=$(Split-Path -Parent $bun);%PATH%"
 $run
-"@
+"@.Replace("$binDir\", "%~dp0").Replace("$HOME\", "%USERPROFILE%\")
+[IO.File]::WriteAllText((Join-Path $binDir "mockingbird.cmd"), $shim, (New-Object Text.UTF8Encoding $false))
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if (-not (($userPath -split ";") -contains $binDir)) {
   [Environment]::SetEnvironmentVariable("Path", "$binDir;$userPath", "User")
