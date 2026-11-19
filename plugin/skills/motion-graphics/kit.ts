@@ -116,6 +116,9 @@ export const THEMES: Record<string, Theme> = {
 
 // ---------------------------------------------------------------- pure helpers
 
+/** A point in pixels. */
+type Pt = [number, number];
+
 export const clamp = (x: number, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, x));
 export const lerp = (a: number, b: number, p: number) => a + (b - a) * p;
 
@@ -384,6 +387,9 @@ export function project(
 
 // The page loads it as a URL: a native "D:/..." path reads as a URL scheme on Windows.
 const GRAIN = new URL("assets/grain.png", import.meta.url).href;
+/** Paper and masking tape for the collage pieces (#255), made by assets/make.sh. */
+const PAPER = new URL("assets/paper.png", import.meta.url).href;
+const TAPE = new URL("assets/tape.png", import.meta.url).href;
 const pictures = new Map<string, any>();
 
 /**
@@ -437,10 +443,12 @@ export function page(
   canvas.height = m.height;
   canvas.style.cssText = "position:absolute;left:0;top:0";
   document.body.append(canvas);
-  const ctx = canvas.getContext("2d");
+  const ctx: any = canvas.getContext("2d");
   m.drawVideo = true;
   if (audio) m.audio = audio(m);
   picture(GRAIN);
+  picture(PAPER);
+  picture(TAPE);
   const frame = (c: any, t: number) => {
     c.reset();
     if (m.video) c.drawImage(m.video, 0, 0, m.width, m.height);
@@ -454,7 +462,7 @@ export function page(
   // Each sample is drawn on the page's own canvas and added to `sum`: a blur
   // filter drawn straight onto a canvas that isn't shown took 25x as long.
   const sum = new OffscreenCanvas(m.width, m.height);
-  const sctx = sum.getContext("2d");
+  const sctx: any = sum.getContext("2d");
   m.draw = async (t: number) => {
     // A running average: sample i goes over the ones before at 1/(i+1).
     sctx.reset();
@@ -830,6 +838,399 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
       fade((1 - p) * 0.8);
       ctx.fillStyle = color;
       ctx.fillRect(0, 0, W, H);
+    });
+  }
+
+  // ------------------------------------------------------------ editor-reel pieces (#255)
+
+  /** A ragged edge: points along a straight line from a to b, nudged across it by up to `rough` px. */
+  const torn = (a: Pt, b: Pt, rough: number, seed: number): Pt[] => {
+    const n = Math.max(2, Math.round(Math.hypot(b[0] - a[0], b[1] - a[1]) / (9 * u)));
+    const [nx, ny] = [-(b[1] - a[1]), b[0] - a[0]];
+    const len = Math.hypot(nx, ny) || 1;
+    return Array.from({ length: n + 1 }, (_, i) => {
+      const f = i / n;
+      const k = (noise(i * 0.35, seed) * 0.7 + (hash(i + seed * 31) - 0.5) * 0.6) * rough;
+      return [lerp(a[0], b[0], f) + (nx / len) * k, lerp(a[1], b[1], f) + (ny / len) * k] as Pt;
+    });
+  };
+
+  /**
+   * Torn paper round a window onto what's under it (the footage, say): paper
+   * fills `pad` units outside the box, its inner edge ragged and shadowed,
+   * with tape on two corners. It slides up and settles from `at`.
+   */
+  function tornFrame({
+    x,
+    y,
+    w,
+    h,
+    at = 0,
+    out = Infinity,
+    pad = 34,
+    tilt = -0.02,
+    seed = 3,
+  }: Box & { at?: number; out?: number; pad?: number; tilt?: number; seed?: number }) {
+    const a = presence(t, at, out, 0.5, 0.3);
+    if (!a) return;
+    const P = pad * u;
+    const rough = 7 * u;
+    const inner = [
+      ...torn([x, y], [x + w, y], rough, seed),
+      ...torn([x + w, y], [x + w, y + h], rough, seed + 1),
+      ...torn([x + w, y + h], [x, y + h], rough, seed + 2),
+      ...torn([x, y + h], [x, y], rough, seed + 3),
+    ];
+    const outer = [
+      ...torn([x - P, y - P], [x + w + P, y - P], rough * 1.4, seed + 4),
+      ...torn([x + w + P, y - P], [x + w + P, y + h + P], rough * 1.4, seed + 5),
+      ...torn([x + w + P, y + h + P], [x - P, y + h + P], rough * 1.4, seed + 6),
+      ...torn([x - P, y + h + P], [x - P, y - P], rough * 1.4, seed + 7),
+    ];
+    const rise = spring(t, { from: 60 * u, to: 0, start: at, stiffness: 140, damping: 14 });
+    layer(() => {
+      fade(a);
+      ctx.translate(x + w / 2, y + h / 2 + rise);
+      ctx.rotate(tilt * (1 - a * 0.3));
+      ctx.translate(-(x + w / 2), -(y + h / 2));
+      const path = () => {
+        ctx.beginPath();
+        for (const ring of [outer, inner]) {
+          for (const [i, [px, py]] of ring.entries()) i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+          ctx.closePath();
+        }
+      };
+      // The sheet, casting a shadow onto the background, with a hole torn in it.
+      layer(() => {
+        drop(14, 30, "rgba(0,0,0,0.4)");
+        path();
+        ctx.fillStyle = ctx.createPattern(picture(PAPER), "repeat");
+        ctx.fill("evenodd");
+      });
+      // The torn edge throws a little shadow into the window too.
+      layer(() => {
+        ctx.beginPath();
+        for (const [i, [px, py]] of inner.entries()) i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+        ctx.closePath();
+        ctx.clip();
+        ctx.strokeStyle = "rgba(0,0,0,0.35)";
+        ctx.lineWidth = 6 * u;
+        ctx.filter = `blur(${Math.round(4 * u)}px)`;
+        ctx.stroke();
+      });
+      tape(x - P * 0.4, y - P * 0.2, -0.6);
+      tape(x + w + P * 0.4, y + h + P * 0.2, -0.5);
+    });
+  }
+
+  /** A strip of masking tape centred at (x, y), turned by `angle`. */
+  function tape(x: number, y: number, angle = -0.5, width = 150) {
+    const img = picture(TAPE);
+    const tw = width * u;
+    const th = (tw * img.height) / img.width;
+    layer(() => {
+      ctx.translate(x, y);
+      ctx.rotate(angle);
+      ctx.drawImage(img, -tw / 2, -th / 2, tw, th);
+    });
+  }
+
+  /**
+   * A sticker: a picture (`path`, loaded with picture()) or a word, on a
+   * white die-cut border with a shadow, that pops in on a spring with a
+   * slight turn. `w` is its width in units.
+   */
+  function sticker({
+    path,
+    text,
+    x,
+    y,
+    w = 260,
+    at,
+    out = Infinity,
+    tilt = 0.08,
+    color = T.accent,
+    ink = T.onAccent,
+  }: {
+    path?: string;
+    text?: string;
+    x: number;
+    y: number;
+    w?: number;
+    at: number;
+    out?: number;
+    tilt?: number;
+    color?: string;
+    ink?: string;
+  }) {
+    if (t < at || t > out + 0.25) return;
+    const pop = spring(t, { start: at, stiffness: 260, damping: 13 });
+    const leave = t > out ? easeIn((t - out) / 0.25) : 0;
+    const k = pop * (1 - leave);
+    if (k <= 0.001) return;
+    const W0 = w * u;
+    layer(() => {
+      ctx.translate(x, y);
+      ctx.rotate(tilt * (2 - pop));
+      ctx.scale(k, k);
+      const border = 10 * u;
+      if (path) {
+        const img = picture(path);
+        const H0 = (W0 * img.height) / img.width;
+        layer(() => {
+          drop(10, 24, "rgba(0,0,0,0.35)");
+          ctx.fillStyle = "#FFFFFF";
+          ctx.beginPath();
+          ctx.roundRect(
+            -W0 / 2 - border,
+            -H0 / 2 - border,
+            W0 + 2 * border,
+            H0 + 2 * border,
+            18 * u,
+          );
+          ctx.fill();
+        });
+        ctx.drawImage(img, -W0 / 2, -H0 / 2, W0, H0);
+        return;
+      }
+      ctx.font = font(W0 / Math.max(3, (text ?? "").length * 0.62), 900);
+      const tw = ctx.measureText(text ?? "").width;
+      const th = W0 * 0.42;
+      layer(() => {
+        drop(10, 24, "rgba(0,0,0,0.35)");
+        ctx.fillStyle = "#FFFFFF";
+        ctx.beginPath();
+        ctx.roundRect(
+          -tw / 2 - 28 * u - border,
+          -th / 2 - border,
+          tw + 56 * u + 2 * border,
+          th + 2 * border,
+          th,
+        );
+        ctx.fill();
+      });
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.roundRect(-tw / 2 - 28 * u, -th / 2, tw + 56 * u, th, th);
+      ctx.fill();
+      ctx.fillStyle = ink;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(text ?? "", 0, 2 * u);
+    });
+  }
+
+  /** What's on the canvas so far, copied, for effects that move it around. */
+  const snapshot = () => {
+    const c = canvasLike(W, H, 9);
+    const c2 = c.getContext("2d");
+    c2.clearRect(0, 0, W, H);
+    c2.drawImage(ctx.canvas, 0, 0);
+    return c;
+  };
+
+  /**
+   * A glitch over everything drawn so far, for `dur` seconds from `at`:
+   * the red and blue split apart, and bands of the picture slide sideways.
+   * Different every frame, the same every render.
+   */
+  function glitch(at: number, dur = 0.22, amount = 1) {
+    const p = (t - at) / dur;
+    if (p < 0 || p > 1) return;
+    const k = amount * Math.sin(Math.PI * p);
+    const shot = snapshot();
+    const f = m.frame;
+    layer(() => {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      // The split: red shifted one way, green where it was, blue the other
+      // way, added back together. With no shift that's the picture exactly.
+      ctx.clearRect(0, 0, W, H);
+      ctx.globalCompositeOperation = "lighter";
+      for (const [dx, keep] of [
+        [14 * u * k, "#FF0000"],
+        [0, "#00FF00"],
+        [-14 * u * k, "#0000FF"],
+      ] as [number, string][]) {
+        const c = canvasLike(W, H, 10);
+        const c2 = c.getContext("2d");
+        c2.globalCompositeOperation = "source-over";
+        c2.clearRect(0, 0, W, H);
+        c2.drawImage(shot, dx, 0);
+        c2.globalCompositeOperation = "multiply";
+        c2.fillStyle = keep;
+        c2.fillRect(0, 0, W, H);
+        c2.globalCompositeOperation = "destination-in";
+        c2.drawImage(shot, dx, 0);
+        ctx.drawImage(c, 0, 0);
+      }
+      // The slices: a few bands, each pulled sideways.
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 1;
+      for (let i = 0; i < 7; i++) {
+        if (hash(f * 13 + i) > 0.55) continue;
+        const sy = hash(f * 7 + i * 3) * H;
+        const sh = (0.02 + hash(f * 3 + i) * 0.07) * H;
+        const dx = (hash(f * 5 + i * 11) - 0.5) * 120 * u * k;
+        ctx.drawImage(shot, 0, sy, W, sh, dx, sy, W, sh);
+      }
+    });
+  }
+
+  /** A zoom blur over everything drawn so far, for a cut: larger, fainter copies from `at` for `dur` seconds. */
+  function zoomBlur(at: number, dur = 0.16, amount = 1) {
+    const p = (t - at) / dur;
+    if (p < 0 || p > 1) return;
+    const k = (1 - p) * amount;
+    const shot = snapshot();
+    layer(() => {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      for (let i = 1; i <= 4; i++) {
+        const s = 1 + 0.045 * i * k;
+        ctx.globalAlpha = 0.26 * k;
+        ctx.drawImage(shot, (W - W * s) / 2, (H - H * s) / 2, W * s, H * s);
+      }
+    });
+  }
+
+  /**
+   * A hand-drawn mark along `points` (pixels): drawn on over `dur` from
+   * `at`, twice, a little off each time, the way a marker goes over a line.
+   * `loop` closes it, for a circle round something.
+   */
+  function scribble({
+    points,
+    at,
+    out = Infinity,
+    dur = 0.5,
+    color = T.accent,
+    width = 7,
+    loop = false,
+    seed = 1,
+  }: {
+    points: Pt[];
+    at: number;
+    out?: number;
+    dur?: number;
+    color?: string;
+    width?: number;
+    loop?: boolean;
+    seed?: number;
+  }) {
+    if (t < at || t > out + 0.3) return;
+    const a = t > out ? 1 - (t - out) / 0.3 : 1;
+    const pts = loop ? [...points, points[0] as Pt] : points;
+    let length = 0;
+    for (let i = 1; i < pts.length; i++) {
+      const [p, q] = [pts[i - 1] as Pt, pts[i] as Pt];
+      length += Math.hypot(q[0] - p[0], q[1] - p[1]);
+    }
+    layer(() => {
+      fade(a);
+      for (const pass of [0, 1]) {
+        const jitter = (i: number, axis: number) => noise(i * 0.7 + pass * 5, seed + axis) * 5 * u;
+        stroke(
+          (c) => {
+            for (const [i, [px, py]] of pts.entries()) {
+              const [jx, jy] = [px + jitter(i, 0), py + jitter(i, 1)];
+              i ? c.lineTo(jx, jy) : c.moveTo(jx, jy);
+            }
+          },
+          length * 1.05,
+          (t - at - pass * dur * 0.35) / dur,
+          { color, width: width * (pass ? 0.6 : 1), glow: false },
+        );
+      }
+    });
+  }
+
+  /**
+   * Kinetic type: `text` built letter by letter at (x, y), centred.
+   * `scatter` flies the letters in from random places and turns; `type`
+   * types them on with a cursor; `glitch` flickers each one in with a
+   * colour split. Runs mix faces, as `title`'s lines do.
+   */
+  function kinetic({
+    text,
+    x = W / 2,
+    y = H / 2,
+    size = 120,
+    at,
+    out = Infinity,
+    mode = "scatter" as "scatter" | "type" | "glitch",
+    stagger = 0.035,
+    color = T.ink,
+    weight = 900,
+    family = T.display,
+    italic = false,
+  }: {
+    text: string;
+    x?: number;
+    y?: number;
+    size?: number;
+    at: number;
+    out?: number;
+    mode?: "scatter" | "type" | "glitch";
+    stagger?: number;
+    color?: string;
+    weight?: number;
+    family?: string;
+    italic?: boolean;
+  }) {
+    if (t < at || t > out + 0.3) return;
+    const leave = t > out ? easeIn((t - out) / 0.3) : 0;
+    layer(() => {
+      ctx.font = font(size, weight, family, italic);
+      ctx.textBaseline = "middle";
+      ctx.textAlign = "left";
+      const chars = [...text];
+      const widths = chars.map((ch) => ctx.measureText(ch).width);
+      const total = widths.reduce((s, v) => s + v, 0);
+      let cx = x - total / 2;
+      chars.forEach((ch, i) => {
+        const w0 = widths[i] as number;
+        const start = at + i * stagger;
+        const lx = cx;
+        cx += w0;
+        if (t < start || ch === " ") return;
+        layer(() => {
+          fade(1 - leave);
+          ctx.fillStyle = color;
+          if (mode === "type") {
+            ctx.fillText(ch, lx, y);
+            const last = Math.floor((t - at) / stagger) === i;
+            if (last && Math.floor(t * 4) % 2 === 0)
+              ctx.fillRect(lx + w0 + 4 * u, y - size * 0.4 * u, 6 * u, size * 0.8 * u);
+            return;
+          }
+          if (mode === "glitch") {
+            const p = clamp((t - start) / 0.18);
+            const on = p >= 1 || hash(m.frame * 7 + i) > 0.4;
+            if (!on) return;
+            const off = (1 - p) * 10 * u;
+            for (const [dx, c] of [
+              [-off, "#FF2E63"],
+              [off, "#08D9D6"],
+            ] as [number, string][]) {
+              ctx.globalAlpha = 0.8 * (1 - p);
+              ctx.fillStyle = c;
+              ctx.fillText(ch, lx + dx, y);
+            }
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = color;
+            ctx.fillText(ch, lx, y);
+            return;
+          }
+          // scatter: from a random place and turn, on a spring.
+          const p = spring(t, { start, stiffness: 160, damping: 15 });
+          const fx = (hash(i * 3.1 + 1) - 0.5) * 900 * u;
+          const fy = (hash(i * 5.7 + 2) - 0.5) * 700 * u;
+          const fr = (hash(i * 9.3 + 3) - 0.5) * 2.4;
+          ctx.translate(lx + w0 / 2 + fx * (1 - p), y + fy * (1 - p));
+          ctx.rotate(fr * (1 - p));
+          ctx.globalAlpha *= clamp(p * 2);
+          ctx.fillText(ch, -w0 / 2, 0);
+        });
+      });
     });
   }
 
@@ -2120,6 +2521,15 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
     flash,
     camera,
     view,
+    /** The paper texture, for a page's own collage board or cards. */
+    paper: () => picture(PAPER),
+    tornFrame,
+    tape,
+    sticker,
+    glitch,
+    zoomBlur,
+    scribble,
+    kinetic,
     drop,
     rim,
     sweep,

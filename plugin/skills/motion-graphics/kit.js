@@ -220,6 +220,8 @@ export function project(x, y, depth, cam, W, H, u = 1) {
   return { x: cx + dx * c - dy * s, y: cy + dx * s + dy * c, scale };
 }
 const GRAIN = new URL("assets/grain.png", import.meta.url).href;
+const PAPER = new URL("assets/paper.png", import.meta.url).href;
+const TAPE = new URL("assets/tape.png", import.meta.url).href;
 const pictures = new Map;
 export function picture(path) {
   let img = pictures.get(path);
@@ -254,6 +256,8 @@ export function page(draw, {
   if (audio)
     m.audio = audio(m);
   picture(GRAIN);
+  picture(PAPER);
+  picture(TAPE);
   const frame = (c, t) => {
     c.reset();
     if (m.video)
@@ -549,6 +553,314 @@ export function kit(ctx, t, m, theme = THEMES.night) {
       fade((1 - p) * 0.8);
       ctx.fillStyle = color;
       ctx.fillRect(0, 0, W, H);
+    });
+  }
+  const torn = (a, b, rough, seed) => {
+    const n = Math.max(2, Math.round(Math.hypot(b[0] - a[0], b[1] - a[1]) / (9 * u)));
+    const [nx, ny] = [-(b[1] - a[1]), b[0] - a[0]];
+    const len = Math.hypot(nx, ny) || 1;
+    return Array.from({ length: n + 1 }, (_, i) => {
+      const f = i / n;
+      const k = (noise(i * 0.35, seed) * 0.7 + (hash(i + seed * 31) - 0.5) * 0.6) * rough;
+      return [lerp(a[0], b[0], f) + nx / len * k, lerp(a[1], b[1], f) + ny / len * k];
+    });
+  };
+  function tornFrame({
+    x,
+    y,
+    w,
+    h,
+    at = 0,
+    out = 1 / 0,
+    pad = 34,
+    tilt = -0.02,
+    seed = 3
+  }) {
+    const a = presence(t, at, out, 0.5, 0.3);
+    if (!a)
+      return;
+    const P = pad * u;
+    const rough = 7 * u;
+    const inner = [
+      ...torn([x, y], [x + w, y], rough, seed),
+      ...torn([x + w, y], [x + w, y + h], rough, seed + 1),
+      ...torn([x + w, y + h], [x, y + h], rough, seed + 2),
+      ...torn([x, y + h], [x, y], rough, seed + 3)
+    ];
+    const outer = [
+      ...torn([x - P, y - P], [x + w + P, y - P], rough * 1.4, seed + 4),
+      ...torn([x + w + P, y - P], [x + w + P, y + h + P], rough * 1.4, seed + 5),
+      ...torn([x + w + P, y + h + P], [x - P, y + h + P], rough * 1.4, seed + 6),
+      ...torn([x - P, y + h + P], [x - P, y - P], rough * 1.4, seed + 7)
+    ];
+    const rise = spring(t, { from: 60 * u, to: 0, start: at, stiffness: 140, damping: 14 });
+    layer(() => {
+      fade(a);
+      ctx.translate(x + w / 2, y + h / 2 + rise);
+      ctx.rotate(tilt * (1 - a * 0.3));
+      ctx.translate(-(x + w / 2), -(y + h / 2));
+      const path = () => {
+        ctx.beginPath();
+        for (const ring of [outer, inner]) {
+          for (const [i, [px, py]] of ring.entries())
+            i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+          ctx.closePath();
+        }
+      };
+      layer(() => {
+        drop(14, 30, "rgba(0,0,0,0.4)");
+        path();
+        ctx.fillStyle = ctx.createPattern(picture(PAPER), "repeat");
+        ctx.fill("evenodd");
+      });
+      layer(() => {
+        ctx.beginPath();
+        for (const [i, [px, py]] of inner.entries())
+          i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+        ctx.closePath();
+        ctx.clip();
+        ctx.strokeStyle = "rgba(0,0,0,0.35)";
+        ctx.lineWidth = 6 * u;
+        ctx.filter = `blur(${Math.round(4 * u)}px)`;
+        ctx.stroke();
+      });
+      tape(x - P * 0.4, y - P * 0.2, -0.6);
+      tape(x + w + P * 0.4, y + h + P * 0.2, -0.5);
+    });
+  }
+  function tape(x, y, angle = -0.5, width = 150) {
+    const img = picture(TAPE);
+    const tw = width * u;
+    const th = tw * img.height / img.width;
+    layer(() => {
+      ctx.translate(x, y);
+      ctx.rotate(angle);
+      ctx.drawImage(img, -tw / 2, -th / 2, tw, th);
+    });
+  }
+  function sticker({
+    path,
+    text,
+    x,
+    y,
+    w = 260,
+    at,
+    out = 1 / 0,
+    tilt = 0.08,
+    color = T.accent,
+    ink = T.onAccent
+  }) {
+    if (t < at || t > out + 0.25)
+      return;
+    const pop = spring(t, { start: at, stiffness: 260, damping: 13 });
+    const leave = t > out ? easeIn((t - out) / 0.25) : 0;
+    const k = pop * (1 - leave);
+    if (k <= 0.001)
+      return;
+    const W0 = w * u;
+    layer(() => {
+      ctx.translate(x, y);
+      ctx.rotate(tilt * (2 - pop));
+      ctx.scale(k, k);
+      const border = 10 * u;
+      if (path) {
+        const img = picture(path);
+        const H0 = W0 * img.height / img.width;
+        layer(() => {
+          drop(10, 24, "rgba(0,0,0,0.35)");
+          ctx.fillStyle = "#FFFFFF";
+          ctx.beginPath();
+          ctx.roundRect(-W0 / 2 - border, -H0 / 2 - border, W0 + 2 * border, H0 + 2 * border, 18 * u);
+          ctx.fill();
+        });
+        ctx.drawImage(img, -W0 / 2, -H0 / 2, W0, H0);
+        return;
+      }
+      ctx.font = font(W0 / Math.max(3, (text ?? "").length * 0.62), 900);
+      const tw = ctx.measureText(text ?? "").width;
+      const th = W0 * 0.42;
+      layer(() => {
+        drop(10, 24, "rgba(0,0,0,0.35)");
+        ctx.fillStyle = "#FFFFFF";
+        ctx.beginPath();
+        ctx.roundRect(-tw / 2 - 28 * u - border, -th / 2 - border, tw + 56 * u + 2 * border, th + 2 * border, th);
+        ctx.fill();
+      });
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.roundRect(-tw / 2 - 28 * u, -th / 2, tw + 56 * u, th, th);
+      ctx.fill();
+      ctx.fillStyle = ink;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(text ?? "", 0, 2 * u);
+    });
+  }
+  const snapshot = () => {
+    const c = canvasLike(W, H, 9);
+    const c2 = c.getContext("2d");
+    c2.clearRect(0, 0, W, H);
+    c2.drawImage(ctx.canvas, 0, 0);
+    return c;
+  };
+  function glitch(at, dur = 0.22, amount = 1) {
+    const p = (t - at) / dur;
+    if (p < 0 || p > 1)
+      return;
+    const k = amount * Math.sin(Math.PI * p);
+    const shot = snapshot();
+    const f = m.frame;
+    layer(() => {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, W, H);
+      ctx.globalCompositeOperation = "lighter";
+      for (const [dx, keep] of [
+        [14 * u * k, "#FF0000"],
+        [0, "#00FF00"],
+        [-14 * u * k, "#0000FF"]
+      ]) {
+        const c = canvasLike(W, H, 10);
+        const c2 = c.getContext("2d");
+        c2.globalCompositeOperation = "source-over";
+        c2.clearRect(0, 0, W, H);
+        c2.drawImage(shot, dx, 0);
+        c2.globalCompositeOperation = "multiply";
+        c2.fillStyle = keep;
+        c2.fillRect(0, 0, W, H);
+        c2.globalCompositeOperation = "destination-in";
+        c2.drawImage(shot, dx, 0);
+        ctx.drawImage(c, 0, 0);
+      }
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 1;
+      for (let i = 0;i < 7; i++) {
+        if (hash(f * 13 + i) > 0.55)
+          continue;
+        const sy = hash(f * 7 + i * 3) * H;
+        const sh = (0.02 + hash(f * 3 + i) * 0.07) * H;
+        const dx = (hash(f * 5 + i * 11) - 0.5) * 120 * u * k;
+        ctx.drawImage(shot, 0, sy, W, sh, dx, sy, W, sh);
+      }
+    });
+  }
+  function zoomBlur(at, dur = 0.16, amount = 1) {
+    const p = (t - at) / dur;
+    if (p < 0 || p > 1)
+      return;
+    const k = (1 - p) * amount;
+    const shot = snapshot();
+    layer(() => {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      for (let i = 1;i <= 4; i++) {
+        const s = 1 + 0.045 * i * k;
+        ctx.globalAlpha = 0.26 * k;
+        ctx.drawImage(shot, (W - W * s) / 2, (H - H * s) / 2, W * s, H * s);
+      }
+    });
+  }
+  function scribble({
+    points,
+    at,
+    out = 1 / 0,
+    dur = 0.5,
+    color = T.accent,
+    width = 7,
+    loop = false,
+    seed = 1
+  }) {
+    if (t < at || t > out + 0.3)
+      return;
+    const a = t > out ? 1 - (t - out) / 0.3 : 1;
+    const pts = loop ? [...points, points[0]] : points;
+    let length = 0;
+    for (let i = 1;i < pts.length; i++) {
+      const [p, q] = [pts[i - 1], pts[i]];
+      length += Math.hypot(q[0] - p[0], q[1] - p[1]);
+    }
+    layer(() => {
+      fade(a);
+      for (const pass of [0, 1]) {
+        const jitter = (i, axis) => noise(i * 0.7 + pass * 5, seed + axis) * 5 * u;
+        stroke((c) => {
+          for (const [i, [px, py]] of pts.entries()) {
+            const [jx, jy] = [px + jitter(i, 0), py + jitter(i, 1)];
+            i ? c.lineTo(jx, jy) : c.moveTo(jx, jy);
+          }
+        }, length * 1.05, (t - at - pass * dur * 0.35) / dur, { color, width: width * (pass ? 0.6 : 1), glow: false });
+      }
+    });
+  }
+  function kinetic({
+    text,
+    x = W / 2,
+    y = H / 2,
+    size = 120,
+    at,
+    out = 1 / 0,
+    mode = "scatter",
+    stagger = 0.035,
+    color = T.ink,
+    weight = 900,
+    family = T.display,
+    italic = false
+  }) {
+    if (t < at || t > out + 0.3)
+      return;
+    const leave = t > out ? easeIn((t - out) / 0.3) : 0;
+    layer(() => {
+      ctx.font = font(size, weight, family, italic);
+      ctx.textBaseline = "middle";
+      ctx.textAlign = "left";
+      const chars = [...text];
+      const widths = chars.map((ch) => ctx.measureText(ch).width);
+      const total = widths.reduce((s, v) => s + v, 0);
+      let cx = x - total / 2;
+      chars.forEach((ch, i) => {
+        const w0 = widths[i];
+        const start = at + i * stagger;
+        const lx = cx;
+        cx += w0;
+        if (t < start || ch === " ")
+          return;
+        layer(() => {
+          fade(1 - leave);
+          ctx.fillStyle = color;
+          if (mode === "type") {
+            ctx.fillText(ch, lx, y);
+            const last = Math.floor((t - at) / stagger) === i;
+            if (last && Math.floor(t * 4) % 2 === 0)
+              ctx.fillRect(lx + w0 + 4 * u, y - size * 0.4 * u, 6 * u, size * 0.8 * u);
+            return;
+          }
+          if (mode === "glitch") {
+            const p = clamp((t - start) / 0.18);
+            const on = p >= 1 || hash(m.frame * 7 + i) > 0.4;
+            if (!on)
+              return;
+            const off = (1 - p) * 10 * u;
+            for (const [dx, c] of [
+              [-off, "#FF2E63"],
+              [off, "#08D9D6"]
+            ]) {
+              ctx.globalAlpha = 0.8 * (1 - p);
+              ctx.fillStyle = c;
+              ctx.fillText(ch, lx + dx, y);
+            }
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = color;
+            ctx.fillText(ch, lx, y);
+            return;
+          }
+          const p = spring(t, { start, stiffness: 160, damping: 15 });
+          const fx = (hash(i * 3.1 + 1) - 0.5) * 900 * u;
+          const fy = (hash(i * 5.7 + 2) - 0.5) * 700 * u;
+          const fr = (hash(i * 9.3 + 3) - 0.5) * 2.4;
+          ctx.translate(lx + w0 / 2 + fx * (1 - p), y + fy * (1 - p));
+          ctx.rotate(fr * (1 - p));
+          ctx.globalAlpha *= clamp(p * 2);
+          ctx.fillText(ch, -w0 / 2, 0);
+        });
+      });
     });
   }
   function camera({
@@ -1549,6 +1861,14 @@ export function kit(ctx, t, m, theme = THEMES.night) {
     flash,
     camera,
     view,
+    paper: () => picture(PAPER),
+    tornFrame,
+    tape,
+    sticker,
+    glitch,
+    zoomBlur,
+    scribble,
+    kinetic,
     drop,
     rim,
     sweep,

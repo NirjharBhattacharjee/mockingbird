@@ -37,6 +37,12 @@ settings, not from a blank file.
    - [templates/styles.html](./templates/styles.html) for an explainer
      drawn from scratch in one of the [styles](#explainer-styles): set
      `STYLE` and write `SCENE`.
+   - [templates/editor-reel.html](./templates/editor-reel.html) for a vlog
+     or creator clip in the editor-reel look, 9:16 or 16:9: the footage in a
+     torn-paper window on a paper board, a hook whose letters scatter in (a
+     heavy sans against an italic serif), a new shot every ~1.2 s with a
+     glitch, zoom blur or flash on each cut, stickers, marker scribbles and
+     captions.
 4. **Fill in the settings from the transcript.** Times are seconds into the
    cut. Pick the hook, the keywords, the callouts or the scenes. That's the
    creative work; the template does the rest.
@@ -110,6 +116,7 @@ takes `at` and usually `out` (seconds) and animates itself in and out.
 | Footage | `camera({ area, focus, cuts, framings, punches, shakes, moves, presets })` returns `{ zoom, project(x, y) }` · `pip({ src, x, y, w, h })` webcam bubble |
 | Scene camera | `view({ moves, shakes, focus, aperture })` returns `cam`; draw each layer with `cam.layer(depth, () => …)` · `cam.project(x, y, depth)` |
 | Light | `drop(distance)` a shadow away from the theme's `light` · `rim(x, y, w, h)` lit edge · `sweep(at)` a band of light crossing the frame |
+| Editor reel | `tornFrame({ x, y, w, h, at })` paper with a torn window · `tape(x, y)` · `sticker({ text \| path, x, y, at })` · `scribble({ points, at, loop })` marker line or circle · `kinetic({ text, mode: "scatter" \| "type" \| "glitch", at })` · `glitch(at)` and `zoomBlur(at)` over everything drawn so far, for a cut · `paper()` the texture |
 | Type | `title({ lines, style: "rise" \| "slam" \| "blur", glow, gradient })` · `kicker()` · `counter()` · `typewriter()` · `captions({ y, size })` · `quote()` |
 | Marks | `ring()` · `arrow()` · `highlight()` · `stroke(path, length, p)` · `reticle()` · `spotlight()` |
 | Cards and structure | `glass({ inner })` · `lowerThird()` · `chapter()` · `checklist()` · `progress()` · `photo()` · `bars()` · `wipe(at)` |
