@@ -170,7 +170,7 @@ export function engineStatus(
     whisperServer: server !== undefined && (runnable(server) || which(server) !== null),
     chrome: findChrome(env, home) !== undefined,
     dictionaryWords: words,
-    /** The pre-#140 mockingbird-studio plugin is installed: tell the user to switch (#256). */
+    /** The mockingbird-studio plugin from before v0.4.2 is installed: tell the user to switch (#256). */
     oldPlugin: oldPlugin(env) ? OLD_PLUGIN_FIX : null,
   };
 }

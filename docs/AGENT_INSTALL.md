@@ -45,7 +45,9 @@ ls -l ~/.local/bin/mockingbird 2>/dev/null && ~/.local/bin/mockingbird status
 
 - `uname -sm` must print one of `Darwin arm64`, `Darwin x86_64`,
   `Linux x86_64` or `Linux aarch64`. Anything else isn't supported, so tell
-  the person and stop. Every tool works on all four.
+  the person and stop. Every tool works on all four, except on
+  `Linux aarch64`: Chrome has no build for it, so captions come out as a
+  plain subtitle track and `motion` and `music` don't run.
 - **On a Mac**, the `brew` line must print a path. If it only lists
   `/opt/homebrew/bin/brew` or `/usr/local/bin/brew`, Homebrew is installed
   but not on your PATH. Start each command below with
@@ -204,7 +206,8 @@ again. A line starting `!` is optional but worth fixing: `chrome` means the
 installer couldn't download the Chrome that captions, motion and music draw
 in, and `old plugin` means Claude Code still has the out-of-date
 mockingbird-studio plugin. Run the `fix:` line, asking the person first for
-anything in Claude Code. The last lines list the coding agents on this
+anything in Claude Code. On `Linux aarch64` there's no Chrome to download,
+so leave that `!` alone. The last lines list the coding agents on this
 computer and whether each has mockingbird.
 `--json` gives the same as JSON.
 

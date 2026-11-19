@@ -97,13 +97,12 @@ function modelThere(mb: string, file: string): boolean {
 
 const gb = (bytes: number) => `${(bytes / 1e9).toFixed(1)} GB`;
 
-/** Every check, in the order `doctor` prints them. `needed` ones decide its exit code. */
-/** Whether Claude Code still has the mockingbird-studio plugin from before #140, whose playbooks no longer match the engine (#256). */
+/** Whether Claude Code still has the mockingbird-studio plugin from before v0.4.2, whose playbooks no longer match the engine (#256). */
 export function oldPlugin(
   env: Record<string, string | undefined> = process.env,
   home = homedir(),
 ): boolean {
-  const dir = env.CLAUDE_CONFIG_DIR ?? join(home, ".claude");
+  const dir = env.CLAUDE_CONFIG_DIR || join(home, ".claude");
   try {
     const file = JSON.parse(readFileSync(join(dir, "plugins", "installed_plugins.json"), "utf8"));
     return Object.keys(file.plugins ?? {}).some((k) => k.startsWith("mockingbird-studio@"));
@@ -115,6 +114,7 @@ export function oldPlugin(
 export const OLD_PLUGIN_FIX =
   "in Claude Code, `/plugin uninstall mockingbird-studio`, then `/plugin marketplace add NirjharBhattacharjee/mockingbird` and `/plugin install mockingbird@mockingbird`";
 
+/** Every check, in the order `doctor` prints them. `needed` ones decide its exit code. */
 export function checks(deps: SetupDeps = {}): Check[] {
   const which = deps.which ?? ((name: string) => Bun.which(name));
   const run = deps.run ?? runIt;
