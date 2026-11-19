@@ -27930,5 +27930,25 @@ function style(id, ctx, t, m) {
 }
 export {
   STYLES,
-  style
+  along,
+  alpha,
+  arrowhead,
+  clamp,
+  counting,
+  curve,
+  easeIn,
+  ellipse,
+  expo,
+  frame,
+  grain,
+  hash,
+  leftOf,
+  lerp,
+  progress,
+  roughen,
+  spring,
+  style,
+  text,
+  trace,
+  vignette
 };

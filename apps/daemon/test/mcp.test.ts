@@ -14,11 +14,14 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   align,
+  boardFrom,
+  buildLook,
   CLIPS_PER_PASS,
   chunks,
   fineClock,
   handle,
   KIT_URL,
+  LOOK_BOARD,
   levelGains,
   mcpTools,
   mixGraph,
@@ -1610,4 +1613,102 @@ test("level brings each source to the target once, within 30 dB (#265)", async (
   // Silence, or a card with no sound, is left alone.
   expect(gains.has("/mute.mp4")).toBe(false);
   expect(gains.has("/card.mp4")).toBe(false);
+});
+
+describe("look (#262)", () => {
+  test("a look builds into one module that imports STYLES and THREE by their files", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mb-look-"));
+    try {
+      const file = join(dir, "warm.ts");
+      writeFileSync(
+        file,
+        'import { frame } from "STYLES";\nimport * as THREE from "THREE";\nexport const v = new THREE.Vector3();\nexport default { id: "warm", name: "Warm", category: "Test", make: (ctx: any, t: number, m: any) => frame(m) };\n',
+      );
+      const built = await buildLook(file);
+      expect(built).toBe(join(dir, "warm.look.js"));
+      const code = readFileSync(built, "utf8");
+      expect(code).not.toContain('from "STYLES"');
+      // One copy of the styles: the page's, not one bundled into each look.
+      expect(code).toContain(STYLES_URL);
+      expect(code).not.toContain("function frame");
+      expect(code).toContain(THREE_URL);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a look outside the plugin finds the kit's sounds in the plugin (#263)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mb-look-"));
+    try {
+      const file = join(dir, "loud.ts");
+      writeFileSync(
+        file,
+        'import { sfx } from "KIT";\nimport { frame } from "STYLES";\nexport const whoosh = sfx("whoosh");\nexport default { id: "loud", name: "Loud", category: "Test", make: (ctx: any, t: number, m: any) => frame(m) };\n',
+      );
+      const code = readFileSync(await buildLook(file), "utf8");
+      // The kit isn't bundled: the page imports the plugin's kit.js, whose sounds sit beside it.
+      expect(code).toContain(KIT_URL);
+      expect(code).not.toContain("assets/sfx/");
+      expect(existsSync(join(dirname(fileURLToPath(KIT_URL)), "assets", "sfx", "whoosh.wav"))).toBe(
+        true,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a mistake in a look comes back with where it is", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mb-look-"));
+    try {
+      const file = join(dir, "broken.ts");
+      writeFileSync(file, "export default {\n  make(ctx) { return ctx.\n};\n");
+      await expect(buildLook(file)).rejects.toThrow(/doesn't build[\s\S]*broken\.ts/);
+      await expect(buildLook(join(dir, "look.css"))).rejects.toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("board words are checked before anything renders", () => {
+    expect(
+      boardFrom({ title: "Sleep", points: ["a", "b"], stat: { value: 40, unit: "%" } }),
+    ).toEqual({
+      title: "Sleep",
+      points: ["a", "b"],
+      stat: { value: 40, unit: "%", label: undefined },
+    });
+    expect(boardFrom(undefined).title).toBe("Your video");
+    // null is no stat; a label padded past the limit fits once trimmed.
+    expect(boardFrom({ stat: null }).stat).toBeUndefined();
+    expect(boardFrom({ points: [`  ${"x".repeat(24)}  `] }).points).toEqual(["x".repeat(24)]);
+    expect(() => boardFrom({ stat: 5 })).toThrow("board.stat must be");
+    // A drop is a stat too.
+    expect(boardFrom({ stat: { value: -40, unit: "%" } }).stat?.value).toBe(-40);
+    expect(() => boardFrom({ points: ["a", "b", "c", "d"] })).toThrow("up to three");
+    expect(() => boardFrom({ title: "x".repeat(61) })).toThrow("keep it to 60");
+  });
+
+  test("the board page has the places look fills in", () => {
+    const html = readFileSync(LOOK_BOARD, "utf8");
+    expect(html).toContain('from "LOOK"');
+    expect(html).toContain('const BOARD = "BOARD";');
+    expect(html).toContain('from "KIT"');
+  });
+});
+
+test("a look can be built to a path of its own (#262 review)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mb-look-"));
+  try {
+    const file = join(dir, "warm.ts");
+    writeFileSync(
+      file,
+      'export default { id: "w", name: "W", category: "T", make: () => ({}) };\n',
+    );
+    const mine = join(dir, ".warm.ts.123.look.js");
+    expect(await buildLook(file, mine)).toBe(mine);
+    expect(existsSync(mine)).toBe(true);
+    expect(existsSync(join(dir, "warm.look.js"))).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

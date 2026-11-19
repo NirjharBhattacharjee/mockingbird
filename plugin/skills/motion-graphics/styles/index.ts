@@ -89,6 +89,8 @@ import xRay from "./x-ray.ts";
 import y2kChrome from "./y2k-chrome.ts";
 
 export type { Look, Style };
+// The shared helpers, so a look written for one video (guide("look")) can import them from "STYLES".
+export * from "./look.ts";
 export const STYLES: Record<string, Style> = {
   "art-deco": artDeco,
   "ascii-render": asciiRender,
