@@ -20,7 +20,8 @@ const INK = "#111111";
 const PAPER = "#F4F1E9";
 const LETTER = '"Bangers", sans-serif';
 const BOLD = '"Inter", sans-serif';
-const SFX = '"Inter", sans-serif';
+// The sound effects are katakana, which only Noto Sans JP has of the pinned faces.
+const SFX = '"Noto Sans JP", sans-serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

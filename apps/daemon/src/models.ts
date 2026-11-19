@@ -698,7 +698,7 @@ const FONTS = [
   },
 ] as const;
 
-/** The pinned fonts as downloads: about 50 MB, most of it Chinese, Japanese and Korean. */
+/** The pinned fonts as downloads: about 52 MB, most of it Chinese, Japanese and Korean. */
 export const FONT_FILES: ModelFile[] = FONTS.map((f) => ({
   name: f.family,
   file: f.file,
@@ -707,6 +707,11 @@ export const FONT_FILES: ModelFile[] = FONTS.map((f) => ({
 }));
 
 export type FontFaceFile = { family: string; url: string; weight: string; style: string };
+
+/** The pinned fonts that aren't downloaded yet, by family. */
+export function missingFonts(home = mockingbirdHome()): string[] {
+  return FONT_FILES.filter((f) => !existsSync(join(home, "fonts", f.file))).map((f) => f.name);
+}
 
 /** The pinned fonts that are downloaded, as file URLs for pages to load. */
 export function fontFaces(home = mockingbirdHome()): FontFaceFile[] {

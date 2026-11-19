@@ -17,7 +17,10 @@ const sources = [
 const GENERIC = new Set(["serif", "sans-serif", "monospace", "cursive", "fantasy"]);
 const pinned = new Set(FONT_FILES.map((f) => f.name));
 
-/** Font family lists in a source: string literals ending in a generic family, or after `px `. */
+/**
+ * Font family lists in a source: string literals ending in a generic family,
+ * after `px `, or made only of double-quoted names (`'"Charis SIL"'`).
+ */
 function stacks(src: string): string[] {
   const found: string[] = [];
   for (const m of src.matchAll(/'([^'\n]*)'|"([^"\n]*)"|`([^`\n]*)`/g)) {
@@ -27,7 +30,8 @@ function stacks(src: string): string[] {
     const last = list.split(",").at(-1)?.trim() ?? "";
     // A family list has no brackets or colons; a shadow or a CSS declaration does.
     if (/[():]/.test(list)) continue;
-    if (after || (GENERIC.has(last) && list.includes(","))) found.push(list);
+    const quoted = /^"[^"]+"(\s*,\s*"[^"]+")*$/.test(list);
+    if (after || quoted || (GENERIC.has(last) && list.includes(","))) found.push(list);
   }
   return found;
 }

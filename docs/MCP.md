@@ -649,7 +649,7 @@ against 199 s in software.
   (about 100 MB) into `~/.mockingbird/bin/` and checks its sha256;
   `MOCKINGBIRD_CHROME=/path` uses another build instead. Without either,
   `motion` says so and does nothing.
-- **Fonts** come with Chrome (about 48 MB, [NOTICE.md](../NOTICE.md)), so
+- **Fonts** come with Chrome (about 52 MB, [NOTICE.md](../NOTICE.md)), so
   text looks the same on every machine: a page can name `Inter`,
   `Charis SIL`, `JetBrains Mono`, `Noto Sans Bengali`, `Noto Sans
   Devanagari`, `Noto Sans Arabic`, `Noto Sans Hebrew`, `Noto Sans Thai`,

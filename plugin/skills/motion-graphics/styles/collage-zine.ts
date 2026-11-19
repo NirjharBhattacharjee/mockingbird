@@ -23,7 +23,7 @@ const FACES = [
   '"Anton", sans-serif',
   '"Courier Prime", monospace',
   '"Montserrat", sans-serif',
-  '"Courier Prime", serif',
+  '"Arvo", serif',
   '"Fraunces", serif',
 ];
 const TYPED = '"Courier Prime", monospace';

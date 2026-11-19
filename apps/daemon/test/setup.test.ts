@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { agents, codexMentions } from "../src/agents.ts";
 import { PLUGIN } from "../src/guide.ts";
-import { pinnedChrome } from "../src/models.ts";
+import { FONT_FILES, pinnedChrome } from "../src/models.ts";
 import { DEFAULT_ASR_MODEL, FFMPEG_NEEDS, pinnedWhisper } from "../src/runtime.ts";
 import { checks, commandPath, doctor, oldPlugin, setup } from "../src/setup.ts";
 
@@ -301,6 +301,28 @@ test("doctor checks Chrome, which MOCKINGBIRD_CHROME can stand in for", () => {
     detail: "MOCKINGBIRD_CHROME is /nowhere/chrome, which isn't a program that can run",
     fix: "point MOCKINGBIRD_CHROME at a Chrome that runs, or unset it",
   });
+});
+
+test("doctor names the pinned fonts that aren't pulled, even with Chrome (#276)", () => {
+  const h = home();
+  const mb = join(h, "mb");
+  const fonts = () =>
+    checks({
+      home: h,
+      mbHome: mb,
+      which: none,
+      env: { MOCKINGBIRD_CHROME: process.execPath },
+    }).find((c) => c.name === "fonts");
+  mkdirSync(join(mb, "fonts"), { recursive: true });
+  for (const f of FONT_FILES.slice(1)) writeFileSync(join(mb, "fonts", f.file), "");
+  expect(fonts()).toMatchObject({
+    ok: false,
+    needed: false,
+    fix: "`mockingbird models pull chrome`",
+  });
+  expect(fonts()?.detail).toContain(FONT_FILES[0]?.name as string);
+  writeFileSync(join(mb, "fonts", FONT_FILES[0]?.file as string), "");
+  expect(fonts()).toMatchObject({ ok: true });
 });
 
 test("a Chrome pull that throws doesn't stop setup; a bad MOCKINGBIRD_CHROME isn't offered a download", async () => {

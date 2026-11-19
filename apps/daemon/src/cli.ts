@@ -4,11 +4,10 @@ import { parseArgs } from "node:util";
 import { main as dictionaryMain, readDictionary } from "./dictionary.ts";
 import { mcpTools, serve } from "./mcp.ts";
 import {
-  FONT_FILES,
   findChrome,
-  fontFaces,
   MODNET_FILE,
   type ModelFile,
+  missingFonts,
   modelsCommand,
   pullChrome,
   pullModels,
@@ -182,8 +181,8 @@ export async function engineStatus(
     whisperServer: found && serverError === null,
     /** Why the whisper-server found won't start, if it won't. */
     whisperServerError: serverError,
-    // Chrome and every pinned font: a font that isn't pulled fails the render (#276).
-    chrome: findChrome(env, home) !== undefined && fontFaces(home).length === FONT_FILES.length,
+    // Chrome and every pinned font: without one, a style draws in a fallback (#276).
+    chrome: findChrome(env, home) !== undefined && missingFonts(home).length === 0,
     dictionaryWords: words,
     /** The mockingbird-studio plugin from before v0.4.2 is installed: tell the user to switch (#256). */
     oldPlugin: oldPlugin(env) ? OLD_PLUGIN_FIX : null,

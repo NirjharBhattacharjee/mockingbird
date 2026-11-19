@@ -2849,7 +2849,7 @@ var FACES2 = [
   '"Anton", sans-serif',
   '"Courier Prime", monospace',
   '"Montserrat", sans-serif',
-  '"Courier Prime", serif',
+  '"Arvo", serif',
   '"Fraunces", serif'
 ];
 var TYPED = '"Courier Prime", monospace';
@@ -11482,7 +11482,7 @@ var BLOCK3 = "#1D1A18";
 var CUT = "#EFE5CC";
 var RED5 = "#D2483A";
 var COL = { ink: CUT, accent: RED5, good: CUT, bad: RED5, muted: "#9C9384" };
-var CAPS = '"Arvo", sans-serif';
+var CAPS = '"Arvo", serif';
 var PENCIL = '"Caveat", cursive';
 function make36(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
@@ -12506,7 +12506,7 @@ var INK7 = "#111111";
 var PAPER7 = "#F4F1E9";
 var LETTER3 = '"Bangers", sans-serif';
 var BOLD2 = '"Inter", sans-serif';
-var SFX = '"Inter", sans-serif';
+var SFX = '"Noto Sans JP", sans-serif';
 function make39(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const g = globalThis;
