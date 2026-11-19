@@ -749,10 +749,6 @@ export function renderGraph(
     const fx = effectFilters(clip.effects, ctx);
     // A subject mask's video goes through the clip's own speed and framing, so
     // it stays on the person through a crop, a punch-in or a move (#260).
-    const maskLook =
-      split || !clip.moves?.length
-        ? `${frame(split ? { from: 0, to: 0 } : clip, size)},fps=${fps}`
-        : `,fps=${fps},${moving(clip, size, fps)}`;
     const effects = (clip.effects ?? []).map((e) => {
       const m = e.mask as Mask | undefined;
       if (m?.shape !== "subject" || !m.file) return e;
@@ -760,7 +756,7 @@ export function renderGraph(
       // slightly different one), 540 high: the framing scales it from there.
       const [sw = 16, sh = 9] = (m.size ?? "").split("x").map(Number);
       const back = m.size ? `,scale=${even((540 * sw) / sh)}:540` : "";
-      const source = `movie=filename=${quoted(m.file)}${back},setpts=PTS-STARTPTS${speed},setsar=1${maskLook},tpad=stop_mode=clone:stop_duration=1,trim=duration=${ctx.length}`;
+      const source = `movie=filename=${quoted(m.file)}${back},setpts=PTS-STARTPTS${speed},setsar=1${look},tpad=stop_mode=clone:stop_duration=1,trim=duration=${ctx.length}`;
       return { ...e, mask: { ...m, source } };
     });
     const head = `[${i}:v]${clip.sdr ? `${clip.sdr},` : ""}${cut}setpts=PTS-STARTPTS${speed},${SQUARE}${look}`;
@@ -2117,7 +2113,14 @@ async function render(
   }));
   // A subject mask is made before the graph: MODNet runs outside ffmpeg (#260).
   const subject = (e: Effect) => (e.mask as Mask | undefined)?.shape === "subject";
-  for (const c of shaped) {
+  // Said before any mask is made, which can take minutes.
+  for (const fx of [...adjust.map((a) => a.effects), ...inserts.map((i) => i.effects ?? [])]) {
+    if (fx.some(subject)) {
+      throw new Error("A subject mask goes on a clip's effects, not a layer or insert's.");
+    }
+  }
+  // A sound-only pass never draws the picture.
+  for (const c of soundOnly ? [] : shaped) {
     if (!c.effects?.some(subject)) continue;
     const from = of(c);
     const file = await subjectMask(

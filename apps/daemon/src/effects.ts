@@ -559,6 +559,6 @@ export function catalog(): string {
     })
     .join("\n")
     .concat(
-      '\n\nAny picture effect but interpolate takes mask: { shape: "rect" | "ellipse" | "polygon" | "subject", x, y, w, h (0-1 of the picture; a polygon has points: [[x, y], ...]), feather (0-0.5 of the width), invert, end: x, y, w, h to move a rect or ellipse there over the clip }, to apply it to that part of the frame only. "subject" is the person in the frame, found per frame by MODNet (`mockingbird models pull modnet` first): with invert, a blur or a grade on everything but them.',
+      '\n\nAny picture effect but interpolate takes mask: { shape: "rect" | "ellipse" | "polygon" | "subject", x, y, w, h (0-1 of the picture; a polygon has points: [[x, y], ...]), feather (0-0.5 of the width), invert, end: { x, y, w, h } to move a rect or ellipse there over the clip }, to apply it to that part of the frame only. "subject" is the person in the frame, found per frame by MODNet (`mockingbird models pull modnet` first): with invert, a blur or a grade on everything but them.',
     );
 }

@@ -7,6 +7,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -797,27 +798,45 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
     );
 
   // Needs MODNet: `mockingbird models pull modnet`.
-  test.skipIf(!existsSync(join(mockingbirdHome(), "models", "modnet.onnx")))(
-    "a subject mask is made once, kept, and blurs around the person (#260)",
+  const modnet = join(mockingbirdHome(), "models", "modnet.onnx");
+  test.skipIf(!existsSync(modnet))(
+    "a subject mask is made once and reused by the next render (#260)",
     async () => {
       const dir = mkdtempSync(join(tmpdir(), "mb-subject-"));
+      const home = process.env.MOCKINGBIRD_HOME;
       try {
+        // A home of its own, so nothing lands in the real cache; the model comes over by a link.
+        process.env.MOCKINGBIRD_HOME = join(dir, "home");
+        mkdirSync(join(dir, "home", "models"), { recursive: true });
+        symlinkSync(modnet, join(dir, "home", "models", "modnet.onnx"));
         const src = join(dir, "talk.mp4");
         Bun.spawnSync([
           ...["ffmpeg", "-nostdin", "-loglevel", "error", "-f", "lavfi"],
           ...["-i", "testsrc2=size=320x180:rate=10:duration=2", src],
         ]);
         const blur = { name: "blur", radius: 8, mask: { shape: "subject", invert: true } };
-        const before = existsSync(join(mockingbirdHome(), "cache", "masks"))
-          ? readdirSync(join(mockingbirdHome(), "cache", "masks")).length
-          : 0;
+        const masks = () => readdirSync(join(dir, "home", "cache", "masks"));
+        // Only a clip's effects take one, and that's said before any mask is made.
+        await expect(
+          run({
+            path: src,
+            clips: [{ from: 0, to: 1 }],
+            adjust: [{ from: 0, to: 1, effects: [blur] }],
+          }),
+        ).rejects.toThrow("goes on a clip's effects");
+        expect(existsSync(join(dir, "home", "cache", "masks"))).toBe(false);
         await run({ path: src, clips: [{ from: 0.5, to: 1.7, effects: [blur] }] });
-        const out = join(dir, "talk-short-1.mp4");
-        expect(seconds(out)).toBeCloseTo(1.2, 1);
-        const masks = readdirSync(join(mockingbirdHome(), "cache", "masks"));
-        expect(masks.length).toBeGreaterThanOrEqual(before);
-        expect(masks.some((f) => f.endsWith(".mkv"))).toBe(true);
+        expect(seconds(join(dir, "talk-short-1.mp4"))).toBeCloseTo(1.2, 1);
+        expect(masks()).toHaveLength(1);
+        const made = statSync(join(dir, "home", "cache", "masks", masks()[0] as string)).mtimeMs;
+        await run({ path: src, clips: [{ from: 0.5, to: 1.7, effects: [blur] }] });
+        expect(masks()).toHaveLength(1);
+        expect(statSync(join(dir, "home", "cache", "masks", masks()[0] as string)).mtimeMs).toBe(
+          made,
+        );
       } finally {
+        if (home === undefined) delete process.env.MOCKINGBIRD_HOME;
+        else process.env.MOCKINGBIRD_HOME = home;
         rmSync(dir, { recursive: true, force: true });
       }
     },

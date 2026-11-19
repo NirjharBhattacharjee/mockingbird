@@ -6,7 +6,7 @@
  */
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, renameSync, rmSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { matteSize, SubjectMatte } from "@mockingbird/matte";
 import { MODNET_FILE } from "./models.ts";
 
@@ -29,25 +29,41 @@ export async function subjectMask(
   job: MaskJob,
   log: (m: string) => void = () => {},
 ): Promise<string> {
+  const path = resolve(job.path);
+  // The filters before the matte are in the key too: a changed HDR conversion makes a new mask.
+  const key = createHash("sha256")
+    .update(
+      [
+        path,
+        statSync(path).mtimeMs,
+        job.from,
+        job.to,
+        job.size,
+        job.prefix,
+        MODNET_FILE.sha256,
+      ].join("|"),
+    )
+    .digest("hex")
+    .slice(0, 16);
+  const dir = join(job.home, "cache", "masks");
+  const file = join(dir, `${key}.mkv`);
+  // A cached mask needs no model.
+  if (existsSync(file)) return file;
   const model = join(job.home, "models", MODNET_FILE.file);
   if (!existsSync(model)) {
     throw new Error(
       "A subject mask needs MODNet: run `mockingbird models pull modnet` (26 MB), then render again.",
     );
   }
-  const key = createHash("sha256")
-    .update(
-      [job.path, statSync(job.path).mtimeMs, job.from, job.to, job.size, MODNET_FILE.sha256].join(
-        "|",
-      ),
-    )
-    .digest("hex")
-    .slice(0, 16);
-  const dir = join(job.home, "cache", "masks");
-  const file = join(dir, `${key}.mkv`);
-  if (existsSync(file)) return file;
   mkdirSync(dir, { recursive: true });
-  if (loaded?.model !== model) loaded = { model, matte: SubjectMatte.load(model) };
+  if (loaded?.model !== model) {
+    // A load that failed isn't kept: pulling the model again and re-rendering works.
+    const matte = SubjectMatte.load(model).catch((error) => {
+      loaded = undefined;
+      throw error;
+    });
+    loaded = { model, matte };
+  }
   const matte = await loaded.matte;
 
   const [w = 1, h = 1] = job.size.split("x").map(Number);
@@ -57,8 +73,9 @@ export async function subjectMask(
   const decode = Bun.spawn(
     [
       ...["ffmpeg", "-nostdin", "-loglevel", "error"],
-      ...["-ss", String(job.from), "-t", String(job.to - job.from), "-i", job.path, "-an"],
-      ...["-vf", `${job.prefix}scale=${width}:${height},format=rgb24`],
+      ...["-ss", String(job.from), "-t", String(job.to - job.from), "-i", path, "-an"],
+      // At the rate the encoder labels it, so a variable-rate phone clip doesn't drift.
+      ...["-vf", `${job.prefix}fps=${job.fps},scale=${width}:${height},format=rgb24`],
       ...["-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
     ],
     { stdout: "pipe", stderr: "pipe" },
@@ -95,7 +112,7 @@ export async function subjectMask(
     const [dc, ec] = await Promise.all([decode.exited, encode.exited]);
     if (dc !== 0 || ec !== 0 || !frames) {
       const why = `${await new Response(decode.stderr).text()}${await new Response(encode.stderr).text()}`;
-      throw new Error(`couldn't make a subject mask of ${job.path}: ${why.trim() || "no frames"}`);
+      throw new Error(`couldn't make a subject mask of ${path}: ${why.trim() || "no frames"}`);
     }
     renameSync(part, file);
   } catch (error) {
