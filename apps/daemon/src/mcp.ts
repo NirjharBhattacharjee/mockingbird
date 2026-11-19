@@ -1802,7 +1802,10 @@ async function segmented(
     out,
     named,
     kind,
+    language: spoken,
   }: {
+    /** The captions' language (a Whisper code), for the shapes Han characters take. */
+    language?: string;
     audio: boolean;
     size: string;
     fps: number;
@@ -1827,7 +1830,7 @@ async function segmented(
     const chrome = lines.length ? findChrome() : undefined;
     const wrap = noNetwork();
     const fonts = fontFaces();
-    const language = spokenLanguage();
+    const language = spoken ?? spokenLanguage();
     // Which shapes Han characters take: in the segment key, since it changes what's drawn.
     const han = hanOrder(language, lines);
     const images = lines.length
@@ -2009,7 +2012,10 @@ async function render(
     draft = false,
     soundOnly = false,
     cache = false,
+    language,
   }: {
+    /** The captions' language (a Whisper code): a project's, over the user's setting. */
+    language?: string;
     size?: string;
     fps?: number;
     split?: { top: Area; bottom: Area };
@@ -2124,6 +2130,7 @@ async function render(
       out,
       named,
       kind,
+      language,
     });
     if (made) return made;
   }
@@ -2153,6 +2160,7 @@ async function render(
         kind,
         draft,
         soundOnly,
+        language,
       });
     } finally {
       rmSync(batches, { recursive: true, force: true });
@@ -2176,7 +2184,7 @@ async function render(
           chrome,
           wrap,
           fonts: fontFaces(),
-          language: spokenLanguage(),
+          language: language ?? spokenLanguage(),
         })
       : undefined;
     const burn = !!text && !images && (await canBurn());
@@ -2953,10 +2961,10 @@ export function align(words: (Word & { at?: [number, number] })[], gaps: Span[])
 
 /**
  * A source's words and silences as heard so far, and the stretches they
- * cover. `language` is the one detected for it on auto, kept so every later
- * stretch of it is heard in the same language.
+ * cover. `language` is the one detected for it on auto, and `model` the one
+ * that heard it, kept so every later stretch is heard the same way.
  */
-type Heard = { covered: Span[]; words: Word[]; gaps: Span[]; language?: string };
+type Heard = { covered: Span[]; words: Word[]; gaps: Span[]; language?: string; model?: string };
 
 /**
  * The silences in `source` from `from` to `to` seconds: 80 ms or more under
@@ -3038,14 +3046,23 @@ export async function sourceWords(
   choice: ModelChoice = {},
 ): Promise<Map<string, { words: Word[]; gaps: Span[] }>> {
   checkChoice(choice);
-  const { whisperModel, language } = asrChoice(log, choiceEnv(choice, process.env));
-  // On auto, detection picks the model from the language map: a changed map is other words.
-  const heardAs = language === "auto" ? `auto ${JSON.stringify(languageModels())}` : language;
+  // The cache file for `source` under the settings as they are now: the model
+  // and language, and on auto the language map detection picks the model from.
+  const settings = (say = log) => asrChoice(say, choiceEnv(choice, process.env));
+  const { language } = settings();
+  const keyFor = (source: string) => {
+    const { whisperModel, language: l } = settings(() => {});
+    return heardFile(
+      source,
+      whisperModel,
+      l === "auto" ? `auto ${JSON.stringify(languageModels())}` : l,
+    );
+  };
   const out = new Map<string, { words: Word[]; gaps: Span[] }>();
   let engines: Engines | undefined;
   try {
     for (const [source, spans] of sources) {
-      const file = heardFile(requireFile(source, "File"), whisperModel, heardAs);
+      const file = keyFor(requireFile(source, "File"));
       const heard = await serially(file, async () => {
         let heard: Heard = { covered: [], words: [], gaps: [] };
         try {
@@ -3065,10 +3082,17 @@ export async function sourceWords(
             return engines;
           }
           if (!mine) {
-            const held = heard.language ? { ...choice, language: heard.language } : choice;
+            // The model detection chose comes back with the language: an
+            // English-only global model can't hear the Italian it found (#282).
+            const held = heard.language
+              ? { model: choice.model ?? heard.model, language: heard.language }
+              : choice;
             const picked = await enginesFor(piece, held, log, process.env, { dtw: true });
             mine = picked.engines;
-            if (picked.language !== "auto") heard.language = picked.language;
+            if (picked.language !== "auto") {
+              heard.language = picked.language;
+              heard.model = picked.model;
+            }
           }
           return mine;
         };
@@ -3104,6 +3128,14 @@ export async function sourceWords(
           }
           heard.covered = union([...heard.covered, ...todo]);
           heard.words.sort((a, b) => a.start - b.start);
+          // Settings changed while these were heard (`models use`): they're this
+          // call's, but kept under the old model's name they'd be wrong (#282).
+          if (keyFor(source) !== file) {
+            log(
+              "warning: the transcription settings changed while words were heard; they aren't kept",
+            );
+            return heard;
+          }
           mkdirSync(dirname(file), { recursive: true });
           const temp = `${file}.${process.pid}.tmp`;
           writeFileSync(temp, JSON.stringify(heard));
@@ -3127,9 +3159,16 @@ export async function sourceWords(
 }
 
 /** What `wanted` asks of a project in `dir`, by absolute path. */
-function wantedFrom(p: Project, ops: unknown[], dir: string): Map<string, Span[]> {
+function wantedFrom(
+  p: Project,
+  ops: unknown[],
+  dir: string,
+  heard?: Map<string, { words: Word[]; gaps: Span[] }>,
+): Map<string, Span[]> {
   const out = new Map<string, Span[]>();
-  for (const [path, spans] of wanted(p, ops)) {
+  const words = heard && ((path: string) => heard.get(resolve(dir, path))?.words ?? []);
+  const gaps = heard && ((path: string) => heard.get(resolve(dir, path))?.gaps ?? []);
+  for (const [path, spans] of wanted(p, ops, words, gaps)) {
     const full = resolve(dir, path);
     out.set(full, [...(out.get(full) ?? []), ...spans]);
   }
@@ -3163,17 +3202,20 @@ async function editProject(file: string, ops: unknown[], log: (m: string) => voi
   // missing words (#235). A text or a size changed alongside doesn't count.
   // ponytail: an edit landing between the last check and the save isn't seen;
   // a lock file if agents edit one project at once.
-  const asks = (p: Project) => {
-    const spans = wantedFrom(p, ops, dir);
+  // With words heard, the cut_words ops are replayed too, so a later op on a
+  // clip one of them splits off asks for its stretch, and that's heard next.
+  const asks = (p: Project, heard?: Awaited<ReturnType<typeof sourceWords>>) => {
+    const spans = wantedFrom(p, ops, dir, heard);
     const choice = transcriptionAt(p, ops);
     return { spans, choice, key: JSON.stringify([[...spans], choice]) };
   };
   let want = asks(load(file).project);
   let heard: Awaited<ReturnType<typeof sourceWords>>;
-  for (;;) {
+  // ponytail: a few rounds at most; each can only add stretches a cut made reachable.
+  for (let round = 0; ; round++) {
     heard = await sourceWords(want.spans, log, want.choice);
-    const now = asks(load(file).project);
-    if (now.key === want.key) break;
+    const now = asks(load(file).project, heard);
+    if (now.key === want.key || round >= 4) break;
     want = now;
   }
   return edit(
@@ -3545,6 +3587,9 @@ async function renderProject(
     draft,
     soundOnly,
     cache: true,
+    // The project's language draws its Han captions; auto leaves it to the setting.
+    language:
+      project.transcription?.language === "auto" ? undefined : project.transcription?.language,
   });
 }
 

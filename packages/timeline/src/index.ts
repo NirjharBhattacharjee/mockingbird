@@ -1395,9 +1395,16 @@ export function transcript(p: Project, file: string, words: Words): string {
 /**
  * The sources a project and its ops ask for, and the stretches of each: what
  * cut_words needs heard. Each clip there is after each op, so an add, trim or
- * set earlier in the batch counts (#235).
+ * set earlier in the batch counts (#235). Given the words heard so far, the
+ * cut_words ops are replayed too, so a trim of a clip one of them splits off
+ * asks for its stretch; hear that, and ask again until nothing new comes.
  */
-export function wanted(p: Project, ops: unknown[]): Map<string, { from: number; to: number }[]> {
+export function wanted(
+  p: Project,
+  ops: unknown[],
+  words?: Words,
+  gaps?: Gaps,
+): Map<string, { from: number; to: number }[]> {
   const out = new Map<string, { from: number; to: number }[]>();
   const seen = new Set<string>();
   const take = (q: Project) => {
@@ -1411,11 +1418,13 @@ export function wanted(p: Project, ops: unknown[]): Map<string, { from: number; 
   const q = structuredClone(p);
   take(q);
   for (const op of ops) {
-    if ((op as Obj)?.op === "cut_words") continue;
+    // A cut_words is replayed once there are words for it, so the clips it
+    // splits off are there for the ops after it (the engine hears again).
+    if ((op as Obj)?.op === "cut_words" && !words) continue;
     try {
-      step(q, op, "op", []);
+      step(q, op, "op", [], words, gaps);
     } catch {
-      // A clip a cut_words split made, or a batch that fails anyway: the ops after still count.
+      // A clip a cut_words made before its words were heard, or a batch that fails anyway.
       continue;
     }
     take(q);

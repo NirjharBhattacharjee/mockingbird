@@ -545,6 +545,20 @@ test("a split just before a move on a sped-up clip leaves the move on the second
   expect(project.clips[1]?.moves?.[0]?.at).toBe(0);
 });
 
+test("with words heard, wanted follows a trim of a clip cut_words split off (#235)", () => {
+  const p = check({ version: 1, clips: [{ id: "c1", path: "a.mp4", from: 0, to: 4 }] });
+  const ops = [
+    { op: "cut_words", text: "um" },
+    { op: "trim", id: "c2", to: 8 },
+    { op: "cut_words", text: "go on" },
+  ];
+  // Before any words, c2 doesn't exist yet: only c1's stretch is asked for.
+  expect(wanted(p, ops).get("a.mp4")).toEqual([{ from: 0, to: 4 }]);
+  // With them, the first cut splits c1 and the trim reaches to 8 s, where "go on" is.
+  const spans = wanted(p, ops, words).get("a.mp4") ?? [];
+  expect(spans.some((s) => s.to === 8)).toBe(true);
+});
+
 test("transcription is a model's file name and a language code (#235)", () => {
   const base = { version: 1, clips: [], texts: [], inserts: [], audio: [] };
   expect(
