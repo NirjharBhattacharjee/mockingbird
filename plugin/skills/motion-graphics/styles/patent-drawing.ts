@@ -29,8 +29,8 @@ const COLOR: Record<Tone, string> = {
   bad: RED,
   muted: "#6E665A",
 };
-const SERIF = '"Charis SIL", serif';
-const MONO = '"Courier Prime", monospace';
+const SERIF = '"Charis SIL", "Noto Color Emoji", serif';
+const MONO = '"Courier Prime", "Noto Color Emoji", monospace';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

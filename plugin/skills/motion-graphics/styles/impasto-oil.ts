@@ -27,7 +27,7 @@ const PAINT: Record<Tone, [string, string, string]> = {
   bad: ["#5A140E", "#E0432B", "#FFB08E"],
   muted: ["#232B4A", "#8FA3C8", "#D5E0F2"],
 };
-const FACE = '"Fraunces", serif';
+const FACE = '"Fraunces", "Noto Color Emoji", serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

@@ -14,6 +14,12 @@ for the pages and captions the engine renders (#156). Every one is under the
 bundling and redistributing a font with any software. Each family's
 `OFL.txt` in google/fonts names its copyright holders.
 
+Noto Color Emoji is the COLRv1 build (`Noto-COLRv1.ttf`, 5 MB) from
+[googlefonts/noto-emoji](https://github.com/googlefonts/noto-emoji) at commit
+`99701e07d3d1fe1bdbcdb14964547f0fd592966f`, under the same licence: its
+fonts are OFL 1.1 (the repository's tools are Apache 2.0, and none of them
+is used).
+
 | Family | Files | Used for |
 |---|---|---|
 | Inter | `Inter[opsz,wght].ttf`, `Inter-Italic[opsz,wght].ttf` | captions; a sans for pages |

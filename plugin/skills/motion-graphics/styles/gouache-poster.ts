@@ -25,7 +25,7 @@ const FILL: Record<Tone, string> = {
   bad: "#D9705E",
   muted: "#8FB9B4",
 };
-const BLOCK = '"Bebas Neue", sans-serif';
+const BLOCK = '"Bebas Neue", "Noto Color Emoji", sans-serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

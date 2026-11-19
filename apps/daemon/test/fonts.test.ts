@@ -60,3 +60,7 @@ test("every font a caption style can pick is pinned", () => {
   expect(CAPTION_FONTS.filter((f) => !pinned.has(f))).toEqual([]);
   for (const s of Object.values(CAPTION_PRESETS)) expect(pinned.has(s.font)).toBe(true);
 });
+
+test("colour emoji are pinned (#276)", () => {
+  expect(pinned.has("Noto Color Emoji")).toBe(true);
+});

@@ -31,8 +31,8 @@ const DEEP: Record<Tone, string> = {
   bad: "#D62E7A",
   muted: "#6A5A9A",
 };
-const SERIF = '"Playfair Display", serif';
-const MONO = '"Courier Prime", monospace';
+const SERIF = '"Playfair Display", "Noto Color Emoji", serif';
+const MONO = '"Courier Prime", "Noto Color Emoji", monospace';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

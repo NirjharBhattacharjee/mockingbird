@@ -35,7 +35,7 @@ const PEN: Record<Tone, string> = {
   muted: "#5A5A66",
 };
 const PIN = ["#D62828", "#2B6CD6", "#2EA44F", "#F2B705"];
-const HAND = '"Kalam", cursive';
+const HAND = '"Kalam", "Noto Color Emoji", cursive';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

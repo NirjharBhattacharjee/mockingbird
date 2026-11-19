@@ -237,8 +237,8 @@ export function captionStyle(v: unknown, what = "captionStyle"): CaptionStyle {
 }
 
 /**
- * The style's font, then Noto for scripts it lacks (Han in `han`'s order). No
- * system font: one would draw differently on every machine (#276).
+ * The style's font, then Noto for scripts it lacks (Han in `han`'s order) and
+ * for emoji. No system font: one would draw differently on every machine (#276).
  */
 const families = (font: string, han: string[]) =>
   [
@@ -246,6 +246,7 @@ const families = (font: string, han: string[]) =>
     ...["Bengali", "Devanagari", "Arabic", "Hebrew", "Thai", "Tamil", ...han].map(
       (script) => `"Noto Sans ${script}"`,
     ),
+    '"Noto Color Emoji"',
     "sans-serif",
   ].join(",");
 

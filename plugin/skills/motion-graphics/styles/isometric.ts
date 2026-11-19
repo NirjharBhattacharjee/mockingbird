@@ -35,7 +35,7 @@ const LINE: Record<Tone, string> = {
   bad: "#F2665A",
   muted: "#B4B2CC",
 };
-const SANS = '"Inter", sans-serif';
+const SANS = '"Inter", "Noto Color Emoji", sans-serif';
 const C = Math.cos(Math.PI / 6);
 const S = 0.5;
 

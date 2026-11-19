@@ -25,7 +25,7 @@ const TONE: Record<Tone, string> = {
   bad: "#FF4D7D",
   muted: "#9A95C8",
 };
-const ROUND = '"Nunito", sans-serif';
+const ROUND = '"Nunito", "Noto Color Emoji", sans-serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

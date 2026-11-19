@@ -35,7 +35,7 @@ const TONE: Record<Tone, string> = {
   bad: "#C2352B",
   muted: "#8C8070",
 };
-const SERIF = '"Charis SIL", serif';
+const SERIF = '"Charis SIL", "Noto Color Emoji", serif';
 const LEVELS = 16;
 
 /** The terrain: a few hills and hollows, 0-1 roughly. */

@@ -31,9 +31,9 @@ const TONE: Record<Tone, string> = {
   bad: "#C8102E",
   muted: "#807973",
 };
-const SERIF = '"Charis SIL", serif';
-const SANS = '"Inter", sans-serif';
-const HAND = '"Caveat", cursive';
+const SERIF = '"Charis SIL", "Noto Color Emoji", serif';
+const SANS = '"Inter", "Noto Color Emoji", sans-serif';
+const HAND = '"Caveat", "Noto Color Emoji", cursive';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

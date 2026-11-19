@@ -25,7 +25,7 @@ const LINE: Record<Tone, string> = {
   bad: "#FFC9BE",
   muted: "#93B4DD",
 };
-const MONO = '"Courier Prime", monospace';
+const MONO = '"Courier Prime", "Noto Color Emoji", monospace';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

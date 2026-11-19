@@ -27,8 +27,8 @@ const INK: Record<Tone, string> = {
   bad: "#C8283A",
   muted: "#6E7BB5",
 };
-const HAND = '"Caveat", cursive';
-const BUBBLE = '"Comic Neue", sans-serif';
+const HAND = '"Caveat", "Noto Color Emoji", cursive';
+const BUBBLE = '"Comic Neue", "Noto Color Emoji", sans-serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

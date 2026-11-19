@@ -33,7 +33,7 @@ const PANELS: [number, number, number, number, string][] = [
   [0.205, 0.2, 0.555, 0.66, "#22C1C8"],
   [0.77, 0.2, 0.205, 0.66, "#FF8A1F"],
 ];
-const STENCIL = '"Anton", sans-serif';
+const STENCIL = '"Anton", "Noto Color Emoji", sans-serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

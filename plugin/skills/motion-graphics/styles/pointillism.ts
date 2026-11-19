@@ -30,7 +30,7 @@ const HUES: Record<Tone | "pad" | "sky" | "water" | "grass" | "path", string[]> 
   grass: ["#4E9A3E", "#7AB848", "#3A7A4E", "#A8C850", "#E0B24A", "#2E5E8A"],
   path: ["#E8C8A8", "#F2D8C0", "#D8A890", "#C8B8D8", "#F0E0B0"],
 };
-const FACE = '"Playfair Display", serif';
+const FACE = '"Playfair Display", "Noto Color Emoji", serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

@@ -26,7 +26,7 @@ const TONE: Record<Tone, string> = {
   bad: RED,
   muted: "#8A7F6C",
 };
-const HEAVY = '"Anton", sans-serif';
+const HEAVY = '"Anton", "Noto Color Emoji", sans-serif';
 const SLANT = -0.09;
 
 function make(ctx: any, t0: number, m: any): Look {

@@ -26,7 +26,7 @@ const THREAD: Record<Tone, string> = {
 };
 const BURN = "#2B160B";
 const KRAFT = "#D9B886";
-const HAND = '"Caveat", cursive';
+const HAND = '"Caveat", "Noto Color Emoji", cursive';
 
 /** Seven-segment layout: which segments (a-g) each digit lights. */
 const SEGMENTS: Record<string, string> = {

@@ -27,8 +27,8 @@ const GLOW: Record<Tone, string> = {
   bad: "#FF5FCB",
   muted: "#3E7F9C",
 };
-const SERIF = '"Charis SIL", serif';
-const MONO = '"JetBrains Mono", monospace';
+const SERIF = '"Charis SIL", "Noto Color Emoji", serif';
+const MONO = '"JetBrains Mono", "Noto Color Emoji", monospace';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

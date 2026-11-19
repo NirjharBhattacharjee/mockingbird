@@ -28,7 +28,7 @@ const BROWN = "#6B3F2A";
 const CREAM = "#FFF6E6";
 const GRASS: [string, string, string] = ["#97D158", "#6FAE3C", "#55902C"];
 const DIRT: [string, string, string] = ["#A9714A", "#8A5636", "#6C4028"];
-const MONO = '"Silkscreen", monospace';
+const MONO = '"Silkscreen", "Noto Color Emoji", monospace';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

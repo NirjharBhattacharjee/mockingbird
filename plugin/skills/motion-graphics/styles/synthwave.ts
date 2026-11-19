@@ -24,7 +24,7 @@ const NEON: Record<Tone, string> = {
   bad: "#FF3B5C",
   muted: "#B38CFF",
 };
-const SANS = '"Montserrat", sans-serif';
+const SANS = '"Montserrat", "Noto Color Emoji", sans-serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

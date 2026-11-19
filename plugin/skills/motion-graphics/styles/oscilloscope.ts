@@ -26,7 +26,7 @@ const BEAM: Record<Tone, string> = {
   bad: AMBER,
   muted: "#4E9A62",
 };
-const MONO = '"JetBrains Mono", monospace';
+const MONO = '"JetBrains Mono", "Noto Color Emoji", monospace';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

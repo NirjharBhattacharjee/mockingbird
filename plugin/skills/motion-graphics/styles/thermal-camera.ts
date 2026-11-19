@@ -40,7 +40,7 @@ function iron(v: number, a = 1) {
   return `rgba(255,250,225,${a})`;
 }
 const HEAT: Record<Tone, number> = { ink: 0.7, accent: 0.88, good: 0.95, bad: 0, muted: 0.45 };
-const HUD = '"Inter", sans-serif';
+const HUD = '"Inter", "Noto Color Emoji", sans-serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

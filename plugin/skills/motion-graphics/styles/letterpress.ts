@@ -27,8 +27,8 @@ const INK: Record<Tone, string> = {
   bad: RED,
   muted: "#7B7265",
 };
-const WOOD = '"Anton", sans-serif';
-const SLAB = '"Arvo", serif';
+const WOOD = '"Anton", "Noto Color Emoji", sans-serif';
+const SLAB = '"Arvo", "Noto Color Emoji", serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

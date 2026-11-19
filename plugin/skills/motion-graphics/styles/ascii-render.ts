@@ -22,7 +22,7 @@ const TONE: Record<Tone, string> = {
   bad: "#FF3B5C",
   muted: "#7A5CC8",
 };
-const MONO = '"JetBrains Mono", monospace';
+const MONO = '"JetBrains Mono", "Noto Color Emoji", monospace';
 const RAMP = " .:-=+*#%@";
 
 function make(ctx: any, t: number, m: any): Look {

@@ -32,7 +32,7 @@ const BLOCK: Record<Tone, string> = {
   bad: "#C2412D",
   muted: "#9A8B70",
 };
-const SERIF = '"Charis SIL", serif';
+const SERIF = '"Charis SIL", "Noto Color Emoji", serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

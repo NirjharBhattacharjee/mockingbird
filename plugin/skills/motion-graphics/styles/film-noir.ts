@@ -29,8 +29,8 @@ const GREY: Record<Tone, string> = {
   bad: "#D8D8D8",
   muted: "#8A8A8A",
 };
-const BOLD = '"Oswald", sans-serif';
-const BLACK = '"Playfair Display", serif';
+const BOLD = '"Oswald", "Noto Color Emoji", sans-serif';
+const BLACK = '"Playfair Display", "Noto Color Emoji", serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

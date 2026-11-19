@@ -34,7 +34,7 @@ const TEXT: Record<Tone, string> = {
   bad: "#A3302A",
   muted: "#7A6E60",
 };
-const SERIF = '"Charis SIL", serif';
+const SERIF = '"Charis SIL", "Noto Color Emoji", serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

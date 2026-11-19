@@ -1,6 +1,10 @@
 const DIR = decodeURIComponent(new URL(".", import.meta.url).pathname).replace(/^\/([A-Za-z]:)/, "$1").replace(/\/$/, "");
 export const sfx = (name) => `${DIR}/assets/sfx/${name}.wav`;
-const FACES = { display: "Inter", serif: '"Charis SIL"', mono: '"JetBrains Mono"' };
+const FACES = {
+  display: 'Inter, "Noto Color Emoji"',
+  serif: '"Charis SIL", "Noto Color Emoji"',
+  mono: '"JetBrains Mono", "Noto Color Emoji"'
+};
 export const THEMES = {
   night: {
     bg: ["#05060B", "#0C0E1A"],

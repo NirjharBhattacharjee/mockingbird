@@ -29,7 +29,7 @@ const PAINT: Record<Tone, string> = {
   bad: "#B5303B",
   muted: "#C99A58",
 };
-const BRUSH = '"Caveat", cursive';
+const BRUSH = '"Caveat", "Noto Color Emoji", cursive';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

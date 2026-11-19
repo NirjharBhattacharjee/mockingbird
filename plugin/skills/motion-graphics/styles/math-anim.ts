@@ -25,7 +25,7 @@ const COL: Record<Tone, string> = {
   muted: "#888888",
 };
 const YELLOW = "#FFFF00";
-const SERIF = '"Charis SIL", serif';
+const SERIF = '"Charis SIL", "Noto Color Emoji", serif';
 
 /** The smooth S-curve every animation here runs on. */
 const smooth = (p: number) => {
