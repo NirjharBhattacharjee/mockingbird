@@ -18,11 +18,12 @@ import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { type AsrWord, stripNonSpeech } from "@mockingbird/asr";
 import { loadAudio, type PcmAudio } from "@mockingbird/audio";
-import { type Cue, drawCaptions, parseSrt } from "@mockingbird/captions";
+import { type Cue, drawCaptions, hanOrder, parseSrt } from "@mockingbird/captions";
 import type { MusicParams } from "@mockingbird/motion";
 import { noNetwork } from "@mockingbird/motion/sandbox";
 import { applyCorrections, correctNames } from "@mockingbird/store";
 import {
+  apply,
   compile,
   edit,
   lengthOf,
@@ -58,6 +59,7 @@ import {
   checkChoice,
   type Engines,
   enginesFor,
+  languageModels,
   type ModelChoice,
   mockingbirdHome,
   requireFile,
@@ -1824,12 +1826,15 @@ async function segmented(
     const chrome = lines.length ? findChrome() : undefined;
     const wrap = noNetwork();
     const fonts = fontFaces();
+    const language = spokenLanguage();
+    // Which shapes Han characters take: in the segment key, since it changes what's drawn.
+    const han = hanOrder(language, lines);
     const images = lines.length
       ? await drawCaptions(lines, dir, width ?? 1080, height, {
           chrome,
           wrap,
           fonts,
-          language: spokenLanguage(),
+          language,
         })
       : [];
     if (!images) return undefined;
@@ -1880,6 +1885,7 @@ async function segmented(
             chrome ?? null,
             // The fonts are pinned, so which are there says what they draw.
             fonts.map((f) => f.url),
+            han,
             laid.map((l) => [l.start, l.end, l.y, l.text]),
             shown.map(({ path: f, ...rest }) => ({
               ...rest,
@@ -2779,7 +2785,8 @@ async function clipWords(
     rate = loaded.file.sampleRate;
     const seconds = Math.min(c.to - c.from, left);
     const first = Math.round(c.from * rate);
-    pieces.push(loaded.file.samples.subarray(first, first + Math.round(seconds * rate)));
+    // A copy, so a long recording isn't kept whole just for its opening seconds.
+    pieces.push(loaded.file.samples.slice(first, first + Math.round(seconds * rate)));
     left -= seconds;
   }
   const sample: PcmAudio = {
@@ -3042,11 +3049,13 @@ export async function sourceWords(
   };
   const { whisperModel, language } = asrChoice(log, env);
   const spell = speller(log, language);
+  // On auto, detection picks the model from the language map: a changed map is other words.
+  const heardAs = language === "auto" ? `auto ${JSON.stringify(languageModels())}` : language;
   const out = new Map<string, { words: Word[]; gaps: Span[] }>();
   let engines: Engines | undefined;
   try {
     for (const [source, spans] of sources) {
-      const file = heardFile(requireFile(source, "File"), whisperModel, language);
+      const file = heardFile(requireFile(source, "File"), whisperModel, heardAs);
       const heard = await serially(file, async () => {
         let heard: Heard = { covered: [], words: [], gaps: [] };
         try {
@@ -3114,6 +3123,21 @@ function wantedFrom(p: Project, ops: unknown[], dir: string): Map<string, Span[]
 }
 
 /**
+ * The transcription in effect when the batch's first cut_words runs: a set
+ * before it changes which words the cut is made on. Ops that fail here fail
+ * the real batch too, so the saved one stands then.
+ */
+export function transcriptionAt(p: Project, ops: unknown[]): ModelChoice | undefined {
+  const first = ops.findIndex((o) => (o as { op?: unknown })?.op === "cut_words");
+  if (first < 0) return p.transcription;
+  try {
+    return apply(p, ops.slice(0, first)).project.transcription;
+  } catch {
+    return p.transcription;
+  }
+}
+
+/**
  * `ops` applied to the project in `file`, hearing first whatever cut_words
  * needs: the words of every clip there is or will be.
  */
@@ -3125,7 +3149,7 @@ async function editProject(file: string, ops: unknown[], log: (m: string) => voi
   let project = load(file).project;
   let heard: Awaited<ReturnType<typeof sourceWords>>;
   for (;;) {
-    heard = await sourceWords(wantedFrom(project, ops, dir), log, project.transcription);
+    heard = await sourceWords(wantedFrom(project, ops, dir), log, transcriptionAt(project, ops));
     const now = load(file).project;
     if (JSON.stringify(now) === JSON.stringify(project)) break;
     project = now;

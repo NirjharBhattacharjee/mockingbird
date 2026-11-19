@@ -1047,9 +1047,11 @@ function step(p: Project, raw: unknown, what: string, notes: string[], words?: W
       }
       const id = a.newId === undefined ? freeId(p, "c") : str(a.newId, `${what}.newId`);
       // Where the split falls in the finished video, which a speed changes.
-      // To the millisecond, as what's on the clip is: an unrounded offset could
-      // round a 1 ms text's two ends to one time and fail the batch (#235).
-      const offset = ms((at - c.from) / (c.speed ?? 1));
+      const offset = (at - c.from) / (c.speed ?? 1);
+      // What's on the clip is timed to the millisecond, so it moves by a whole
+      // number of them: an unrounded offset could round a 1 ms text's two ends
+      // to one time and fail the batch (#235). Moves keep the exact one.
+      const shift = ms(offset);
       const second: Clip = { ...c, id, from: at };
       const f = offset / lengthOf(c);
       cutMasks(second, f, 1, at - c.from);
@@ -1070,13 +1072,12 @@ function step(p: Project, raw: unknown, what: string, notes: string[], words?: W
       // What starts in the second half goes with it.
       c.to = at;
       for (const t of stretched(p)) {
-        if (t.clip === c.id && t.from >= offset) {
-          Object.assign(t, { clip: id, from: ms(t.from - offset), to: ms(t.to - offset) });
+        if (t.clip === c.id && t.from >= shift) {
+          Object.assign(t, { clip: id, from: ms(t.from - shift), to: ms(t.to - shift) });
         }
       }
       for (const s of p.audio) {
-        if (s.clip === c.id && s.at >= offset)
-          Object.assign(s, { clip: id, at: ms(s.at - offset) });
+        if (s.clip === c.id && s.at >= shift) Object.assign(s, { clip: id, at: ms(s.at - shift) });
       }
       return;
     }

@@ -63,6 +63,10 @@ describe("pullFile", () => {
     const { get } = serving("weights");
     expect(await pullFile(modelOf("weights"), dir, { fetch: get })).toBe(true);
     expect(readdirSync(dir).sort()).toEqual(["model.bin", "other.bin.part"]);
+    // Already downloaded: an old partial still goes.
+    writeFileSync(join(dir, "model.bin.part"), "old");
+    expect(await pullFile(modelOf("weights"), dir, { fetch: get })).toBe(false);
+    expect(readdirSync(dir).sort()).toEqual(["model.bin", "other.bin.part"]);
   });
 
   test("downloads a missing model and checks it", async () => {

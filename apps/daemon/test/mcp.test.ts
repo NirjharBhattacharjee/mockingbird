@@ -42,6 +42,7 @@ import {
   timedLines,
   timedWords,
   timeline,
+  transcriptionAt,
   uncovered,
   union,
   withKit,
@@ -1760,6 +1761,17 @@ test("a draft with graphics waits for the look too, and an approved look has to 
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("cut_words hears with the transcription the batch set before it (#235)", () => {
+  const p = { version: 1, clips: [], texts: [], inserts: [], audio: [] } as unknown as Parameters<
+    typeof transcriptionAt
+  >[0];
+  const set = { op: "set", transcription: { model: "ggml-base.en.bin", language: "en" } };
+  const cut = { op: "cut_words", text: "um" };
+  expect(transcriptionAt(p, [set, cut])).toEqual({ model: "ggml-base.en.bin", language: "en" });
+  // Set after the cut: the cut is made on the words heard before it.
+  expect(transcriptionAt(p, [cut, set])).toBeUndefined();
 });
 
 test("level brings each source to the target once, within 30 dB (#265)", async () => {

@@ -124,10 +124,11 @@ export async function findPauses(
     ],
     `ffmpeg couldn't read the sound in ${path}`,
   );
-  // Where the scan stopped: `to`, or the end of the file ffmpeg reported.
+  // Where the scan stopped: `to` or the end of the file ffmpeg reported, whichever is first.
   const [, h, m, sec] = err.match(/Duration: (\d+):(\d+):([\d.]+)/) ?? [];
   const length = h === undefined ? undefined : Number(h) * 3600 + Number(m) * 60 + Number(sec);
-  return parseSilence(err, from, to ?? length);
+  const end = to === undefined ? length : length === undefined ? to : Math.min(to, length);
+  return parseSilence(err, from, end);
 }
 
 /** A file's length in seconds, and its picture's size as `WxH` (undefined with no picture). */

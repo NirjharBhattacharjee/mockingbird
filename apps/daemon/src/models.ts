@@ -125,10 +125,6 @@ async function pullOnce(
   { fetch: get = fetch, log = () => {}, onProgress = () => {} }: PullFileDeps,
 ): Promise<boolean> {
   const path = join(dir, model.file);
-  if (existsSync(path) && (await sha256Of(path)) === model.sha256) {
-    log(`${model.file} is downloaded`);
-    return false;
-  }
   mkdirSync(dir, { recursive: true });
   // A temporary name first, so an interrupted download isn't mistaken for a
   // model. What an interrupted one left behind is kept and continued: on a slow
@@ -138,6 +134,7 @@ async function pullOnce(
   const part = `${path}.${model.sha256.slice(0, 12)}.part`;
   // A partial an older pull left, named without a checksum or for another
   // version, can't be continued into this one: it's 1 GB of nothing kept.
+  // Cleared even when the model is already here.
   for (const old of readdirSync(dir)) {
     const stale =
       old === `${model.file}.part` || /^[0-9a-f]{12}\.part$/.test(old.slice(model.file.length + 1));
@@ -145,6 +142,10 @@ async function pullOnce(
       rmSync(join(dir, old), { force: true });
       log(`removed ${old}, a partial download of another version`);
     }
+  }
+  if (existsSync(path) && (await sha256Of(path)) === model.sha256) {
+    log(`${model.file} is downloaded`);
+    return false;
   }
   const have = existsSync(part) ? statSync(part).size : 0;
   if (have > 0 && (await sha256Of(part)) === model.sha256) {

@@ -524,6 +524,27 @@ test("splitting a sped-up clip by a 1 ms text keeps the text (#235)", () => {
   expect(project.texts[0]).toMatchObject({ clip: "c2", from: 0, to: 0.001 });
 });
 
+test("a split just before a move on a sped-up clip leaves the move on the second half (#235)", () => {
+  const p = check({
+    version: 1,
+    clips: [
+      {
+        id: "c1",
+        path: "a.mp4",
+        from: 0,
+        to: 6,
+        speed: 1.5,
+        moves: [{ at: 1, zoom: 1.5 }],
+      },
+    ],
+  });
+  // The first half is 0.9996 s long: the move at 1 s isn't on it.
+  const { project } = apply(p, [{ op: "split", id: "c1", at: 1.4994 }]);
+  expect(project.clips[0]?.moves).toBeUndefined();
+  // 0.0004 s into the second half, kept to the millisecond.
+  expect(project.clips[1]?.moves?.[0]?.at).toBe(0);
+});
+
 test("wanted counts a trim earlier in the batch than cut_words (#235)", () => {
   const p = check({ version: 1, clips: [{ id: "c1", path: "a.mp4", from: 2, to: 4 }] });
   const ops = [
