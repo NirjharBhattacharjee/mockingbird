@@ -113,7 +113,10 @@ function make(ctx: any, t: number, m: any): Look {
       ctx.save();
       ctx.font = `400 ${Math.round(size * u)}px ${BOLD}`;
       const tw = ctx.measureText(s.toUpperCase()).width;
-      const w = tw + 50 * u;
+      // The masthead is on the card too, so a short title doesn't leave it hanging over.
+      ctx.font = `700 ${Math.round(size * 0.32 * u)}px ${BLACK}`;
+      const head = ctx.measureText("The Evening Wire").width;
+      const w = Math.max(tw, head) + 50 * u;
       const h = size * 2.3 * u;
       const cx = leftOf(X(x), w, o.align) + w / 2;
       const cy = Y(y) + h / 2;

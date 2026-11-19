@@ -6793,7 +6793,9 @@ function make21(ctx, t, m) {
       ctx.save();
       ctx.font = `400 ${Math.round(size * u)}px ${BOLD}`;
       const tw = ctx.measureText(s.toUpperCase()).width;
-      const w = tw + 50 * u;
+      ctx.font = `700 ${Math.round(size * 0.32 * u)}px ${BLACK4}`;
+      const head = ctx.measureText("The Evening Wire").width;
+      const w = Math.max(tw, head) + 50 * u;
       const h = size * 2.3 * u;
       const cx = leftOf(X(x), w, o.align) + w / 2;
       const cy = Y(y) + h / 2;
@@ -8777,7 +8779,8 @@ function make27(ctx, t, m) {
       const w = ctx.measureText(s).width + 40 * u;
       ctx.restore();
       const h = size * 1.6 * u;
-      const [x0, y0] = [leftOf(X(x), w, o.align), Y(y)];
+      const x0 = o.align && o.align !== "left" ? leftOf(X(x), w + 8 * u, o.align) + 4 * u : X(x);
+      const y0 = Y(y);
       slapped(x0 + w / 2, y0 + h / 2, at, () => {
         rounded(x0 - 4 * u, y0 - 4 * u, w + 8 * u, h + 8 * u, 14 * u);
         ctx.fillStyle = "#F4F4FA";
