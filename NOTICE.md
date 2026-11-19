@@ -32,6 +32,7 @@ is used).
 | Playfair Display, Cormorant Garamond, Fraunces | variable, roman and italic | display serifs in the styles |
 | Caveat, Kalam (Bold), Comic Neue | Caveat variable; Comic Neue Regular, Bold | handwriting and marker in the styles |
 | Courier Prime, Space Mono, VT323, Silkscreen, Arvo | Regular and Bold where there are two | typewriter, terminal, pixel and slab faces in the styles |
+| Noto Color Emoji | `Noto-COLRv1.ttf` (googlefonts/noto-emoji) | emoji, last in every stack |
 
 ## Programs and models
 

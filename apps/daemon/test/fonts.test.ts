@@ -61,6 +61,15 @@ test("every font a caption style can pick is pinned", () => {
   for (const s of Object.values(CAPTION_PRESETS)) expect(pinned.has(s.font)).toBe(true);
 });
 
-test("colour emoji are pinned (#276)", () => {
+test("colour emoji are pinned, and in every stack (#276)", () => {
   expect(pinned.has("Noto Color Emoji")).toBe(true);
+  const without: string[] = [];
+  for (const file of sources) {
+    for (const list of stacks(readFileSync(file, "utf8"))) {
+      // A template piece (`"${font}"`) is one name of a stack built in code.
+      if (!list.includes("${") && !list.includes("Noto Color Emoji"))
+        without.push(`${file}: ${list}`);
+    }
+  }
+  expect(without).toEqual([]);
 });

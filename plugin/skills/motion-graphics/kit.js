@@ -1598,7 +1598,7 @@ export function kit(ctx, t, m, theme = THEMES.night) {
         const s = 1 + 0.06 * clamp((t - at) / (out - at));
         ctx.translate(W / 2, cy);
         ctx.scale(s, s);
-        ctx.font = `400 ${Math.round(big)}px "Archivo Black"`;
+        ctx.font = `400 ${Math.round(big)}px "Archivo Black", "Noto Color Emoji"`;
         ctx.lineJoin = "round";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";

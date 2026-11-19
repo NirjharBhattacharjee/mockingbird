@@ -2211,7 +2211,7 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
         ctx.translate(W / 2, cy);
         ctx.scale(s, s);
         // A variable font's contours overlap, which an outline shows; Archivo Black is static.
-        ctx.font = `400 ${Math.round(big)}px "Archivo Black"`;
+        ctx.font = `400 ${Math.round(big)}px "Archivo Black", "Noto Color Emoji"`;
         ctx.lineJoin = "round";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";

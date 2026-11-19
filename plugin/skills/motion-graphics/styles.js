@@ -625,7 +625,7 @@ function make2(ctx, t, m) {
         st.bits.clear();
       const px = 9;
       const probe = new OffscreenCanvas(4, 4).getContext("2d");
-      probe.font = `bold ${px}px "Inter", sans-serif`;
+      probe.font = `bold ${px}px "Inter", "Noto Color Emoji", sans-serif`;
       const w = Math.ceil(probe.measureText(s).width) + 2;
       const h = 11;
       const cv = new OffscreenCanvas(w, h);
@@ -25509,7 +25509,7 @@ function make79(ctx, t, m) {
     beam(lines, color, Math.max(1.2, size / 28));
     if (plain.length) {
       ctx.save();
-      ctx.font = `600 ${Math.round(7 * k)}px "JetBrains Mono", monospace`;
+      ctx.font = `600 ${Math.round(7 * k)}px "JetBrains Mono", "Noto Color Emoji", monospace`;
       ctx.fillStyle = color;
       ctx.shadowColor = color;
       ctx.shadowBlur = 8 * u;
