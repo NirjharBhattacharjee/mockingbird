@@ -5,9 +5,10 @@
  * rates here are optimistic; the comparison between models is what counts.
  * Real recordings with a hand-checked transcript belong in bench/voice/.
  */
-import { existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { wordDiff } from "../packages/asr/src/index.ts";
+import { decodeWav } from "../packages/audio/src/index.ts";
 
 export type Sentence = { text: string; names: string[] };
 
@@ -51,7 +52,60 @@ export type Clip = { wav: string; voice: Voice; sentence: Sentence };
 
 const DIR = join(import.meta.dir, "corpus");
 
-/** Every voice saying every sentence, generating any clip that's missing. */
+const SANE = { min: 2, max: 5 };
+
+/**
+ * Why the clip at `wav` isn't the sentence, or undefined if it is. `say` now
+ * and then writes a clip that isn't the sentence: 5 ms of nothing, or (Tara
+ * once) 6.6 s of babble over a 3.9 s line. Every model then scores it as
+ * errors, which reads as the models getting worse (#211). The 64 good clips
+ * speak at 2.3-4.1 words a second.
+ */
+export function badClip(wav: string, text: string): string | undefined {
+  let pcm: ReturnType<typeof decodeWav>;
+  const bytes = readFileSync(wav); // a filesystem error is thrown, not mistaken for a bad clip
+  try {
+    pcm = decodeWav(bytes);
+  } catch (error) {
+    return `not a WAV it can read (${error instanceof Error ? error.message : error})`;
+  }
+  // decodeWav reads what's there of a cut-short file; the data chunk says how much there should be.
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  // A chunk of odd size is followed by a pad byte (RIFF).
+  for (let at = 12; at + 8 <= bytes.length; at += 8 + ((view.getUint32(at + 4, true) + 1) & ~1)) {
+    if (String.fromCharCode(...bytes.subarray(at, at + 4)) !== "data") continue;
+    if (at + 8 + view.getUint32(at + 4, true) > bytes.length) return "cut short";
+    break;
+  }
+  let peak = 0;
+  for (const v of pcm.samples) peak = Math.max(peak, Math.abs(v));
+  if (peak < 300) return "silent";
+  const rate = text.split(/\s+/).length / (pcm.samples.length / pcm.sampleRate);
+  if (rate < SANE.min || rate > SANE.max) {
+    return `${rate.toFixed(1)} words a second, not ${SANE.min}-${SANE.max}`;
+  }
+  return undefined;
+}
+
+/** `voice` saying `text` into `out`, a 16 kHz mono WAV. */
+function speak(voice: Voice, text: string, out: string) {
+  const aiff = out.replace(/\.wav$/, ".aiff");
+  const say = Bun.spawnSync(["say", "-v", voice.name, "-o", aiff, text]);
+  if (say.exitCode !== 0) throw new Error(`say -v ${voice.name} failed: ${say.stderr}`);
+  const convert = Bun.spawnSync([..."afconvert -f WAVE -d LEI16@16000 -c 1".split(" "), aiff, out]);
+  rmSync(aiff, { force: true });
+  if (convert.exitCode !== 0) {
+    rmSync(out, { force: true });
+    throw new Error(`afconvert failed for ${out}: ${convert.stderr}`);
+  }
+}
+
+/**
+ * Every voice saying every sentence. A clip that's missing or bad, cached
+ * ones included, is made again at its own temporary name and checked before
+ * it's renamed into place, so two runs sharing the corpus never delete or
+ * read each other's half-made clips.
+ */
 export function corpus(): Clip[] {
   mkdirSync(DIR, { recursive: true });
   const clips: Clip[] = [];
@@ -60,23 +114,19 @@ export function corpus(): Clip[] {
       // Named after the text too, so editing a sentence makes a new clip
       // rather than scoring the old audio against the new words.
       const wav = join(DIR, `${voice.name}-${i + 1}-${Bun.hash(sentence.text).toString(36)}.wav`);
-      if (!existsSync(wav)) {
-        const aiff = wav.replace(/\.wav$/, ".aiff");
-        const tmp = wav.replace(/\.wav$/, ".part.wav");
-        const say = Bun.spawnSync(["say", "-v", voice.name, "-o", aiff, sentence.text]);
-        if (say.exitCode !== 0) throw new Error(`say -v ${voice.name} failed: ${say.stderr}`);
-        const convert = Bun.spawnSync([
-          ..."afconvert -f WAVE -d LEI16@16000 -c 1".split(" "),
-          aiff,
-          tmp,
-        ]);
-        rmSync(aiff, { force: true });
-        if (convert.exitCode !== 0) {
-          rmSync(tmp, { force: true });
-          throw new Error(`afconvert failed for ${wav}: ${convert.stderr}`);
+      let why = existsSync(wav) ? badClip(wav, sentence.text) : "missing";
+      for (let tries = 0; why; tries++) {
+        if (tries === 3) {
+          throw new Error(
+            `say -v ${voice.name} keeps getting sentence ${i + 1} wrong (${why}): listen with \`say -v ${voice.name} "${sentence.text}"\``,
+          );
         }
-        // Renamed into place only once complete, so a half-written clip is never reused.
-        renameSync(tmp, wav);
+        if (why !== "missing") console.error(`${wav}: ${why}; making it again`);
+        const part = `${wav.replace(/\.wav$/, "")}.${process.pid}-${tries}.part.wav`;
+        speak(voice, sentence.text, part);
+        why = badClip(part, sentence.text);
+        if (why) rmSync(part, { force: true });
+        else renameSync(part, wav);
       }
       clips.push({ wav, voice, sentence });
     });

@@ -150,11 +150,96 @@ describe("pullFile", () => {
     expect(readFileSync(join(dir, "model.bin"), "utf8")).toBe("weights");
   });
 
-  test("an HTTP error says so", async () => {
-    const { get } = serving("", 404);
+  test("an HTTP error says so, and a 404 isn't tried again", async () => {
+    const { get, calls } = serving("", 404);
     await expect(pullFile(modelOf("weights"), tempDir(), { fetch: get })).rejects.toThrow(
       "HTTP 404",
     );
+    expect(calls).toHaveLength(1);
+  });
+
+  test("a checksum mismatch isn't tried again", async () => {
+    const { get, calls } = serving("something else");
+    await expect(pullFile(modelOf("weights"), tempDir(), { fetch: get })).rejects.toThrow(
+      "expected checksum",
+    );
+    expect(calls).toHaveLength(1);
+  });
+
+  test("a 429 is tried again, like a 5xx", async () => {
+    let n = 0;
+    const get = (async () =>
+      ++n === 1
+        ? new Response(null, { status: 429 })
+        : new Response("weights")) as unknown as typeof fetch;
+    expect(
+      await pullFile(modelOf("weights"), tempDir(), { fetch: get, wait: async () => {} }),
+    ).toBe(true);
+    expect(n).toBe(2);
+  });
+
+  test("a 5xx is tried again after a wait (#214)", async () => {
+    const dir = tempDir();
+    const waits: number[] = [];
+    let n = 0;
+    const get = (async () =>
+      ++n === 1
+        ? new Response(null, { status: 504 })
+        : new Response("weights")) as unknown as typeof fetch;
+    expect(
+      await pullFile(modelOf("weights"), dir, {
+        fetch: get,
+        wait: async (ms) => void waits.push(ms),
+      }),
+    ).toBe(true);
+    expect(readFileSync(join(dir, "model.bin"), "utf8")).toBe("weights");
+    expect(waits).toEqual([2000]);
+  });
+
+  test("gives up after three tries", async () => {
+    const waits: number[] = [];
+    const { get, calls } = serving("", 503);
+    await expect(
+      pullFile(modelOf("weights"), tempDir(), {
+        fetch: get,
+        wait: async (ms) => void waits.push(ms),
+      }),
+    ).rejects.toThrow("HTTP 503");
+    expect(calls).toHaveLength(3);
+    expect(waits).toEqual([2000, 4000]);
+  });
+
+  test("a dropped connection is continued from where it stopped", async () => {
+    const dir = tempDir();
+    const asked: (string | null)[] = [];
+    const get = (async (_url: string, init?: RequestInit) => {
+      const range = new Headers(init?.headers).get("range");
+      asked.push(range);
+      if (range) return new Response("ghts", { status: 206 });
+      // Sends "wei", then the connection drops.
+      const body = (async function* () {
+        yield new TextEncoder().encode("wei");
+        throw new Error("socket closed");
+      })();
+      return { ok: true, status: 200, headers: new Headers(), body };
+    }) as unknown as typeof fetch;
+    const wait = async () => {};
+    expect(await pullFile(modelOf("weights"), dir, { fetch: get, wait })).toBe(true);
+    expect(asked).toEqual([null, "bytes=3-"]);
+    expect(readFileSync(join(dir, "model.bin"), "utf8")).toBe("weights");
+  });
+
+  test("a fetch that throws (a timeout, no network) is tried again", async () => {
+    const dir = tempDir();
+    let n = 0;
+    const get = (async () => {
+      if (++n === 1) throw new Error("The operation timed out.");
+      return new Response("weights");
+    }) as unknown as typeof fetch;
+    expect(await pullFile(modelOf("weights"), dir, { fetch: get, wait: async () => {} })).toBe(
+      true,
+    );
+    expect(n).toBe(2);
   });
 });
 
