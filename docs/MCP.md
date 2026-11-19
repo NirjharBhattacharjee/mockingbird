@@ -285,9 +285,9 @@ the video from where the sound starts, or `length` seconds when it's given
 `~/.mockingbird/cache/music/`, by the generator's folder of modules and its
 arguments, so a render after an edit reuses it. Making the bed waits a
 minute plus a second for each second of music, so a long bed isn't cut off
-(#266). Making a bed grows with the square of its length (on an M3: 74 s
-took 16 s, 150 s took 82 s, 300 s over 6 minutes), so give a long edit's
-music a `length`, or make a short bed with `music` and `loop` it.
+(#266). The plugin's generators make a bed in time that grows with its
+length: on an M3, 60 s of `corporate.js` took 5 s and 600 s took 44 s
+(#272).
 
 `render` with `project` and `sound: true` saves the sound alone as
 `<name>-sound-N.m4a` at −14 LUFS, to check the mix without the picture:
@@ -637,6 +637,15 @@ export default function (ctx, { duration, tempo = 80, key, energy, seed }) {
   once it has; Chrome then renders the whole track at once. 60 s of the
   plugin's lo-fi generator takes about 6 s, most of it starting Chrome and
   levelling.
+- **Make each bar when it's about to play.** A note made up front sits in
+  the graph from the start, and Chrome works through every one for every
+  block of sound, so a track scheduled all at once takes time that grows
+  with the square of its length: 300 s of `corporate.js` took over 6
+  minutes that way, 18 s bar by bar (#272). The plugin's `lib.js` has
+  `soon(ctx, t, make, lead = 1)`, which runs `make` when the track is `lead`
+  seconds short of `t` (with `OfflineAudioContext.suspend`); wrap each bar's
+  notes in it. While Chrome renders, the page collects its garbage every
+  second, so finished notes leave the graph.
 - **The second argument** has `duration`, `sampleRate`, `seed`, and the
   `tempo`, `key` and `energy` the call gave, for the generator to read.
   `energy` is 0 to 1, or a curve of `[seconds, level]` points, so the music
