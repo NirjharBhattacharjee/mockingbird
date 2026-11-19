@@ -27,6 +27,7 @@ import {
   KIT_URL,
   LOOK_BOARD,
   levelGains,
+  lookCaptions,
   mcpTools,
   mixGraph,
   moving,
@@ -617,6 +618,35 @@ describe("wordCaptions", () => {
       const [, time = "", text = ""] = block.split("\n");
       return `${time.replace(/00:00:/g, "")} ${text}`;
     });
+
+  test("Chinese and Japanese join without spaces, about four characters a word of perCue (#276)", () => {
+    const words = [..."今日は新しいカメラを試しました"].map((c, i) => w(c, i * 0.1, i * 0.1 + 0.1));
+    const lines = wordCaptions([{ from: 0, to: 2 }], [words], { lit: false })
+      .split("\n\n")
+      .map((b) => b.split("\n")[2]);
+    expect(lines).toEqual(["今日は新しいカメラを試し", "ました"]);
+    // The spoken character is marked inside the line, which render draws without spaces.
+    const lit = wordCaptions([{ from: 0, to: 2 }], [words.slice(0, 3)])
+      .split("\n\n")[1]
+      ?.split("\n")[2];
+    expect(lit).toBe("今*日*は");
+  });
+
+  test("a cue never shows more than 20 characters a second (#276)", () => {
+    // Three long words said in 0.6 s: 30 characters would be 50 a second.
+    const srt = wordCaptions(
+      [{ from: 0, to: 2 }],
+      [
+        [
+          w("extraordinarily", 0, 0.2),
+          w("uncharacteristic", 0.2, 0.4),
+          w("misunderstanding", 0.4, 0.6),
+        ],
+      ],
+      { lit: false },
+    );
+    expect(cues(srt).length).toBe(3);
+  });
 
   test("lights each word in turn, a few words a cue, timed to the finished video", () => {
     const srt = wordCaptions(
@@ -1978,4 +2008,19 @@ test("captions in a font that isn't downloaded are drawn anyway, with a warning 
       else process.env[k] = v;
     }
   }
+});
+
+test("a caption style with a look takes that style's font and accent (#276)", () => {
+  // art-deco's title is Montserrat, a caption font; its accent is gold.
+  expect(lookCaptions({ look: "art-deco", preset: "creator" })).toMatchObject({
+    preset: "creator",
+    font: "Montserrat",
+    active: expect.stringMatching(/^#[0-9a-f]{6}$/),
+  });
+  // A field given still wins.
+  expect(lookCaptions({ look: "art-deco", font: "Anton" })).toMatchObject({ font: "Anton" });
+  expect(() => lookCaptions({ look: "no-such-style" })).toThrow('no style "no-such-style"');
+  // comic's accent is near black, which would vanish on the outline: the preset's stays.
+  expect(lookCaptions({ look: "comic", preset: "creator" })).not.toHaveProperty("active");
+  expect(lookCaptions("creator")).toBe("creator");
 });

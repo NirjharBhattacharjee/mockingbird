@@ -293,6 +293,13 @@ export function kit(ctx, t, m, theme = THEMES.night) {
   const u = Math.min(W, H) / 1080;
   const T = theme;
   const font = (size, weight = 700, family = T.display, italic = false) => `${italic ? "italic " : ""}${weight} ${Math.round(size * u)}px ${family}`;
+  const fit = (text, width, size, weight = 700, family = T.display) => {
+    ctx.save();
+    ctx.font = font(size, weight, family);
+    const w = ctx.measureText(text).width;
+    ctx.restore();
+    return w <= width ? size : Math.max(1, size * width / w);
+  };
   const alphas = [];
   const layer = (draw) => {
     ctx.save();
@@ -1872,6 +1879,7 @@ export function kit(ctx, t, m, theme = THEMES.night) {
     m,
     theme: T,
     font,
+    fit,
     layer,
     fade,
     backdrop,

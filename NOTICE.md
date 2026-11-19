@@ -12,7 +12,10 @@ From [google/fonts](https://github.com/google/fonts) at commit
 for the pages and captions the engine renders (#156). Every one is under the
 [SIL Open Font License 1.1](https://openfontlicense.org), which allows using,
 bundling and redistributing a font with any software. Each family's
-`OFL.txt` in google/fonts names its copyright holders.
+`OFL.txt` names its copyright holders, and `models pull chrome` downloads it
+beside the fonts, into `~/.mockingbird/fonts/licences/` (#276). The fonts are
+used as they are: never subset or converted, since Playfair Display has a
+Reserved Font Name.
 
 Noto Color Emoji is the COLRv1 build (`Noto-COLRv1.ttf`, 5 MB) from
 [googlefonts/noto-emoji](https://github.com/googlefonts/noto-emoji) at commit

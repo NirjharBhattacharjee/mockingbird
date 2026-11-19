@@ -612,9 +612,56 @@ export type Sound = { at: number; volume: number; loop: boolean; duck: boolean }
 /** Where caption images sit unless told: a little below the middle, where Shorts and Reels leave room for text. */
 export const CAPTIONS_Y = 0.7;
 
+/** Each motion style's typography roles (#276), from plugin/skills/motion-graphics/styles/roles.json. */
+type Roles = Record<
+  string,
+  {
+    title: { family: string };
+    body: { family: string };
+    ink: string;
+    accent: string;
+    background: string;
+  }
+>;
+let roles: Roles | undefined;
+
+/**
+ * A caption style with `look: "<style id>"` turned into fields: the look's
+ * title font if a caption can use it (its body font, or Inter, if not), and
+ * its accent (or ink) for the spoken word when it's light enough to read on
+ * the outline, so the approved look sets the captions with its titles.
+ * Anything else given stays as given.
+ */
+export function lookCaptions(v: unknown, what = "captionStyle"): unknown {
+  if (!v || typeof v !== "object" || !("look" in v)) return v;
+  const { look, ...rest } = v as Record<string, unknown>;
+  roles ??= JSON.parse(
+    readFileSync(join(PLUGIN, "skills", "motion-graphics", "styles", "roles.json"), "utf8"),
+  ) as Roles;
+  const r = roles[String(look)];
+  if (!r) throw new Error(`${what}.look: no style "${look}"; see the motion-graphics styles`);
+  const usable = (f: string) => (CAPTION_FONTS as readonly string[]).includes(f);
+  const font = usable(r.title.family)
+    ? r.title.family
+    : usable(r.body.family)
+      ? r.body.family
+      : "Inter";
+  // Captions are light text on a black outline: a dark accent would vanish, so
+  // the look's accent if it's light enough, else its ink, else the preset's.
+  const light = (c: string) => {
+    if (!/^#[0-9a-f]{6}$/i.test(c)) return false;
+    const n = Number.parseInt(c.slice(1), 16);
+    return (
+      (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255 >= 0.35
+    );
+  };
+  const active = [r.accent, r.ink].find(light);
+  return { font, ...(active && { active }), ...rest };
+}
+
 /** render's `captionStyle`, and a project's `captions.style` (#276). */
 const CAPTION_STYLE_SCHEMA = {
-  description: `How the captions and texts look: a preset's name (${Object.keys(CAPTION_PRESETS).join(", ")}; default classic, white Inter 700 with a black outline and the *spoken* word yellow), or an object with \`preset\` and any of: font (${CAPTION_FONTS.join(", ")}), weight, upper (capitals, which get 0.06 em of tracking), tracking (em), fill, stroke and active (colours; active is the *spoken* word's), outline (0-0.5 of the text height), shadow, pill (a colour behind the spoken word) and maxChars (about this many characters a line). subtitle suits long-form; creator and pill suit Shorts.`,
+  description: `How the captions and texts look: a preset's name (${Object.keys(CAPTION_PRESETS).join(", ")}; default classic, white Inter 700 with a black outline and the *spoken* word yellow), or an object with \`preset\` and any of: font (${CAPTION_FONTS.join(", ")}), weight, upper (capitals, which get 0.06 em of tracking), tracking (em), fill, stroke and active (colours; active is the *spoken* word's), outline (0-0.5 of the text height), shadow, pill (a colour behind the spoken word), maxChars (about this many characters a line), pop (1-1.4: the spoken word that much bigger), keyword (the colour of a word written **like this**, drawn 15% bigger) and look (a motion style's id: its title font and accent, so the approved look sets the captions too). subtitle suits long-form; creator and pill suit Shorts.`,
   oneOf: [
     { type: "string", enum: Object.keys(CAPTION_PRESETS) },
     {
@@ -632,6 +679,9 @@ const CAPTION_STYLE_SCHEMA = {
         outline: { type: "number" },
         shadow: { type: "boolean" },
         maxChars: { type: "number" },
+        pop: { type: "number" },
+        keyword: { type: "string" },
+        look: { type: "string" },
       },
       additionalProperties: false,
     },
@@ -1155,13 +1205,29 @@ const srtClock = (seconds: number) => {
   return `${hh}:${mm}:${ss},${String(ms % 1000).padStart(3, "0")}`;
 };
 
+/** Chinese and Japanese script, written without spaces between words. */
+const CJK = /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]/;
+
+/** Words as a line: a space between them, except between two Chinese or Japanese ones. */
+const joined = (words: string[]) =>
+  words.reduce(
+    (line, w, i) =>
+      line +
+      (i && CJK.test(w.replace(/\*/g, "")) && CJK.test(words[i - 1] ?? "") ? "" : i ? " " : "") +
+      w,
+    "",
+  );
+
 /**
  * Word-by-word captions as SRT, timed to the video `clips` make: `words`
  * holds each clip's words, timed in the source. A cue shows up to `perCue`
  * words with the one being said written *like this*, which render draws
  * yellow (`lit: false` shows the words without it). A new cue starts at a
- * clip, after a sentence, after a pause of half a second, or once its words
- * span 1.2 s, which is how often Remotion's TikTok template turns the page.
+ * clip, after a sentence, after a pause of half a second, once its words
+ * span 1.2 s (how often Remotion's TikTok template turns the page), or
+ * before it would show more than 20 characters a second (Netflix's limit).
+ * Chinese and Japanese have no spaces: their words are joined without one,
+ * and a cue holds about four characters for each of `perCue` (#276).
  */
 export function wordCaptions(
   clips: Clip[],
@@ -1195,8 +1261,11 @@ export function wordCaptions(
         ends: /[.?!]["')\]]?$/.test(w.word),
       };
       const last = page.at(-1);
+      const chars = page.reduce((n, w) => n + w.text.length, 0);
+      const cjk = page.length > 0 && page.every((w) => CJK.test(w.text)) && CJK.test(said.text);
       const full =
-        page.length >= perCue ||
+        (cjk ? chars + said.text.length > perCue * 4 : page.length >= perCue) ||
+        (page[0] && (chars + said.text.length) / Math.max(0.3, said.end - page[0].start) > 20) ||
         (last && (last.ends || said.start - last.end >= 0.5)) ||
         (page[0] && said.start - page[0].start >= 1.2);
       if (full) {
@@ -1218,13 +1287,11 @@ export function wordCaptions(
         next <= last.end ? last.end : next - last.end <= 0.5 ? next : last.end + 0.2,
       );
       if (!lit)
-        return [
-          { start: page[0]?.start ?? 0, end: until, text: page.map((w) => w.text).join(" ") },
-        ];
+        return [{ start: page[0]?.start ?? 0, end: until, text: joined(page.map((w) => w.text)) }];
       return page.map((w, j) => ({
         start: j ? w.start : (page[0]?.start ?? w.start),
         end: page[j + 1]?.start ?? until,
-        text: page.map((o, k) => (k === j ? `*${o.text}*` : o.text)).join(" "),
+        text: joined(page.map((o, k) => (k === j ? `*${o.text}*` : o.text))),
       }));
     });
   return cues
@@ -2618,16 +2685,18 @@ async function motion(
   }
   let frames = 0;
   let warnings: string[] = [];
+  let fonts: unknown = [];
   let work: string | undefined;
   try {
     // The runner's last line; a script's own console.log comes before it. A
     // script that exits early leaves none, and the claimed target goes with the error.
-    let result: { frames?: unknown; sounds?: unknown; warnings?: unknown } = {};
+    let result: { frames?: unknown; sounds?: unknown; warnings?: unknown; fonts?: unknown } = {};
     try {
       result = JSON.parse(said.trim().split("\n").at(-1) || "{}") ?? {};
     } catch {}
     frames = Number(result.frames);
     warnings = Array.isArray(result.warnings) ? result.warnings.map(String) : [];
+    fonts = result.fonts;
     if (!Number.isInteger(frames) || frames < 1) {
       throw new Error("the motion script stopped without drawing; did it call process.exit?");
     }
@@ -2675,9 +2744,10 @@ async function motion(
     if (work) rmSync(work, { recursive: true, force: true });
   }
   const took = ((performance.now() - started) / 1000).toFixed(1);
-  // A font the page lacked was drawn in a fallback; say so (#276).
+  // Which fonts drew its text, so a substitution can't hide, and any it lacked (#276).
+  const families = Array.isArray(fonts) && fonts.length ? `; fonts: ${fonts.join(", ")}` : "";
   const warned = warnings.length ? `. Warning: ${warnings.join(" ")}` : "";
-  return `${target} (${clock((frames / fps) * 1000)}, ${width}x${height}, ${fps} fps), drawn in ${took} s${warned}`;
+  return `${target} (${clock((frames / fps) * 1000)}, ${width}x${height}, ${fps} fps), drawn in ${took} s${families}${warned}`;
 }
 
 const MOTION = join(PLUGIN, "skills", "motion-graphics");
@@ -3696,7 +3766,10 @@ async function renderProject(
     split: cut.split,
     captions: said,
     captionsY: cut.captions?.y ?? CAPTIONS_Y,
-    captionStyle: captionStyle(cut.captions?.style, "captions.style"),
+    captionStyle: captionStyle(
+      lookCaptions(cut.captions?.style, "captions.style"),
+      "captions.style",
+    ),
     texts: soundOnly ? [] : cut.texts,
     inserts: laid.inserts,
     adjust: soundOnly ? [] : cut.adjust,
@@ -4133,7 +4206,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
               : undefined,
             captions: a.captions === undefined ? undefined : String(a.captions),
             captionsY: within(a.captionsY, 0, 1, "captionsY", CAPTIONS_Y),
-            captionStyle: captionStyle(a.captionStyle),
+            captionStyle: captionStyle(lookCaptions(a.captionStyle)),
             texts: items(a.texts).map((t, i) => ({
               text: String(t.text ?? ""),
               ...stretch(t, `texts[${i}]`),
