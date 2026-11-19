@@ -97,6 +97,32 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("shipped fonts (integratio
     }
   }, 180_000);
 
+  // What the check skips and what it doesn't: case, hidden text, a canvas's
+  // fallback, and visible text in the browser's default font.
+  test("the font check ignores case and text nobody sees (#276)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "fonts-check-"));
+    const render = (name: string, body: string) => {
+      const path = join(dir, `${name}.html`);
+      writeFileSync(path, `<!doctype html><body style="margin:0">${body}</body>`);
+      return renderHtml(path, {
+        chrome: chrome as string,
+        out: join(dir, `${name}.mp4`),
+        width: 64,
+        height: 64,
+        fps: 1,
+        duration: 1,
+        fonts,
+      });
+    };
+    const quiet =
+      '<canvas id="c" width="64" height="64">no canvas</canvas><div style="display:none">hidden</div>' +
+      '<p style="font-family:inter">seen</p><script>const x = c.getContext("2d"); x.font = "700 20px inter"; x.fillText("a", 4, 30);</script>';
+    expect(await render("quiet", quiet)).toBe(1);
+    await expect(render("default", "<p>seen in the default font</p>")).rejects.toThrow(
+      /isn't loaded/,
+    );
+  }, 60_000);
+
   // Every style's whole explainer, one style a frame, drawn through the page's
   // font check: a family that isn't pinned, or isn't pulled, fails the render.
   test("every motion style renders in the pinned fonts", async () => {

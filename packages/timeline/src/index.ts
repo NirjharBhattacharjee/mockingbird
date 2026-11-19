@@ -492,11 +492,7 @@ function captions(v: unknown, what: string): Captions | null {
     y: maybe(o.y, (n) => num(n, `${what}.y`, 0, 1)),
     // Checked here, kept as written, so the project file reads as it was set.
     style: maybe(o.style, (v) => {
-      try {
-        captionStyle(v, `${what}.style`);
-      } catch (e) {
-        fail((e as Error).message);
-      }
+      captionStyle(v, `${what}.style`);
       return v as Captions["style"];
     }),
   });

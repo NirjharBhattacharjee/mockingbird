@@ -157,7 +157,7 @@ export const CAPTION_PRESETS = {
   },
 } satisfies Record<string, CaptionStyle>;
 
-const COLOUR = /^(#[0-9a-f]{3,8}|rgba?\([\d.,\s%]+\)|[a-z]+)$/i;
+const COLOUR = /^(#[0-9a-f]{3,8}|(rgb|hsl)a?\([\d.,\s%/deg]+\)|[a-z]+)$/i;
 
 /**
  * A caption style from a preset's name, or `{ preset?, ...fields }` laid
@@ -200,14 +200,14 @@ export function captionStyle(v: unknown, what = "captionStyle"): CaptionStyle {
     throw new Error(`${what}: no field ${unknown.join(", ")}; there's ${fields.join(", ")}`);
   const out: CaptionStyle = { ...named(o.preset ?? "classic") };
   const num = (k: string, lo: number, hi: number) => {
-    const n = Number(o[k]);
-    if (!(Number.isFinite(n) && n >= lo && n <= hi))
+    const n = o[k];
+    if (!(typeof n === "number" && Number.isFinite(n) && n >= lo && n <= hi))
       throw new Error(`${what}.${k} is a number from ${lo} to ${hi}`);
     return n;
   };
   const colour = (k: string) => {
-    const c = String(o[k]);
-    if (!COLOUR.test(c))
+    const c = o[k];
+    if (typeof c !== "string" || !COLOUR.test(c))
       throw new Error(`${what}.${k} is a colour like #FFD600 or rgb(255, 214, 0)`);
     return c;
   };
@@ -218,14 +218,18 @@ export function captionStyle(v: unknown, what = "captionStyle"): CaptionStyle {
     out.font = String(o.font) as CaptionStyle["font"];
   }
   if (o.weight !== undefined) out.weight = Math.round(num("weight", 100, 1000));
+  const flag = (k: string) => {
+    if (typeof o[k] !== "boolean") throw new Error(`${what}.${k} is true or false`);
+    return o[k] as boolean;
+  };
   if (o.upper !== undefined) {
-    out.upper = !!o.upper;
+    out.upper = flag("upper");
     if (out.upper && o.tracking === undefined) out.tracking = Math.max(out.tracking, 0.06);
   }
   if (o.tracking !== undefined) out.tracking = num("tracking", -0.05, 0.3);
   if (o.outline !== undefined) out.outline = num("outline", 0, 0.5);
   if (o.maxChars !== undefined) out.maxChars = Math.round(num("maxChars", 8, 80));
-  if (o.shadow !== undefined) out.shadow = !!o.shadow;
+  if (o.shadow !== undefined) out.shadow = flag("shadow");
   for (const k of ["fill", "stroke", "active", "pill"] as const) {
     if (o[k] !== undefined) out[k] = colour(k);
   }

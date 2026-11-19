@@ -29,10 +29,6 @@ export type PageScene = {
 export type PageFont = { family: string; url: string; weight: string; style: string };
 
 /**
- * Registers `fonts` with the page, unloaded, as @font-face rules would: each
- * loads the first time text needs it, and the frame waits for it.
- */
-/**
  * Page script defining `checkFonts(dom)` (#276). Chrome draws text whose font
  * the page doesn't have in a system font, and says nothing, so the same page
  * looks different on every machine. This throws instead when the first family
@@ -53,10 +49,12 @@ export const fontCheck = `
   const checkFamily = (first, where) => {
     if (!first || fontsSeen.has(first)) return;
     const have = [...new Set([...document.fonts].map((f) => unquote(f.family)))];
+    // CSS matches family names whatever their case.
+    const known = have.some((f) => f.toLowerCase() === first.toLowerCase());
     const hint = "Use one of the fonts the page has (" + (have.join(", ") || "none") + "), or load one with @font-face.";
-    if (/^(serif|sans-serif|monospace|cursive|fantasy|system-ui|ui-[a-z-]+|emoji|math|fangsong)$/.test(first))
+    if (/^(serif|sans-serif|monospace|cursive|fantasy|system-ui|ui-[a-z-]+|emoji|math|fangsong)$/i.test(first))
       throw new Error(where + " names no font, only the generic " + first + ", which draws differently on every machine. " + hint);
-    if (!have.includes(first))
+    if (!known)
       throw new Error("the font " + JSON.stringify(first) + " (" + where + ") isn't loaded, so Chrome would draw a system font in its place. If it's one of mockingbird's fonts, run \\\`mockingbird models pull chrome\\\`. " + hint);
     fontsSeen.add(first);
   };
@@ -71,12 +69,18 @@ export const fontCheck = `
     const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     for (let n = walk.nextNode(); n; n = walk.nextNode()) {
       const el = n.parentElement;
-      if (!n.textContent.trim() || !el || el.closest("script, style")) continue;
+      // Only text that's drawn: not a canvas's fallback, a template or a hidden element.
+      if (!n.textContent.trim() || !el || el.closest("script, style, noscript, template, canvas")) continue;
+      if (!el.checkVisibility({ visibilityProperty: true })) continue;
       checkFamily(firstFamily(getComputedStyle(el).fontFamily), "<" + el.tagName.toLowerCase() + ">'s text");
     }
   };
 `;
 
+/**
+ * Registers `fonts` with the page, unloaded, as @font-face rules would: each
+ * loads the first time text needs it, and the frame waits for it.
+ */
 export const pageFonts = (fonts: PageFont[]) =>
   `for (const f of ${JSON.stringify(fonts)}) document.fonts.add(new FontFace(f.family, "url(" + JSON.stringify(f.url) + ")", { weight: f.weight, style: f.style }));`;
 

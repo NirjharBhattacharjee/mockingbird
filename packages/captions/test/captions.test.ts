@@ -177,4 +177,10 @@ test("a caption style refuses what it doesn't know", () => {
   expect(() => captionStyle({ fill: "red;background:url(x)" })).toThrow(/fill is a colour/);
   expect(() => captionStyle({ outline: 2 })).toThrow(/outline is a number from 0 to 0.5/);
   expect(() => captionStyle({ colour: "red" })).toThrow(/no field colour/);
+  // A null or a string isn't quietly made a number, a colour or a switch.
+  expect(() => captionStyle({ fill: null })).toThrow(/fill is a colour/);
+  expect(() => captionStyle({ tracking: null })).toThrow(/tracking is a number/);
+  expect(() => captionStyle({ weight: "900" })).toThrow(/weight is a number/);
+  expect(() => captionStyle({ shadow: "false" })).toThrow(/shadow is true or false/);
+  expect(captionStyle({ fill: "hsl(50 100% 50%)" }).fill).toBe("hsl(50 100% 50%)");
 });

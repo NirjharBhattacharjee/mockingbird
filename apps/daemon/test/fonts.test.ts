@@ -48,7 +48,7 @@ test("every font the styles, kit and captions name is pinned", () => {
       seen++;
       if (GENERIC.has(families[0] as string)) wrong.push(`${file}: ${list} (generic first)`);
       for (const f of families) {
-        if (!GENERIC.has(f) && !pinned.has(f) && !f.startsWith("${")) wrong.push(`${file}: ${f}`);
+        if (!GENERIC.has(f) && !pinned.has(f) && !f.includes("${")) wrong.push(`${file}: ${f}`);
       }
     }
   }

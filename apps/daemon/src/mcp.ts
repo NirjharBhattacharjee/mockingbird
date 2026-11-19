@@ -3489,10 +3489,11 @@ async function overlays(
     const [width = 0, height = 0] = look.size.split("x").map(Number);
     const duration = Math.round((insert.to - insert.from) * 1000) / 1000;
     // A page loads its neighbours (CSS, images, the kit), so their sizes and times are in the key.
-    // The pinned fonts are in it too, since the page draws with them.
+    // The pinned fonts are in it too, since the page draws with them. 3: pages
+    // drawn before the font check (#276) are drawn again, through it.
     const fonts = fontFaces();
     const hash = createHash("sha256").update(
-      JSON.stringify([2, basename(page), look, duration, fonts.map((f) => f.url)]),
+      JSON.stringify([3, basename(page), look, duration, fonts.map((f) => f.url)]),
     );
     stampFolder(hash, dirname(page));
     // The kit and the styles live in the plugin, not beside the page: a rebuilt
