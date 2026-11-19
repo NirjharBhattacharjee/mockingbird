@@ -48,6 +48,9 @@ with `"args": ["/c", "C:\\Users\\<you>\\.mockingbird\\bin\\mockingbird.cmd", "mc
 | `transcribe(path, from, to, words, model, language)` | An audio or video file (anything ffmpeg reads: m4a, mp3, wav, mp4, mov, mkv) as text, in lines timestamped `[mm:ss]`, with names fixed from your dictionary (a `heard => term` entry first, then anything that sounds like a term). Each call starts its own whisper-server, so two can run at once. The client's model does any cleanup or summarising. `from` and `to` (seconds) take one stretch of the file. `words: true` gives one line per word with its start and end, `[01:23.48-01:23.71] Catppuccin`, to cut a clip on; names are fixed one word at a time there, so a name misheard as two words stays as heard. `model` (a file in `models/`) and `language` (a Whisper code, or `auto`) pick the model and language for this call only; given neither, with the language on `auto` and a model mapped to a language (`models use --language`), it detects the language from the first speech and uses that model. The first line then names the language and model. |
 | `transcribe(project)` | The words in a project's cut, clip by clip, each line at its time in the finished video: the edit as text, to choose what `cut_words` cuts. See [Text-based editing](#text-based-editing). |
 | `effects` | The effects catalog: each effect's name, whether it's on the picture or the sound, and its settings with ranges and defaults; see [Effects](#effects). |
+| `export(project, format, out)` | A project as FCPXML 1.10 and OpenTimelineIO, to finish the cut in Final Cut, Resolve or Premiere; see [Exporting to an editor](#exporting-to-an-editor). |
+| `track(path, from, to, box)` | Follows a box through a video by template matching on frames shrunk to 320 wide: its top left over time, five points a second, to give a mask as its `path` so a blur or a grade stays on a moving face, plate or logo. A test pattern moving across a busy 1280x720 background was followed for 6 s in 0.38 s, at most 4.4 px off. `worst` under about 0.5 means it was lost. A call follows up to two minutes: give `to` no later than `from` + 120 s (or the end of the video), since a longer window is refused. Every frame is kept at 320 wide while it runs, so track a long take a shot at a time. |
+| `sync(paths, window)` | Lines up recordings of one take (cameras, a separate recorder) by their sound: each file's offset against the first, for a multicam edit. Two cameras offset by 1.234 s, with different mic tone, gain and room noise, came out at 1.234 s (0.0 ms off) in 0.44 s. It compares the first `window` seconds (default 120, up to 1200) and finds offsets up to half of that, so recordings started further apart need a longer window. |
 | `scopes(path, from, to, every)` | What a colourist reads off the scopes, as numbers: luma, the histogram's thirds, clipping, saturation and skin's distance from the skin-tone line; see [Effects](#effects). An HDR source is measured after it's brought to SDR, as `render` will show it. |
 | `audio_stats(path, from, to)` | What a file's sound measures, since the agent can't listen: see [Measuring sound](#measuring-sound). |
 | `scenes(path, from, to, threshold)` | The shot changes in a video, from ffmpeg's `scdet` over frames shrunk to 180 lines: each one's `[mm:ss.cc]` time and how big a change it is (0 to 100), and cuts a minute and seconds a shot. `threshold` (default 10) is how big a change counts. It finds changes of shot, such as a cut to b-roll, a new slide or another camera, not jump cuts within one shot: in the first minute of the v2 edit, the two cuts that changed the framing scored 5.9 and 7.5, and eight jump cuts scored under 1 or not at all, below ordinary movement. Decoded with the hardware where there's a decoder: a minute of 4K HEVC phone video took 21.6 s, against 165.6 s in software; a 4-minute 1080p60 screen recording took 29.5 s. |
@@ -82,7 +85,7 @@ with `MCP_TOOL_TIMEOUT` (milliseconds) if a long file stops partway.
 | `captionsY` | Where the middle of the captions sits, 0 to 1 of the height (default 0.7). Use 0.5 for a split, so they sit on the seam. |
 | `texts` | `[{ text, from, to, y }]`: more text drawn the same way over a stretch of the finished video, such as a title for the first seconds. |
 | `inserts` | `[{ path, from, to }]`: pictures or videos laid over the whole frame for a stretch of the finished video (b-roll) while the speech carries on. They sit under the captions and are scaled to fill. A video's own sound isn't used. |
-| `audio` | `[{ path, at, volume, loop, duck }]`: sounds mixed under the speech from `at` seconds in. Music is `loop: true, duck: true` at about 0.15: it repeats to the end and drops while someone speaks (auto-editor's defaults: 85% down once the speech is above 4%, in 100 ms, back up in 500 ms). A sound effect is a path and an `at`. |
+| `audio` | `[{ path, at, volume, loop, duck }]`: sounds mixed under the speech from `at` seconds in. Music is `loop: true, duck: true` at about 0.15: it repeats to the end and drops while someone speaks (auto-editor's defaults: 85% down once the speech is above 4%, in 100 ms, back up in 500 ms). `volume` is relative to the speech brought to −14 LUFS first, so it means the same on a quiet recording as on a loud one. A sound effect is a path and an `at`. |
 
 The sound comes out at −14 LUFS (within about half a dB), the loudness Shorts, Reels, TikTok and YouTube play at, with peaks under −1.5 dBTP, so a quiet phone recording doesn't sound weak next to everything else in the feed. The sound is measured, measured again through the peak limiter, and the gain corrected once; a single pass of ffmpeg's `loudnorm` fell 1 to 2 dB short on quiet recordings with loud peaks (#127). The gain stops at +30 dB, so a recording quieter than −44 LUFS comes out under −14, and silence is left as it is.
 
@@ -430,6 +433,34 @@ framing, and a clip with effects is always encoded, never stream-copied.
 | `highpass` | sound | `frequency` (80 Hz suits speech) |
 | `compress` | sound | `threshold` (dB), `ratio` |
 | `deess` | sound | `amount` |
+| `chromakey` | picture | `color` (`#00ff00`), `similarity`, `blend`, `spill`; put it on an insert so the cut shows through |
+| `stabilize` | picture | `strength`, `zoom` (crops in to hide the moving edges); ffmpeg's `deshake` |
+| `crop` | picture | `left`, `right`, `top`, `bottom`, each 0–0.5; on an insert the cut shows through |
+| `freeze` | picture | holds the clip's first frame for its length while the sound plays on |
+| `reverse` | picture and sound | plays the clip backwards; keep it short, it's held in memory |
+| `interpolate` | picture | smooth slow motion: a clip at speed under 1 gets new in-between frames instead of repeats. In a 0.25x clip, repeated frames went from 89 of 118 to 7, but 4 s at 720p took 9.5 s to render instead of 0.7 |
+
+Any picture effect except `interpolate` (whose new frames are made for the whole clip) takes a `mask` to apply it to part of the frame only:
+`{shape: "rect" | "ellipse" | "polygon", x, y, w, h, feather, invert, end}`.
+Sizes are 0–1 of the picture, a polygon has `points: [[x, y], ...]`,
+`feather` softens the edge (0–0.5 of the width), and `end: {x, y, w, h}`
+moves a rectangle or ellipse there over the clip, e.g. a blur that follows a
+face across the shot. Or give a rectangle or ellipse a `path`, the points
+`track` returns, and it follows them instead. The mask is drawn per frame, so a masked effect costs
+more: 6 s at 1280x720 rendered in 7 to 8 s, against under a second without.
+
+Inserts take `box: {x, y, w, h}` (a picture in the picture; give it
+`track`'s points as `path` and it moves with a subject, a title that follows
+someone across the shot), `blend`
+(`screen`, `multiply`, `overlay`, `softlight`, `lighten`, `darken`,
+`addition` or `difference`, whole frame only), `effects`, and in a project
+`moves` like a clip's (a Ken Burns pan over a still). A green-screen clip
+keys over the cut as an insert with `effects: [{name: "chromakey"}]`.
+
+An adjustment layer, `{op: "add", type: "adjust", from, to, clip?, effects}`
+in a project or `render`'s `adjust: [{from, to, effects}]`, puts its effects
+on everything under the text (the clips and the inserts) for its stretch:
+one grade over a whole section, or a masked blur over it.
 
 `scopes` measures a picture the way a colourist reads the scopes: mean luma
 and its 5th to 95th percentile, the share of pixels in the shadows, mids and
@@ -478,6 +509,37 @@ motion pass: it was tagged HLG/BT.2020 in an 8-bit SDR file, with mean luma
 BT.709, with mean luma 0.50, nothing clipped, saturation 0.14 and skin 0.8°
 off. The conversion costs time: the same render took 38–40 s, against
 23–24 s without it. An SDR source doesn't go through it.
+
+## Exporting to an editor
+
+`export(project)` saves the project beside it as `<name>.fcpxml` (FCPXML
+1.10: Final Cut Pro, and DaVinci Resolve or Premiere, which import it) and
+`<name>.otio` (OpenTimelineIO, which Resolve imports, and Premiere and Avid
+through OTIO's adapters). `format` picks one, and `out` picks a folder.
+The export carries:
+
+- the clips, with their source times and transitions, each transition split
+  by whole frames around its cut;
+- inserts on video tracks above the clips;
+- texts, as Basic Title titles in FCPXML and markers in OTIO;
+- sounds on their own audio tracks, with their volume in FCPXML (OTIO has
+  no standard gain, so its export lists the volumes as left out);
+- in OTIO, speed changes and J and L cuts too.
+
+What an editor can't take this way is listed in the reply, so it can be
+redone there. Before choosing a format, these are what to rebuild after
+either export: effects (grades, keys, masks), adjustment layers, framing
+(focus, zoom, moves), split screens, inserts' boxes, blend modes and moves
+(they come in full frame), generated music beds, the word captions and
+ducking. FCPXML also leaves out speed changes and J and L cuts, which OTIO
+keeps; OTIO leaves out sound volumes, and a transition with no room for it
+in the clips beside it (picture or sound) comes in as a cut.
+
+Checked on a three-clip project with a dissolve, a 2x clip with a J cut, two
+titles, an insert and a sound: OpenTimelineIO 0.18.1 read the `.otio`, and
+its FCPXML adapter read the `.fcpxml`. Every track came to the cut's 4.5 s.
+It isn't tested in Final Cut or Resolve yet, since neither is on the build
+machine.
 
 ## Measuring sound
 

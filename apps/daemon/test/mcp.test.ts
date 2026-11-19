@@ -33,6 +33,7 @@ import {
   STYLES_URL,
   seekClips,
   segments,
+  soundOf,
   spans,
   THREE_URL,
   tempo,
@@ -690,6 +691,19 @@ test("a motion script's sounds mix over the video's own, from input 1, cut to it
     "[1:a]adelay=1000:all=1,volume=1[s0]",
     "[s0][key0]sidechaincompress=threshold=0.04:ratio=8:attack=100:release=500[m0]",
     "[voice][m0]amix=inputs=2:duration=longest:normalize=0,atrim=duration=4[a]",
+  ]);
+  // A quiet recording is raised before the duck keys on it (#212).
+  expect(
+    mixGraph([{ at: 0, volume: 0.15, loop: true, duck: true }], {
+      speech: true,
+      length: 4,
+      first: 1,
+      gain: 17.2,
+    }).slice(0, 2),
+  ).toEqual(["[speech]volume=17.20dB[lifted]", "[lifted]asplit=2[voice][key0]"]);
+  // Nothing mixed under it: the speech is left for `level`.
+  expect(mixGraph([], { speech: true, length: 4, first: 1, gain: 17.2 })).toEqual([
+    "[speech]atrim=duration=4[a]",
   ]);
   // No sound at all: nothing to mix.
   expect(mixGraph([], { speech: false, length: 4, first: 1 })).toEqual([]);
@@ -1589,6 +1603,48 @@ test("motion fills in a page's `from \"KIT\"` with the kit's file URL, beside th
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("an insert or adjustment layer refuses an effect that would do nothing there (#257)", async () => {
+  const render = mcpTools(
+    async () => ({}),
+    () => {},
+  ).find((t) => t.name === "render") as { run: (a: Record<string, unknown>) => Promise<string> };
+  const clips = [{ from: 0, to: 2 }];
+  // The source only has to be there: the effects are refused before it's read.
+  const dir = mkdtempSync(join(tmpdir(), "mb-fx-"));
+  const path = join(dir, "a.mp4");
+  writeFileSync(path, "");
+  await expect(
+    render.run({
+      path,
+      clips,
+      inserts: [{ path: "/b.mp4", from: 0, to: 1, effects: [{ name: "gain", db: 6 }] }],
+    }),
+  ).rejects.toThrow("inserts[0].effects[0]: gain works on a clip");
+  await expect(
+    render.run({
+      path,
+      clips,
+      adjust: [{ from: 0, to: 1, effects: [{ name: "interpolate" }] }],
+    }),
+  ).rejects.toThrow("adjust[0].effects[0]: interpolate works on a clip");
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("the speech is measured as the render hears it, gain and J cut included (#257)", () => {
+  const clip = {
+    path: "/a.mp4",
+    from: 2,
+    to: 4,
+    speed: 2,
+    effects: [{ name: "gain", db: 15 }],
+    sound: { from: 1.5, to: 4 },
+  };
+  // A project's level puts a gain on each clip: measuring without it would lift the speech twice.
+  expect(soundOf(clip, 0, { width: 1, height: 1, fps: 30, length: 1 })).toBe(
+    "[0:a]atrim=start=0:duration=2.5,asetpts=PTS-STARTPTS,atempo=2,volume=15dB",
+  );
 });
 
 test("level brings each source to the target once, within 30 dB (#265)", async () => {

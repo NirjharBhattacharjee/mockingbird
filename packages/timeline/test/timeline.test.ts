@@ -110,6 +110,29 @@ describe("apply", () => {
     expect(notes).toEqual(["removed t1: what they were on was cut"]);
   });
 
+  test("a trim into a tracked insert takes the start of its path too (#200)", () => {
+    const box = {
+      x: 0,
+      y: 0,
+      w: 0.2,
+      h: 0.2,
+      path: [
+        { at: 0, x: 0, y: 0.5 },
+        { at: 4, x: 0.8, y: 0.5 },
+      ],
+    };
+    const { project } = apply(base(), [
+      { op: "add", type: "insert", path: "t.png", clip: "c1", from: 0, to: 4, box },
+      { op: "trim", id: "c1", from: 12 },
+    ]);
+    const moved = project.inserts.find((i) => i.path === "t.png");
+    expect(moved).toMatchObject({ from: 0, to: 2 });
+    expect(moved?.box?.path).toEqual([
+      { at: 0, x: 0.4, y: 0.5 },
+      { at: 2, x: 0.8, y: 0.5 },
+    ]);
+  });
+
   test("a trim off a clip's end drops what was on the part cut away", () => {
     const { project, notes } = apply(base(), [{ op: "trim", id: "c1", to: 13 }]);
     // t2 was 4 s into c1, which is now 3 s long; t1 (0-2 s) stays.
@@ -592,6 +615,81 @@ describe("J and L cuts", () => {
   });
 });
 
+describe("adjustment layers and insert looks (#198)", () => {
+  test("an adjust stays on its clip through a split, and compiles to finished-video times", () => {
+    const { project } = apply(base(), [
+      {
+        op: "add",
+        type: "adjust",
+        clip: "c1",
+        from: 4.5,
+        to: 5.5,
+        effects: [{ name: "color", saturation: 0 }],
+      },
+      {
+        op: "add",
+        type: "insert",
+        path: "green.mp4",
+        clip: "c1",
+        from: 1,
+        to: 2,
+        box: { x: 0.5, y: 0, w: 0.5, h: 0.5 },
+        effects: [{ name: "chromakey" }],
+      },
+      { op: "split", id: "c1", at: 14 },
+    ]);
+    expect(project.adjust).toEqual([
+      { id: "j1", clip: "c3", from: 0.5, to: 1.5, effects: [{ name: "color", saturation: 0 }] },
+    ]);
+    const cut = compile(project, "/p");
+    expect(cut.adjust).toEqual([
+      { from: 4.5, to: 5.5, effects: [{ name: "color", saturation: 0 }] },
+    ]);
+    expect(cut.inserts.find((i) => i.box)).toMatchObject({
+      from: 1,
+      to: 2,
+      box: { x: 0.5, y: 0, w: 0.5, h: 0.5 },
+      effects: [{ name: "chromakey" }],
+    });
+    expect(outline(project, "p.json")).toContain("adjust effects color");
+    // Removing its clip takes it too.
+    expect(apply(project, [{ op: "remove", id: "c3" }]).project.adjust).toEqual([]);
+  });
+
+  test("an insert's box takes the path track gives (#200)", () => {
+    const box = {
+      x: 0,
+      y: 0,
+      w: 0.2,
+      h: 0.1,
+      path: [
+        { at: 0, x: 0.1, y: 0.2 },
+        { at: 1, x: 0.3, y: 0.2 },
+      ],
+    };
+    const { project } = apply(base(), [
+      { op: "add", type: "insert", path: "t.png", from: 0, to: 1, box },
+    ]);
+    expect(project.inserts.find((i) => i.path === "t.png")?.box).toEqual(box);
+    const bad = {
+      ...box,
+      path: [
+        { at: 1, x: 0, y: 0 },
+        { at: 0, x: 0, y: 0 },
+      ],
+    };
+    expect(() =>
+      apply(base(), [{ op: "add", type: "insert", path: "t.png", from: 0, to: 1, box: bad }]),
+    ).toThrow("rising");
+  });
+
+  test("an adjust needs effects", () => {
+    expect(() => apply(base(), [{ op: "add", type: "adjust", from: 0, to: 1 }])).toThrow(
+      "needs effects",
+    );
+  });
+});
+
 test("a generated sound can say how long its bed is (#266)", () => {
   const p = check({
     version: 1,
@@ -621,6 +719,64 @@ test("level is true or { target }, and the outline says so (#265)", () => {
   expect(outline(check({ ...base, level: true }), "p.json")).toContain(
     "sources levelled to -16 LUFS",
   );
+});
+
+test("a split or trim keeps a clip's mask on the picture it was on (#257)", () => {
+  const mask = {
+    shape: "rect",
+    x: 0,
+    y: 0,
+    w: 0.2,
+    h: 0.2,
+    end: { x: 0.8, y: 0, w: 0.2, h: 0.2 },
+  };
+  const tracked = {
+    shape: "rect",
+    w: 0.1,
+    h: 0.1,
+    path: [
+      { at: 0, x: 0, y: 0 },
+      { at: 10, x: 1, y: 0 },
+    ],
+  };
+  const p = check({
+    version: 1,
+    clips: [
+      {
+        id: "c1",
+        path: "a.mp4",
+        from: 0,
+        to: 10,
+        effects: [
+          { name: "blur", mask },
+          { name: "blur", mask: tracked },
+        ],
+      },
+    ],
+  });
+  const halves = apply(p, [{ op: "split", id: "c1", at: 5 }]).project.clips;
+  const masks = (i: number) =>
+    (halves[i]?.effects ?? []).map(
+      (e) => (e as Record<string, unknown>).mask as Record<string, unknown>,
+    );
+  // The box was halfway at the split: the first half ends there, the second starts there.
+  expect(masks(0)[0]).toMatchObject({ x: 0, end: { x: 0.4 } });
+  expect(masks(1)[0]).toMatchObject({ x: 0.4, end: { x: 0.8 } });
+  // The second half's path starts where the subject was at 5 s.
+  expect(masks(1)[1]?.path).toEqual([
+    { at: 0, x: 0.5, y: 0 },
+    { at: 5, x: 1, y: 0 },
+  ]);
+  const trimmed = apply(p, [{ op: "trim", id: "c1", from: 2 }]).project.clips[0];
+  const t = (trimmed?.effects ?? []).map(
+    (e) => (e as Record<string, unknown>).mask as Record<string, unknown>,
+  );
+  expect(t[0]).toMatchObject({ x: 0.16, end: { x: 0.8 } });
+  expect((t[1]?.path as { at: number; x: number; y: number }[] | undefined)?.[0]).toEqual({
+    at: 0,
+    x: 0.2,
+    y: 0,
+  });
 });
 
 describe("look (#262)", () => {

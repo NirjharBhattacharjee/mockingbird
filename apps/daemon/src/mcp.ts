@@ -33,10 +33,21 @@ import {
   type Word,
   wanted,
 } from "@mockingbird/timeline";
+import { type Source, toFcpxml, toOtio } from "@mockingbird/timeline/export";
 import type { SpeechSegment } from "@mockingbird/vad";
 import { audioStats } from "./audio-stats.ts";
 import { addEntries, formatEntry, readDictionary } from "./dictionary.ts";
-import { catalog, checkEffects, type Effect, effectFilters } from "./effects.ts";
+import {
+  type Ctx,
+  catalog,
+  checkEffects,
+  checkPath,
+  EFFECTS,
+  type Effect,
+  effectFilters,
+  masked,
+  pictureSteps,
+} from "./effects.ts";
 import { guide, INSTRUCTIONS, PLUGIN, playbooks } from "./guide.ts";
 import { BT709, type Transfer, toSdrFor, transferOf } from "./hdr.ts";
 import { findChrome, fontFaces } from "./models.ts";
@@ -52,6 +63,8 @@ import {
   WHISPER_LANGUAGES,
 } from "./runtime.ts";
 import { scopes } from "./scopes.ts";
+import { sync } from "./sync.ts";
+import { along, type Point, track } from "./track.ts";
 
 /**
  * `mockingbird mcp` (#88): mockingbird's local functions as Model Context
@@ -628,6 +641,22 @@ type Shaped = Clip & { silent?: boolean; sdr?: string };
  * split's clips are brought to it before their areas are taken). A `silent`
  * clip's sound is silence; an `sdr` clip's picture goes through those filters first. Ends in [v], and [a] if there's sound.
  */
+/**
+ * Clip `i`'s sound as the render hears it, from input `i`: its own stretch
+ * (a J or L cut's), its speed and its sound effects. speechGain measures
+ * this, so a `gain` effect (a project's `level`) isn't lifted twice.
+ */
+export function soundOf(clip: Shaped, i: number, ctx: Ctx): string {
+  const start = opened(clip).from;
+  const heard = clip.sound ?? clip;
+  const acut = clip.sound
+    ? `atrim=start=${heard.from - start}:duration=${heard.to - heard.from},`
+    : "";
+  const speed = clip.speed && clip.speed !== 1 ? `,${tempo(clip.speed)}` : "";
+  const fx = effectFilters(clip.effects, ctx).audio;
+  return `[${i}:a]${acut}asetpts=PTS-STARTPTS${speed}${fx ? `,${fx}` : ""}`;
+}
+
 export function renderGraph(
   clips: Shaped[],
   {
@@ -641,6 +670,8 @@ export function renderGraph(
     inserts = [],
     sounds = [],
     whole = false,
+    gain = 0,
+    adjust = [],
   }: {
     audio: boolean;
     size?: string;
@@ -649,9 +680,13 @@ export function renderGraph(
     burn?: boolean;
     captionsY?: number;
     overlays?: (Omit<Cue, "text"> & { y?: number })[];
-    inserts?: (Omit<Cue, "text"> & { sdr?: string })[];
+    inserts?: (Omit<Cue, "text"> & Look & { sdr?: string })[];
+    /** Adjustment layers: effects on everything under the text for a stretch (#198). */
+    adjust?: (Omit<Cue, "text"> & { effects: Effect[] })[];
     sounds?: Sound[];
     whole?: boolean;
+    /** The speech's gain in dB before sounds are mixed under it: see mixGraph. */
+    gain?: number;
   },
 ): string {
   const out = split ? "1080x1920" : size;
@@ -663,26 +698,38 @@ export function renderGraph(
   // one by one, only brought to one size if they're from different sources.
   const parts = clips.map((clip, i) => {
     const speed = clip.speed && clip.speed !== 1 ? `,setpts=PTS/${clip.speed}` : "";
+    // Slow motion made of new frames, not repeats (#200): motion-compensated, after the
+    // framing so it works on the finished size, before fps would repeat frames.
+    const rate = clip.effects?.some((e) => e.name === "interpolate")
+      ? `minterpolate=fps=${fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1,fps=${fps}`
+      : `fps=${fps}`;
     const look =
       split || !clip.moves?.length
-        ? `${frame(split ? { from: 0, to: 0 } : clip, size)},fps=${fps}`
-        : `,fps=${fps},${moving(clip, size, fps)}`;
+        ? `${frame(split ? { from: 0, to: 0 } : clip, size)},${rate}`
+        : `,${rate},${moving(clip, size, fps)}`;
     const tb = chained ? `,settb=1/${fps}` : "";
     // The input opens the picture's and the sound's stretches together; each takes its own.
     const start = opened(clip).from;
     const cut = clip.sound
       ? `trim=start=${clip.from - start}:duration=${clip.to - clip.from},`
       : "";
-    const fx = effectFilters(clip.effects);
-    const v = `[${i}:v]${clip.sdr ? `${clip.sdr},` : ""}${cut}setpts=PTS-STARTPTS${speed},${SQUARE}${look}${fx.video ? `,${fx.video}` : ""}${tb}[v${i}]`;
+    const [width, height] = size.split("x").map(Number) as [number, number];
+    const ctx = { width, height, fps, length: lengthOf(clip), speed: clip.speed ?? 1 };
+    const fx = effectFilters(clip.effects, ctx);
+    const head = `[${i}:v]${clip.sdr ? `${clip.sdr},` : ""}${cut}setpts=PTS-STARTPTS${speed},${SQUARE}${look}`;
+    // A masked effect needs labels of its own (#198); the rest stay one chain.
+    const v = masked(clip.effects)
+      ? [
+          `${head}[b${i}]`,
+          ...pictureSteps(clip.effects ?? [], `[b${i}]`, `[e${i}]`, ctx, `c${i}`),
+          `[e${i}]${tb ? tb.slice(1) : "null"}[v${i}]`,
+        ].join(";")
+      : `${head}${fx.video ? `,${fx.video}` : ""}${tb}[v${i}]`;
     if (!audio) return v;
     const heard = clip.sound ?? clip;
-    const acut = clip.sound
-      ? `atrim=start=${heard.from - start}:duration=${heard.to - heard.from},`
-      : "";
     const a = clip.silent
       ? `aevalsrc=0:c=stereo:s=48000:d=${(heard.to - heard.from) / (clip.speed ?? 1)}[a${i}]`
-      : `[${i}:a]${acut}asetpts=PTS-STARTPTS${speed ? `,${tempo(clip.speed as number)}` : ""}${fx.audio ? `,${fx.audio}` : ""}[a${i}]`;
+      : `${soundOf(clip, i, ctx)}[a${i}]`;
     return `${v};${a}`;
   });
   const inputs = clips.map((_, i) => (audio ? `[v${i}][a${i}]` : `[v${i}]`)).join("");
@@ -703,27 +750,79 @@ export function renderGraph(
     "[top][bottom]vstack,setsar=1[stacked]",
   ];
   const base = stacked ? "[stacked]" : "[joined]";
-  // Inserts go under the text, so captions stay readable over b-roll.
-  const layers = [
+  // Inserts go under the text, so captions stay readable over b-roll, and
+  // adjustment layers between them, so they change the inserts too (#198).
+  const [W, H] = out.split("x").map(Number) as [number, number];
+  type Layer = {
+    start: number;
+    end: number;
+    y?: number;
+    input: number;
+    kind: string;
+    sdr?: string;
+  } & Look;
+  const layers: Layer[] = [
     ...inserts.map((cue, i) => ({
       ...cue,
       y: 0,
       input: clips.length + overlays.length + i,
-      insert: true,
+      kind: "insert",
     })),
-    ...overlays.map((cue, i) => ({ ...cue, input: clips.length + i, insert: false })),
+    ...adjust.map((a) => ({ ...a, input: -1, kind: "adjust" })),
+    ...overlays.map((cue, i) => ({ ...cue, input: clips.length + i, kind: "text" })),
   ];
   const label = (i: number) => (i < layers.length ? `[c${i}]` : burn ? "[laid]" : "[v]");
-  const laid = layers.flatMap(({ start, end, y = CAPTIONS_Y, input, insert, ...rest }, i) => {
+  const laid = layers.flatMap((layer, i) => {
+    const { start, end, y = CAPTIONS_Y, input, kind } = layer;
     const when = `enable='gte(t,${start})*lt(t,${end})'`;
-    if (!insert) {
+    if (kind === "text") {
       return `${label(i)}[${input}:v]overlay=x=(main_w-overlay_w)/2:y=main_h*${y}-overlay_h/2:${when}${label(i + 1)}`;
     }
-    // Its own first frame lands at `start`; once it runs out, the picture underneath shows again.
+    const ctx = { width: W, height: H, fps, length: end - start };
+    if (kind === "adjust") {
+      // Its stretch of everything under it, through its effects, laid back over it.
+      return [
+        `${label(i)}split[ak${i}][ae${i}]`,
+        `[ae${i}]trim=start=${start}:end=${end},setpts=PTS-STARTPTS[ar${i}]`,
+        ...pictureSteps(layer.effects ?? [], `[ar${i}]`, `[ag${i}]`, ctx, `a${i}`),
+        `[ag${i}]setpts=PTS+${start}/TB[ad${i}]`,
+        `[ak${i}][ad${i}]overlay=eof_action=pass:${when}${label(i + 1)}`,
+      ];
+    }
+    const { box, blend, effects = [], moves } = layer;
     // HDR b-roll is brought to SDR like the clips under it (#252).
-    const sdr = "sdr" in rest && rest.sdr ? `${rest.sdr},` : "";
-    const shaped = `[${input}:v]${sdr}trim=duration=${end - start},setpts=PTS-STARTPTS+${start}/TB,${fill({ x: 0, y: 0, w: 1, h: 1 }, out)},setsar=1[i${i}]`;
-    return [shaped, `${label(i)}[i${i}]overlay=eof_action=pass:${when}${label(i + 1)}`];
+    const sdr = layer.sdr ? `${layer.sdr},` : "";
+    if (!box && !blend && !effects.length && !moves?.length) {
+      // Its own first frame lands at `start`; once it runs out, the picture underneath shows again.
+      const shaped = `[${input}:v]${sdr}trim=duration=${end - start},setpts=PTS-STARTPTS+${start}/TB,${fill({ x: 0, y: 0, w: 1, h: 1 }, out)},setsar=1[i${i}]`;
+      return [shaped, `${label(i)}[i${i}]overlay=eof_action=pass:${when}${label(i + 1)}`];
+    }
+    // A box is a picture in the picture: the insert filled to the box, laid at its corner.
+    const shape = box ? `${evenSize(box.w * W)}x${evenSize(box.h * H)}` : out;
+    const [bw, bh] = shape.split("x").map(Number) as [number, number];
+    const moved = moves?.length
+      ? `,${moving({ from: 0, to: end - start, moves }, shape, fps)}`
+      : "";
+    const steps = [
+      `[${input}:v]${sdr}trim=duration=${end - start},setpts=PTS-STARTPTS,fps=${fps},${fill({ x: 0, y: 0, w: 1, h: 1 }, shape)}${moved},setsar=1[ib${i}]`,
+      ...pictureSteps(effects, `[ib${i}]`, `[ie${i}]`, { ...ctx, width: bw, height: bh }, `i${i}`),
+      `[ie${i}]setpts=PTS+${start}/TB[i${i}]`,
+    ];
+    if (blend && blend !== "normal") {
+      // Blended in RGB, since a mode like screen on YUV's colour planes shifts the hue.
+      return [
+        ...steps,
+        `${label(i)}format=gbrp[ig${i}]`,
+        `[i${i}]format=gbrp[ih${i}]`,
+        `[ig${i}][ih${i}]blend=all_mode=${blend}:eof_action=pass:${when},format=yuv420p${label(i + 1)}`,
+      ];
+    }
+    const at = box?.path?.length
+      ? `x='${along(box.path, "x", `(t-${start})`, W)}':y='${along(box.path, "y", `(t-${start})`, H)}':`
+      : box
+        ? `x=${Math.round(box.x * W)}:y=${Math.round(box.y * H)}:`
+        : "";
+    return [...steps, `${label(i)}[i${i}]overlay=${at}eof_action=pass:${when}${label(i + 1)}`];
   });
   // libass's captions go on last, over the inserts like the images. An .srt is
   // laid out 288 lines high: its bottom margin puts the line's middle near captionsY.
@@ -746,6 +845,7 @@ export function renderGraph(
       length,
       first: clips.length + overlays.length + inserts.length,
       whole,
+      gain,
     }),
   ].join(";");
 }
@@ -785,7 +885,8 @@ function chain(clips: Clip[], audio: boolean, fps: number): string {
 
 /**
  * The filter steps that mix `sounds` (inputs `first`, `first + 1`, …) under
- * the speech, labelled [speech] if there is any, cut to `length` seconds and
+ * the speech, labelled [speech] if there is any and raised by `gain` dB
+ * when there's something to mix under it, cut to `length` seconds and
  * left for `level` to bring to LUFS; a batch's, with `whole`, isn't cut. Ends
  * in [a] if there's any sound at all.
  */
@@ -796,12 +897,18 @@ export function mixGraph(
     length,
     first,
     whole = false,
-  }: { speech: boolean; length: number; first: number; whole?: boolean },
+    gain = 0,
+  }: { speech: boolean; length: number; first: number; whole?: boolean; gain?: number },
 ): string[] {
   const ducked = sounds.filter((s) => s.duck).length;
   const keyLabels = sounds.flatMap((s, i) => (s.duck ? [`[key${i}]`] : [])).join("");
-  const speech = ducked ? "[voice]" : "[speech]";
-  const keys = audio && ducked ? [`[speech]asplit=${ducked + 1}${speech}${keyLabels}`] : [];
+  // The speech brought to LUFS first (`gain`, from speechGain), so a sound's
+  // volume and the duck's threshold mean the same on any recording (#212).
+  const lift =
+    audio && sounds.length && gain ? [`[speech]volume=${gain.toFixed(2)}dB[lifted]`] : [];
+  const source = lift.length ? "[lifted]" : "[speech]";
+  const speech = ducked ? "[voice]" : source;
+  const keys = audio && ducked ? [`${source}asplit=${ducked + 1}${speech}${keyLabels}`] : [];
   const mixed = sounds.flatMap(({ at, volume, loop, duck }, i) => {
     // A looped sound plays to the end of the video; any other plays once.
     const trim = loop ? `atrim=duration=${Math.max(0, length - at)},` : "";
@@ -827,7 +934,7 @@ export function mixGraph(
           : `${tracks.join("")}amix=inputs=${tracks.length}:duration=longest:normalize=0,${level}`,
       ]
     : [];
-  return [...keys, ...mixed, ...sound];
+  return [...lift, ...keys, ...mixed, ...sound];
 }
 
 /**
@@ -1051,7 +1158,37 @@ export function wordCaptions(
 export type Text = { text: string; from: number; to: number; y?: number };
 
 /** A picture or video laid over the finished video from `from` to `to` seconds; its sound isn't used. */
-export type Insert = { path: string; from: number; to: number };
+export type Insert = { path: string; from: number; to: number } & Look;
+
+/** Blend modes an insert can be laid with: ffmpeg's blend names. */
+export const BLENDS = [
+  "normal",
+  "screen",
+  "multiply",
+  "overlay",
+  "softlight",
+  "lighten",
+  "darken",
+  "addition",
+  "difference",
+];
+
+/**
+ * How an insert is laid over the cut (#198): in a `box` (0-1 of the picture;
+ * a picture in the picture), with a blend mode, through catalog effects (a
+ * chroma key keys it over the cut), and moving like a clip's `moves` (a Ken
+ * Burns pan over a still).
+ */
+export type Look = {
+  /** `path`, from `track`: the box's top left over time, from the insert's start. */
+  box?: { x: number; y: number; w: number; h: number; path?: Point[] };
+  blend?: string;
+  effects?: Effect[];
+  moves?: Move[];
+};
+
+/** A size in pixels rounded to an even number, at least 2. */
+const evenSize = (n: number) => Math.max(2, Math.round(n / 2) * 2);
 
 /**
  * ffmpeg's inputs for `clips`: the source once per clip, opened at its start
@@ -1082,6 +1219,20 @@ function graphFile(graph: string, dir: string, name = "graph"): string[] {
   // `-/option file` arrived in ffmpeg 7.0; 6.x (Ubuntu 24.04's) only knows
   // -filter_complex_script, which newer releases dropped (9.0 has none).
   return [ffmpegMajor() >= 7 ? "-/filter_complex" : "-filter_complex_script", file];
+}
+
+/**
+ * `effects` checked, and each LUT they read there. On an insert or an
+ * adjustment layer (`picture`), only effects that work on a picture laid
+ * over the cut: a sound effect or interpolate there would do nothing (#257).
+ */
+function checkFx(effects: unknown, what: string, picture = false) {
+  for (const [n, e] of checkEffects(effects, what).entries()) {
+    if (picture && (EFFECTS[e.name]?.kind !== "video" || e.name === "interpolate")) {
+      throw new Error(`${what}[${n}]: ${e.name} works on a clip, not on what's laid over the cut`);
+    }
+    if (typeof e.file === "string") requireFile(e.file, "LUT");
+  }
 }
 
 /** The system ffmpeg's major version, read once; 99 for a git build, which is newer than any release. */
@@ -1140,9 +1291,47 @@ async function loudness(file: string, filter = ""): Promise<number> {
   );
   const said = await new Response(proc.stderr).text();
   if ((await proc.exited) !== 0) throw new Error(`ffmpeg couldn't measure ${file}: ${said.trim()}`);
-  // The summary's "I:" line, the last one in the log.
+  return integrated(said);
+}
+
+/** The integrated loudness in an ebur128 log: its summary's "I:" line, the last one. */
+function integrated(said: string): number {
   const found = [...said.matchAll(/^\s*I:\s+(-?[\d.]+|-inf) LUFS/gm)].at(-1)?.[1];
   return found === undefined || found === "-inf" ? -Infinity : Number(found);
+}
+
+/**
+ * The gain in dB that brings the speech to LUFS before sounds are mixed
+ * under it (#212). Without it, a quiet recording (-31 LUFS is common) never
+ * reaches the duck's threshold, and music at a given volume sits far above
+ * it until `level` raises the whole mix. `input` is ffmpeg's inputs and
+ * `streams` the speech in them, joined in order. 0 for silence.
+ */
+async function speechGain(input: string[], streams: string[]): Promise<number> {
+  if (!streams.length) return 0;
+  // A stream is an input's label ("[0:a]") or a chain ending in its own label.
+  const labels = streams.map((s) => s.match(/\[[^\]]+\]$/)?.[0] ?? s);
+  const chains = streams.filter((s, i) => s !== labels[i]);
+  const graph = [
+    ...chains,
+    `${labels.join("")}concat=n=${streams.length}:v=0:a=1,ebur128=framelog=quiet`,
+  ].join(";");
+  // From a file, as the render's graph is: a hundred clips' chains are longer than a Windows command line.
+  const dir = mkdtempSync(join(tmpdir(), "mockingbird-speech-"));
+  let said: string;
+  try {
+    const proc = Bun.spawn(
+      ["ffmpeg", "-nostdin", "-nostats", ...input, ...graphFile(graph, dir), "-f", "null", "-"],
+      { stderr: "pipe" },
+    );
+    said = await new Response(proc.stderr).text();
+    if ((await proc.exited) !== 0)
+      throw new Error(`ffmpeg couldn't measure the speech: ${said.trim()}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  const lufs = integrated(said);
+  return lufs > -70 ? Math.min(MAX_GAIN, LUFS - lufs) : 0;
 }
 
 /**
@@ -1314,12 +1503,14 @@ async function copyRender(
     fps,
     sounds,
     probes,
+    gain,
   }: {
     audio: boolean;
     size: string;
     fps: number;
     sounds: (Sound & { path: string })[];
     probes: Map<string, Awaited<ReturnType<typeof probe>>>;
+    gain: number;
   },
 ): Promise<boolean> {
   // ponytail: copies from the first source only, so its parameter sets are the only 0s; one per source if mixed edits need it.
@@ -1436,7 +1627,7 @@ async function copyRender(
     const length = cut.reduce((t, c) => t + c.to - c.from, 0);
     const graph = [
       ...speech,
-      ...mixGraph(sounds, { speech: audio, length, first: cut.length }),
+      ...mixGraph(sounds, { speech: audio, length, first: cut.length, gain }),
     ].join(";");
     await ffmpeg(
       [
@@ -1516,6 +1707,10 @@ export function segments(
 }
 
 /** What a file is, for a cache key: a file changed on disk gets a new key. */
+/** Effects with their files (a LUT) stamped, so one edited in place misses the cache. */
+const stampFiles = (effects: Effect[]) =>
+  effects.map((e) => (typeof e.file === "string" ? { ...e, file: stamp(e.file) } : e));
+
 const stamp = (file: string) => {
   const s = statSync(file);
   return `${resolve(file)}:${s.size}:${s.mtimeMs}`;
@@ -1574,6 +1769,7 @@ async function segmented(
     captionsY,
     texts,
     inserts,
+    adjust,
     sounds,
     out,
     named,
@@ -1587,6 +1783,7 @@ async function segmented(
     captionsY: number;
     texts: Text[];
     inserts: (Insert & { sdr?: string })[];
+    adjust: { from: number; to: number; effects: Effect[] }[];
     sounds: (Sound & { path: string })[];
     out?: string;
     named: string;
@@ -1610,11 +1807,13 @@ async function segmented(
       ...cues.map(({ start, end }) => ({ start, end, y: captionsY })),
       ...texts.map(({ from, to, y }) => ({ start: from, end: to, y })),
     ].map((l, i) => ({ ...l, image: images[i] as string, text: lines[i] }));
-    const put = inserts.map((i) => ({ path: i.path, start: i.from, end: i.to, sdr: i.sdr }));
+    const put = inserts.map(({ from, to, ...rest }) => ({ ...rest, start: from, end: to }));
+    const adjusted = adjust.map(({ from, to, effects }) => ({ start: from, end: to, effects }));
     const { starts, length } = timeline(clips);
     const cache = join(mockingbirdHome(), "cache", "segments");
     mkdirSync(cache, { recursive: true });
-    const runs = segments(clips, inserts);
+    // A segment never cuts through an insert or an adjustment layer.
+    const runs = segments(clips, [...inserts, ...adjust]);
     // ponytail: one segment at a time, since each is timed from the ones before; a first render is ~10% slower than one pass. Render the segments with nothing over them in parallel if that matters.
     const files: string[] = [];
     let reused = 0;
@@ -1632,6 +1831,7 @@ async function segmented(
           .map((x) => ({ ...x, start: Math.max(0, x.start - t0), end: x.end - t0 }));
       const laid = over(layers);
       const shown = over(put);
+      const adjusting = over(adjusted);
       const key = createHash("sha256")
         .update(
           JSON.stringify([
@@ -1644,18 +1844,19 @@ async function segmented(
             part.map((c) => ({
               ...c,
               path: stamp(c.path ?? path),
-              ...(c.effects && {
-                effects: c.effects.map((e) =>
-                  typeof e.file === "string" ? { ...e, file: stamp(e.file) } : e,
-                ),
-              }),
+              ...(c.effects && { effects: stampFiles(c.effects) }),
             })),
             // By its words, not its pixels: Chrome's antialiasing varies a little with the line drawn before.
             chrome ?? null,
             // The fonts are pinned, so which are there says what they draw.
             fonts.map((f) => f.url),
             laid.map((l) => [l.start, l.end, l.y, l.text]),
-            shown.map((s) => [s.start, s.end, stamp(s.path), s.sdr ?? null]),
+            shown.map(({ path: f, ...rest }) => ({
+              ...rest,
+              path: stamp(f),
+              ...(rest.effects && { effects: stampFiles(rest.effects) }),
+            })),
+            adjusting.map((a) => ({ ...a, effects: stampFiles(a.effects) })),
           ]),
         )
         .digest("hex")
@@ -1683,6 +1884,7 @@ async function segmented(
                 split,
                 overlays: laid,
                 inserts: shown,
+                adjust: adjusting,
                 whole: true,
               }),
               dir,
@@ -1709,9 +1911,10 @@ async function segmented(
     target = outputFor(named, out, false, kind);
     if (audio || sounds.length) {
       const unlevelled = join(dir, "unlevelled.mkv");
+      const gain = audio && sounds.length ? await speechGain(["-i", joined], ["[0:a]"]) : 0;
       const graph = [
         ...(audio ? ["[0:a]anull[speech]"] : []),
-        ...mixGraph(sounds, { speech: audio, length, first: 1 }),
+        ...mixGraph(sounds, { speech: audio, length, first: 1, gain }),
       ].join(";");
       await ffmpeg(
         [
@@ -1761,6 +1964,7 @@ async function render(
     captionsY = CAPTIONS_Y,
     texts = [],
     inserts = [],
+    adjust = [],
     sounds = [],
     out,
     named = path,
@@ -1776,6 +1980,8 @@ async function render(
     captionsY?: number;
     texts?: Text[];
     inserts?: Insert[];
+    /** Adjustment layers (#198): effects on everything under the text, each for its stretch. */
+    adjust?: { from: number; to: number; effects: Effect[] }[];
     sounds?: (Sound & { path: string })[];
     out?: string;
     /** The file the default output is named after and put beside: the source, unless this is render's last pass over joined batches. */
@@ -1796,9 +2002,21 @@ async function render(
     if (!(Number.isFinite(c.from) && Number.isFinite(c.to) && c.from >= 0 && c.to > c.from)) {
       throw new Error(`A clip needs 0 <= from < to, in seconds; got ${JSON.stringify(c)}.`);
     }
-    for (const e of checkEffects(c.effects, `clips[${i}].effects`)) {
-      if (typeof e.file === "string") requireFile(e.file, "LUT");
+    checkFx(c.effects, `clips[${i}].effects`);
+  }
+  for (const [i, t] of inserts.entries()) {
+    if (t.blend !== undefined && !BLENDS.includes(t.blend)) {
+      throw new Error(`inserts[${i}].blend must be one of ${BLENDS.join(", ")}; got ${t.blend}`);
     }
+    if (t.blend && t.blend !== "normal" && t.box) {
+      throw new Error(`inserts[${i}]: a blend mode covers the whole frame, so it can't have a box`);
+    }
+    checkFx(t.effects, `inserts[${i}].effects`, true);
+  }
+  for (const [i, a] of adjust.entries()) {
+    if (!(a.to > a.from)) throw new Error(`adjust[${i}] needs from < to`);
+    if (!a.effects.length) throw new Error(`adjust[${i}] needs effects`);
+    checkFx(a.effects, `adjust[${i}].effects`, true);
   }
   const files = [...new Set([path, ...clips.map((c) => c.path ?? path)])];
   for (const file of [...files, ...inserts.map((i) => i.path), ...sounds.map((s) => s.path)]) {
@@ -1851,6 +2069,7 @@ async function render(
     !split &&
     !draft &&
     !inserts.length &&
+    !adjust.length &&
     clips.every((c) => !c.transition && !c.sound && (c.speed ?? 1) === 1 && !c.effects?.length);
   // Nothing drawn and every clip as recorded: copying (#166) beats encoding segments to cache.
   if (cache && !draft && !soundOnly && !bare) {
@@ -1863,6 +2082,7 @@ async function render(
       captionsY,
       texts,
       inserts: placed,
+      adjust,
       sounds,
       out,
       named,
@@ -1889,6 +2109,7 @@ async function render(
         captionsY,
         texts,
         inserts,
+        adjust,
         sounds,
         out,
         named,
@@ -1921,6 +2142,17 @@ async function render(
     target = outputFor(named, out, sidecar, kind, soundOnly ? ".m4a" : ".mp4");
     const srt = text && !images ? join(dir, CAPTIONS) : undefined;
     if (srt) writeFileSync(srt, `${text}\n`);
+    const gain =
+      audio && sounds.length
+        ? await speechGain(
+            seekClips(path, clips),
+            shaped.flatMap((c, i) => {
+              if (c.silent) return [];
+              const ctx = { width: 1, height: 1, fps: rate, length: lengthOf(c) };
+              return [`${soundOf(c, i, ctx)}[m${i}]`];
+            }),
+          )
+        : 0;
     const graph = renderGraph(shaped, {
       audio,
       size: frameSize,
@@ -1932,12 +2164,10 @@ async function render(
         ...cues.map(({ start, end }) => ({ start, end, y: captionsY })),
         ...texts.map(({ from, to, y }) => ({ start: from, end: to, y })),
       ],
-      inserts: placed.map((i) => ({
-        start: i.from,
-        end: i.to,
-        ...("sdr" in i && { sdr: i.sdr }),
-      })),
+      inserts: placed.map(({ from, to, path: _, ...look }) => ({ start: from, end: to, ...look })),
+      adjust: adjust.map(({ from, to, effects }) => ({ start: from, end: to, effects })),
       sounds,
+      gain,
     });
     const extras = [
       ...(images ?? []).flatMap((image) => ["-i", image]),
@@ -1962,6 +2192,7 @@ async function render(
         fps: rate,
         sounds,
         probes,
+        gain,
       }).catch(() => false));
     if (!copied) {
       const proc = Bun.spawn(
@@ -2248,9 +2479,10 @@ async function motion(
       work = mkdtempSync(join(dirname(target), ".mockingbird-mix-"));
       const mixing = join(work, "mix.mkv");
       const levelled = join(work, "levelled.mp4");
+      const gain = audio ? await speechGain(["-i", target], ["[0:a]"]) : 0;
       const graph = [
         ...(audio ? ["[0:a]anull[speech]"] : []),
-        ...mixGraph(sounds, { speech: audio, length: frames / fps, first: 1 }),
+        ...mixGraph(sounds, { speech: audio, length: frames / fps, first: 1, gain }),
       ].join(";");
       const mix = Bun.spawn(
         [
@@ -3150,6 +3382,7 @@ async function renderProject(
     captionsY: cut.captions?.y ?? CAPTIONS_Y,
     texts: soundOnly ? [] : cut.texts,
     inserts: laid.inserts,
+    adjust: soundOnly ? [] : cut.adjust,
     sounds: [...(await beds(cut, log)), ...laid.sounds],
     out,
     named: file,
@@ -3158,6 +3391,77 @@ async function renderProject(
     soundOnly,
     cache: true,
   });
+}
+
+/**
+ * `export`: the project at `file` as FCPXML and/or OTIO (#198), each source
+ * probed for its length, size and rate. Never overwrites: a taken name gets -N.
+ */
+async function exportProject(file: string, format: string, out: unknown): Promise<string> {
+  if (!["fcpxml", "otio", "both"].includes(format)) {
+    throw new Error(`format must be fcpxml, otio or both; got ${format}`);
+  }
+  const project = load(requireFile(file, "Project")).project;
+  if (!project.clips.length) throw new Error(`${file} has no clips to export.`);
+  const compiled = compile(project, dirname(file));
+  // An HTML overlay is drawn by Chrome at render time, so there's no media for an editor to take.
+  const pages = compiled.inserts.filter((i) => /\.html?$/i.test(i.path));
+  const cut = { ...compiled, inserts: compiled.inserts.filter((i) => !pages.includes(i)) };
+  const paths = [
+    ...new Set([
+      ...cut.clips.map((c) => c.path),
+      ...cut.inserts.map((i) => i.path),
+      ...cut.sounds.flatMap((s) => (s.path ? [s.path] : [])),
+    ]),
+  ];
+  const facts = new Map<string, Source>();
+  for (const p of paths) {
+    const pr = await probe(requireFile(p, "Source"));
+    facts.set(p, {
+      seconds: pr.seconds,
+      video: pr.video,
+      audio: pr.audio,
+      size: pr.size,
+      fps: pr.fps,
+    });
+  }
+  const info = (p: string) => facts.get(p) as Source;
+  const first = info(cut.clips[0]?.path as string);
+  const size = cut.size ?? (cut.split ? "1080x1920" : first.size);
+  const fps = cut.fps ?? first.fps;
+  const name = basename(file).replace(/\.json$/i, "");
+  const dir = out === undefined ? dirname(file) : resolve(String(out));
+  mkdirSync(dir, { recursive: true });
+  const free = (ext: string) => {
+    for (let n = 0; ; n++) {
+      const f = join(dir, `${name}${n ? `-${n}` : ""}.${ext}`);
+      if (!existsSync(f)) return f;
+    }
+  };
+  const saved: string[] = [];
+  let left: string[] = [];
+  if (format !== "otio") {
+    const x = toFcpxml(cut, name, size, fps, info);
+    const f = free("fcpxml");
+    writeFileSync(f, x.text);
+    saved.push(f);
+    left = x.left;
+  }
+  if (format !== "fcpxml") {
+    const o = toOtio(cut, name, fps, info);
+    const f = free("otio");
+    writeFileSync(f, o.text);
+    saved.push(f);
+    // Both formats: everything either one leaves out, said once.
+    left = [...new Set([...left, ...o.left])];
+  }
+  if (pages.length) left = [...left, `${pages.length} HTML overlay page(s)`];
+  return [
+    `Saved ${saved.join(" and ")} (${size}, ${fps} fps, ${cut.clips.length} clips).`,
+    left.length ? `Not carried, so redo them in the editor: ${left.join("; ")}.` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 /** A tool's `model` and `language`, each only if given. */
@@ -3199,6 +3503,14 @@ function area(value: unknown, what: string): Area {
   };
   if (r.x + r.w > 1.001 || r.y + r.h > 1.001) throw new Error(`${what} goes past the picture`);
   return r;
+}
+
+/** An insert's box: an area, and the `path` `track` gives to move it with a subject. */
+function tracked(value: unknown, what: string): NonNullable<Look["box"]> {
+  const path = (value as { path?: unknown } | null)?.path;
+  if (path === undefined) return area(value, what);
+  checkPath(path, `${what}.path`);
+  return { ...area(value, what), path: path as Point[] };
 }
 
 /** A stretch of the finished video, `from` before `to`. */
@@ -3287,7 +3599,8 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
       description: `Edit a project file (project.json): an edit kept between calls, whose clips can come from several sources and whose texts, b-roll and sounds stay on their clips as the cut changes. Applies \`ops\` in order, all or none, saves, and returns an outline: each clip's place in the finished video and what's on it. Makes the file if it isn't there; no ops only reads it. You can also edit the JSON by hand. Times: a clip's from/to are seconds in its source (as \`transcribe\` gives them); a text's, insert's or sound's are seconds from the start of its \`clip\` in the finished video, or of the video without one. Ops:
 - {op:"add", type:"clip", path, from, to, focus?:{x,y}, zoom?, speed?, moves?, transition?, lead?, index?}: on the main track, which plays in order with no gaps (default at the end). speed: 0.25-4. moves: [{at, focus?, zoom?, ease?}], the framing by \`at\` seconds into the clip, eased ("smooth", or "linear") from the one before: a slow push-in, a move to the other speaker. transition: {type, duration}, how the clip comes in over the end of the one before: ffmpeg xfade's fade, fadeblack, fadewhite, dissolve, wipe*, slide*, smooth*, circleopen, zoomin and others. lead: a J cut (positive: the clip's sound starts that many seconds before its picture) or an L cut (negative: the clip before's sound carries on over its picture)
 - {op:"add", type:"text", text, from, to, clip?, y?}: drawn like the captions, *words* yellow
-- {op:"add", type:"insert", path, from, to, clip?}: a picture or video over the whole frame (b-roll)
+- {op:"add", type:"insert", path, from, to, clip?, box?, blend?, effects?, moves?}: a picture or video over the whole frame (b-roll). box: {x, y, w, h, path?}, 0-1 of the picture, makes it a picture in the picture; path, from track, moves it with a subject. blend: screen, multiply, overlay, softlight, lighten, darken, addition or difference (whole frame only). effects: from the catalog; chromakey keys a green screen over the cut. moves: as a clip's, a Ken Burns pan over a still
+- {op:"add", type:"adjust", from, to, clip?, effects}: an adjustment layer; its effects change everything under the text (clips and inserts) for its stretch, e.g. a grade over a whole section
 - {op:"add", type:"audio", path, at?, clip?, volume?, loop?, duck?}: music or a sound effect under the speech. Or generated music in place of path: generator:{generator:"/abs/lofi.js", tempo?, key?, energy?, seed?, length?} (a music generator; the bed is made at render time, as long as the video from at or \`length\` seconds if given, and kept, so it isn't made again)
 - {op:"remove", id}: a clip goes with everything on it, and the cut closes up
 - {op:"split", id, at}: a clip in two at a source time; what's on the second half moves with it
@@ -3405,8 +3718,42 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
               "Pictures or videos (b-roll) laid over the whole frame for a stretch of the finished video while the speech carries on, under the text. Scaled to fill; a video's own sound isn't used.",
             items: {
               type: "object",
-              properties: { path, from: { type: "number" }, to: { type: "number" } },
+              properties: {
+                path,
+                from: { type: "number" },
+                to: { type: "number" },
+                box: {
+                  type: "object",
+                  description:
+                    "{x, y, w, h, path?}, 0-1 of the picture: a picture in the picture, filled to the box. path: the points `track` gives, to move the box with a subject (a title that follows someone)",
+                },
+                blend: {
+                  type: "string",
+                  enum: BLENDS,
+                  description: "How it mixes with the cut under it (whole frame only)",
+                },
+                effects: {
+                  type: "array",
+                  items: { type: "object" },
+                  description:
+                    "Effects from the catalog, on the insert alone: chromakey keys a green screen so the cut shows through",
+                },
+              },
               required: ["path", "from", "to"],
+            },
+          },
+          adjust: {
+            type: "array",
+            description:
+              "Adjustment layers: catalog effects on everything under the text (the clips and the inserts) from `from` to `to` seconds of the finished video",
+            items: {
+              type: "object",
+              properties: {
+                from: { type: "number" },
+                to: { type: "number" },
+                effects: { type: "array", items: { type: "object" } },
+              },
+              required: ["from", "to", "effects"],
             },
           },
           audio: {
@@ -3476,6 +3823,15 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
             inserts: items(a.inserts).map((t, i) => ({
               path: resolve(String(t.path)),
               ...stretch(t, `inserts[${i}]`),
+              ...(t.box === undefined ? {} : { box: tracked(t.box, `inserts[${i}].box`) }),
+              ...(t.blend === undefined ? {} : { blend: String(t.blend) }),
+              ...(t.effects === undefined
+                ? {}
+                : { effects: checkEffects(t.effects, `inserts[${i}].effects`) }),
+            })),
+            adjust: items(a.adjust).map((t, i) => ({
+              ...stretch(t, `adjust[${i}]`),
+              effects: checkEffects(t.effects ?? [], `adjust[${i}].effects`),
             })),
             sounds: items(a.audio).map((t, i) => ({
               path: resolve(String(t.path)),
@@ -3654,6 +4010,100 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
         "The effects catalog: each effect's name, whether it's on the picture or the sound, and its settings with their ranges and defaults. Put effects on a project's clip with edit's {op:\"set\", id, effects:[{name:\"color\", exposure:0.5}, {name:\"denoise\", amount:0.4}]}, or on render's clips (effects: [...]). They apply in order, after the clip's framing; check a grade with `scopes`.",
       inputSchema: { type: "object", properties: {} },
       run: async () => catalog(),
+    },
+    {
+      name: "sync",
+      description:
+        "Line up recordings of one take (two or more cameras, or a camera and a separate recorder) by their sound, for a multicam edit. Gives each file's offset against the first: a moment at t seconds in it is at t + offset in the first. To cut to another angle at T seconds of the first's clock, add a project clip from that file with from = T - offset. Reads the first `window` seconds of each (default 120); a score under about 0.3 means the sound didn't match and the offset is a guess. It finds offsets up to half the window: for recordings started more than a minute apart, give a window over twice the gap.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          paths: {
+            type: "array",
+            items: { type: "string" },
+            description: "The recordings, the first as the reference",
+          },
+          window: {
+            type: "number",
+            description:
+              "Seconds of each to compare (default 120); offsets up to half of it are found",
+          },
+        },
+        required: ["paths"],
+      },
+      run: async (a) => {
+        const paths = items(a.paths as unknown).map((p) => requireFile(resolve(String(p)), "File"));
+        const done = await sync(paths, within(a.window, 10, 1200, "window", 120));
+        return done
+          .map((d, i) =>
+            i === 0
+              ? `${d.path}: the reference`
+              : `${d.path}: offset ${d.offset >= 0 ? "+" : ""}${d.offset.toFixed(3)} s (score ${d.score.toFixed(2)}${d.score < 0.3 ? ", a guess" : ""})`,
+          )
+          .join("\n");
+      },
+    },
+    {
+      name: "track",
+      description:
+        "Follow a box through a video: give where the subject is at `from` (x, y, w, h, 0-1 of the picture) and get its top left over time, five points a second, `at` seconds from `from`. Give the points as a mask's `path` (with the box's w and h) to keep a blur or a grade on a moving face, plate or logo. They're in the source picture, so they line up with the clip when it isn't reframed. `worst` is the weakest match on the way: under about 0.5 the subject was probably lost there; track shorter stretches. Up to two minutes a call.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path: { type: "string" },
+          from: { type: "number", description: "Seconds where the box is given" },
+          to: { type: "number", description: "Seconds to follow it to" },
+          box: {
+            type: "object",
+            properties: {
+              x: { type: "number" },
+              y: { type: "number" },
+              w: { type: "number" },
+              h: { type: "number" },
+            },
+            required: ["x", "y", "w", "h"],
+          },
+        },
+        required: ["path", "from", "to", "box"],
+      },
+      run: async (a) => {
+        const path = requireFile(resolve(String(a.path)), "File");
+        const source = await probe(path);
+        const from = within(a.from, 0, source.seconds, "from", 0);
+        // Two minutes at most: every frame is held at 320 wide, about 330 MB for a 9:16 window.
+        const end = Math.min(source.seconds, from + 120);
+        const to = within(a.to, from, end, "to", end);
+        const b = (a.box ?? {}) as Record<string, unknown>;
+        const box = {
+          x: within(b.x, 0, 1, "box.x", 0),
+          y: within(b.y, 0, 1, "box.y", 0),
+          w: within(b.w, 0.01, 1, "box.w", 0.2),
+          h: within(b.h, 0.01, 1, "box.h", 0.2),
+        };
+        if (box.x + box.w > 1 || box.y + box.h > 1) throw new Error("box must fit in the picture");
+        const [w, h] = source.size.split("x").map(Number) as [number, number];
+        return JSON.stringify(await track(path, from, to, box, w / h));
+      },
+    },
+    {
+      name: "export",
+      description:
+        "Save a project as FCPXML 1.10 (Final Cut Pro, DaVinci Resolve, Premiere through it) and OpenTimelineIO (.otio: Resolve, Premiere, Avid through OTIO's adapters), so a person can finish the cut in an editor. Carries the clips with their source times and transitions, inserts on video tracks above, texts as titles (markers in OTIO) and sounds on audio tracks; returns what an editor can't take this way (effects, framing, generated music). Saves beside the project as <name>.fcpxml and <name>.otio, or in `out`, a folder, and never overwrites.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          project: { type: "string", description: "The project file (project.json)" },
+          format: {
+            type: "string",
+            enum: ["fcpxml", "otio", "both"],
+            description: "Which to save (default both)",
+          },
+          out: { type: "string", description: "A folder to save in (default the project's)" },
+        },
+        required: ["project"],
+      },
+      run: async (a) =>
+        exportProject(resolve(String(a.project)), String(a.format ?? "both"), a.out),
     },
     {
       name: "scopes",
