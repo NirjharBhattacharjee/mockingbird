@@ -53,7 +53,7 @@ describe("mockingbird", () => {
 
 test("engineStatus says what's installed", () => {
   const home = mkdtempSync(join(tmpdir(), "mb-status-"));
-  expect(engineStatus(home, () => null, {})).toEqual({
+  expect(engineStatus(home, () => null, { CLAUDE_CONFIG_DIR: home })).toEqual({
     transcriptionModel: null,
     vadModel: false,
     ffmpeg: false,
@@ -61,6 +61,7 @@ test("engineStatus says what's installed", () => {
     whisperServer: false,
     chrome: false,
     dictionaryWords: 0,
+    oldPlugin: null,
   });
   expect(engineStatus(home, () => null, { MOCKINGBIRD_CHROME: process.execPath }).chrome).toBe(
     true,

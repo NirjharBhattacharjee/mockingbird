@@ -97,6 +97,23 @@ function modelThere(mb: string, file: string): boolean {
 
 const gb = (bytes: number) => `${(bytes / 1e9).toFixed(1)} GB`;
 
+/** Whether Claude Code still has the mockingbird-studio plugin from before v0.4.2, whose playbooks no longer match the engine (#256). */
+export function oldPlugin(
+  env: Record<string, string | undefined> = process.env,
+  home = homedir(),
+): boolean {
+  const dir = env.CLAUDE_CONFIG_DIR || join(home, ".claude");
+  try {
+    const file = JSON.parse(readFileSync(join(dir, "plugins", "installed_plugins.json"), "utf8"));
+    return Object.keys(file.plugins ?? {}).some((k) => k.startsWith("mockingbird-studio@"));
+  } catch {
+    return false;
+  }
+}
+
+export const OLD_PLUGIN_FIX =
+  "in Claude Code, `/plugin uninstall mockingbird-studio`, then `/plugin marketplace add NirjharBhattacharjee/mockingbird` and `/plugin install mockingbird@mockingbird`";
+
 /** Every check, in the order `doctor` prints them. `needed` ones decide its exit code. */
 export function checks(deps: SetupDeps = {}): Check[] {
   const which = deps.which ?? ((name: string) => Bun.which(name));
@@ -208,6 +225,16 @@ export function checks(deps: SetupDeps = {}): Check[] {
     detail: books ? `${books}, for \`guide\`` : "the plugin/ folder is missing",
     fix: "reinstall mockingbird",
   });
+  if (oldPlugin(deps.env ?? process.env, deps.home ?? homedir())) {
+    list.push({
+      name: "old plugin",
+      needed: false,
+      ok: false,
+      detail:
+        "Claude Code has the old mockingbird-studio plugin, whose playbooks don't match this engine",
+      fix: OLD_PLUGIN_FIX,
+    });
+  }
   return list;
 }
 

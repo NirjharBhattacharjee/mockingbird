@@ -50,7 +50,8 @@ Then in Claude Code:
 
 It was called mockingbird-studio and lived in its own repo until v0.4.2. If
 you installed that one, remove it (`/plugin uninstall mockingbird-studio`)
-so Claude doesn't load two copies of every skill.
+so Claude doesn't load two copies of every skill. `mockingbird doctor` and
+the `status` tool say so when it's still installed.
 
 Other agents (Codex, Cursor, Gemini CLI and the rest) don't need the plugin:
 mockingbird's MCP server hands them the same playbooks through its `guide`
