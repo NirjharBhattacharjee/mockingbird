@@ -16,8 +16,9 @@ correct the HDR conversion yourself.
 
 ## 1. Measure each shot
 
-`scopes` with `from` and `to` on each clip's stretch of its source. One
-number over a whole edit hides a dark shot between two bright ones. If the
+`scopes` with `from` and `to` on each clip's stretch of its source, and
+`every: 0.2` for a clip under 3 s (the default reads one frame a second).
+One number over a whole edit hides a dark shot between two bright ones. If the
 edit crops (`vertical`, `zoom`), render it once ungraded and measure each
 clip's span in that instead: a face that fills a 9:16 frame reads darker
 than the wide shot it came from (0.36 against 0.48 on the #252 vlog).
@@ -33,7 +34,13 @@ Write down, per clip:
 | skin | within 5° of the skin-tone line |
 
 `skin` counts every skin-coloured pixel. With no face in the `frames`,
-it's reading wood, sand or a brown sign, so ignore it for that shot.
+it's reading wood, sand or a brown sign, so ignore it for that shot. With
+a face and a lot of brown behind it, the number mixes the two: treat it as
+a rough guide, and judge the face in `frames`.
+
+Low saturation can be the brief: black and white, night, or the `faded`
+look. Then keep it, skip the saturation range here and in step 5, and
+grade the rest as usual.
 
 Slides, screen recordings and white product shots are mostly white on
 purpose: clipped whites and low saturation there are the page, not a
@@ -63,8 +70,11 @@ and measure again. These are steps that measured well, not formulas:
 
 ## 3. Match the shots
 
-Measure each corrected clip again. Next to each other, clips should be
-within about 0.05 in mean luma, 0.03 in saturation and 3° in skin. Past
+Measure each corrected clip again. Next to each other, two shots of the
+same scene (the same place and light, the same camera or a second angle on
+it) should be within about 0.05 in mean luma, 0.03 in saturation and 3° in
+skin. A cut to a different picture on purpose (a screen, slides, b-roll, a
+card) keeps its own look. Past
 that, the cut jumps. Move the odd one toward the others, not the others
 toward it. Two cameras or two lighting setups usually need their own
 `temperature`.
@@ -131,7 +141,8 @@ sign, a bird in grass), `punchy`, in three rounds:
 
 Render, then `scopes` on the render over each clip's span in the finished
 video, and `frames` to look. Done when every clip is in step 1's ranges
-(or the reference's) and next to its neighbours as in step 3. If a number
+(or the reference's, or the brief's low saturation) and matches the shots
+of its scene as in step 3. If a number
 is still out after three rounds, say which one and why (a scene shot
 against the sun can't be fixed without clipping), and move on.
 

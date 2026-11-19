@@ -44,14 +44,19 @@ fails, where, and which render option fixes it.
      the crop; no zoom so tight it's blurry.
    - Text is on screen long enough to read and never overlaps the captions.
    - B-roll fills the frame and matches what's being said.
-5. **Colour.** mockingbird's `scopes` once per shot (`scenes` gives the
-   cuts; measure from each cut to the next, with `every: 0.2` for a shot
-   under 3 s so it reads more than one or two frames). Fails, per shot:
+5. **Colour.** mockingbird's `scopes` once per shot, with `every: 0.2` for a
+   shot under 3 s so it reads more than one or two frames. A shot runs from
+   one cut to the next: the cuts `scenes` finds, plus the edit's own clip
+   boundaries, since `scenes` misses a jump cut within one camera shot.
+   Fails, per shot:
    - saturation under 0.08 (washed out), unless the brief asked for it:
      black and white, night, or the `faded` look;
    - crushed blacks or clipped whites over 1%;
    - skin more than 5° off the skin-tone line, in a shot whose stills show
-     a face (without one, `skin` is reading something else brown);
+     a face (without one, `skin` is reading something else brown). `skin`
+     averages every skin-coloured pixel, so with a face and a lot of wood,
+     sand or brown behind it the number mixes them: report it as
+     inconclusive rather than a fail;
    - two shots of the same scene next to each other more than about 0.05
      apart in mean luma, 0.03 in saturation or 3° in skin, so the cut
      jumps. A cut to a different picture on purpose (the face to a screen
