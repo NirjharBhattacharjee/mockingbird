@@ -32,7 +32,8 @@ const COMMAND_TIMEOUT_MS = 60_000;
  * NUL), so it opens no port. Chrome's own sandbox is off, since it can't
  * start inside another one: run this under an OS sandbox, as
  * `apps/daemon/src/motion-run.ts` does with `sandbox-exec`, or start Chrome
- * in one with `wrap`, a command Chrome's own is appended to.
+ * in one with `wrap`, a command Chrome's own is appended to. `flags` are
+ * more switches for Chrome.
  *
  * It can't reach the network on any OS (#157), whatever page or script any
  * tab runs: no host name resolves; everything else, an IP address or
@@ -43,7 +44,7 @@ const COMMAND_TIMEOUT_MS = 60_000;
  */
 export async function launchChrome(
   path: string,
-  { wrap = [], gpu = false }: { wrap?: string[]; gpu?: boolean } = {},
+  { wrap = [], gpu = false, flags = [] }: { wrap?: string[]; gpu?: boolean; flags?: string[] } = {},
 ): Promise<Chrome> {
   const profile = mkdtempSync(join(tmpdir(), "mockingbird-chrome-"));
   const [program = path, ...before] = [...wrap, path];
@@ -84,6 +85,7 @@ export async function launchChrome(
       // WebRTC's UDP doesn't go through a proxy, so without this a page could
       // reach a STUN server by its IP address.
       "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+      ...flags,
       "about:blank",
     ],
     { stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"] },

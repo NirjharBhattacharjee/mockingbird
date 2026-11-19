@@ -3098,10 +3098,10 @@ async function beds(
         await music(script, part, params);
         renameSync(part, wav);
       } catch (error) {
-        // Generating grows with the square of the length: 74 s took 16 s on an M3, 300 s over 6 minutes (#266).
+        // A generator that schedules every note up front takes time that grows with the square of the length (#272).
         if (/didn't answer/.test(String(error))) {
           throw new Error(
-            `${basename(script)} couldn't make ${params.duration.toFixed(0)} s of music in time: a long bed takes much longer than a short one. Give the sound a \`length\` (just the part that needs music), or make a shorter bed with \`music\` and \`loop\` it. (${(error as Error).message})`,
+            `${basename(script)} couldn't make ${params.duration.toFixed(0)} s of music in time. If it schedules every note up front, wrap each bar in lib.js's \`soon\` so it's made as it plays. Or give the sound a \`length\` (just the part that needs music), or make a shorter bed with \`music\` and \`loop\` it. (${(error as Error).message})`,
           );
         }
         throw error;
@@ -4024,7 +4024,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
     {
       name: "status",
       description:
-        "Whether mockingbird is ready: the transcription model in use, and whether ffmpeg and whisper-server are installed.",
+        "Whether mockingbird is ready: the transcription model in use, and whether ffmpeg and whisper-server are installed. A non-null `oldPlugin` means Claude Code still has the out-of-date mockingbird-studio plugin; tell the user how to switch.",
       inputSchema: { type: "object", properties: {} },
       run: async () => JSON.stringify(await status()),
     },
