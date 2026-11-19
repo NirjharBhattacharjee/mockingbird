@@ -2144,6 +2144,7 @@ async function motion(
     fps = 30,
     captions,
     out,
+    gpu,
   }: {
     path?: string;
     size?: string;
@@ -2151,6 +2152,8 @@ async function motion(
     fps?: number;
     captions?: string;
     out?: string;
+    /** Draw on the GPU; by default, when the page imports "THREE". */
+    gpu?: boolean;
   },
 ): Promise<string> {
   requireFile(script, "Script");
@@ -2207,7 +2210,7 @@ async function motion(
     fonts: fontFaces(),
     videoFilters,
     // A three.js page draws on the GPU; 2D pages keep software rendering's exact pixels (#270).
-    gpu: readFileSync(script, "utf8").includes('from "THREE"'),
+    gpu: gpu ?? readFileSync(script, "utf8").includes('from "THREE"'),
   };
   let said: string;
   try {
@@ -2288,13 +2291,6 @@ export type Board = {
   stat?: { value: number; unit?: string; label?: string };
 };
 
-/**
- * Builds the look the agent wrote at `file` (TypeScript or JavaScript) into
- * one module beside it, `<name>.look.js`, that a page imports. Its imports of
- * "STYLES" (the styles and their helpers) are bundled in; "KIT" stays an
- * import of the plugin's kit.js. A mistake comes back with its line. Returns
- * the module's path.
- */
 /** A build message with its place: `file:line:column: message`, then the line. */
 function where(log: unknown): string {
   const { message, position: p } = log as {
@@ -2305,6 +2301,13 @@ function where(log: unknown): string {
   return `${p.file}:${p.line}:${p.column}: ${message}\n  ${p.lineText.trim()}`;
 }
 
+/**
+ * Builds the look the agent wrote at `file` (TypeScript or JavaScript) into
+ * one module, `out` (`<name>.look.js` beside it by default), that a page
+ * imports. "STYLES", "KIT" and "THREE" stay imports of the plugin's built
+ * files by their file URLs, so the module holds only the look itself. A
+ * mistake comes back with its line. Returns the module's path.
+ */
 export async function buildLook(
   file: string,
   out = join(dirname(file), `${basename(file, extname(file))}.look.js`),
@@ -2313,7 +2316,6 @@ export async function buildLook(
   if (!/\.(ts|js|mjs)$/i.test(file)) {
     throw new Error(`A look is a .ts or .js module; ${file} isn't one.`);
   }
-  const styles = join(MOTION, "styles", "index.ts");
   let built: Awaited<ReturnType<typeof Bun.build>>;
   try {
     built = await Bun.build({
@@ -2324,14 +2326,14 @@ export async function buildLook(
         {
           name: "mockingbird-look",
           setup(b) {
-            b.onResolve({ filter: /^STYLES$/ }, () => ({ path: styles }));
-            // The kit stays the plugin's kit.js, imported by its file URL, not
-            // bundled: its sounds and grain are found beside it, and a bundled
-            // copy would look for them beside the look (#263).
-            b.onResolve({ filter: /^KIT$|[\\/]kit\.ts$/ }, () => ({
-              path: KIT_URL,
-              external: true,
-            }));
+            // The plugin's built files, imported by their file URLs, not bundled:
+            // the kit finds its sounds and grain beside itself (a bundled copy
+            // would look beside the look), and a page that imports STYLES too
+            // loads one copy of the styles, not two (#263).
+            const external = (path: string) => () => ({ path, external: true });
+            b.onResolve({ filter: /^KIT$|[\\/]kit\.ts$/ }, external(KIT_URL));
+            b.onResolve({ filter: /^STYLES$/ }, external(STYLES_URL));
+            b.onResolve({ filter: /^THREE$/ }, external(THREE_URL));
           },
         },
       ],
@@ -2356,14 +2358,19 @@ export function boardFrom(v: unknown): Board {
   if (typeof o !== "object" || Array.isArray(o)) throw new Error("board must be an object");
   const short = (s: unknown, what: string, max: number) => {
     if (typeof s !== "string" || !s.trim()) throw new Error(`${what} must be some words`);
-    if (s.length > max) throw new Error(`${what} is ${s.length} characters; keep it to ${max}`);
-    return s.trim();
+    const t = s.trim();
+    if (t.length > max) throw new Error(`${what} is ${t.length} characters; keep it to ${max}`);
+    return t;
   };
   const points = o.points ?? [];
   if (!Array.isArray(points) || points.length > 3) {
     throw new Error("board.points must be a list of up to three labels");
   }
-  const stat = o.stat as Record<string, unknown> | undefined;
+  // null is no stat, as a client leaving it out often sends it.
+  const stat = (o.stat ?? undefined) as Record<string, unknown> | undefined;
+  if (stat !== undefined && (typeof stat !== "object" || Array.isArray(stat))) {
+    throw new Error("board.stat must be { value, unit?, label? }");
+  }
   return {
     title: o.title === undefined ? "Your video" : short(o.title, "board.title", 60),
     points: points.map((p, i) => short(p, `board.points[${i}]`, 24)),
@@ -2371,7 +2378,7 @@ export function boardFrom(v: unknown): Board {
       stat === undefined
         ? undefined
         : {
-            value: within(stat.value, 0, 1e9, "board.stat.value"),
+            value: within(stat.value, -1e9, 1e9, "board.stat.value"),
             unit: stat.unit === undefined ? undefined : short(stat.unit, "board.stat.unit", 4),
             label: stat.label === undefined ? undefined : short(stat.label, "board.stat.label", 24),
           },
@@ -2431,7 +2438,6 @@ async function lookBoard(
   let drawn: string;
   try {
     await buildLook(file, mine);
-    copyFileSync(mine, module);
     const url = JSON.stringify(pathToFileURL(mine).href);
     // Inline as data, never as code: "<" escaped so a title can't close the script,
     // and given through callbacks so "$&" in it isn't a replacement pattern.
@@ -2439,12 +2445,14 @@ async function lookBoard(
     writeFileSync(
       page,
       readFileSync(template, "utf8")
-        .replace('from "LOOK"', () => `from ${url}`)
-        .replace('const BOARD = "BOARD";', () => `const BOARD = ${words};`),
+        .replaceAll('from "LOOK"', () => `from ${url}`)
+        .replaceAll('const BOARD = "BOARD";', () => `const BOARD = ${words};`),
     );
+    // A 3D look draws on the GPU, as a page that imports THREE does.
+    const gpu = readFileSync(file, "utf8").includes('from "THREE"');
     drawn = await motion(
       page,
-      path ? { path, duration, out: target } : { size, duration, out: target },
+      path ? { path, duration, out: target, gpu } : { size, duration, out: target, gpu },
     );
     // Twelve stills over the clip as drawn: over a shorter `path`, it's shorter than `duration`.
     const length = (await probe(target)).seconds || duration;
@@ -2452,8 +2460,14 @@ async function lookBoard(
       ["-i", target, "-vf", `fps=12/${length},scale=480:-2,tile=4x3`, "-frames:v", "1", sheet],
       "make the contact sheet",
     );
+    // Only a look that drew becomes the one the edit's pages import, swapped in
+    // whole so a render reading it never sees half a file.
+    const swap = `${module}.${stamp}.tmp`;
+    copyFileSync(mine, swap);
+    renameSync(swap, module);
   } catch (error) {
     rmSync(sheet, { force: true });
+    rmSync(target, { force: true });
     throw error;
   } finally {
     rmSync(page, { force: true });

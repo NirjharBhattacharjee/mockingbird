@@ -1616,19 +1616,22 @@ test("level brings each source to the target once, within 30 dB (#265)", async (
 });
 
 describe("look (#262)", () => {
-  test("a look builds into one module with STYLES' helpers in it", async () => {
+  test("a look builds into one module that imports STYLES and THREE by their files", async () => {
     const dir = mkdtempSync(join(tmpdir(), "mb-look-"));
     try {
       const file = join(dir, "warm.ts");
       writeFileSync(
         file,
-        'import { frame } from "STYLES";\nexport default { id: "warm", name: "Warm", category: "Test", make: (ctx: any, t: number, m: any) => frame(m) };\n',
+        'import { frame } from "STYLES";\nimport * as THREE from "THREE";\nexport const v = new THREE.Vector3();\nexport default { id: "warm", name: "Warm", category: "Test", make: (ctx: any, t: number, m: any) => frame(m) };\n',
       );
       const built = await buildLook(file);
       expect(built).toBe(join(dir, "warm.look.js"));
       const code = readFileSync(built, "utf8");
       expect(code).not.toContain('from "STYLES"');
-      expect(code).toContain("function frame");
+      // One copy of the styles: the page's, not one bundled into each look.
+      expect(code).toContain(STYLES_URL);
+      expect(code).not.toContain("function frame");
+      expect(code).toContain(THREE_URL);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -1675,6 +1678,12 @@ describe("look (#262)", () => {
       stat: { value: 40, unit: "%", label: undefined },
     });
     expect(boardFrom(undefined).title).toBe("Your video");
+    // null is no stat; a label padded past the limit fits once trimmed.
+    expect(boardFrom({ stat: null }).stat).toBeUndefined();
+    expect(boardFrom({ points: [`  ${"x".repeat(24)}  `] }).points).toEqual(["x".repeat(24)]);
+    expect(() => boardFrom({ stat: 5 })).toThrow("board.stat must be");
+    // A drop is a stat too.
+    expect(boardFrom({ stat: { value: -40, unit: "%" } }).stat?.value).toBe(-40);
     expect(() => boardFrom({ points: ["a", "b", "c", "d"] })).toThrow("up to three");
     expect(() => boardFrom({ title: "x".repeat(61) })).toThrow("keep it to 60");
   });
