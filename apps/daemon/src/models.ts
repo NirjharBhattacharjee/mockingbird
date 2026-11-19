@@ -852,12 +852,17 @@ export async function pullChrome(deps: PullDeps = {}): Promise<number> {
     if (pin) await installChrome(pin, bin, deps);
     // The fonts even with no pin, for a MOCKINGBIRD_CHROME to use.
     await pullFiles(deps.fonts ?? FONT_FILES, join(home, "fonts"), deps);
-    // Their licences beside them; not when a test passes its own fonts.
+    // Their licences beside them; not when a test passes its own fonts. A
+    // licence that won't download is said, not a failed pull: the fonts work.
     await pullFiles(
       deps.licences ?? (deps.fonts ? [] : FONT_LICENCES),
       join(home, "fonts", "licences"),
       deps,
-    );
+    ).catch((error) => {
+      (deps.log ?? console.error)(
+        `The fonts' licences didn't download (${error instanceof Error ? error.message : error}); run \`mockingbird models pull chrome\` again for them.`,
+      );
+    });
   } finally {
     rmSync(lock, { force: true });
   }

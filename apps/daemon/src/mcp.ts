@@ -15,7 +15,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { type AsrWord, stripNonSpeech } from "@mockingbird/asr";
 import { loadAudio, type PcmAudio } from "@mockingbird/audio";
 import {
@@ -655,8 +655,14 @@ export function lookCaptions(v: unknown, what = "captionStyle"): unknown {
       (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255 >= 0.35
     );
   };
-  const active = [r.accent, r.ink].find(light);
-  return { font, ...(active && { active }), ...rest };
+  const accent = [r.accent, r.ink].find(light);
+  // The colour goes where the preset puts its lit word: behind it on a pill
+  // (the word stays dark on it), on it otherwise, and nowhere for a preset
+  // with no lit word, like subtitle.
+  const presets: Record<string, CaptionStyle> = CAPTION_PRESETS;
+  const p = presets[String(rest.preset ?? "classic")];
+  const lit = !p ? {} : p.pill ? { pill: accent } : p.active !== p.fill ? { active: accent } : {};
+  return { font, ...(accent && lit), ...rest };
 }
 
 /** render's `captionStyle`, and a project's `captions.style` (#276). */
@@ -1205,8 +1211,8 @@ const srtClock = (seconds: number) => {
   return `${hh}:${mm}:${ss},${String(ms % 1000).padStart(3, "0")}`;
 };
 
-/** Chinese and Japanese script, written without spaces between words. */
-const CJK = /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]/;
+/** Chinese and Japanese script and its punctuation (。、「」！？), written without spaces. */
+const CJK = /[\u3000-\u30ff\u3400-\u9fff\uf900-\ufaff\uff00-\uffef]/;
 
 /** Words as a line: a space between them, except between two Chinese or Japanese ones. */
 const joined = (words: string[]) =>
@@ -1258,7 +1264,7 @@ export function wordCaptions(
         text: upper ? text.toLocaleUpperCase() : text,
         start: at(Math.max(start, from)),
         end: at(Math.min(end, to)),
-        ends: /[.?!]["')\]]?$/.test(w.word),
+        ends: /[.?!。！？]["')\]」』]?$/.test(w.word),
       };
       const last = page.at(-1);
       const chars = page.reduce((n, w) => n + w.text.length, 0);
@@ -1885,6 +1891,18 @@ function stampFolder(hash: Hash, dir: string, keep: (name: string) => boolean = 
   walk(dir);
 }
 
+/**
+ * The fonts a page draws with, for a cache key: each file's path, size and
+ * time. A pinned font never changes, but a user's can be replaced under the
+ * same name (#276).
+ */
+function fontStamps(fonts: PageFont[]): [string, number, number][] {
+  return fonts.map((f) => {
+    const s = statSync(fileURLToPath(f.url), { throwIfNoEntry: false });
+    return [f.url, s?.size ?? 0, s?.mtimeMs ?? 0];
+  });
+}
+
 /** The engine's own code, so a segment drawn by an older engine isn't used again. */
 // ponytail: the files that build the picture, not everything they import; add any whose change goes unnoticed.
 const ENGINE = createHash("sha256")
@@ -2007,8 +2025,8 @@ async function segmented(
             })),
             // By its words, not its pixels: Chrome's antialiasing varies a little with the line drawn before.
             chrome ?? null,
-            // The fonts are pinned, so which are there says what they draw.
-            fonts.map((f) => f.url),
+            // Which fonts are there, and each file's size and time, say what they draw.
+            fontStamps(fonts),
             han,
             style,
             laid.map((l) => [l.start, l.end, l.y, l.text]),
@@ -3574,7 +3592,7 @@ async function overlays(
     // drawn before the font check (#276) are drawn again, through it.
     const fonts = fontFaces();
     const hash = createHash("sha256").update(
-      JSON.stringify([3, basename(page), look, duration, fonts.map((f) => f.url)]),
+      JSON.stringify([3, basename(page), look, duration, fontStamps(fonts)]),
     );
     stampFolder(hash, dirname(page));
     // The kit and the styles live in the plugin, not beside the page: a rebuilt

@@ -632,6 +632,14 @@ describe("wordCaptions", () => {
     expect(lit).toBe("今*日*は");
   });
 
+  test("CJK punctuation joins without a space and ends a cue (#276)", () => {
+    const words = ["試しました", "。", "次"].map((c, i) => w(c, i * 0.3, i * 0.3 + 0.3));
+    const lines = wordCaptions([{ from: 0, to: 2 }], [words], { lit: false })
+      .split("\n\n")
+      .map((b) => b.split("\n")[2]);
+    expect(lines).toEqual(["試しました。", "次"]);
+  });
+
   test("a cue never shows more than 20 characters a second (#276)", () => {
     // Three long words said in 0.6 s: 30 characters would be 50 a second.
     const srt = wordCaptions(
@@ -2023,4 +2031,9 @@ test("a caption style with a look takes that style's font and accent (#276)", ()
   // comic's accent is near black, which would vanish on the outline: the preset's stays.
   expect(lookCaptions({ look: "comic", preset: "creator" })).not.toHaveProperty("active");
   expect(lookCaptions("creator")).toBe("creator");
+  // pill keeps its dark word and takes the accent behind it; subtitle lights nothing.
+  const pill = lookCaptions({ look: "art-deco", preset: "pill" });
+  expect(pill).toMatchObject({ pill: expect.stringMatching(/^#[0-9a-f]{6}$/) });
+  expect(pill).not.toHaveProperty("active");
+  expect(lookCaptions({ look: "art-deco", preset: "subtitle" })).not.toHaveProperty("active");
 });
