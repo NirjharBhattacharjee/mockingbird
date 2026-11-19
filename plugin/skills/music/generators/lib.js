@@ -462,7 +462,8 @@ const later = new WeakMap();
  */
 export function soon(ctx, t, make, lead = 1) {
   const frame = Math.floor((Math.max(0, t - lead) * ctx.sampleRate) / 128) * 128;
-  if (frame === 0) return make();
+  // Already there (before rendering, or from inside another bar): make it now.
+  if (frame <= Math.round(ctx.currentTime * ctx.sampleRate)) return make();
   if (!later.has(ctx)) later.set(ctx, new Map());
   const at = later.get(ctx);
   // One suspend a moment: Chrome refuses a second at the same frame.
@@ -470,7 +471,14 @@ export function soon(ctx, t, make, lead = 1) {
   const run = [make];
   at.set(frame, run);
   ctx.suspend(frame / ctx.sampleRate).then(() => {
-    for (const f of run) f();
-    ctx.resume();
+    at.delete(frame);
+    try {
+      for (const f of run) f();
+    } catch (e) {
+      // renderMusic throws this once rendering ends, so the error names its line.
+      ctx.failed ??= e;
+    } finally {
+      ctx.resume();
+    }
   });
 }

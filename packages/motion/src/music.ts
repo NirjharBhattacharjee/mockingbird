@@ -79,8 +79,9 @@ export async function renderMusic(
       // A finished note stays in the graph, and costs time on every block of
       // sound after it, until the page collects its garbage. The page is idle
       // while Chrome renders, so collect every second (#272).
-      const sweep = setInterval(() => gc(), 1000);
+      const sweep = setInterval(() => typeof gc === "function" && gc(), 1000);
       const sound = await ctx.startRendering().finally(() => clearInterval(sweep));
+      if (ctx.failed) throw ctx.failed;
       globalThis.__sound = [sound.getChannelData(0), sound.getChannelData(1)];
       return sound.length;
     })()`,

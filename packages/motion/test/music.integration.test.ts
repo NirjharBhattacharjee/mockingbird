@@ -43,6 +43,9 @@ test("the WAV header says 32-bit float stereo at the rate, with the data's lengt
 
 describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("renderMusic (integration)", () => {
   const params = { duration: 25, sampleRate: 48000, seed: 1 };
+  const lib = pathToFileURL(
+    resolve(import.meta.dir, "../../../plugin/skills/music/generators/lib.js"),
+  ).href;
 
   test("every sample comes back in place, across the chunks it's read in", async () => {
     // A 1 Hz ramp on the left and its negative on the right: a sample's value says where it is.
@@ -88,9 +91,6 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("renderMusic (integration)
   }, 60_000);
 
   test("soon makes a bar's notes as the track reaches it, and they play on time", async () => {
-    const lib = pathToFileURL(
-      resolve(import.meta.dir, "../../../plugin/skills/music/generators/lib.js"),
-    ).href;
     // A tone from 5 s to 7 s, made a second before each second of it plays.
     const path = generator(
       "later.js",
@@ -124,5 +124,13 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("renderMusic (integration)
     await expect(
       renderMusic(bad, { chrome: chrome(), out: join(dir, "bad.wav"), params }),
     ).rejects.toThrow("no key");
+    const late = generator(
+      "late.js",
+      `import { soon } from ${JSON.stringify(lib)};
+      export default (ctx) => { soon(ctx, 3, () => { throw new Error('bar 3 broke'); }); };`,
+    );
+    await expect(
+      renderMusic(late, { chrome: chrome(), out: join(dir, "late.wav"), params }),
+    ).rejects.toThrow("bar 3 broke");
   }, 60_000);
 });
