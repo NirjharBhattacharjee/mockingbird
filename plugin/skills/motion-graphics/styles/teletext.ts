@@ -132,10 +132,12 @@ function make(ctx: any, t: number, m: any): Look {
       c.fillStyle = COL.blue;
       const row = Math.floor(Y(y) / rh) * 3;
       c.fillRect(0, row, bw, 6);
-      const n = Math.ceil(text.length * progress(t, at, dur));
+      // Capitals can be longer ("ß" is "SS"), so count those.
+      const caps = text.toUpperCase();
+      const n = Math.ceil(caps.length * progress(t, at, dur));
       // Anchored by the whole title, so it doesn't slide while it types on.
-      const left = leftOf(X(x), text.length * cw, o.align);
-      say(text.toUpperCase().slice(0, n), left, (row / 3 + 1) * rh, COL.yellow, true);
+      const left = leftOf(X(x), caps.length * cw, o.align);
+      say(caps.slice(0, n), left, (row / 3 + 1) * rh, COL.yellow, true);
     },
     label(text, x, y, o = {}) {
       const { at = 0, tone = "ink", align = "center" } = o;

@@ -10107,8 +10107,9 @@ function make31(ctx, t0, m) {
       if (!stamp(at))
         return;
       ctx.font = font(size);
-      ctx.letterSpacing = `${Math.round(size * 0.14 * u)}px`;
-      const w = ctx.measureText(s.toUpperCase()).width;
+      const gap = Math.round(size * 0.14 * u);
+      ctx.letterSpacing = `${gap}px`;
+      const w = ctx.measureText(s.toUpperCase()).width - gap;
       ctx.letterSpacing = "0px";
       const left = leftOf(X(x), w, o.align);
       caps(s, left, Y(y), size, INK5);
@@ -23315,9 +23316,10 @@ function make72(ctx, t, m) {
       c.fillStyle = COL3.blue;
       const row = Math.floor(Y(y) / rh) * 3;
       c.fillRect(0, row, bw, 6);
-      const n = Math.ceil(text.length * progress(t, at, dur));
-      const left = leftOf(X(x), text.length * cw, o.align);
-      say(text.toUpperCase().slice(0, n), left, (row / 3 + 1) * rh, COL3.yellow, true);
+      const caps = text.toUpperCase();
+      const n = Math.ceil(caps.length * progress(t, at, dur));
+      const left = leftOf(X(x), caps.length * cw, o.align);
+      say(caps.slice(0, n), left, (row / 3 + 1) * rh, COL3.yellow, true);
     },
     label(text, x, y, o = {}) {
       const { at = 0, tone = "ink", align = "center" } = o;

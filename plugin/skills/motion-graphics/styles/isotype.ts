@@ -118,8 +118,10 @@ function make(ctx: any, t0: number, m: any): Look {
       const { x = 0.035, y = 0.08, size = 46, at = 0 } = o;
       if (!stamp(at)) return;
       ctx.font = font(size);
-      ctx.letterSpacing = `${Math.round(size * 0.14 * u)}px`;
-      const w = ctx.measureText(s.toUpperCase()).width;
+      const gap = Math.round(size * 0.14 * u);
+      ctx.letterSpacing = `${gap}px`;
+      // Canvas adds the spacing after the last letter too; it isn't drawn.
+      const w = ctx.measureText(s.toUpperCase()).width - gap;
       ctx.letterSpacing = "0px";
       const left = leftOf(X(x), w, o.align);
       caps(s, left, Y(y), size, INK);
