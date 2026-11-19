@@ -1602,6 +1602,33 @@ test("motion fills in a page's `from \"KIT\"` with the kit's file URL, beside th
   }
 });
 
+test("an insert or adjustment layer refuses an effect that would do nothing there (#257)", async () => {
+  const render = mcpTools(
+    async () => ({}),
+    () => {},
+  ).find((t) => t.name === "render") as { run: (a: Record<string, unknown>) => Promise<string> };
+  const clips = [{ from: 0, to: 2 }];
+  // The source only has to be there: the effects are refused before it's read.
+  const dir = mkdtempSync(join(tmpdir(), "mb-fx-"));
+  const path = join(dir, "a.mp4");
+  writeFileSync(path, "");
+  await expect(
+    render.run({
+      path,
+      clips,
+      inserts: [{ path: "/b.mp4", from: 0, to: 1, effects: [{ name: "gain", db: 6 }] }],
+    }),
+  ).rejects.toThrow("inserts[0].effects[0]: gain works on a clip");
+  await expect(
+    render.run({
+      path,
+      clips,
+      adjust: [{ from: 0, to: 1, effects: [{ name: "interpolate" }] }],
+    }),
+  ).rejects.toThrow("adjust[0].effects[0]: interpolate works on a clip");
+  rmSync(dir, { recursive: true, force: true });
+});
+
 test("the speech is measured as the render hears it, gain and J cut included (#257)", () => {
   const clip = {
     path: "/a.mp4",

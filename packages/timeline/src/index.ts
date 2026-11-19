@@ -636,6 +636,45 @@ export function rebase(path: PathPoint[], cut: number): PathPoint[] {
 const ms = (t: number) => Math.round(t * 1000) / 1000;
 
 /**
+ * Clip `c`'s masks kept to the part of it from `a` to `b` (0-1 of its old
+ * length), `cut` source seconds now gone from its start (less than 0 when
+ * it grew there). A tracked path moves with the picture; a box moving to
+ * `end` starts and ends where it was at `a` and `b`, so a split or trim
+ * doesn't replay the whole move (#257).
+ */
+function cutMasks(c: Clip, a: number, b: number, cut: number) {
+  if (!c.effects?.some((e) => (e as Obj).mask)) return;
+  c.effects = c.effects.map((e) => {
+    const m = (e as Obj).mask as Obj | undefined;
+    if (!m) return e;
+    const next: Obj = { ...m };
+    const path = m.path as PathPoint[] | undefined;
+    if (path?.length && cut > 0) next.path = rebase(path, cut);
+    if (path?.length && cut < 0) next.path = path.map((q) => ({ ...q, at: ms(q.at - cut) }));
+    const end = m.end as { x: number; y: number; w: number; h: number } | undefined;
+    if (end) {
+      const from = {
+        x: (m.x as number) ?? 0,
+        y: (m.y as number) ?? 0,
+        w: (m.w as number) ?? 1,
+        h: (m.h as number) ?? 1,
+      };
+      const at = (f: number) => {
+        const k = Math.min(1, Math.max(0, f));
+        return {
+          x: ms(from.x + (end.x - from.x) * k),
+          y: ms(from.y + (end.y - from.y) * k),
+          w: ms(from.w + (end.w - from.w) * k),
+          h: ms(from.h + (end.h - from.h) * k),
+        };
+      };
+      Object.assign(next, at(a), { end: at(b) });
+    }
+    return { ...e, mask: next } as typeof e;
+  });
+}
+
+/**
  * Moves what's on `clip` by `by` seconds (a trim off its start moves it
  * earlier), so it stays on the same picture. Anything that then starts
  * before the clip is pulled to its start, and anything that ends before
@@ -938,6 +977,9 @@ function step(p: Project, raw: unknown, what: string, notes: string[], words?: W
       // Where the split falls in the finished video, which a speed changes.
       const offset = (at - c.from) / (c.speed ?? 1);
       const second: Clip = { ...c, id, from: at };
+      const f = offset / lengthOf(c);
+      cutMasks(second, f, 1, at - c.from);
+      cutMasks(c, 0, f, 0);
       delete second.transition;
       delete second.lead;
       if (c.moves?.length) {
@@ -972,6 +1014,8 @@ function step(p: Project, raw: unknown, what: string, notes: string[], words?: W
       if (!(from < to)) fail(`${what}: ${c.id} needs from < to; got ${from} and ${to}`);
       // How far the clip's picture moves in the finished video: a speed changes it.
       const by = (c.from - from) / (c.speed ?? 1);
+      const old = lengthOf(c);
+      cutMasks(c, -by / old, (to - c.from) / (c.speed ?? 1) / old, from - c.from);
       if (c.moves?.length && by < 0) {
         // Trimmed off the start: frame the new start as it was there, and keep the moves after.
         Object.assign(c, framing(c, -by));

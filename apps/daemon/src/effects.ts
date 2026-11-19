@@ -461,15 +461,16 @@ export function checkPath(v: unknown, at: string): void {
     const o = p as Record<string, unknown>;
     if (typeof o !== "object" || o === null) throw new Error(`${at}[${i}] must be { at, x, y }`);
     const [t, x, y] = [o.at, o.x, o.y];
-    if (typeof t !== "number" || !(t > last))
-      throw new Error(`${at}[${i}].at must be rising seconds`);
+    // The same rules as a project's tracked box (packages/timeline): from 0, rising.
+    if (typeof t !== "number" || !(t > last) || t < 0 || t > 86400)
+      throw new Error(`${at}[${i}].at must be rising seconds from 0`);
     if (
       typeof x !== "number" ||
       !(x >= -1 && x <= 2) ||
       typeof y !== "number" ||
       !(y >= -1 && y <= 2)
     ) {
-      throw new Error(`${at}[${i}] needs x and y, 0-1 of the picture`);
+      throw new Error(`${at}[${i}] needs x and y from -1 to 2 (0-1 is the picture)`);
     }
     last = t;
   });

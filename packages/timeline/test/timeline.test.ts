@@ -720,3 +720,61 @@ test("level is true or { target }, and the outline says so (#265)", () => {
     "sources levelled to -16 LUFS",
   );
 });
+
+test("a split or trim keeps a clip's mask on the picture it was on (#257)", () => {
+  const mask = {
+    shape: "rect",
+    x: 0,
+    y: 0,
+    w: 0.2,
+    h: 0.2,
+    end: { x: 0.8, y: 0, w: 0.2, h: 0.2 },
+  };
+  const tracked = {
+    shape: "rect",
+    w: 0.1,
+    h: 0.1,
+    path: [
+      { at: 0, x: 0, y: 0 },
+      { at: 10, x: 1, y: 0 },
+    ],
+  };
+  const p = check({
+    version: 1,
+    clips: [
+      {
+        id: "c1",
+        path: "a.mp4",
+        from: 0,
+        to: 10,
+        effects: [
+          { name: "blur", mask },
+          { name: "blur", mask: tracked },
+        ],
+      },
+    ],
+  });
+  const halves = apply(p, [{ op: "split", id: "c1", at: 5 }]).project.clips;
+  const masks = (i: number) =>
+    (halves[i]?.effects ?? []).map(
+      (e) => (e as Record<string, unknown>).mask as Record<string, unknown>,
+    );
+  // The box was halfway at the split: the first half ends there, the second starts there.
+  expect(masks(0)[0]).toMatchObject({ x: 0, end: { x: 0.4 } });
+  expect(masks(1)[0]).toMatchObject({ x: 0.4, end: { x: 0.8 } });
+  // The second half's path starts where the subject was at 5 s.
+  expect(masks(1)[1]?.path).toEqual([
+    { at: 0, x: 0.5, y: 0 },
+    { at: 5, x: 1, y: 0 },
+  ]);
+  const trimmed = apply(p, [{ op: "trim", id: "c1", from: 2 }]).project.clips[0];
+  const t = (trimmed?.effects ?? []).map(
+    (e) => (e as Record<string, unknown>).mask as Record<string, unknown>,
+  );
+  expect(t[0]).toMatchObject({ x: 0.16, end: { x: 0.8 } });
+  expect((t[1]?.path as { at: number; x: number; y: number }[] | undefined)?.[0]).toEqual({
+    at: 0,
+    x: 0.2,
+    y: 0,
+  });
+});

@@ -42,6 +42,7 @@ import {
   catalog,
   checkEffects,
   checkPath,
+  EFFECTS,
   type Effect,
   effectFilters,
   masked,
@@ -1220,6 +1221,20 @@ function graphFile(graph: string, dir: string, name = "graph"): string[] {
   return [ffmpegMajor() >= 7 ? "-/filter_complex" : "-filter_complex_script", file];
 }
 
+/**
+ * `effects` checked, and each LUT they read there. On an insert or an
+ * adjustment layer (`picture`), only effects that work on a picture laid
+ * over the cut: a sound effect or interpolate there would do nothing (#257).
+ */
+function checkFx(effects: unknown, what: string, picture = false) {
+  for (const [n, e] of checkEffects(effects, what).entries()) {
+    if (picture && (EFFECTS[e.name]?.kind !== "video" || e.name === "interpolate")) {
+      throw new Error(`${what}[${n}]: ${e.name} works on a clip, not on what's laid over the cut`);
+    }
+    if (typeof e.file === "string") requireFile(e.file, "LUT");
+  }
+}
+
 /** The system ffmpeg's major version, read once; 99 for a git build, which is newer than any release. */
 let major: number | undefined;
 export const ffmpegMajor = () => {
@@ -1301,13 +1316,20 @@ async function speechGain(input: string[], streams: string[]): Promise<number> {
     ...chains,
     `${labels.join("")}concat=n=${streams.length}:v=0:a=1,ebur128=framelog=quiet`,
   ].join(";");
-  const proc = Bun.spawn(
-    ["ffmpeg", "-nostdin", "-nostats", ...input, "-filter_complex", graph, "-f", "null", "-"],
-    { stderr: "pipe" },
-  );
-  const said = await new Response(proc.stderr).text();
-  if ((await proc.exited) !== 0)
-    throw new Error(`ffmpeg couldn't measure the speech: ${said.trim()}`);
+  // From a file, as the render's graph is: a hundred clips' chains are longer than a Windows command line.
+  const dir = mkdtempSync(join(tmpdir(), "mockingbird-speech-"));
+  let said: string;
+  try {
+    const proc = Bun.spawn(
+      ["ffmpeg", "-nostdin", "-nostats", ...input, ...graphFile(graph, dir), "-f", "null", "-"],
+      { stderr: "pipe" },
+    );
+    said = await new Response(proc.stderr).text();
+    if ((await proc.exited) !== 0)
+      throw new Error(`ffmpeg couldn't measure the speech: ${said.trim()}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
   const lufs = integrated(said);
   return lufs > -70 ? Math.min(MAX_GAIN, LUFS - lufs) : 0;
 }
@@ -1980,9 +2002,7 @@ async function render(
     if (!(Number.isFinite(c.from) && Number.isFinite(c.to) && c.from >= 0 && c.to > c.from)) {
       throw new Error(`A clip needs 0 <= from < to, in seconds; got ${JSON.stringify(c)}.`);
     }
-    for (const e of checkEffects(c.effects, `clips[${i}].effects`)) {
-      if (typeof e.file === "string") requireFile(e.file, "LUT");
-    }
+    checkFx(c.effects, `clips[${i}].effects`);
   }
   for (const [i, t] of inserts.entries()) {
     if (t.blend !== undefined && !BLENDS.includes(t.blend)) {
@@ -1991,16 +2011,12 @@ async function render(
     if (t.blend && t.blend !== "normal" && t.box) {
       throw new Error(`inserts[${i}]: a blend mode covers the whole frame, so it can't have a box`);
     }
-    for (const e of checkEffects(t.effects, `inserts[${i}].effects`)) {
-      if (typeof e.file === "string") requireFile(e.file, "LUT");
-    }
+    checkFx(t.effects, `inserts[${i}].effects`, true);
   }
   for (const [i, a] of adjust.entries()) {
     if (!(a.to > a.from)) throw new Error(`adjust[${i}] needs from < to`);
     if (!a.effects.length) throw new Error(`adjust[${i}] needs effects`);
-    for (const e of checkEffects(a.effects, `adjust[${i}].effects`)) {
-      if (typeof e.file === "string") requireFile(e.file, "LUT");
-    }
+    checkFx(a.effects, `adjust[${i}].effects`, true);
   }
   const files = [...new Set([path, ...clips.map((c) => c.path ?? path)])];
   for (const file of [...files, ...inserts.map((i) => i.path), ...sounds.map((s) => s.path)]) {
@@ -3737,7 +3753,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
     {
       name: "sync",
       description:
-        "Line up recordings of one take (two or more cameras, or a camera and a separate recorder) by their sound, for a multicam edit. Gives each file's offset against the first: a moment at t seconds in it is at t + offset in the first. To cut to another angle at T seconds of the first's clock, add a project clip from that file with from = T - offset. Reads the first `window` seconds of each (default 120); a score under about 0.3 means the sound didn't match and the offset is a guess.",
+        "Line up recordings of one take (two or more cameras, or a camera and a separate recorder) by their sound, for a multicam edit. Gives each file's offset against the first: a moment at t seconds in it is at t + offset in the first. To cut to another angle at T seconds of the first's clock, add a project clip from that file with from = T - offset. Reads the first `window` seconds of each (default 120); a score under about 0.3 means the sound didn't match and the offset is a guess. It finds offsets up to half the window: for recordings started more than a minute apart, give a window over twice the gap.",
       inputSchema: {
         type: "object",
         properties: {
@@ -3746,7 +3762,11 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
             items: { type: "string" },
             description: "The recordings, the first as the reference",
           },
-          window: { type: "number", description: "Seconds of each to compare (default 120)" },
+          window: {
+            type: "number",
+            description:
+              "Seconds of each to compare (default 120); offsets up to half of it are found",
+          },
         },
         required: ["paths"],
       },

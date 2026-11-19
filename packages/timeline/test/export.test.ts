@@ -172,3 +172,21 @@ test("OTIO: transitions with no room in their clips come in as cuts, and ducking
     "the ducking of 1 sounds",
   );
 });
+
+test("a still insert gets media as long as the cut, not ffprobe's 0 s (#257)", () => {
+  const card = compile(
+    check({
+      version: 1,
+      clips: [{ id: "c1", path: "/m/a.mp4", from: 0, to: 6 }],
+      inserts: [{ id: "b1", path: "/m/card.png", from: 1, to: 4 }],
+    }),
+    "/m",
+  );
+  const info = (p: string) =>
+    p.endsWith(".png") ? { ...source, audio: false, seconds: 0 } : source;
+  const x = toFcpxml(card, "cut", "1280x720", 30, info).text;
+  expect(x).toMatch(/name="card.png" start="0s" duration="180\/30s"/);
+  const o = JSON.parse(toOtio(card, "cut", 30, info).text);
+  const v2 = o.tracks.children[1].children.find((c: { name?: string }) => c.name === "card.png");
+  expect(v2.media_references.DEFAULT_MEDIA.available_range.duration.value).toBe(180);
+});

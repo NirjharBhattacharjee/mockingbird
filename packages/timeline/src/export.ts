@@ -225,13 +225,28 @@ function spaced(items: { from: number; to: number; clip: unknown }[], fps: numbe
   return out;
 }
 
+/**
+ * `info`, with a still picture given a length: ffprobe says 0 or one frame,
+ * and an editor rejects a clip longer than its media. As long as the cut is
+ * long enough for any insert of it (#257).
+ */
+const stills =
+  (cut: Compiled, info: (path: string) => Source) =>
+  (path: string): Source => {
+    const s = info(path);
+    return /\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(path)
+      ? { ...s, seconds: Math.max(s.seconds, cut.length) }
+      : s;
+  };
+
 /** `cut` as an OpenTimelineIO timeline (JSON), and what it leaves out. */
 export function toOtio(
   cut: Compiled,
   name: string,
   fps: number,
-  info: (path: string) => Source,
+  probed: (path: string) => Source,
 ): { text: string; left: string[] } {
+  const info = stills(cut, probed);
   const main = placed(cut, fps);
   // OTIO lets a transition reach only into its two clips, and two can't overlap:
   // one that doesn't fit beside the transitions before it comes in as a cut.
@@ -370,8 +385,9 @@ export function toFcpxml(
   name: string,
   size: string,
   fps: number,
-  info: (path: string) => Source,
+  probed: (path: string) => Source,
 ): { text: string; left: string[] } {
+  const info = stills(cut, probed);
   const [num, den] = frameDuration(fps);
   const frames = (s: number) => Math.round((s * den) / num);
   const t = (s: number) => (frames(s) ? `${frames(s) * num}/${den}s` : "0s");
