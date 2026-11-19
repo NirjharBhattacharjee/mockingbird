@@ -370,15 +370,26 @@ test("doctor's needed checks name a fix", () => {
 
 test("doctor names every encoder and filter ffmpeg lacks, not only libx264 (#223)", () => {
   const h = home();
-  const ffmpeg = checks({
-    home: h,
-    mbHome: join(h, "mb"),
-    which: (n) => (n === "ffmpeg" ? "/usr/bin/ffmpeg" : null),
-    run: () => ({ code: 0, out: ffmpegLists(["sidechaincompress"]) }),
-  }).find((c) => c.name === "ffmpeg");
-  expect(ffmpeg).toMatchObject({
+  const list = (without: string[]) =>
+    checks({
+      home: h,
+      mbHome: join(h, "mb"),
+      which: (n) => (n === "ffmpeg" ? "/usr/bin/ffmpeg" : null),
+      run: () => ({ code: 0, out: ffmpegLists(without) }),
+    });
+  // A missing filter is named, but isn't needed: only the tool using it stops.
+  const filter = list(["sidechaincompress"]);
+  expect(filter.find((c) => c.name === "ffmpeg")).toMatchObject({ ok: true });
+  expect(filter.find((c) => c.name === "ffmpeg filters")).toMatchObject({
     ok: false,
-    detail: "/usr/bin/ffmpeg is built without sidechaincompress, which the engine uses",
+    needed: false,
+    detail:
+      "/usr/bin/ffmpeg is built without sidechaincompress; the tools that use them won't work",
+  });
+  // A missing encoder is: render can't write a file.
+  expect(list(["libx264"]).find((c) => c.name === "ffmpeg")).toMatchObject({
+    ok: false,
+    detail: "/usr/bin/ffmpeg is built without libx264, which render encodes with",
   });
 });
 

@@ -256,13 +256,16 @@ export function pinnedWhisper(
 export async function wontStart(program: string, ms = 10_000): Promise<string | undefined> {
   try {
     const p = Bun.spawn([program, "--help"], { stdout: "ignore", stderr: "pipe" });
+    // Read as it comes: whisper-server prints its usage to stderr, and a full
+    // pipe would stall it until the deadline.
+    const stderr = new Response(p.stderr).text();
     const timer = setTimeout(() => p.kill("SIGKILL"), ms);
     const code = await p.exited;
     clearTimeout(timer);
     if (p.signalCode === "SIGKILL") return `no answer to --help in ${ms / 1000} s`;
     if (code === 0) return undefined;
-    // A child it left running can hold stderr open: read what's there, briefly.
-    const err = await Promise.race([new Response(p.stderr).text(), Bun.sleep(500).then(() => "")]);
+    // A child it left running can hold stderr open: wait for the rest only briefly.
+    const err = await Promise.race([stderr, Bun.sleep(500).then(() => "")]);
     return err.trim().split("\n").at(-1) || `exit ${code}`;
   } catch (error) {
     return error instanceof Error ? error.message : String(error);

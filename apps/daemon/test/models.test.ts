@@ -166,6 +166,18 @@ describe("pullFile", () => {
     expect(calls).toHaveLength(1);
   });
 
+  test("a 429 is tried again, like a 5xx", async () => {
+    let n = 0;
+    const get = (async () =>
+      ++n === 1
+        ? new Response(null, { status: 429 })
+        : new Response("weights")) as unknown as typeof fetch;
+    expect(
+      await pullFile(modelOf("weights"), tempDir(), { fetch: get, wait: async () => {} }),
+    ).toBe(true);
+    expect(n).toBe(2);
+  });
+
   test("a 5xx is tried again after a wait (#214)", async () => {
     const dir = tempDir();
     const waits: number[] = [];

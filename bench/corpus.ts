@@ -71,7 +71,8 @@ export function badClip(wav: string, text: string): string | undefined {
   }
   // decodeWav reads what's there of a cut-short file; the data chunk says how much there should be.
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  for (let at = 12; at + 8 <= bytes.length; at += 8 + view.getUint32(at + 4, true)) {
+  // A chunk of odd size is followed by a pad byte (RIFF).
+  for (let at = 12; at + 8 <= bytes.length; at += 8 + ((view.getUint32(at + 4, true) + 1) & ~1)) {
     if (String.fromCharCode(...bytes.subarray(at, at + 4)) !== "data") continue;
     if (at + 8 + view.getUint32(at + 4, true) > bytes.length) return "cut short";
     break;

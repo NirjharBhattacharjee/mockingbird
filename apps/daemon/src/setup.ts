@@ -12,6 +12,7 @@ import { playbooks } from "./guide.ts";
 import { findChrome, MODEL_FILES, pinnedChrome } from "./models.ts";
 import {
   ASR_MODEL_SETTING,
+  FFMPEG_NEEDS,
   ffmpegMissing,
   findAsrModel,
   findWhisperServer,
@@ -21,7 +22,15 @@ import {
 } from "./runtime.ts";
 import { UsageError } from "./transcribe.ts";
 
-export type Check = { name: string; ok: boolean; detail: string; fix?: string; needed: boolean };
+export type Check = {
+  name: string;
+  ok: boolean;
+  detail: string;
+  fix?: string;
+  needed: boolean;
+  /** What setup can do about it by itself: `models pull` it, or `brew install` it. */
+  install?: "pull" | "brew";
+};
 
 export type SetupDeps = {
   home?: string;
@@ -157,21 +166,36 @@ export function checks(deps: SetupDeps = {}): Check[] {
   // Homebrew's ffmpeg has them all; another one earlier on the PATH can hide it.
   const brewed = "/opt/homebrew/bin/ffmpeg";
   const hidden = !!ffmpeg && ffmpeg !== brewed && existsSync(brewed);
+  // Without an encoder render can't write a file, so that's needed. A missing
+  // filter only takes the tool that uses it (scdet: scenes), so it's reported
+  // and doesn't stop setup: a dependency dying degrades, it never breaks every tool.
+  const encoders = lacks.filter((n) => FFMPEG_NEEDS.encoders.includes(n));
+  const filters = lacks.filter((n) => !encoders.includes(n));
+  const fix = hidden
+    ? `put /opt/homebrew/bin before ${ffmpeg?.replace(/\/ffmpeg$/, "")} on your PATH, so Homebrew's ffmpeg is used`
+    : `${brew} ffmpeg${brew.startsWith("`") ? "`" : ""}`;
   list.push({
     name: "ffmpeg",
     needed: true,
-    ok: !!ffmpeg && !broken && !lacks.length,
+    ok: !!ffmpeg && !broken && !encoders.length,
     detail: !ffmpeg
       ? "missing"
       : broken
         ? `${ffmpeg} won't run: ${broken}`
-        : !lacks.length
+        : !encoders.length
           ? ffmpeg
-          : `${ffmpeg} is built without ${lacks.join(", ")}, which the engine uses`,
-    fix: hidden
-      ? `put /opt/homebrew/bin before ${ffmpeg?.replace(/\/ffmpeg$/, "")} on your PATH, so Homebrew's ffmpeg is used`
-      : `${brew} ffmpeg${brew.startsWith("`") ? "`" : ""}`,
+          : `${ffmpeg} is built without ${encoders.join(", ")}, which render encodes with`,
+    fix,
   });
+  if (ffmpeg && !broken && filters.length) {
+    list.push({
+      name: "ffmpeg filters",
+      needed: false,
+      ok: false,
+      detail: `${ffmpeg} is built without ${filters.join(", ")}; the tools that use them won't work`,
+      fix,
+    });
+  }
   // The one transcribe runs: the override, the pinned download, or the PATH's.
   const env = deps.env ?? process.env;
   const system = `${deps.platform ?? process.platform}-${deps.arch ?? process.arch}`;
@@ -200,6 +224,8 @@ export function checks(deps: SetupDeps = {}): Check[] {
         : pinned
           ? "`mockingbird models pull` (downloads whisper.cpp's build)"
           : `${brew} whisper-cpp${brew.startsWith("`") ? "`" : ""}`,
+    // Only a missing one with no override; one that won't start needs the person.
+    install: serverOverride || there ? undefined : pinned ? "pull" : "brew",
   });
   // The model transcribe would load: MOCKINGBIRD_ASR_MODEL, the saved
   // choice, or the default, as findAsrModel picks it.
@@ -351,7 +377,7 @@ export async function setup(args: string[], deps: SetupDeps = {}): Promise<numbe
   );
   const server = broken.find((c) => c.name === "whisper-server");
   // Only a missing one is installed here; an override or a build that won't start needs the person.
-  const noServer = !!server?.fix && /models pull|whisper-cpp`?$/.test(server.fix);
+  const noServer = server?.install !== undefined;
   if (server && !noServer) log(`whisper-server: ${server.detail}. To fix it, ${server.fix}.`);
   const formulas = [...(ffmpeg ? ["ffmpeg"] : []), ...(noServer && !pinned ? ["whisper-cpp"] : [])];
   if (formulas.length) {

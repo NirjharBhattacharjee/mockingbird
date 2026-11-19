@@ -1,5 +1,5 @@
 import { existsSync, realpathSync, renameSync, writeFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { main as dictionaryMain, readDictionary } from "./dictionary.ts";
 import { mcpTools, serve } from "./mcp.ts";
@@ -144,7 +144,8 @@ function activeModel(home: string, env: Record<string, string | undefined>): str
     const saved = savedModelFor(spokenLanguage(env), home);
     const file = findAsrModel(models, env.MOCKINGBIRD_ASR_MODEL, () => {}, saved);
     // MOCKINGBIRD_ASR_MODEL can name a file anywhere, which listModels can't see.
-    return dirname(file) === models ? basename(file) : file;
+    // resolve, so a path written with / on Windows still counts as in models/.
+    return resolve(dirname(file)) === resolve(models) ? basename(file) : file;
   } catch {
     return null;
   }
@@ -204,7 +205,7 @@ async function status(): Promise<number> {
   console.log(`ffmpeg:              ${ffmpegLine}`);
   const getWhisper = pinnedWhisper() ? "`mockingbird models pull`" : "`brew install whisper-cpp`";
   const whisperLine = s.whisperServerError
-    ? `installed, but it won't start (${s.whisperServerError}): build whisper.cpp's whisper-server for this system and set MOCKINGBIRD_WHISPER_SERVER to it`
+    ? `installed, but it won't start (${s.whisperServerError}): \`mockingbird doctor\` says how to fix it`
     : yes(s.whisperServer, getWhisper);
   console.log(`whisper-server:      ${whisperLine}`);
   console.log(`chrome:              ${yes(s.chrome, "`mockingbird models pull chrome`")}`);

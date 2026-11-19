@@ -95,9 +95,9 @@ const TRIES = 3;
 
 /**
  * Downloads one model into `dir`, unless a file with the right checksum is
- * already there. Returns whether it downloaded anything. A 5xx, a timeout or
- * a dropped connection is tried again (#214), continuing from what arrived;
- * a 404 or a checksum mismatch isn't.
+ * already there. Returns whether it downloaded anything. A 5xx, a 429, a
+ * timeout or a dropped connection is tried again (#214), continuing from what
+ * arrived; a 404 or a checksum mismatch isn't.
  */
 export async function pullFile(
   model: ModelFile,
@@ -153,7 +153,9 @@ async function pullOnce(
   }
   if (!response.ok || !response.body) {
     const message = `couldn't download ${model.file}: HTTP ${response.status}`;
-    throw response.status >= 500 ? new Error(message) : new FinalError(message);
+    // A 5xx, 429 (too many requests) or 408 (timed out) can pass; another 4xx won't.
+    const passing = response.status >= 500 || response.status === 429 || response.status === 408;
+    throw passing ? new Error(message) : new FinalError(message);
   }
   // 206 is the rest of the file; a server that ignores the range sends all of it.
   const from = response.status === 206 ? have : 0;
@@ -624,6 +626,13 @@ export async function pullWhisper(
   // unpacks it again, to repair a damaged one.
   if (existsSync(pin.program) && !deps.force) {
     log(`whisper-server ${WHISPER_BUILD} is downloaded`);
+    return 0;
+  }
+  // The override always wins, so the pin would never run: where whisper.cpp's
+  // build can't (glibc 2.28-2.33), every pull would fetch it again for nothing.
+  const override = process.env.MOCKINGBIRD_WHISPER_SERVER;
+  if (override && !deps.force) {
+    log(`whisper-server: using ${override} (MOCKINGBIRD_WHISPER_SERVER), not downloading one`);
     return 0;
   }
   const bin = join(home, "bin");
