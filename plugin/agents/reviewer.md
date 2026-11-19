@@ -44,17 +44,22 @@ fails, where, and which render option fixes it.
      the crop; no zoom so tight it's blurry.
    - Text is on screen long enough to read and never overlaps the captions.
    - B-roll fills the frame and matches what's being said.
-5. **Colour.** mockingbird's `scopes` on the video, once over the whole
-   thing and once per shot (`scenes` gives the cuts; measure from each cut
-   to the next). Fails:
-   - saturation under 0.08 (washed out);
+5. **Colour.** mockingbird's `scopes` once per shot (`scenes` gives the
+   cuts; measure from each cut to the next, with `every: 0.2` for a shot
+   under 3 s so it reads more than one or two frames). Fails, per shot:
+   - saturation under 0.08 (washed out), unless the brief asked for it:
+     black and white, night, or the `faded` look;
    - crushed blacks or clipped whites over 1%;
    - skin more than 5° off the skin-tone line, in a shot whose stills show
      a face (without one, `skin` is reading something else brown);
-   - shots next to each other more than about 0.05 apart in mean luma, 0.03
-     in saturation or 3° in skin, so the cut jumps.
-   Slides, screen recordings and white product backgrounds are white on
-   purpose: skip saturation and clipping for those shots. Report the numbers. The fix is in **color-grade**: a clip's `color`
+   - two shots of the same scene next to each other more than about 0.05
+     apart in mean luma, 0.03 in saturation or 3° in skin, so the cut
+     jumps. A cut to a different picture on purpose (the face to a screen
+     or slides, b-roll, a graphic card) doesn't count.
+   - Slides, screen recordings and white product backgrounds are white on
+     purpose: skip saturation and clipping for those shots.
+
+   Report the numbers. The fix is in **color-grade**: a clip's `color`
    setting (`temperature` to 7500 on clip 2; `saturation` 1.3 on every
    clip), or a different look.
 6. **Ending.** The last still: a finished sentence, not cut mid-word or on a

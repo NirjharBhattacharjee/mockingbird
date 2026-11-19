@@ -51,13 +51,15 @@ and measure again. These are steps that measured well, not formulas:
   brought the mean from 0.16 back to 0.51 with nothing clipped.
 - **Contrast.** Spread under 0.6: `contrast` 1.1 to 1.2. Crushed blacks
   over 1%: `gamma` 1.1 to 1.2 lifts them, or lower `contrast`.
-- **White balance.** Skin more than 5° toward yellow: raise `temperature`
-  (it's the kelvin the picture was shot at, so a higher number cools it).
-  More than 5° toward red: lower it. On the #252 vlog, 5000 K moved skin
+- **White balance.** Skin more than 5° toward yellow: raise `temperature`,
+  which cools the picture. More than 5° toward red: lower it, which warms
+  it. Don't read it as the kelvin the shot was lit at: ffmpeg's filter
+  turns grey blue at 8000 and orange at 3000. On the #252 vlog, 5000 K moved skin
   2.2° toward yellow and 8000 K moved it 2.7° toward red, about 1° per
   600 K.
-- **Saturation.** Under 0.12: `saturation` 1.2 to 1.4. Raise exposure
-  first, since a dark picture reads as less saturated.
+- **Saturation.** Under 0.15: `saturation` 1.1 to 1.4, more the lower it
+  is (1.8 took 0.08 to 0.19 on the vlog below). Raise exposure first,
+  since a dark picture reads as less saturated.
 
 ## 3. Match the shots
 

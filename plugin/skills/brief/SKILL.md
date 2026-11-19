@@ -92,7 +92,8 @@ what they leave open. Pace numbers come from
 
 Every format also gets a grade: **color-grade** measures and corrects the
 picture, then adds the look its table gives for the format (a vlog warm or
-punchy, a talking head clean, a product film neutral).
+punchy, a talking head clean, a product film neutral, or teal and orange
+for a cinematic launch film).
 
 Keep the intent in view while editing: teaching keeps every step even if it's
 slow; selling ends on the call to action; entertainment can drop context to
