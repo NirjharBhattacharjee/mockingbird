@@ -169,7 +169,7 @@ export type Captions = { perCue?: number; lit?: boolean; upper?: boolean; y?: nu
  * mood it was made for, and whether the user approved it. Graphics in the edit
  * are drawn with it; editing waits for `approved`.
  */
-export type ProjectLook = { file: string; mood?: string; approved?: boolean };
+export type ProjectLook = { file?: string; mood?: string; approved?: boolean; skipped?: boolean };
 
 export type Project = {
   version: 1;
@@ -288,15 +288,35 @@ const ADJUST = ["id", "clip", "from", "to", "effects"];
 const SOUND = ["id", "path", "generator", "clip", "at", "volume", "loop", "duck"];
 const GENERATED = ["generator", "tempo", "key", "energy", "seed", "length"];
 const CAPTIONS = ["perCue", "lit", "upper", "y"];
-const LOOK = ["file", "mood", "approved"];
+const LOOK = ["file", "mood", "approved", "skipped"];
 
 function look(v: unknown, what: string): ProjectLook {
   const o = obj(v, what, LOOK);
+  const skipped = maybe(o.skipped, (b) => bool(b, `${what}.skipped`));
   return clean({
-    file: str(o.file, `${what}.file`),
+    // A skipped look has no file: the user said to edit without one (#264).
+    file: skipped ? maybe(o.file, (f) => str(f, `${what}.file`)) : str(o.file, `${what}.file`),
     mood: maybe(o.mood, (m) => str(m, `${what}.mood`)),
     approved: maybe(o.approved, (b) => bool(b, `${what}.approved`)),
+    skipped,
   });
+}
+
+/**
+ * Why `p` can't be rendered yet, or nothing (#264): a project with graphics
+ * (texts or HTML overlays) needs a look the user approved, or their word to
+ * skip it, so no user gets graphics they never chose.
+ */
+export function lookGate(p: Project): string | undefined {
+  const graphics = p.texts.length > 0 || p.inserts.some((i) => /\.html?$/i.test(i.path));
+  if (!graphics || p.look?.approved || p.look?.skipped) return;
+  return [
+    "This project has graphics, but the user hasn't approved a look for them yet.",
+    'Before rendering, ask the user: "What vibe should this video have?" Offer three moods that fit what the video says, and say which you\'d pick.',
+    'Then show them the look: write it, draw a board of the video\'s own content with `look`, and ask: "Should I edit with this look, or what should change?"',
+    'When they say yes, set it with edit: { "op": "set", "look": { "file": "<look.ts>", "mood": "<their vibe>", "approved": true } }.',
+    'If they say to skip the look, set { "op": "set", "look": { "skipped": true } } instead.',
+  ].join("\n");
 }
 
 function point(v: unknown, what: string): Point {
@@ -1145,7 +1165,9 @@ export function outline(p: Project, file: string): string {
       : undefined,
     p.level ? `sources levelled to ${p.level.target} LUFS` : undefined,
     p.look
-      ? `look ${basename(p.look.file)}${p.look.mood ? ` (${p.look.mood})` : ""}, ${p.look.approved ? "approved" : "not approved yet"}`
+      ? p.look.skipped
+        ? "look skipped by the user"
+        : `look ${basename(p.look.file ?? "")}${p.look.mood ? ` (${p.look.mood})` : ""}, ${p.look.approved ? "approved" : "not approved yet"}`
       : undefined,
   ].filter(Boolean);
   const line = (t: Text | Insert | Sound | Adjust, base: number) => {

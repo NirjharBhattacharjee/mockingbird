@@ -27,6 +27,7 @@ import {
   edit,
   lengthOf,
   load,
+  lookGate,
   type Move,
   type Project,
   transcript,
@@ -2710,7 +2711,8 @@ async function lookBoard(
     `Look board: ${drawn}`,
     `Stills: ${sheet}`,
     `Built look: ${module}. A page imports it with \`import look from ${pageUrl}\` and draws with look.make(ctx, t, m).`,
-    "Show the user the stills (and the clip) and ask whether to go ahead or what to change. Save it in the project with edit's set { look: { file, mood, approved } } once they say yes.",
+    'Now show the user the stills and the clip, and ask them, word for word: "Should I edit with this look, or what should change?" Don\'t start editing until they say yes.',
+    "When they do, save it in the project with edit's set { look: { file, mood, approved: true } }. If they say to skip the look, set { look: { skipped: true } }.",
   ].join("\n");
 }
 
@@ -3344,6 +3346,17 @@ async function renderProject(
 ) {
   const { project, created } = load(file);
   if (created) throw new Error(`No project at ${file}; make one with \`edit\`.`);
+  // The sound alone draws nothing; any picture with graphics waits for the look,
+  // a draft too, since it has every text and overlay in it (#264).
+  const gate = soundOnly ? undefined : lookGate(project);
+  if (gate) throw new Error(gate);
+  const { approved: yes, file: lookFile } = project.look ?? {};
+  const approved = yes && lookFile ? resolve(dirname(file), lookFile) : undefined;
+  if (!soundOnly && approved && !existsSync(approved)) {
+    throw new Error(
+      `The approved look ${approved} isn't there. Draw it again with \`look\` and get the user's yes before rendering.`,
+    );
+  }
   const cut = compile(project, dirname(file));
   const first = cut.clips[0]?.path;
   if (!first) throw new Error(`${file} has no clips yet; add some with \`edit\`.`);

@@ -272,7 +272,13 @@ Pick the music generator and caption settings to match the look's mood.
 
 ## Skipping the look
 
+Ask every user, every video: the vibe question and the look board are not
+optional, even when the brief already sounds detailed. A brief narrows the
+vibe; it doesn't replace asking.
+
 If the user says to skip it ("just cut it", "no graphics", "use the comic
 style"), do that: use a named style straight from `"STYLES"` or no graphics
-at all. Mention once that a look made for the video is an option, then
+at all, and record it with `{ "op": "set", "look": { "skipped": true } }`.
+`render` won't render a project with graphics until the look is approved or
+skipped. Mention once that a look made for the video is an option, then
 don't ask again.

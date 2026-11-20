@@ -892,6 +892,8 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
             ops: [
               { op: "add", type: "clip", path: talk, from: 0, to: 3 },
               { op: "add", type: "overlay", page, clip: "c1", from: 1, to: 2 },
+              // A project with graphics renders once the look is settled (#264).
+              { op: "set", look: { skipped: true } },
             ],
           });
         await run({ project });
@@ -1083,6 +1085,7 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
           { op: "add", type: "clip", path: "wide.mp4", from: 0.5, to: 2.5 },
           { op: "add", type: "clip", path: "tall.mp4", from: 1, to: 3 },
           { op: "add", type: "text", text: "on the *tall* one", clip: "c2", from: 0, to: 1 },
+          { op: "set", look: { skipped: true } },
         ],
       });
       expect(outline).toContain("c2  0:02.00-0:04.00  tall.mp4 1-3");
@@ -1645,6 +1648,35 @@ test("the speech is measured as the render hears it, gain and J cut included (#2
   expect(soundOf(clip, 0, { width: 1, height: 1, fps: 30, length: 1 })).toBe(
     "[0:a]atrim=start=0:duration=2.5,asetpts=PTS-STARTPTS,atempo=2,volume=15dB",
   );
+});
+
+test("a draft with graphics waits for the look too, and an approved look has to be there (#264)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mb-gate-"));
+  try {
+    const tool = (name: string) =>
+      mcpTools(
+        async () => ({}),
+        () => {},
+      ).find((t) => t.name === name) as { run: (a: Record<string, unknown>) => Promise<string> };
+    const project = join(dir, "edit.json");
+    await tool("edit").run({
+      project,
+      ops: [
+        { op: "add", type: "clip", path: "talk.mp4", from: 0, to: 3 },
+        { op: "add", type: "text", text: "Hi", clip: "c1", from: 0, to: 1 },
+      ],
+    });
+    await expect(tool("render").run({ project, draft: true })).rejects.toThrow(
+      "hasn't approved a look",
+    );
+    await tool("edit").run({
+      project,
+      ops: [{ op: "set", look: { file: "gone.ts", approved: true } }],
+    });
+    await expect(tool("render").run({ project })).rejects.toThrow("isn't there");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("level brings each source to the target once, within 30 dB (#265)", async () => {
