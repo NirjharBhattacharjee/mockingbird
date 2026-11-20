@@ -5,6 +5,7 @@ import { main as dictionaryMain, readDictionary } from "./dictionary.ts";
 import { mcpTools, serve } from "./mcp.ts";
 import {
   findChrome,
+  MODNET_FILE,
   type ModelFile,
   modelsCommand,
   pullChrome,
@@ -37,7 +38,7 @@ export const COMMANDS: { name: string; summary: string }[] = [
   {
     name: "models pull",
     summary:
-      "download the speech models, and whisper-server on Linux and\nWindows; `models pull <name or URL>` any Whisper model;\n`models pull chrome` the Chrome motion renders HTML in\n(these and `setup` are the only commands that use the network)",
+      "download the speech models, and whisper-server on Linux and\nWindows; `models pull <name or URL>` any Whisper model;\n`models pull chrome` the Chrome motion renders HTML in;\n`models pull modnet` the model subject masks run (26 MB)\n(these and `setup` are the only commands that use the network)",
   },
   {
     name: "setup",
@@ -276,6 +277,9 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
       if (rest.length === 1 && rest[0] === "pull") return pullWithProgress();
       if (rest.length === 2 && rest[0] === "pull" && rest[1] === "chrome") {
         return pullWithProgress(pullChrome);
+      }
+      if (rest.length === 2 && rest[0] === "pull" && rest[1] === "modnet") {
+        return pullWithProgress(pullModels, [MODNET_FILE]);
       }
       if (rest.length === 2 && rest[0] === "pull" && rest[1] === "whisper-server") {
         return pullWithProgress((deps) => pullWhisper({ ...deps, force: true }));

@@ -18,7 +18,7 @@
    live in `.worktrees/` (already gitignored), branch prefix `agent/`.
 2. **Build — `/code-structure`.** Maps onto this repo's existing split
    ([ARCHITECTURE.md §10](./docs/ARCHITECTURE.md#10-repository-layout)):
-   `packages/*` (`asr`, `vad`, `audio`, `captions`, `motion`, `store`,
+   `packages/*` (`asr`, `vad`, `matte`, `audio`, `captions`, `motion`, `store`,
    `timeline`) **is** the service layer — reusable mechanics, explicit inputs,
    structured returns. `apps/daemon` (the engine: the MCP server, its tools
    and the commands) **is** the orchestration layer — it owns *which* clips,

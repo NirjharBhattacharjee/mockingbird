@@ -195,3 +195,31 @@ test("gain raises or lowers a clip's sound by dB, and 0 leaves it (#265)", () =>
   expect(effectFilters([{ name: "gain", db: 0 }]).audio).toBe("");
   expect(() => checkEffects([{ name: "gain", db: 40 }], "clip")).toThrow();
 });
+
+test("a subject mask is checked, and read from its video through the clip's framing (#260)", () => {
+  const blur = {
+    name: "blur",
+    radius: 20,
+    mask: { shape: "subject", invert: true, feather: 0.01 },
+  };
+  expect(checkEffects([blur], "fx")).toEqual([blur]);
+  expect(() => checkEffects([{ name: "blur", mask: { shape: "subject", x: 0.2 } }], "fx")).toThrow(
+    "a subject mask finds its own shape; drop x",
+  );
+  // Not made yet (a layer's or an insert's): it says where it goes.
+  expect(() =>
+    pictureSteps([blur], "[b]", "[e]", { width: 1080, height: 1920, length: 4, fps: 30 }, "c"),
+  ).toThrow("goes on a clip's effects");
+  const made = { ...blur, mask: { ...blur.mask, file: "/tmp/m.mkv", size: "1920x1080" } };
+  const graph = renderGraph(
+    [{ from: 2, to: 6, speed: 2, zoom: 1.2, focus: { x: 0.4, y: 0.5 }, effects: [made] }],
+    { audio: false, size: "1080x1920", fps: 30 },
+  );
+  // Back to the source's shape, the clip's speed and crop, as long as the clip.
+  expect(graph).toContain(
+    "movie=filename=/tmp/m.mkv,scale=960:540,setpts=PTS-STARTPTS,setpts=PTS/2,setsar=1,crop=",
+  );
+  expect(graph).toContain("x='clip(0.4*iw-ow/2,0,iw-ow)'");
+  expect(graph).toContain("trim=duration=2,format=gray,negate,gblur=sigma=10.8");
+  expect(graph).toContain("alphamerge");
+});

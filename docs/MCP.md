@@ -465,6 +465,16 @@ face across the shot. Or give a rectangle or ellipse a `path`, the points
 `track` returns, and it follows them instead. The mask is drawn per frame, so a masked effect costs
 more: 6 s at 1280x720 rendered in 7 to 8 s, against under a second without.
 
+`{shape: "subject"}` is the person in the frame instead of a shape (#260),
+found on every frame by MODNet ([MODELS.md §10](./MODELS.md#10-subject-masks--modnet)),
+which `mockingbird models pull modnet` fetches first. With `invert: true` a
+`blur` or a `color` lands on everything but them: a blurred background
+behind a talking head. Only a clip's effects take it. Before the graph, render
+writes the clip's stretch as a grey video to `~/.mockingbird/cache/masks/`,
+and the graph reads it back through the clip's own speed, crop and moves, so
+it stays on the person in a vertical crop or a punch-in. `feather` softens
+its edge. Without MODNet, render says to pull it and stops.
+
 Inserts take `box: {x, y, w, h}` (a picture in the picture; give it
 `track`'s points as `path` and it moves with a subject, a title that follows
 someone across the shot), `blend`

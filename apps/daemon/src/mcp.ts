@@ -47,8 +47,10 @@ import {
   EFFECTS,
   type Effect,
   effectFilters,
+  type Mask,
   masked,
   pictureSteps,
+  quoted,
 } from "./effects.ts";
 import { guide, INSTRUCTIONS, PLUGIN, playbooks } from "./guide.ts";
 import { BT709, type Transfer, toSdrFor, transferOf } from "./hdr.ts";
@@ -68,6 +70,7 @@ import {
   WHISPER_LANGUAGES,
 } from "./runtime.ts";
 import { scopes } from "./scopes.ts";
+import { subjectMask } from "./subject.ts";
 import { sync } from "./sync.ts";
 import { along, type Point, track } from "./track.ts";
 
@@ -744,12 +747,24 @@ export function renderGraph(
     const [width, height] = size.split("x").map(Number) as [number, number];
     const ctx = { width, height, fps, length: lengthOf(clip), speed: clip.speed ?? 1 };
     const fx = effectFilters(clip.effects, ctx);
+    // A subject mask's video goes through the clip's own speed and framing, so
+    // it stays on the person through a crop, a punch-in or a move (#260).
+    const effects = (clip.effects ?? []).map((e) => {
+      const m = e.mask as Mask | undefined;
+      if (m?.shape !== "subject" || !m.file) return e;
+      // Back to the source's shape first (MODNet's sides are multiples of 32, a
+      // slightly different one), 540 high: the framing scales it from there.
+      const [sw = 16, sh = 9] = (m.size ?? "").split("x").map(Number);
+      const back = m.size ? `,scale=${even((540 * sw) / sh)}:540` : "";
+      const source = `movie=filename=${quoted(m.file)}${back},setpts=PTS-STARTPTS${speed},setsar=1${look},tpad=stop_mode=clone:stop_duration=1,trim=duration=${ctx.length}`;
+      return { ...e, mask: { ...m, source } };
+    });
     const head = `[${i}:v]${clip.sdr ? `${clip.sdr},` : ""}${cut}setpts=PTS-STARTPTS${speed},${SQUARE}${look}`;
     // A masked effect needs labels of its own (#198); the rest stay one chain.
     const v = masked(clip.effects)
       ? [
           `${head}[b${i}]`,
-          ...pictureSteps(clip.effects ?? [], `[b${i}]`, `[e${i}]`, ctx, `c${i}`),
+          ...pictureSteps(effects, `[b${i}]`, `[e${i}]`, ctx, `c${i}`),
           `[e${i}]${tb ? tb.slice(1) : "null"}[v${i}]`,
         ].join(";")
       : `${head}${fx.video ? `,${fx.video}` : ""}${tb}[v${i}]`;
@@ -2096,6 +2111,30 @@ async function render(
     silent: audio && !of(c).audio,
     sdr: toSdrFor(of(c).transfer) ?? (hdr ? BT709 : undefined),
   }));
+  // A subject mask is made before the graph: MODNet runs outside ffmpeg (#260).
+  const subject = (e: Effect) => (e.mask as Mask | undefined)?.shape === "subject";
+  // Said before any mask is made, which can take minutes.
+  for (const fx of [...adjust.map((a) => a.effects), ...inserts.map((i) => i.effects ?? [])]) {
+    if (fx.some(subject)) {
+      throw new Error("A subject mask goes on a clip's effects, not a layer or insert's.");
+    }
+  }
+  // A sound-only pass never draws the picture.
+  for (const c of soundOnly ? [] : shaped) {
+    if (!c.effects?.some(subject)) continue;
+    const from = of(c);
+    const file = await subjectMask(
+      {
+        ...{ path: c.path ?? path, from: c.from, to: c.to, size: from.size, fps: from.fps },
+        prefix: `${c.sdr ? `${c.sdr},` : ""}${SQUARE},`,
+        home: mockingbirdHome(),
+      },
+      (m) => console.error(m),
+    );
+    c.effects = c.effects.map((e) =>
+      subject(e) ? { ...e, mask: { ...(e.mask as Mask), file, size: from.size } } : e,
+    );
+  }
   // HDR b-roll too: a video insert is probed for its transfer, a still has none.
   const placed = await Promise.all(
     inserts.map(async (i) =>

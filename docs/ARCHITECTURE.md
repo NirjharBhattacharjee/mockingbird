@@ -19,6 +19,7 @@ injection, the cleanup model, the launchd agent) is in git:
 
 | Date | Change |
 |---|---|
+| 2026-11-19 | Subject masks (#260): a mask's `shape: "subject"` is MODNet's matte of each frame, run on onnxruntime in a new `packages/matte` and fetched only by `models pull modnet` (26 MB, Apache-2.0). render makes it before the graph, caches it, and reads it back with `movie=` through the clip's own framing. |
 | 2026-11-18 | Camera and light for motion pages (#274, #275): the kit's `view()` is a 2.5D camera with depth, named presets on the spring and seeded-noise shakes; `page(draw, { blur: true })` averages four sub-frame draws for motion blur. A theme names one `light` that sets shadows, rims and sweeps. Six three.js add-ons (RoomEnvironment, EffectComposer, RenderPass, UnrealBloomPass, BokehPass, OutputPass) ship in `vendor/three-addons.min.js` for `from "THREE_ADDONS"`, bundled from the same npm 0.187.0, nothing fetched at render time. |
 | 2026-11-16 | 3D motion pages (#270): three.js 0.187.0 (MIT) ships in the plugin's `vendor/`, and `motion` fills in `from "THREE"` the way it does `"KIT"`. A page that imports it is drawn on the Mac's GPU (ANGLE on Metal); 2D pages keep software rendering, so their pixels don't change. 10 s of a lit, shadowed 1080p scene with footage as a texture took 33.4 s on an M3, against 199 s in software. |
 | 2026-11-15 | Effects catalog, phase 3, part 2 (#200): `track` follows a box by zero-mean normalised cross-correlation on grey frames 320 wide, coarse then to the pixel, the template drifting toward each match; a mask's `path` takes its points, drawn as one shape moved by `overlay`, and so does an insert's box, for a title that follows a subject. |
@@ -114,7 +115,7 @@ Constraints, not preferences. Check any proposed change against them.
    page in the browser.
 3. **Local-first, no exceptions.** No network call happens in normal
    operation. The only network activity is a download the user asks for:
-   `mockingbird models pull` (and `models pull chrome`), the installer, which
+   `mockingbird models pull` (and `models pull chrome`, `models pull modnet`), the installer, which
    runs both, or `mockingbird setup`, which runs the same downloads and
    `brew install` after asking. See [§9](#9-everything-is-local).
 4. **Headless-testable.** Every tool runs and is tested with no GUI, no mic
@@ -377,6 +378,7 @@ MCP server is its own short-lived process.
 | Overlays: a project's HTML pages rendered with their transparency | `~/.mockingbird/cache/overlays/` | `render(project)` with an overlay |
 | Music beds: a project's generated sounds | `~/.mockingbird/cache/music/` | `render(project)` with a generator |
 | Segments: a project's render in pieces of about 10 s | `~/.mockingbird/cache/segments/` | `render(project)` |
+| Subject masks: MODNet's matte of a clip's stretch, as grey video | `~/.mockingbird/cache/masks/` | `render` with a `subject` mask |
 | Renders, stills | beside the source, or a temp folder for stills | `render`, `motion`, `frames` |
 
 `MOCKINGBIRD_HOME` moves `~/.mockingbird`.
@@ -391,8 +393,8 @@ MCP server is its own short-lived process.
   setup.
 - **No account, no login, no license server.**
 - **The only network activity is a download the user runs**
-  (`mockingbird models pull`, and `models pull chrome` for the headless
-  Chrome and its fonts), which names each URL and checks each file's sha256. On Linux and
+  (`mockingbird models pull`, `models pull chrome` for the headless
+  Chrome and its fonts, and `models pull modnet` for subject masks), which names each URL and checks each file's sha256. On Linux and
   Windows `models pull` also downloads whisper.cpp's own whisper-server
   build (release b5454, pinned sha256) into `~/.mockingbird/bin`.
   `mockingbird setup` runs the same downloads only after showing their size
@@ -439,6 +441,7 @@ mockingbird/
 │   ├── audio/               file decoding through ffmpeg, WAV, PCM helpers,
 │   │                        levels, the speech band, tempo, sections
 │   ├── vad/                 Silero ONNX wrapper
+│   ├── matte/               MODNet ONNX wrapper: a frame's subject matte
 │   ├── asr/                 whisper-server adapter, word diff (WER)
 │   ├── captions/            SRT parsing, captions drawn as HTML in Chrome
 │   ├── motion/              HTML pages and Web Audio music in headless Chrome,
