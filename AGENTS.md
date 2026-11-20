@@ -34,9 +34,11 @@
 4. **Ship — `/before-and-after`, then `/coderabbit-loop`.** Use
    `before-and-after` for a change to what a render looks like (two
    stills); otherwise ship with measured before/after numbers in the PR
-   description. Run `/coderabbit-loop` until CodeRabbit finishes a review of
-   the latest commit with zero actionable comments and zero unresolved
-   threads. Read [§Hard invariants](#hard-invariants) first: CodeRabbit
+   description. Run `/coderabbit-loop` until the task is complete: either
+   CodeRabbit's latest review has zero actionable comments and zero
+   unresolved threads, or CodeRabbit can't review (rate-limited, down, or
+   skipped) and a local `/code-review` at medium has every finding fixed.
+   Read [§Hard invariants](#hard-invariants) first: CodeRabbit
    flags things with no awareness of this repo's constraints, so the fixing
    agent (you) is the actual check against a CodeRabbit suggestion crossing
    one of them. Every push starts a review and the free plan allows about
@@ -134,8 +136,8 @@ This repo tightens them in these ways:
   one push per review round, with every fix from that round in it, and
   don't push just to set off a review.
 - **Run integration tests** only for a change to
-  `packages/{audio,vad,asr,captions,motion}` or a tool, as in
-  [§Commands & checks](#commands--checks).
+  `packages/{audio,vad,asr,captions,motion}`, a tool, or an integration
+  test or its setup, as in [§Commands & checks](#commands--checks).
 
 ## Completing a task
 
@@ -150,8 +152,10 @@ This repo tightens them in these ways:
    already-pushed branch, `--force-with-lease`).
 6. Open the PR — body explains what changed, how it was tested, before/after
    proof, and risks/follow-up. Run title and body through `/unslop`.
-7. Run `/coderabbit-loop` until CodeRabbit's latest review has zero
-   actionable comments and zero unresolved threads.
+7. Run `/coderabbit-loop` until the task is complete: either CodeRabbit's
+   latest review has zero actionable comments and zero unresolved threads,
+   or CodeRabbit can't review (rate-limited, down, or skipped) and a local
+   `/code-review` at medium has every finding fixed.
 8. End by presenting the PR URL.
 
 Do not merge the PR unless explicitly instructed. Keep the worktree until
@@ -169,7 +173,7 @@ the local setup the integration tests need.
 | Typecheck, all workspaces | `bun run typecheck` | yes |
 | Lint + format (Biome) | `bun run lint` (`bun run format` to fix) | yes |
 | Unit tests | `bun test` | yes |
-| Integration tests (real VAD, whisper-server, ffmpeg) | `bun run test:integration` | no — run locally for any change to `packages/{audio,vad,asr,captions,motion}` or a tool |
+| Integration tests (real VAD, whisper-server, ffmpeg) | `bun run test:integration` | no — run locally for any change to `packages/{audio,vad,asr,captions,motion}`, a tool, or an integration test or its setup |
 | Build smoke test | `bun build --compile` | not yet — onnxruntime's dylib isn't embedded |
 | Go command (`apps/cli`) | `cd apps/cli && gofmt -l . && go vet ./... && go test -race ./...` | yes |
 | Whisper model comparison | `bun run bench:models` | no — run locally before changing the default model (MODELS.md §6) |
