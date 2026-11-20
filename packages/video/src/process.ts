@@ -6,9 +6,10 @@ export async function runBoundedProcess(
   deadline: number,
   maxBytes = 64 * 1024 * 1024,
   stderrOutput = false,
+  processMs = PROCESS_MS,
 ): Promise<Buffer> {
-  const left = Math.min(PROCESS_MS, deadline - Date.now());
-  if (left <= 0) throw new Error("Screen inspection exceeded its five-minute limit.");
+  const left = Math.min(processMs, deadline - Date.now());
+  if (left <= 0) throw new Error(`${argv[0]} ran out of time.`);
   const proc = (() => {
     try {
       return Bun.spawn(argv, { stdout: "pipe", stderr: "pipe", stdin: "ignore" });

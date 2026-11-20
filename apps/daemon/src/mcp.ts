@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { type AsrWord, stripNonSpeech } from "@mockingbird/asr";
-import { loadAudio, type PcmAudio } from "@mockingbird/audio";
+import { loadAudio, type PcmAudio, tempo } from "@mockingbird/audio";
 import {
   CAPTION_FONTS,
   CAPTION_PRESETS,
@@ -46,6 +46,7 @@ import {
 } from "@mockingbird/timeline";
 import { type Source, toFcpxml, toOtio } from "@mockingbird/timeline/export";
 import type { SpeechSegment } from "@mockingbird/vad";
+import { hasEncodedPixelCoordinates, probeVideoMetadata } from "@mockingbird/video";
 import { audioStats } from "./audio-stats.ts";
 import { addEntries, formatEntry, readDictionary } from "./dictionary.ts";
 import {
@@ -80,6 +81,7 @@ import {
 } from "./runtime.ts";
 import { scopes } from "./scopes.ts";
 import { screenTools } from "./screen-inspect.ts";
+import { screenNormalizeTool, screenRenderTool } from "./screen-render.ts";
 import { subjectMask } from "./subject.ts";
 import { sync } from "./sync.ts";
 import { along, type Point, track } from "./track.ts";
@@ -540,21 +542,7 @@ export function timeline(clips: Clip[]): { starts: number[]; length: number } {
   return { starts, length };
 }
 
-/** atempo steps for `speed`: each step can only be 0.5 to 2. */
-export function tempo(speed: number): string {
-  const steps: number[] = [];
-  let left = speed;
-  while (left > 2) {
-    steps.push(2);
-    left /= 2;
-  }
-  while (left < 0.5) {
-    steps.push(0.5);
-    left /= 0.5;
-  }
-  steps.push(Number(left.toFixed(6)));
-  return steps.map((s) => `atempo=${s}`).join(",");
-}
+export { tempo };
 
 /**
  * The perspective filter that frames a clip with moves: each frame, a window
@@ -4746,6 +4734,24 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
     },
     // Last, so agents read the general tools first.
     ...screenTools(),
+    screenRenderTool(motion, async (input) => {
+      const video = await probeVideoMetadata(input, Date.now() + 5 * 60_000);
+      return {
+        sourcePixels: hasEncodedPixelCoordinates(video.geometry),
+        width: video.width,
+        height: video.height,
+      };
+    }),
+    // Metadata only: listing every frame would refuse a long recording before
+    // `from` and `to` pick a short stretch of it.
+    screenNormalizeTool(async (input) => {
+      const video = await probeVideoMetadata(input, Date.now() + 5 * 60_000);
+      return {
+        video: true,
+        audio: video.audio,
+        seconds: Number(video.formatTiming.duration ?? video.videoTiming.duration),
+      };
+    }),
   ];
 }
 

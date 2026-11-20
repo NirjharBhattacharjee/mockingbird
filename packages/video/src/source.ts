@@ -157,7 +157,7 @@ export async function probeVideoSource(
           "v:0",
           "-show_frames",
           "-show_entries",
-          "frame=pts,duration",
+          "frame=pts,duration,width,height",
           "-of",
           "json",
           path,
@@ -165,11 +165,17 @@ export async function probeVideoSource(
         deadline,
       )
     ).toString(),
-  ) as { frames?: { pts?: number; duration?: number }[] };
+  ) as { frames?: { pts?: number; duration?: number; width?: number; height?: number }[] };
   if (!frames.frames?.length || frames.frames.length > MAX_FRAMES)
     throw new Error(`Video must have 1 to ${MAX_FRAMES} timestamped frames.`);
   if (frames.frames.some((f) => !Number.isSafeInteger(f.pts)))
     throw new Error("Video frames have missing or unordered presentation timestamps.");
+  // ffmpeg restarts its frame count when the size changes, so `eq(n, …)`
+  // would pick the wrong frame after the change.
+  if (frames.frames.some((f) => f.width !== metadata.width || f.height !== metadata.height))
+    throw new Error(
+      "The picture changes size partway through; run screen_normalize to make one size first.",
+    );
   const ticks = frames.frames.map((f) => BigInt(f.pts as number));
   if (ticks.some((p, i) => i > 0 && p < requireFrameData(ticks[i - 1])))
     throw new Error("Video frames have missing or unordered presentation timestamps.");
