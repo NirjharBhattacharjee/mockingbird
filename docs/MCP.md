@@ -609,7 +609,8 @@ from the motion-graphics skill's `styles/` folder) the same way.
 ### HTML pages
 
 A page can import the kit `from "KIT"`, the explainer styles `from "STYLES"`
-and three.js `from "THREE"` (0.187.0, shipped in the plugin, #270); `motion`
+and three.js `from "THREE"` (0.187.0, shipped in the plugin, #270) with its
+light and post-processing add-ons `from "THREE_ADDONS"` (#275); `motion`
 fills each one in with its file. A page that imports three.js is drawn on the
 GPU (ANGLE on Metal on macOS, falling back to Chrome's software renderer when
 the GPU can't start; elsewhere, software), and 2D pages keep software

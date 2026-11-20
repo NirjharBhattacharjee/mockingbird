@@ -37,6 +37,7 @@ import {
   soundOf,
   sourceWords,
   spans,
+  THREE_ADDONS_URL,
   THREE_URL,
   tempo,
   timedLines,
@@ -1686,6 +1687,18 @@ test("motion fills in a page's `from \"KIT\"` with the kit's file URL, beside th
     writeFileSync(three, '<script type="module">import * as THREE from "THREE";</script>');
     expect(readFileSync(withKit(three), "utf8")).toBe(
       `<script type="module">import * as THREE from ${JSON.stringify(THREE_URL)};</script>`,
+    );
+    // Its add-ons beside it, importing the same copy of three.js (#275).
+    const addons = readFileSync(fileURLToPath(THREE_ADDONS_URL), "utf8");
+    expect(addons).toContain('from"./three.module.min.js"');
+    expect(addons).not.toContain('from"three"');
+    const lit = join(dir, "lit.html");
+    writeFileSync(
+      lit,
+      '<script type="module">import * as THREE from "THREE"; import { OutputPass } from "THREE_ADDONS";</script>',
+    );
+    expect(readFileSync(withKit(lit), "utf8")).toBe(
+      `<script type="module">import * as THREE from ${JSON.stringify(THREE_URL)}; import { OutputPass } from ${JSON.stringify(THREE_ADDONS_URL)};</script>`,
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });

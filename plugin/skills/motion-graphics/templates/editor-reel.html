@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <body style="margin: 0">
+    <script type="module">
+      // The editor-reel look (#255), over a vlog or creator clip from `render`,
+      // in 9:16 or 16:9. Copy it next to the video and change the settings
+      // block; leave the import alone, motion fills in the kit.
+      //
+      // What it does, from docs/STYLE-STUDY.md: a collage board of paper with
+      // the footage in a torn window, a hook whose letters scatter in (a heavy
+      // sans against an italic serif), a new shot every ~1.2 s with a glitch,
+      // zoom blur or white flash on each cut, stickers that pop, marker
+      // scribbles, captions, grain, and a sound on every cut.
+      import { cutPoints, kit, page, sfx, THEMES } from "KIT";
+
+      // ---- settings --------------------------------------------------------
+      const THEME = { ...THEMES.punch, light: 120 };
+      /** Ink on the paper board: the theme's white would vanish on it. */
+      const INK = "#151515";
+      /** The hook: a heavy word, then a serif one, scattered in. */
+      const HOOK = { heavy: "STOP", serif: "scrolling", out: 1.8 };
+      /** Cuts: from the captions' word starts about every 1.2 s, or listed here. */
+      const EVERY = 1.2;
+      const CUTS = [];
+      /** On each cut, in turn. */
+      const TRANSITIONS = ["glitch", "zoomBlur", "flash"];
+      /** Stickers: a word on a pill, or `path` for a picture (loaded with picture()). */
+      const STICKERS = [
+        { text: "NEW", at: 2.2, out: 4.4, x: 0.8, y: 0.2 },
+        { text: "wow", at: 4.6, out: 6.2, x: 0.22, y: 0.8, tilt: -0.1 },
+      ];
+      /** Marker scribbles: a circle round a point (0-1 of the frame), or an underline. */
+      const SCRIBBLES = [
+        { kind: "circle", at: 3.0, out: 4.6, x: 0.5, y: 0.45, r: 0.12 },
+        { kind: "underline", at: 5.0, out: 6.4, x: 0.5, y: 0.86, w: 0.5 },
+      ];
+
+      const plan = (m) => {
+        const cuts = CUTS.length ? CUTS : cutPoints(m.cues ?? [], EVERY);
+        // No captions to cut on (a clip with no speech): every EVERY seconds.
+        if (!cuts.length) for (let c = EVERY; c < m.duration - 0.3; c += EVERY) cuts.push(c);
+        return cuts;
+      };
+
+      page(
+        (ctx, t, m) => {
+          const k = kit(ctx, t, m, THEME);
+          const { W, H, u } = k;
+          const tall = H > W;
+          const cuts = plan(m);
+          // The board: paper over the whole frame.
+          k.layer(() => {
+            ctx.fillStyle = ctx.createPattern(k.paper(), "repeat");
+            ctx.fillRect(0, 0, W, H);
+          });
+          // The footage in a torn window, on a new framing each cut.
+          const win = tall
+            ? { x: W * 0.07, y: H * 0.17, w: W * 0.86, h: H * 0.58 }
+            : { x: W * 0.06, y: H * 0.12, w: W * 0.58, h: H * 0.76 };
+          k.layer(() => {
+            ctx.beginPath();
+            ctx.rect(win.x, win.y, win.w, win.h);
+            ctx.clip();
+            k.camera({ area: win, cuts, framings: [1.05, 1.22, 1.1, 1.3], shakes: cuts.filter((_, i) => i % 3 === 1).map((at) => ({ at, amount: 14 })) });
+          });
+          k.tornFrame({ ...win, at: 0, tilt: tall ? -0.015 : -0.01 });
+          // The hook: heavy sans, then the serif under it.
+          const hy = tall ? H * 0.09 : H * 0.2;
+          const hx = tall ? W / 2 : W * 0.82;
+          k.kinetic({ text: HOOK.heavy, x: hx, y: hy, size: tall ? 150 : 130, at: 0.05, out: HOOK.out, mode: "scatter", color: INK });
+          k.kinetic({ text: HOOK.serif, x: hx, y: hy + 120 * u, size: tall ? 96 : 84, at: 0.35, out: HOOK.out, mode: "glitch", family: THEME.serif, italic: true, weight: 500, color: THEME.accent });
+          for (const s of STICKERS) k.sticker({ ...s, x: W * s.x, y: H * s.y });
+          for (const s of SCRIBBLES) {
+            const points =
+              s.kind === "circle"
+                ? Array.from({ length: 24 }, (_, i) => {
+                    const a = (i / 24) * Math.PI * 2 - 0.4;
+                    return [W * s.x + Math.cos(a) * W * s.r * 1.15, H * s.y + Math.sin(a) * W * s.r * 0.8];
+                  })
+                : [[W * (s.x - s.w / 2), H * s.y], [W * (s.x + s.w / 2), H * s.y + 6 * u]];
+            k.scribble({ points, at: s.at, out: s.out, loop: s.kind === "circle", color: THEME.accent });
+          }
+          // Inside the window, on the footage, where white captions read.
+          k.layer(() => {
+            ctx.translate(win.x + win.w / 2 - W / 2, 0);
+            k.captions({ y: win.y + win.h - 90 * u, size: tall ? 66 : 50, maxWidth: win.w * 0.9 });
+          });
+          k.vignette(0.35);
+          k.grain(0.09);
+          // On each cut, a transition over everything drawn so far.
+          cuts.forEach((c, i) => {
+            const kind = TRANSITIONS[i % TRANSITIONS.length];
+            if (kind === "glitch") k.glitch(c - 0.04, 0.2);
+            else if (kind === "zoomBlur") k.zoomBlur(c, 0.16);
+            else k.flash(c, 0.1);
+          });
+        },
+        {
+          audio: (m) => [
+            ...plan(m).map((at, i) => ({ path: sfx(i % 3 === 0 ? "click" : "whoosh"), at: Math.max(0, at - 0.08), volume: 0.45 })),
+            { path: sfx("impact"), at: 0.05, volume: 0.6 },
+            ...STICKERS.map((s) => ({ path: sfx("pop"), at: s.at, volume: 0.5 })),
+          ],
+        },
+      );
+    </script>
+  </body>
+</html>

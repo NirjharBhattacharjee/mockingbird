@@ -143,6 +143,17 @@ few and quiet; the camera work carries it.
 7. **Hard cuts do the cutting.** Flashy transitions are rare. Pace comes
    from cuts plus movement inside the shot.
 
+**The editor reel** (#255, a video editor's showreel, measured with
+`scenes`): 50 cuts a minute, so 1.2 s a shot. Between cuts there's always
+something: letters that scatter, glitch or type in, a heavy sans against a
+serif; the footage framed in torn paper on a paper board with tape and
+stickers; glitch, RGB-split, zoom-blur and white-flash transitions on the
+beat; marker scribbles, circles and arrows. Cut-out photos of the subject and
+the subject dissolving into particles need subject masks (#200), which the
+kit doesn't have yet. `templates/editor-reel.html` is the look: a transition
+on every cut (a glitch for 0.2 s, a zoom blur for 0.16 s, a flash for 0.1 s,
+in turn), a sticker or a scribble every couple of seconds, a sound on each.
+
 ## What the kit does with it
 
 | Finding | In the kit |
@@ -156,6 +167,8 @@ few and quiet; the camera work carries it.
 | Captions as part of the design | `captions`: groups pop in, a pill in the accent colour slides from word to word under the voice |
 | A sound on every beat | seven sounds made for the kit (`sfx("pop")` and so on); the templates' `audio` exports put five of them on their beats, and `tick` and `riser` are there for counters and reveals |
 | Five looks | `THEMES`: `night` (launch film), `punch` (shorts), `studio` (product), `neon` (Kurzgesagt), `paper` (maps) |
+| The editor reel | `tornFrame`, `tape`, `sticker`, `scribble`, `kinetic` (scatter, type, glitch), `glitch`, `zoomBlur`, paper and tape textures made by `assets/make.sh`; `templates/editor-reel.html` |
+| A camera that moves through a scene | `view` (#274): layers at depths, named presets on the spring, noise shakes, depth blur; `page(…, { blur: true })` for motion blur |
 
 ## What it doesn't do yet
 
@@ -164,5 +177,6 @@ few and quiet; the camera work carries it.
   card would need the motion engine to read a second video.
 - **True perspective.** The canvas is 2D, so Linear's tilted interface is
   approximated with a skew (`photo` does this as a card turns in).
-- **Depth of field.** There's no per-pixel blur by depth; `bokeh` and a
-  blurred backdrop stand in.
+- **Depth of field per pixel.** `view` blurs whole layers by their depth
+  (#274); nothing blurs within a layer. three.js pages get real depth of
+  field from `BokehPass` (#275).

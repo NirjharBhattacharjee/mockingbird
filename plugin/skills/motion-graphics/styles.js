@@ -100,6 +100,8 @@ function spring(t, { from = 0, to = 1, start = 0, stiffness = 100, damping = 10,
   return from + (to - from) * done;
 }
 var GRAIN = new URL("assets/grain.png", import.meta.url).href;
+var PAPER = new URL("assets/paper.png", import.meta.url).href;
+var TAPE = new URL("assets/tape.png", import.meta.url).href;
 var pictures = new Map;
 
 // plugin/skills/motion-graphics/styles/look.ts
@@ -3217,7 +3219,7 @@ var collage_zine_default = {
 
 // plugin/skills/motion-graphics/styles/comic.ts
 var INK2 = "#141414";
-var PAPER = "#F2EAD7";
+var PAPER2 = "#F2EAD7";
 var CREAM3 = "#FDF9EE";
 var FILL = {
   ink: CREAM3,
@@ -3276,7 +3278,7 @@ function make10(ctx, t, m) {
   }
   return {
     surface() {
-      ctx.fillStyle = PAPER;
+      ctx.fillStyle = PAPER2;
       ctx.fillRect(0, 0, W, H);
       const m0 = 0.02 * H;
       halftone(m0, m0, W - m0 * 2, H - m0 * 2, "#B9CDEB", "#3F72C9");
@@ -4772,7 +4774,7 @@ var crt_terminal_default = {
 };
 
 // plugin/skills/motion-graphics/styles/cut-paper.ts
-var PAPER2 = {
+var PAPER3 = {
   ink: "#F6F0E2",
   accent: "#F0B93A",
   good: "#5CC2B0",
@@ -4958,7 +4960,7 @@ function make15(ctx, t, m) {
         sheet(() => {
           ctx.beginPath();
           ctx.roundRect(left, Y(y) - h / 2, w, h, 4 * u);
-        }, PAPER2.ink, 0.7);
+        }, PAPER3.ink, 0.7);
         ctx.fillStyle = "rgba(60,50,100,0.35)";
         ctx.beginPath();
         ctx.arc(left + w - size * 0.25 * u, Y(y), size * 0.08 * u, 0, Math.PI * 2);
@@ -4977,7 +4979,7 @@ function make15(ctx, t, m) {
         sheet(() => {
           ctx.beginPath();
           ctx.arc(X(x), Y(y), R, 0, Math.PI * 2);
-        }, PAPER2[tone]);
+        }, PAPER3[tone]);
         sheet(() => {
           ctx.beginPath();
           ctx.arc(X(x) - R * 0.12, Y(y) - R * 0.12, R * 0.55, 0, Math.PI * 2);
@@ -4991,11 +4993,11 @@ function make15(ctx, t, m) {
         sheet(() => {
           ctx.beginPath();
           ctx.roundRect(x0 - 8 * u, y0 - 8 * u, bw + 16 * u, bh + 16 * u, 6 * u);
-        }, PAPER2[tone === "ink" ? "muted" : tone]);
+        }, PAPER3[tone === "ink" ? "muted" : tone]);
         sheet(() => {
           ctx.beginPath();
           ctx.roundRect(x0, y0, bw, bh, 4 * u);
-        }, PAPER2.ink, 0.6);
+        }, PAPER3.ink, 0.6);
       });
     },
     link(x1, y1, x2, y2, o = {}) {
@@ -5006,7 +5008,7 @@ function make15(ctx, t, m) {
       const pts = curve([X(x1), Y(y1)], [X(x2), Y(y2)], bend);
       const shown = pts.slice(0, Math.max(2, Math.round(pts.length * expo(p))));
       const thin = !head && tone === "accent";
-      const color = PAPER2[tone === "ink" ? "accent" : tone];
+      const color = PAPER3[tone === "ink" ? "accent" : tone];
       ctx.save();
       ctx.lineCap = "butt";
       ctx.lineJoin = "round";
@@ -5038,7 +5040,7 @@ function make15(ctx, t, m) {
       const [x0, bw] = [X(x), X(w)];
       const ry = bw * 0.18;
       const step = (Y(h) - ry * 2) / (n - 1);
-      const colors = [PAPER2[tone], PAPER2.accent, PAPER2[tone], PAPER2.bad, PAPER2[tone]];
+      const colors = [PAPER3[tone], PAPER3.accent, PAPER3[tone], PAPER3.bad, PAPER3[tone]];
       for (let i = 0;i < n; i++) {
         const cy = Y(y + h) - ry - step * i;
         withPlace(x0 + bw / 2, cy, at + dur / n * i, () => sheet(() => {
@@ -5060,7 +5062,7 @@ function make15(ctx, t, m) {
             const rr = i % 2 ? r * 0.72 : r;
             return [X(x) + Math.cos(a) * rr, Y(y) + Math.sin(a) * rr];
           });
-          sheet(() => trace(ctx, pts, true), PAPER2.accent);
+          sheet(() => trace(ctx, pts, true), PAPER3.accent);
         });
       }
       const value = count ? counting(t, at, dur, count) + s : s;
@@ -5071,7 +5073,7 @@ function make15(ctx, t, m) {
     mark(kind, x, y, o = {}) {
       const s = (o.size ?? 36) * u;
       const [cx, cy] = [X(x), Y(y)];
-      const color = PAPER2[o.tone ?? (kind === "check" ? "good" : "bad")];
+      const color = PAPER3[o.tone ?? (kind === "check" ? "good" : "bad")];
       withPlace(cx, cy, o.at ?? 0, () => {
         ctx.save();
         ctx.shadowColor = "rgba(10,6,30,0.45)";
@@ -5660,7 +5662,7 @@ var editorial_chart_default = {
 };
 
 // plugin/skills/motion-graphics/styles/editorial-collage.ts
-var PAPER3 = "#EFE6D3";
+var PAPER4 = "#EFE6D3";
 var BLACK3 = "#151413";
 var RED3 = "#D23B2E";
 var HILITE = "rgba(255,214,0,0.78)";
@@ -5747,7 +5749,7 @@ function make18(ctx, t, m) {
   }
   return {
     surface() {
-      ctx.fillStyle = PAPER3;
+      ctx.fillStyle = PAPER4;
       ctx.fillRect(0, 0, W, H);
       ctx.save();
       ctx.fillStyle = RED3;
@@ -10029,7 +10031,7 @@ var isometric_default = {
 };
 
 // plugin/skills/motion-graphics/styles/isotype.ts
-var PAPER4 = "#EEE7D6";
+var PAPER5 = "#EEE7D6";
 var INK5 = "#2A2522";
 var TONE10 = {
   ink: INK5,
@@ -10091,7 +10093,7 @@ function make31(ctx, t0, m) {
     if (!c) {
       c = new OffscreenCanvas(W, H);
       const x = c.getContext("2d");
-      x.fillStyle = PAPER4;
+      x.fillStyle = PAPER5;
       x.fillRect(0, 0, W, H);
       for (let i = 0;i < 3000; i++) {
         x.fillStyle = hash(i) > 0.5 ? "rgba(255,255,250,0.10)" : "rgba(90,70,40,0.06)";
@@ -11475,7 +11477,7 @@ var light_painting_default = {
 };
 
 // plugin/skills/motion-graphics/styles/linocut.ts
-var PAPER5 = "#EDE4CF";
+var PAPER6 = "#EDE4CF";
 var BLOCK3 = "#1D1A18";
 var CUT = "#EFE5CC";
 var RED5 = "#D2483A";
@@ -11557,7 +11559,7 @@ function make36(ctx, t, m) {
   let titleText = "";
   return {
     surface() {
-      ctx.fillStyle = PAPER5;
+      ctx.fillStyle = PAPER6;
       ctx.fillRect(0, 0, W, H);
       ctx.strokeStyle = "rgba(150,130,100,0.12)";
       ctx.lineWidth = 1 * u;
@@ -12501,7 +12503,7 @@ var mac_1bit_default = {
 
 // plugin/skills/motion-graphics/styles/manga-panel.ts
 var INK7 = "#111111";
-var PAPER6 = "#F4F1E9";
+var PAPER7 = "#F4F1E9";
 var LETTER3 = '"Anime Ace", "Comic Sans MS", "Chalkboard SE", "Marker Felt", sans-serif';
 var BOLD2 = '"Helvetica Neue", "Arial Black", Arial, sans-serif';
 var SFX = '"Hiragino Kaku Gothic StdN", "Hiragino Sans", "Yu Gothic", "Noto Sans JP", sans-serif';
@@ -12560,7 +12562,7 @@ function make39(ctx, t, m) {
     if (!c) {
       c = new OffscreenCanvas(W, H);
       const b = c.getContext("2d");
-      b.fillStyle = PAPER6;
+      b.fillStyle = PAPER7;
       b.fillRect(0, 0, W, H);
       b.strokeStyle = "rgba(110,160,210,0.4)";
       b.lineWidth = 1.2 * u;
@@ -15258,7 +15260,7 @@ var op_art_default = {
 };
 
 // plugin/skills/motion-graphics/styles/origami.ts
-var PAPER7 = {
+var PAPER8 = {
   ink: ["#EDE6D8", "#CFC6B4"],
   accent: ["#E8806A", "#C45E4C"],
   good: ["#2E8C84", "#1F6A64"],
@@ -15329,7 +15331,7 @@ function make48(ctx, t, m) {
       const d = inner[(i + 1) % n];
       faces.push(facet([a, b, c], tone), facet([b, d, c], tone), facet([c, d, top], tone));
     }
-    const [lit, shade] = PAPER7[tone];
+    const [lit, shade] = PAPER8[tone];
     for (const fc of faces) {
       const dx = (fc.nx - cx) / R;
       const dy = (fc.ny - cy) / Math.max(1, ry);
@@ -15346,7 +15348,7 @@ function make48(ctx, t, m) {
     const hh = h * f;
     const yb = y0 + h;
     shadow(x0 + w / 2 + 10 * u, yb, w * 0.6, f);
-    const [lit, shade] = PAPER7[tone];
+    const [lit, shade] = PAPER8[tone];
     ctx.fillStyle = shade;
     trace(ctx, [
       [x0 + 6 * u, yb - hh - 6 * u * f],
@@ -15441,7 +15443,7 @@ function make48(ctx, t, m) {
       ctx.shadowColor = "rgba(40,40,50,0.3)";
       ctx.shadowBlur = 6 * u;
       ctx.shadowOffsetY = 3 * u;
-      ctx.fillStyle = PAPER7.ink[0];
+      ctx.fillStyle = PAPER8.ink[0];
       trace(ctx, [
         [-w / 2, -h / 2],
         [w / 2, -h / 2],
@@ -15477,7 +15479,7 @@ function make48(ctx, t, m) {
         return;
       tent(X(x), Y(y), X(w), Y(h), "ink", f);
       if (tone !== "ink") {
-        ctx.fillStyle = PAPER7[tone][0];
+        ctx.fillStyle = PAPER8[tone][0];
         const hh = Y(h) * f;
         ctx.fillRect(X(x), Y(y + h) - hh, X(w), 6 * u * f);
       }
@@ -15491,7 +15493,7 @@ function make48(ctx, t, m) {
       const shown = pts.slice(0, Math.max(2, Math.round(pts.length * (1 - (1 - p) ** 2))));
       const thin = !head && tone === "accent";
       const t2 = tone === "ink" ? "muted" : tone;
-      const [lit, shade] = PAPER7[t2];
+      const [lit, shade] = PAPER8[t2];
       const w = (thin ? 2 : 7) * u;
       ctx.save();
       ctx.lineCap = "butt";
@@ -15552,7 +15554,7 @@ function make48(ctx, t, m) {
       const cx = x0 + bw / 2;
       const d = bw * 0.22;
       shadow(cx + bw * 0.3, yb, bw * 0.9, f);
-      const [lit, shade] = PAPER7[tone];
+      const [lit, shade] = PAPER8[tone];
       const yt = yb - hh;
       ctx.fillStyle = mix(lit, "#FFFFFF", 0.15);
       trace(ctx, [
@@ -15631,7 +15633,7 @@ function make48(ctx, t, m) {
       const f = fold(o.at ?? 0);
       if (f <= 0)
         return;
-      const [lit, shade] = PAPER7[o.tone ?? (kind === "check" ? "good" : "bad")];
+      const [lit, shade] = PAPER8[o.tone ?? (kind === "check" ? "good" : "bad")];
       const [cx, cy] = [X(x), Y(y)];
       const strip = (a, b) => {
         ctx.lineCap = "butt";
@@ -15967,7 +15969,7 @@ var oscilloscope_default = {
 };
 
 // plugin/skills/motion-graphics/styles/paper-marbling.ts
-var PAPER8 = "#EFE6D2";
+var PAPER9 = "#EFE6D2";
 var LABEL = "#F7F1E3";
 var INK13 = "#2A2219";
 var TONE12 = {
@@ -16000,7 +16002,7 @@ function make50(ctx, t, m) {
       return tex;
     tex = new OffscreenCanvas(W, H);
     const c = tex.getContext("2d");
-    c.fillStyle = PAPER8;
+    c.fillStyle = PAPER9;
     c.fillRect(0, 0, W, H);
     c.strokeStyle = "rgba(120,95,60,0.06)";
     c.lineWidth = 1;
@@ -16036,7 +16038,7 @@ function make50(ctx, t, m) {
           const a = k / 160 * Math.PI * 2;
           return [cx + Math.cos(a) * r, cy + Math.sin(a) * r];
         }),
-        col: i % 7 === 6 ? PAPER8 : PIGMENTS[i % PIGMENTS.length]
+        col: i % 7 === 6 ? PAPER9 : PIGMENTS[i % PIGMENTS.length]
       });
     }
     for (let k = 0;k < 5; k++) {
@@ -16127,8 +16129,8 @@ function make50(ctx, t, m) {
     node(x, y, r, o = {}) {
       const tone = o.tone ?? "accent";
       const base = tone === "accent" ? TONE12.ink : TONE12[tone];
-      const second = tone === "accent" ? TONE12.accent : PAPER8;
-      drop(X(x), Y(y), r * u * 1.1, o.at ?? 0, [base, second, base, PAPER8], x * 40 + y * 13);
+      const second = tone === "accent" ? TONE12.accent : PAPER9;
+      drop(X(x), Y(y), r * u * 1.1, o.at ?? 0, [base, second, base, PAPER9], x * 40 + y * 13);
     },
     box(x, y, w, h, o = {}) {
       laid(X(x + w / 2), Y(y + h / 2), o.at, () => {
@@ -16173,7 +16175,7 @@ function make50(ctx, t, m) {
       const n = 4;
       for (let i = 0;i < n; i++) {
         const cy = Y(y) + Y(h) * ((i + 0.5) / n);
-        const cols = i % 2 ? [TONE12.accent, PAPER8, TONE12.accent] : [TONE12.ink, TONE12.muted, TONE12.ink, PAPER8];
+        const cols = i % 2 ? [TONE12.accent, PAPER9, TONE12.accent] : [TONE12.ink, TONE12.muted, TONE12.ink, PAPER9];
         drop(cx + (hash(i) - 0.5) * r * 0.5, cy, r * (0.75 + hash(i + 2) * 0.3), at + i / n * dur, cols, i * 9 + x * 30);
       }
     },
@@ -16587,7 +16589,7 @@ var papercraft_default = {
 };
 
 // plugin/skills/motion-graphics/styles/patent-drawing.ts
-var PAPER9 = "#EFE5CC";
+var PAPER10 = "#EFE5CC";
 var INK15 = "#1D1A16";
 var RED7 = "#B8352B";
 var COLOR = {
@@ -16657,7 +16659,7 @@ function make52(ctx, t, m) {
       if (!tile) {
         tile = new OffscreenCanvas(W, H);
         const c = tile.getContext("2d");
-        c.fillStyle = PAPER9;
+        c.fillStyle = PAPER10;
         c.fillRect(0, 0, W, H);
         for (let i = 0;i < 2600; i++) {
           c.fillStyle = hash(i) > 0.5 ? "rgba(120,90,40,0.06)" : "rgba(255,250,235,0.08)";
@@ -16712,7 +16714,7 @@ function make52(ctx, t, m) {
       if (t < at)
         return;
       if (progress(t, at, dur) > 0.98) {
-        ctx.fillStyle = PAPER9;
+        ctx.fillStyle = PAPER10;
         ctx.beginPath();
         ctx.arc(cx, cy, R, 0, Math.PI * 2);
         ctx.fill();
@@ -16726,7 +16728,7 @@ function make52(ctx, t, m) {
       const [x0, y0, x1, y1] = [X(x), Y(y), X(x + w), Y(y + h)];
       if (t < at)
         return;
-      ctx.fillStyle = PAPER9;
+      ctx.fillStyle = PAPER10;
       ctx.fillRect(x0, y0, (x1 - x0) * clamp(progress(t, at, dur) * 4), y1 - y0);
       const c = COLOR[tone];
       rule([
@@ -16779,7 +16781,7 @@ function make52(ctx, t, m) {
       const cx = (x0 + x1) / 2;
       const rx = (x1 - x0) / 2;
       const ry = rx * 0.3;
-      ctx.fillStyle = PAPER9;
+      ctx.fillStyle = PAPER10;
       ctx.fillRect(x0, y0 + ry, x1 - x0, y1 - y0 - 2 * ry);
       const s = dur / 6;
       rule(ellipse(cx, y0 + ry, rx, ry, 40), at, s * 1.5, 1.8, INK15, 0);
@@ -21543,7 +21545,7 @@ var string_art_default = {
 };
 
 // plugin/skills/motion-graphics/styles/sumi-e.ts
-var PAPER10 = "#EEE6D3";
+var PAPER11 = "#EEE6D3";
 var SEAL = "#B8322A";
 var INK18 = {
   ink: "#1C1B19",
@@ -21565,7 +21567,7 @@ function make67(ctx, t, m) {
     if (!tile) {
       tile = new OffscreenCanvas(W, H);
       const c = tile.getContext("2d");
-      c.fillStyle = PAPER10;
+      c.fillStyle = PAPER11;
       c.fillRect(0, 0, W, H);
       for (let i = 0;i < 40; i++) {
         const r = (80 + hash(i * 5.1) * 260) * u;
@@ -21708,7 +21710,7 @@ function make67(ctx, t, m) {
     ctx.globalAlpha = Math.min(1, p * 1.5) * 0.92;
     ctx.fillStyle = SEAL;
     ctx.fillRect(-s / 2, -s / 2, s, s);
-    ctx.strokeStyle = PAPER10;
+    ctx.strokeStyle = PAPER11;
     ctx.lineWidth = Math.max(1, s * 0.07);
     ctx.lineCap = "square";
     ctx.beginPath();
@@ -21929,7 +21931,7 @@ var lerpN = (a, b, f) => a + (b - a) * f;
 var sumi_e_default = { id: "sumi-e", name: "Ink wash", category: "Painterly", make: make67 };
 
 // plugin/skills/motion-graphics/styles/swiss-grid.ts
-var PAPER11 = "#EFEEEA";
+var PAPER12 = "#EFEEEA";
 var BLACK10 = "#111111";
 var RED8 = "#E1251B";
 var TONE15 = {
@@ -21970,7 +21972,7 @@ function make68(ctx, t, m) {
   }
   return {
     surface() {
-      ctx.fillStyle = PAPER11;
+      ctx.fillStyle = PAPER12;
       ctx.fillRect(0, 0, W, H);
       const gp = ease(0, 0.9);
       ctx.fillStyle = "rgba(17,17,17,0.08)";
@@ -22016,7 +22018,7 @@ function make68(ctx, t, m) {
       const R = r * u * 0.55 * p;
       ctx.beginPath();
       ctx.arc(X(x), Y(y), R, 0, Math.PI * 2);
-      ctx.fillStyle = PAPER11;
+      ctx.fillStyle = PAPER12;
       ctx.fill();
       ctx.lineWidth = 3 * u;
       ctx.strokeStyle = o.tone === "bad" ? RED8 : BLACK10;
@@ -23748,7 +23750,7 @@ var thermal_camera_default = {
 };
 
 // plugin/skills/motion-graphics/styles/topographic.ts
-var PAPER12 = "#EFE7D2";
+var PAPER13 = "#EFE7D2";
 var BROWN = "#9A6A44";
 var INK19 = "#2E2A24";
 var WATER = "#9CC3DA";
@@ -23861,7 +23863,7 @@ function make74(ctx, t, m) {
     ctx.textAlign = align;
     ctx.textBaseline = "middle";
     ctx.lineWidth = 4 * u;
-    ctx.strokeStyle = alpha(PAPER12, 0.85);
+    ctx.strokeStyle = alpha(PAPER13, 0.85);
     const str = style.includes("italic") ? s : s.toUpperCase();
     ctx.strokeText(str, x, y);
     ctx.fillText(str, x, y);
@@ -23870,7 +23872,7 @@ function make74(ctx, t, m) {
   function cartouche(x, y, w, h, a) {
     ctx.save();
     ctx.globalAlpha = a;
-    ctx.fillStyle = alpha(PAPER12, 0.94);
+    ctx.fillStyle = alpha(PAPER13, 0.94);
     ctx.fillRect(x, y, w, h);
     ctx.strokeStyle = INK19;
     ctx.lineWidth = 1.6 * u;
@@ -23881,7 +23883,7 @@ function make74(ctx, t, m) {
   }
   return {
     surface() {
-      ctx.fillStyle = PAPER12;
+      ctx.fillStyle = PAPER13;
       ctx.fillRect(0, 0, W, H);
       const { shade, levels } = plates();
       const sp = progress(t, 0, 0.8);
@@ -23905,7 +23907,7 @@ function make74(ctx, t, m) {
       ctx.strokeRect(m0, m0, W - 2 * m0, H - 2 * m0);
       const [sx, sy] = [X(0.04), Y(0.94)];
       for (let k = 0;k < 4; k++) {
-        ctx.fillStyle = k % 2 ? PAPER12 : INK19;
+        ctx.fillStyle = k % 2 ? PAPER13 : INK19;
         ctx.fillRect(sx + k * 30 * u, sy, 30 * u, 5 * u);
       }
       ctx.strokeRect(sx, sy, 120 * u, 5 * u);
@@ -23965,7 +23967,7 @@ function make74(ctx, t, m) {
         ctx.save();
         trace(ctx, pts.slice(0, Math.max(2, Math.round(pts.length * p))));
         if (k === 0 && p >= 1) {
-          ctx.fillStyle = alpha(PAPER12, 0.9);
+          ctx.fillStyle = alpha(PAPER13, 0.9);
           ctx.fill();
         }
         ctx.strokeStyle = col;
@@ -24116,7 +24118,7 @@ var topographic_default = {
 };
 
 // plugin/skills/motion-graphics/styles/transit-map.ts
-var PAPER13 = "#F4F2EC";
+var PAPER14 = "#F4F2EC";
 var NAVY6 = "#1C2340";
 var LINE8 = {
   ink: NAVY6,
@@ -24232,7 +24234,7 @@ function make75(ctx, t, m) {
   }
   return {
     surface() {
-      ctx.fillStyle = PAPER13;
+      ctx.fillStyle = PAPER14;
       ctx.fillRect(0, 0, W, H);
       stroke([
         [0, Y(0.86)],

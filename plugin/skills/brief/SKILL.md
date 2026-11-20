@@ -87,6 +87,7 @@ what they leave open. Pace numbers come from
 | Talk or lecture | `focus` on the speaker; cut to the slide when it carries the point | short 3 to 6 | captions; the slide's key line as a title | none |
 | Product demo or launch | the product large, slow drift; theme `studio` or `night` | 2 to 4 | a kinetic title per feature; an end card with the call to action | `corporate.js` or `cinematic.js`, building to the reveal |
 | Vlog | keep the camera's own movement; hard cuts on action | 1.5 to 3 | sparse captions; place names as kickers | `lofi.js` or `electronic.js` |
+| Vlog or creator clip, editor-reel look (the user wants it to look edited, or names a reel or an editor's style as the reference) | the footage in a torn window; a new framing every cut | about 1.2 | `templates/editor-reel.html` (**motion-graphics**): scattered hook, a glitch, zoom blur or flash on each cut, stickers, scribbles, captions | `electronic.js` |
 | News or commentary | face plus screenshots of the source as `inserts`; highlight the number that matters | 1.2 to 2.5 | title pairing a heavy face with an italic serif; quotes on a card | `electronic.js` low, or none |
 | Listicle (any format) | as its format | as its format | a numbered header that ticks over and stays on screen | as its format |
 

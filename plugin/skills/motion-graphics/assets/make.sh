@@ -5,6 +5,10 @@ set -eu
 cd "$(dirname "$0")"
 A="-ar 48000 -ac 1 -c:a pcm_s16le"
 ffmpeg -v error -y -f lavfi -i "color=c=0x808080:s=384x384,noise=alls=48:allf=u" -frames:v 1 -pix_fmt gray grain.png
+# Paper for collage frames and stickers (#255): warm off-white, fine fibres, a soft mottle.
+ffmpeg -v error -y -f lavfi -i "color=c=0xEEE7D8:s=512x512,noise=alls=14:allf=u,gblur=sigma=0.6,noise=alls=6:allf=u" -frames:v 1 paper.png
+# Masking tape: translucent cream with a grain, laid over the corner of a card.
+ffmpeg -v error -y -f lavfi -i "color=c=0xE9DDB8:s=256x80,noise=alls=22:allf=u,gblur=sigma=0.8,format=rgba,colorchannelmixer=aa=0.78" -frames:v 1 tape.png
 mkdir -p sfx && cd sfx
 # Air past the mic: pink noise, band-limited, swelling and dying.
 ffmpeg -v error -y -f lavfi -i "anoisesrc=d=0.7:c=pink:a=0.9:seed=7" -af "highpass=f=250,lowpass=f=4500,afade=t=in:st=0:d=0.38:curve=exp,afade=t=out:st=0.38:d=0.32:curve=qsin,volume=1.6" $A whoosh.wav
