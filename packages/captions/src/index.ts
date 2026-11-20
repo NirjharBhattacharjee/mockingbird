@@ -53,19 +53,34 @@ const WIDE_LINE = 0.6;
 const HIGHLIGHT = "rgb(255, 214, 0)";
 
 /**
- * Inter, then Noto for scripts Inter lacks, then whatever the system has.
- * ponytail: Chinese, Japanese and Korean share Han characters; SC comes
- * first, so a Japanese caption's kanji take Chinese shapes. Pick by the
- * caption's language if that matters.
+ * Chinese, Japanese and Korean share Han characters, drawn in each one's own
+ * shapes: the first of Noto's three a caption lists draws them (#224). By
+ * the captions first: any kana is Japanese, any Hangul Korean. Han alone
+ * goes by the language when it's one of the three, and Chinese otherwise.
  */
-const FAMILIES = [
-  "Inter",
-  ...["Bengali", "Devanagari", "Arabic", "Hebrew", "Thai", "Tamil", "SC", "JP", "KR"].map(
-    (script) => `"Noto Sans ${script}"`,
-  ),
-  "system-ui",
-  "sans-serif",
-].join(",");
+export function hanOrder(language: string | undefined, texts: string[]): string[] {
+  const all = texts.join("");
+  // What the captions show wins: the setting is the user's, the captions may be another language's.
+  const first = /[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(all)
+    ? "ja"
+    : /\p{Script=Hangul}/u.test(all)
+      ? "ko"
+      : language === "ja" || language === "ko" || language === "zh"
+        ? language
+        : "zh";
+  return { ja: ["JP", "SC", "KR"], ko: ["KR", "JP", "SC"], zh: ["SC", "JP", "KR"] }[first];
+}
+
+/** Inter, then Noto for scripts Inter lacks (Han in `han`'s order), then whatever the system has. */
+const families = (han: string[]) =>
+  [
+    "Inter",
+    ...["Bengali", "Devanagari", "Arabic", "Hebrew", "Thai", "Tamil", ...han].map(
+      (script) => `"Noto Sans ${script}"`,
+    ),
+    "system-ui",
+    "sans-serif",
+  ].join(",");
 
 /** A word, and whether it's highlighted. */
 type Piece = { text: string; lit: boolean };
@@ -92,8 +107,9 @@ export function pieces(text: string): Piece[][] {
  *
  * It's drawn as HTML in the headless Chrome at `chrome`, so captions look
  * the same on every OS; `wrap` starts Chrome inside a sandbox, and `fonts`
- * are the ones mockingbird ships (#156). Returns the files in order, or
- * undefined if they can't be drawn.
+ * are the ones mockingbird ships (#156). `language` (a Whisper code) picks
+ * which shapes Han characters take; see hanOrder. Returns the files in
+ * order, or undefined if they can't be drawn.
  */
 export async function drawCaptions(
   texts: string[],
@@ -104,7 +120,8 @@ export async function drawCaptions(
     chrome: chromePath,
     wrap,
     fonts = [],
-  }: { chrome?: string; wrap?: string[]; fonts?: PageFont[] } = {},
+    language,
+  }: { chrome?: string; wrap?: string[]; fonts?: PageFont[]; language?: string } = {},
 ): Promise<string[] | undefined> {
   if (!chromePath) return undefined;
   const tall = height >= side;
@@ -154,7 +171,7 @@ export async function drawCaptions(
       "box-sizing:border-box",
       `padding:${outline}px ${margin}px`,
       "text-align:center",
-      `font:700 ${size}px/normal ${FAMILIES}`,
+      `font:700 ${size}px/normal ${families(hanOrder(language, texts))}`,
       "color:#fff",
       `-webkit-text-stroke:${outline}px #000`,
       "paint-order:stroke fill",

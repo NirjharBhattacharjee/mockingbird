@@ -12,8 +12,12 @@ export type Pause = { start: number; end: number; length: number };
 
 const hundredths = (n: number) => Math.round(n * 100) / 100;
 
-/** The pauses in ffmpeg's `silencedetect` log, `offset` seconds added (where the scan started). */
-export function parseSilence(log: string, offset = 0): Pause[] {
+/**
+ * The pauses in ffmpeg's `silencedetect` log, `offset` seconds added (where
+ * the scan started). A pause still open when the log ends (ffmpeg 3.4 prints
+ * no `silence_end` for a scan that ends in silence) runs to `end`, when given.
+ */
+export function parseSilence(log: string, offset = 0, end?: number): Pause[] {
   const pauses: Pause[] = [];
   let start: number | undefined;
   for (const line of log.split("\n")) {
@@ -28,6 +32,13 @@ export function parseSilence(log: string, offset = 0): Pause[] {
       });
       start = undefined;
     }
+  }
+  if (start !== undefined && end !== undefined && end > start) {
+    pauses.push({
+      start: hundredths(start),
+      end: hundredths(end),
+      length: hundredths(end - start),
+    });
   }
   return pauses;
 }
@@ -113,7 +124,11 @@ export async function findPauses(
     ],
     `ffmpeg couldn't read the sound in ${path}`,
   );
-  return parseSilence(err, from);
+  // Where the scan stopped: `to` or the end of the file ffmpeg reported, whichever is first.
+  const [, h, m, sec] = err.match(/Duration: (\d+):(\d+):([\d.]+)/) ?? [];
+  const length = h === undefined ? undefined : Number(h) * 3600 + Number(m) * 60 + Number(sec);
+  const end = to === undefined ? length : length === undefined ? to : Math.min(to, length);
+  return parseSilence(err, from, end);
 }
 
 /** A file's length in seconds, and its picture's size as `WxH` (undefined with no picture). */

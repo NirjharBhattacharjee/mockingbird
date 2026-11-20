@@ -45,17 +45,17 @@ with `"args": ["/c", "C:\\Users\\<you>\\.mockingbird\\bin\\mockingbird.cmd", "mc
 
 | Tool | What it does |
 |---|---|
-| `transcribe(path, from, to, words, model, language)` | An audio or video file (anything ffmpeg reads: m4a, mp3, wav, mp4, mov, mkv) as text, in lines timestamped `[mm:ss]`, with names fixed from your dictionary (a `heard => term` entry first, then anything that sounds like a term). Each call starts its own whisper-server, so two can run at once. The client's model does any cleanup or summarising. `from` and `to` (seconds) take one stretch of the file. `words: true` gives one line per word with its start and end, `[01:23.48-01:23.71] Catppuccin`, to cut a clip on; names are fixed one word at a time there, so a name misheard as two words stays as heard. `model` (a file in `models/`) and `language` (a Whisper code, or `auto`) pick the model and language for this call only; given neither, with the language on `auto` and a model mapped to a language (`models use --language`), it detects the language from the first speech and uses that model. The first line then names the language and model. |
-| `transcribe(project)` | The words in a project's cut, clip by clip, each line at its time in the finished video: the edit as text, to choose what `cut_words` cuts. See [Text-based editing](#text-based-editing). |
+| `transcribe(path, from, to, words, model, language)` | An audio or video file (anything ffmpeg reads: m4a, mp3, wav, mp4, mov, mkv) as text, in lines timestamped `[mm:ss]`, with names fixed from your dictionary (a `heard => term` entry first, then anything that sounds like a term). Each call starts its own whisper-server, so two can run at once. The client's model does any cleanup or summarising. `from` and `to` (seconds) take one stretch of the file. `words: true` gives one line per word with its start and end, `[01:23.48-01:23.71] Catppuccin`, to cut a clip on; names are fixed one word at a time there, so a name misheard as two words stays as heard. `model` (a file in `models/`) and `language` (a Whisper code, or `auto`) pick the model and language for this call only; given neither, with the language on `auto` and a model mapped to a language (`models use --language`), it detects the language from the first speech and uses that model (`MOCKINGBIRD_ASR_MODEL` in the server's environment turns detection off; see [MODELS.md §5](MODELS.md#5-choosing-a-model)). The first line then names the language and model. It also gives the word count and words a minute over the stretch heard, pauses included: a reference's speaking pace for style-match. |
+| `transcribe(project, model, language)` | The words in a project's cut, clip by clip, each line at its time in the finished video: the edit as text, to choose what `cut_words` cuts. `model` and `language` are kept on the project as its `transcription`, so `cut_words`, `captions` and `render` hear the same words. See [Text-based editing](#text-based-editing). |
 | `effects` | The effects catalog: each effect's name, whether it's on the picture or the sound, and its settings with ranges and defaults; see [Effects](#effects). |
 | `export(project, format, out)` | A project as FCPXML 1.10 and OpenTimelineIO, to finish the cut in Final Cut, Resolve or Premiere; see [Exporting to an editor](#exporting-to-an-editor). |
 | `track(path, from, to, box)` | Follows a box through a video by template matching on frames shrunk to 320 wide: its top left over time, five points a second, to give a mask as its `path` so a blur or a grade stays on a moving face, plate or logo. A test pattern moving across a busy 1280x720 background was followed for 6 s in 0.38 s, at most 4.4 px off. `worst` under about 0.5 means it was lost. A call follows up to two minutes: give `to` no later than `from` + 120 s (or the end of the video), since a longer window is refused. Every frame is kept at 320 wide while it runs, so track a long take a shot at a time. |
 | `sync(paths, window)` | Lines up recordings of one take (cameras, a separate recorder) by their sound: each file's offset against the first, for a multicam edit. Two cameras offset by 1.234 s, with different mic tone, gain and room noise, came out at 1.234 s (0.0 ms off) in 0.44 s. It compares the first `window` seconds (default 120, up to 1200) and finds offsets up to half of that, so recordings started further apart need a longer window. |
 | `scopes(path, from, to, every)` | What a colourist reads off the scopes, as numbers: luma, the histogram's thirds, clipping, saturation and skin's distance from the skin-tone line; see [Effects](#effects). An HDR source is measured after it's brought to SDR, as `render` will show it. |
 | `audio_stats(path, from, to)` | What a file's sound measures, since the agent can't listen: see [Measuring sound](#measuring-sound). |
-| `scenes(path, from, to, threshold)` | The shot changes in a video, from ffmpeg's `scdet` over frames shrunk to 180 lines: each one's `[mm:ss.cc]` time and how big a change it is (0 to 100), and cuts a minute and seconds a shot. `threshold` (default 10) is how big a change counts. It finds changes of shot, such as a cut to b-roll, a new slide or another camera, not jump cuts within one shot: in the first minute of the v2 edit, the two cuts that changed the framing scored 5.9 and 7.5, and eight jump cuts scored under 1 or not at all, below ordinary movement. Decoded with the hardware where there's a decoder: a minute of 4K HEVC phone video took 21.6 s, against 165.6 s in software; a 4-minute 1080p60 screen recording took 29.5 s. |
+| `scenes(path, from, to, threshold)` | The shot changes in a video, from ffmpeg's `scdet` over frames shrunk to 180 lines: each one's `[mm:ss.cc]` time and how big a change it is (0 to 100), and cuts a minute and seconds a shot. `threshold` (default 10) is how big a change counts. It finds changes of shot, such as a cut to b-roll, a new slide or another camera, not jump cuts within one shot: in the first minute of the v2 edit, the two cuts that changed the framing scored 5.9 and 7.5, and eight jump cuts scored under 1 or not at all, below ordinary movement. Decoded with the hardware where there's a decoder: a minute of 4K HEVC phone video took 21.6 s, against 165.6 s in software; a 4-minute 1080p60 screen recording took 29.5 s. A cut on the first frame looked at counts, since the scan starts a frame early; a file whose length ffprobe can't tell is scanned over the asked-for range, or to the end without a pace. |
 | `frames(path, every, from, to)` | Stills from a video, one every `every` seconds (default 60), saved to a temp folder; returns their paths with `[mm:ss]` times, so a client that reads images can see slides and screen shares, or where the speaker is before framing a clip. `from` and `to` (seconds) take one stretch. An HDR source's stills are brought to SDR, as `render` shows it. Each still is read by seeking to it, so a long 4K phone video takes seconds, not minutes. |
-| `captions(path, clips, perCue, lit, upper, model, language)` | Word-by-word captions for the video `render` will make from `clips`, as SRT timed to the finished video: up to `perCue` words a cue (default 3), the word being said written `*like this*` (`lit`, default on), in capitals if `upper`. A new cue starts at each clip, after a sentence, after half a second's pause, or when its words span 1.2 seconds. Each clip is transcribed with two seconds either side, clips whose padded stretches overlap are transcribed together as one, and a word belongs to the clip its middle falls in. `model` and `language` work as in `transcribe`; detection listens to the first clip. |
+| `captions(path, clips, perCue, lit, upper, model, language)` | Word-by-word captions for the video `render` will make from `clips`, as SRT timed to the finished video: up to `perCue` words a cue (default 3), the word being said written `*like this*` (`lit`, default on), in capitals if `upper`. A new cue starts at each clip, after a sentence, after half a second's pause, or when its words span 1.2 seconds. Each clip is transcribed with two seconds either side, clips whose padded stretches overlap are transcribed together as one, and a word belongs to the clip its middle falls in. `model` and `language` work as in `transcribe`; detection listens to the opening clips, up to a minute of them, so a silent first clip doesn't stop it. |
 | `captions(project)` | The same word-by-word SRT for an `edit` project's cut, timed to its finished video with speed, transitions and J and L cuts, from the word cache; `perCue`, `lit` and `upper` default to the project's captions. Pass it to `motion` as `captions` over the project's render. |
 | `pauses(path, from, to, noise, shortest, minPause, margin)` | The pauses in a file's sound (ffmpeg's `silencedetect`, quieter than `noise` dB, default −35, for at least `shortest` s, default 0.25), one `start end length` line each, then `render`'s `clips` as JSON: what's between pauses of at least `minPause` s (default 0.4), `margin` s (default 0.15) kept into each, a stretch of 0.3 s or less joined to the next. |
 | `measure(path)` | A finished video's picture size (WxH), length, integrated loudness and true peak; its cuts come from `scenes`. |
@@ -127,6 +127,11 @@ call and changing the cut doesn't break the timing of what's laid over it
   the start of the video. One can run past the end of its clip, over the
   clips after it, like a title held across a jump cut; a `split` leaves an
   item that crosses it on the first half, still running on.
+- **`transcription`**, `{ "model": "ggml-large-v3-turbo-q5_0.bin", "language":
+  "de" }`, is the model and language the project's words are heard with,
+  when not the user's settings. `transcribe` with the project and a `model`
+  or `language` sets it. With the language on `auto`, the language is
+  detected from the first stretch heard, as `transcribe` does.
 - **`level`** evens out loudness between sources (#265): `true` for −16
   LUFS, or `{ "target": -18 }`. `render` measures each source's sound once
   (ffmpeg's `ebur128`) and puts a `gain` on all its clips, up to 30 dB either
@@ -164,7 +169,7 @@ call and changing the cut doesn't break the timing of what's laid over it
 | `{op: "trim", id, from?, to?}` | Changes a clip's source times. What's on it moves with the picture: trimming 2 s off the start moves its texts 2 s earlier, and drops any that were only on what's gone. |
 | `{op: "move", id, index}` | Moves a clip to another place in the cut. |
 | `{op: "cut_words", text, clip?, all?}` or `{op: "cut_words", from, to, clip?}` | Cuts words out of the cut by quoting them; see [Text-based editing](#text-based-editing). |
-| `{op: "set", id?, …fields}` | Sets fields of an item (`null` clears one), or without `id` the project's `size`, `fps`, `split`, `captions`, `level` and `look`. Unlike `trim`, setting a clip's `from`/`to` leaves what's on it where it is. |
+| `{op: "set", id?, …fields}` | Sets fields of an item (`null` clears one), or without `id` the project's `size`, `fps`, `split`, `captions`, `level`, `look` and `transcription`. Unlike `trim`, setting a clip's `from`/`to` leaves what's on it where it is. |
 
 New items get ids like `c1`, `t1`, `b1` and `a1` unless given one. A field
 the project doesn't have is an error, not ignored, so a misspelling is
@@ -326,6 +331,8 @@ and `cut_words` cuts by quoting it, the way an editor edits a document:
   case and punctuation. The words must be said once in the cut; if they're
   said more often, quote more of the sentence, give the `clip`, or add
   `all: true` to cut every time they're said (`{text: "like", all: true}`).
+  A word the dictionary made two (`geminipro` → `Gemini Pro`) is quoted as
+  it's shown.
 - `{op: "cut_words", from: "This is actually how most", to: "from AI models"}`
   cuts from the first words through the last, a sentence or a whole tangent,
   across as many clips as it spans.
@@ -358,7 +365,11 @@ After, seven cuts (three phrases, a stray "I'm", every "like" and a
 Each source is heard once and kept in `~/.mockingbird/cache/words/`, keyed by
 the file's path, size and modified time, the model and the language, so a
 changed file or another model is heard again. Only the stretches a project
-uses are heard: a short from an hour-long podcast hears the minute it uses.
+uses are decoded and heard: a short from an hour-long podcast hears the
+minute it uses (decoding a stretch of an hour-long source took 25 MB and
+0.03 s, against 264 MB and 0.59 s for the whole file). Two calls filling one
+source's words take turns. An `edit` whose project changed while its words
+were being heard hears what the project asks for now before it applies.
 The first `transcribe` of a 4-minute talk took 37.0 s on an M3 (28.2 s
 without DTW); after that, the transcript and every `cut_words` take no time,
 and a render's captions don't run Whisper.
@@ -634,7 +645,10 @@ against 199 s in software.
   `Noto Sans Tamil`, `Noto Sans SC`, `Noto Sans JP` and `Noto Sans KR` in
   CSS (the full names), and
   each loads the first time text needs it. Captions use Inter, then the Noto
-  family for the script.
+  family for the script. Han characters are drawn in Japanese, Chinese or
+  Korean shapes by the captions first: any kana makes them Japanese, any
+  Hangul Korean. Han alone goes by `MOCKINGBIRD_LANGUAGE` when it's `ja`,
+  `zh` or `ko`, and Chinese otherwise.
 - **The page** is the size of the video, with a transparent background.
   Anything Chrome draws works: CSS, SVG, gradients, blend modes, filters,
   fonts installed on the Mac or loaded with `@font-face`, images by relative

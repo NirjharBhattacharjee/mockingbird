@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { drawCaptions, parseSrt, pieces } from "../src/index.ts";
+import { drawCaptions, hanOrder, parseSrt, pieces } from "../src/index.ts";
 
 describe("parseSrt", () => {
   test("reads each cue's times and text", () => {
@@ -55,6 +55,18 @@ test("splits a caption into paragraphs of words, *marked* ones lit", () => {
     ],
     [{ text: "now", lit: false }],
   ]);
+});
+
+test("Han characters take the shapes of the caption's language (#224)", () => {
+  expect(hanOrder("ja", ["直"])).toEqual(["JP", "SC", "KR"]);
+  // Kana in the captions outweigh a zh setting: the captions are Japanese.
+  expect(hanOrder("zh", ["です"])).toEqual(["JP", "SC", "KR"]);
+  expect(hanOrder("zh", ["骨"])).toEqual(["SC", "JP", "KR"]);
+  expect(hanOrder("ko", [])).toEqual(["KR", "JP", "SC"]);
+  // Not one of the three: the captions decide.
+  expect(hanOrder("auto", ["骨", "です"])).toEqual(["JP", "SC", "KR"]);
+  expect(hanOrder("en", ["한국어"])).toEqual(["KR", "JP", "SC"]);
+  expect(hanOrder(undefined, ["你好"])).toEqual(["SC", "JP", "KR"]);
 });
 
 test("draws nothing without a Chrome", async () => {

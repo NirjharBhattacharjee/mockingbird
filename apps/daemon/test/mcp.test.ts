@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -34,12 +35,14 @@ import {
   seekClips,
   segments,
   soundOf,
+  sourceWords,
   spans,
   THREE_URL,
   tempo,
   timedLines,
   timedWords,
   timeline,
+  transcriptionAt,
   uncovered,
   union,
   withKit,
@@ -329,7 +332,7 @@ test("scdet's log reads as cuts, timed from the seek", () => {
   ].join("\n");
   expect(parseScenes(log, 60)).toEqual([
     { at: 62, score: 29.301 },
-    { at: 64.0333, score: 20.581 },
+    { at: 64.033, score: 20.581 },
   ]);
   expect(parseScenes("nothing here")).toEqual([]);
   expect(parseScenes("lavfi.scd.score: 0.000, lavfi.scd.time: 1")).toEqual([]);
@@ -1170,6 +1173,64 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
     }
   }, 180_000);
 
+  test("two calls filling one word cache keep both, and transcribe keeps a project's model (#235)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mb-words-"));
+    const saved = { home: process.env.MOCKINGBIRD_HOME, model: process.env.MOCKINGBIRD_ASR_MODEL };
+    try {
+      const home = join(dir, "home");
+      mkdirSync(home);
+      symlinkSync(
+        join(saved.home ?? join(homedir(), ".mockingbird"), "models"),
+        join(home, "models"),
+      );
+      process.env.MOCKINGBIRD_HOME = home;
+      process.env.MOCKINGBIRD_ASR_MODEL = "ggml-base.en.bin";
+      const hello = join(dir, "hello.wav");
+      copyFileSync(join(import.meta.dir, "../../../bench/fixtures/hello.wav"), hello);
+      // Two stretches of one source at once: the second waits, then hears only its own.
+      const ask = (from: number, to: number) =>
+        sourceWords(new Map([[hello, [{ from, to }]]]), () => {});
+      await Promise.all([ask(0, 1.5), ask(3, 4.5)]);
+      const [cached] = readdirSync(join(home, "cache", "words"));
+      const heard = JSON.parse(readFileSync(join(home, "cache", "words", String(cached)), "utf8"));
+      expect(heard.covered).toEqual([
+        { from: 0, to: 1.5 },
+        { from: 3, to: 4.5 },
+      ]);
+
+      const tool = (name: string) =>
+        mcpTools(
+          async () => ({}),
+          () => {},
+        ).find((t) => t.name === name) as { run: (a: Record<string, unknown>) => Promise<string> };
+      const project = join(dir, "edit.json");
+      await tool("edit").run({
+        project,
+        ops: [{ op: "add", type: "clip", path: "hello.wav", from: 0, to: 4.5 }],
+      });
+      await expect(tool("transcribe").run({ project, model: "../data.db" })).rejects.toThrow(
+        "model takes a file name",
+      );
+      expect(JSON.parse(readFileSync(project, "utf8"))).not.toHaveProperty("transcription");
+      const said = await tool("transcribe").run({
+        project,
+        model: "ggml-base.en.bin",
+        language: "en",
+      });
+      expect(said.toLowerCase()).toContain("hello world");
+      expect(JSON.parse(readFileSync(project, "utf8")).transcription).toEqual({
+        model: "ggml-base.en.bin",
+        language: "en",
+      });
+    } finally {
+      process.env.MOCKINGBIRD_HOME = saved.home;
+      process.env.MOCKINGBIRD_ASR_MODEL = saved.model;
+      if (saved.home === undefined) delete process.env.MOCKINGBIRD_HOME;
+      if (saved.model === undefined) delete process.env.MOCKINGBIRD_ASR_MODEL;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 180_000);
+
   test("a project with speed, a transition and a push renders to the length they add up to", async () => {
     const dir = mkdtempSync(join(tmpdir(), "mb-moves-"));
     try {
@@ -1432,6 +1493,29 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
       const later = (await tool?.run({ path: file, from: 3 })) ?? "";
       expect(later).toContain(": 1 cut from 00:03.00 to 00:06.00");
       expect(later).toMatch(/\[00:04\.0\d\]/);
+      // A cut on the first frame looked at counts (#226).
+      const onCut = (await tool?.run({ path: file, from: 2, to: 3 })) ?? "";
+      expect(onCut).toContain(": 1 cut from 00:02.00 to 00:03.00");
+      // A file whose length ffprobe can't tell is scanned over the range asked for.
+      // Matroska written to a pipe has no duration.
+      const raw = join(dir, "cuts.mkv");
+      const piped = Bun.spawnSync([
+        "ffmpeg",
+        "-loglevel",
+        "error",
+        "-i",
+        file,
+        "-c",
+        "copy",
+        "-f",
+        "matroska",
+        "-",
+      ]);
+      writeFileSync(raw, piped.stdout);
+      const unknown = (await tool?.run({ path: raw, from: 1, to: 5 })) ?? "";
+      expect(unknown).toContain(": 2 cuts from 00:01.00 to 00:05.00");
+      const toEnd = (await tool?.run({ path: raw })) ?? "";
+      expect(toEnd).toContain(": 2 cuts from 00:00.00 to the end (its length is unknown)");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -1677,6 +1761,17 @@ test("a draft with graphics waits for the look too, and an approved look has to 
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("cut_words hears with the transcription the batch set before it (#235)", () => {
+  const p = { version: 1, clips: [], texts: [], inserts: [], audio: [] } as unknown as Parameters<
+    typeof transcriptionAt
+  >[0];
+  const set = { op: "set", transcription: { model: "ggml-base.en.bin", language: "en" } };
+  const cut = { op: "cut_words", text: "um" };
+  expect(transcriptionAt(p, [set, cut])).toEqual({ model: "ggml-base.en.bin", language: "en" });
+  // Set after the cut: the cut is made on the words heard before it.
+  expect(transcriptionAt(p, [cut, set])).toBeUndefined();
 });
 
 test("level brings each source to the target once, within 30 dB (#265)", async () => {

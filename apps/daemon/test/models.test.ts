@@ -3,7 +3,9 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -53,6 +55,20 @@ function serving(body: string, status = 200) {
 }
 
 describe("pullFile", () => {
+  test("removes partials an older pull left for another version, and keeps others' (#225)", async () => {
+    const dir = tempDir();
+    writeFileSync(join(dir, "model.bin.part"), "old");
+    writeFileSync(join(dir, partOf(modelOf("older weights"))), "old");
+    writeFileSync(join(dir, "other.bin.part"), "someone else's");
+    const { get } = serving("weights");
+    expect(await pullFile(modelOf("weights"), dir, { fetch: get })).toBe(true);
+    expect(readdirSync(dir).sort()).toEqual(["model.bin", "other.bin.part"]);
+    // Already downloaded: an old partial still goes.
+    writeFileSync(join(dir, "model.bin.part"), "old");
+    expect(await pullFile(modelOf("weights"), dir, { fetch: get })).toBe(false);
+    expect(readdirSync(dir).sort()).toEqual(["model.bin", "other.bin.part"]);
+  });
+
   test("downloads a missing model and checks it", async () => {
     const dir = tempDir();
     const { get, calls } = serving("weights");
@@ -365,6 +381,17 @@ describe("modelsCommand", () => {
     expect(savedModelFor("bn", f.deps.home)).toBe("ggml-base.en.bin");
     expect(modelsCommand(["use", "ggml-base.en.bin", "--language", "xx"], f.deps)).toBe(2);
     expect(modelsCommand(["use", "ggml-base.en.bin", "--language"], f.deps)).toBe(2);
+  });
+
+  test("listModels checks a language's model in the models folder it was given (#225)", () => {
+    const f = fake({ MOCKINGBIRD_LANGUAGE: "bn" });
+    expect(modelsCommand(["use", "ggml-base.en.bin"], f.deps)).toBe(0);
+    // The default model's file, which the fake folder has on every platform.
+    expect(modelsCommand(["use", D, "--language", "bn"], f.deps)).toBe(0);
+    const elsewhere = join(f.deps.home, "elsewhere");
+    renameSync(f.deps.modelsDir, elsewhere);
+    const deps = { ...f.deps, modelsDir: elsewhere };
+    expect(listModels(deps).find((m) => m.inUse)?.file).toBe(D);
   });
 
   test("--language is read like MOCKINGBIRD_LANGUAGE, and a deleted one gives way", () => {

@@ -22,10 +22,11 @@ the notes and numbers below.
    moments that mattered (title reveals, a HUD lighting up, an end card)
    to time them frame by frame.
 
-To repeat these numbers, run the same `scdet` filter; mockingbird's `scenes`
-tool does. Compare a reference with your render through the same tool, not
-across methods: ffmpeg's older scene score (`select='gt(scene,0.3)'`) counts
-fewer cuts.
+To repeat these numbers, run the same `scdet` filter. mockingbird's `scenes`
+tool runs it at threshold 10 too, but on frames scaled to 180 lines high, not
+320 px wide, so its counts can differ a little from the table. Compare a
+reference with your render through the same tool, not across methods:
+ffmpeg's older scene score (`select='gt(scene,0.3)'`) counts fewer cuts.
 
 ## The numbers
 

@@ -190,11 +190,15 @@ export function spokenLanguage(env = process.env, log: (message: string) => void
  * The model saved for `language` (`models use <file> --language bn`), or
  * else the one saved for every language (#143).
  */
-export function savedModelFor(language: string, home = mockingbirdHome()): string | undefined {
+export function savedModelFor(
+  language: string,
+  home = mockingbirdHome(),
+  models = join(home, "models"),
+): string | undefined {
   const own =
     language === "auto" ? undefined : savedSetting(`${ASR_MODEL_SETTING}.${language}`, home);
   // One that's since been deleted gives way to the choice for every language.
-  const there = own && isWhisperFile(own) && existsSync(join(home, "models", own));
+  const there = own && isWhisperFile(own) && existsSync(join(models, own));
   return there ? own : savedSetting(ASR_MODEL_SETTING, home);
 }
 
@@ -350,21 +354,20 @@ export function languageModels(home = mockingbirdHome()): [string, string][] {
 /** What one call asked for: a model file in models/, and a language code or "auto". */
 export type ModelChoice = { model?: string; language?: string };
 
-/**
- * The engines for one transcription (#143). A `model` or `language` given
- * for the call wins over MOCKINGBIRD_ASR_MODEL and MOCKINGBIRD_LANGUAGE, and
- * a language picks its model from the map `models use --language` keeps.
- * Left to detect the language with a map in place, it detects it from the
- * first stretch of speech (up to 30 s) with the default model, then, if the
- * map has another model for that language, starts that one instead. Returns
- * the language used (a code, or "auto") and the model's file name.
- */
-export async function enginesFor(
-  audio: PcmAudio,
+/** `env` with a call's model and language over the settings, as a transcription reads them. */
+export function choiceEnv<E extends Record<string, string | undefined>>(
   choice: ModelChoice,
-  log: (message: string) => void,
-  env: Record<string, string | undefined> = process.env,
-): Promise<{ engines: Engines; language: string; model: string; detected: boolean }> {
+  env: E,
+) {
+  return {
+    ...env,
+    ...(choice.model ? { MOCKINGBIRD_ASR_MODEL: choice.model } : {}),
+    ...(choice.language ? { MOCKINGBIRD_LANGUAGE: choice.language } : {}),
+  };
+}
+
+/** Throws unless `choice` names a file in models/ and a language Whisper knows. */
+export function checkChoice(choice: ModelChoice): void {
   if (choice.model !== undefined && !isWhisperFile(choice.model)) {
     throw new Error(
       `model takes a file name in models/, like ggml-large-v3-turbo.bin; got ${choice.model}`,
@@ -379,16 +382,32 @@ export async function enginesFor(
       `language takes a code Whisper knows, like en, bn or de, or auto; got ${choice.language}`,
     );
   }
-  const callEnv = {
-    ...env,
-    ...(choice.model ? { MOCKINGBIRD_ASR_MODEL: choice.model } : {}),
-    ...(choice.language ? { MOCKINGBIRD_LANGUAGE: choice.language } : {}),
-  };
+}
+
+/**
+ * The engines for one transcription (#143). A `model` or `language` given
+ * for the call wins over MOCKINGBIRD_ASR_MODEL and MOCKINGBIRD_LANGUAGE, and
+ * a language picks its model from the map `models use --language` keeps.
+ * Left to detect the language with a map in place, it detects it from the
+ * first stretch of speech (up to 30 s) with the saved global model (or, when
+ * that only knows English, a multilingual one from the map), then starts the
+ * language's model if it's another, held to the language heard. Returns
+ * the language used (a code, or "auto") and the model's file name.
+ */
+export async function enginesFor(
+  audio: PcmAudio,
+  choice: ModelChoice,
+  log: (message: string) => void,
+  env: Record<string, string | undefined> = process.env,
+  { dtw = false } = {},
+): Promise<{ engines: Engines; language: string; model: string; detected: boolean }> {
+  checkChoice(choice);
+  const callEnv = choiceEnv(choice, env);
   const start = async (e: typeof callEnv) => {
-    const engines = await startEngines(log, freePort(), e);
+    const engines = await startEngines(log, freePort(), e, { dtw });
     return { engines, language: spokenLanguage(e), model: basename(engines.model) };
   };
-  const first = await start(callEnv);
+  let first = await start(callEnv);
   // A mapping to a model since deleted counts for nothing.
   const models = join(mockingbirdHome(env), "models");
   const mapped = languageModels(mockingbirdHome(env)).filter(([, file]) =>
@@ -401,6 +420,21 @@ export async function enginesFor(
     !mapped.length
   ) {
     return { ...first, detected: false };
+  }
+  // An English-only model can't tell German from English: detect with a
+  // multilingual one from the map, or say detection can't run.
+  const global = first.model;
+  if (englishOnly(first.model)) {
+    const other = mapped.find(([, file]) => !englishOnly(file))?.[1];
+    if (!other) {
+      log(
+        `warning: ${first.model} only knows English, so the language can't be detected. ` +
+          "Pick a multilingual model with `mockingbird models use`.",
+      );
+      return { ...first, detected: false };
+    }
+    await first.engines.close();
+    first = await start({ ...callEnv, MOCKINGBIRD_ASR_MODEL: other });
   }
   // Detect from the first speech: VAD finds it, Whisper names its language.
   let code: string | undefined;
@@ -418,12 +452,28 @@ export async function enginesFor(
     await first.engines.close();
     throw error;
   }
-  const wanted = code && mapped.find(([c]) => c === code)?.[1];
-  if (!code || !wanted || wanted === first.model)
-    return { ...first, language: code ?? "auto", detected: !!code };
+  if (!code) return { ...first, detected: false };
+  // A language with no model of its own keeps the one for every language,
+  // unless that one only knows English and this isn't English.
+  const fallback = englishOnly(global) && code !== "en" ? first.model : global;
+  const wanted = mapped.find(([c]) => c === code)?.[1] ?? fallback;
+  if (wanted === first.model) {
+    // The same model goes on, held to the language heard: left on auto,
+    // each later chunk would be detected again, and could drift.
+    const { asr } = first.engines;
+    const held: AsrEngine = {
+      model: asr.model,
+      health: () => asr.health(),
+      transcribe: (a, options) => asr.transcribe(a, { ...options, language: code }),
+    };
+    return { ...first, engines: { ...first.engines, asr: held }, language: code, detected: true };
+  }
   await first.engines.close();
   log(`heard ${WHISPER_LANGUAGES.get(code)}: transcribing with ${wanted}`);
-  return { ...(await start({ ...callEnv, MOCKINGBIRD_LANGUAGE: code })), detected: true };
+  return {
+    ...(await start({ ...callEnv, MOCKINGBIRD_LANGUAGE: code, MOCKINGBIRD_ASR_MODEL: wanted })),
+    detected: true,
+  };
 }
 
 /** The Whisper model file and language a transcription would use now. */

@@ -66,6 +66,8 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("transcribe CLI (integrati
     expect(lines.code).toBe(0);
     expect(lines.stdout.toLowerCase()).toContain("hello world");
     expect(lines.stdout).toMatch(/\[00:0\d\]/);
+    // Speaking pace: about 13 words in 4.5 s.
+    expect(lines.stdout).toMatch(/\(0 min, 1\d words, 1\d\d a minute\)/);
     const words = await run(["--words", hello], env);
     expect(words.stdout).toMatch(/\[00:0\d\.\d\d-00:0\d\.\d\d\] \S+/);
   }, 90_000);

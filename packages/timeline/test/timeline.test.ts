@@ -423,6 +423,47 @@ describe("cut_words", () => {
     expect(() => apply(talk(), [{ op: "cut_words", text: "um" }])).toThrow("only the engine has");
   });
 
+  test("all: true in one clip follows it when a cut splits it (#235)", () => {
+    const { project, notes } = apply(
+      talk(),
+      [{ op: "cut_words", text: "you", clip: "c1", all: true }],
+      words,
+    );
+    // The second "you" is in the clip the first cut split off.
+    expect(project.clips).toHaveLength(3);
+    expect(notes).toHaveLength(2);
+  });
+
+  test("a dictionary correction of one word into two can be quoted (#235)", () => {
+    const fixed = () => [
+      { word: " try", start: 1, end: 1.2 },
+      { word: " Gemini Pro", start: 1.3, end: 1.8 },
+      { word: " today", start: 3, end: 3.3 },
+    ];
+    const p = check({ version: 1, clips: [{ id: "c1", path: "a.mp4", from: 0, to: 10 }] });
+    expect(spans(apply(p, [{ op: "cut_words", text: "gemini pro" }], fixed).project)).toEqual([
+      ["c1", 0, 1.3],
+      ["c2", 2.8, 10],
+    ]);
+    // Half of it isn't a word of the cut.
+    expect(() => apply(p, [{ op: "cut_words", text: "gemini" }], fixed)).toThrow("isn't said");
+  });
+
+  test("two edges in one long silence keep Whisper's times, not a stretch of the silence (#235)", () => {
+    const heard = () => [
+      { word: " a", start: 1.0, end: 1.2 },
+      { word: " um", start: 1.3, end: 1.5 },
+      { word: " b", start: 2.5, end: 2.7 },
+    ];
+    const gaps = () => [{ from: 1.2, to: 2.4 }];
+    const p = check({ version: 1, clips: [{ id: "c1", path: "a.mp4", from: 0, to: 10 }] });
+    // Snapped, both edges would land in the silence, at 1.4 and 2.2: past the word.
+    expect(spans(apply(p, [{ op: "cut_words", text: "um" }], heard, gaps).project)).toEqual([
+      ["c1", 0, 1.3],
+      ["c2", 2.3, 10],
+    ]);
+  });
+
   test("cutting a whole clip's words removes it with what's on it", () => {
     const p = check({
       version: 1,
@@ -471,6 +512,89 @@ test("transcript shows each clip's words at their time in the finished video", (
       ["c.mp4", [{ from: 1, to: 2 }]],
     ]),
   );
+});
+
+test("splitting a sped-up clip by a 1 ms text keeps the text (#235)", () => {
+  const p = check({
+    version: 1,
+    clips: [{ id: "c1", path: "a.mp4", from: 0, to: 10, speed: 1.5 }],
+    texts: [{ id: "t1", text: "x", clip: "c1", from: 1, to: 1.001 }],
+  });
+  const { project } = apply(p, [{ op: "split", id: "c1", at: 1.49925 }]);
+  expect(project.texts[0]).toMatchObject({ clip: "c2", from: 0, to: 0.001 });
+});
+
+test("a split just before a move on a sped-up clip leaves the move on the second half (#235)", () => {
+  const p = check({
+    version: 1,
+    clips: [
+      {
+        id: "c1",
+        path: "a.mp4",
+        from: 0,
+        to: 6,
+        speed: 1.5,
+        moves: [{ at: 1, zoom: 1.5 }],
+      },
+    ],
+  });
+  // The first half is 0.9996 s long: the move at 1 s isn't on it.
+  const { project } = apply(p, [{ op: "split", id: "c1", at: 1.4994 }]);
+  expect(project.clips[0]?.moves).toBeUndefined();
+  // 0.0004 s into the second half, kept to the millisecond.
+  expect(project.clips[1]?.moves?.[0]?.at).toBe(0);
+});
+
+test("with words heard, wanted follows a trim of a clip cut_words split off (#235)", () => {
+  const p = check({ version: 1, clips: [{ id: "c1", path: "a.mp4", from: 0, to: 4 }] });
+  const ops = [
+    { op: "cut_words", text: "um" },
+    { op: "trim", id: "c2", to: 8 },
+    { op: "cut_words", text: "go on" },
+  ];
+  // Before any words, c2 doesn't exist yet: only c1's stretch is asked for.
+  expect(wanted(p, ops).get("a.mp4")).toEqual([{ from: 0, to: 4 }]);
+  // With them, the first cut splits c1 and the trim reaches to 8 s, where "go on" is.
+  const spans = wanted(p, ops, words).get("a.mp4") ?? [];
+  expect(spans.some((s) => s.to === 8)).toBe(true);
+});
+
+test("transcription is a model's file name and a language code (#235)", () => {
+  const base = { version: 1, clips: [], texts: [], inserts: [], audio: [] };
+  expect(
+    check({ ...base, transcription: { model: "ggml-base.en.bin", language: "en" } }).transcription,
+  ).toEqual({
+    model: "ggml-base.en.bin",
+    language: "en",
+  });
+  expect(() => check({ ...base, transcription: { model: "../data.db" } })).toThrow(
+    "transcription.model",
+  );
+  expect(() => check({ ...base, transcription: { language: "english" } })).toThrow(
+    "transcription.language",
+  );
+});
+
+test("wanted goes on past an op on a clip only cut_words makes (#235)", () => {
+  const p = check({ version: 1, clips: [{ id: "c1", path: "a.mp4", from: 0, to: 4 }] });
+  const ops = [
+    { op: "cut_words", text: "um" },
+    { op: "trim", id: "c2", from: 3 },
+    { op: "add", type: "clip", path: "new.mov", from: 1, to: 2 },
+  ];
+  expect(wanted(p, ops).get("new.mov")).toEqual([{ from: 1, to: 2 }]);
+});
+
+test("wanted counts a trim earlier in the batch than cut_words (#235)", () => {
+  const p = check({ version: 1, clips: [{ id: "c1", path: "a.mp4", from: 2, to: 4 }] });
+  const ops = [
+    { op: "trim", id: "c1", to: 8 },
+    { op: "cut_words", text: "go on" },
+  ];
+  expect(wanted(p, ops).get("a.mp4")).toEqual([
+    { from: 2, to: 4 },
+    { from: 2, to: 8 },
+  ]);
 });
 
 describe("speed, moves and transitions", () => {
