@@ -13,7 +13,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { agents, codexMentions } from "../src/agents.ts";
 import { PLUGIN } from "../src/guide.ts";
-import { checks, commandPath, doctor, setup } from "../src/setup.ts";
+import { FONT_FILES, pinnedChrome } from "../src/models.ts";
+import { DEFAULT_ASR_MODEL, FFMPEG_NEEDS, pinnedWhisper } from "../src/runtime.ts";
+import { checks, commandPath, doctor, oldPlugin, setup } from "../src/setup.ts";
+
+/** What a full ffmpeg prints for `-encoders` and `-filters`, less `without`. */
+const ffmpegLists = (without: string[] = []) =>
+  [...FFMPEG_NEEDS.encoders, ...FFMPEG_NEEDS.filters]
+    .filter((n) => !without.includes(n))
+    .map((n) => ` V..... ${n}  something`)
+    .join("\n");
+
+/** A Mac, so Homebrew's whisper-cpp is the one asked for, whatever runs the tests. */
+const mac = { platform: "darwin", arch: "arm64" };
 
 /** A home with Cursor, Gemini CLI, VS Code and Codex folders, `mockingbird` in .local/bin, and no `claude` command. */
 function home() {
@@ -183,7 +195,7 @@ describe("agents", () => {
       })[0];
     expect(claude("other: x - ✔ Connected\n")?.registered).toBe(false);
     expect(claude("mockingbird: mockingbird mcp - ✔ Connected\n")?.registered).toBe(true);
-    expect(claude("plugin:mockingbird:mockingbird: sh launch.sh - ✔ Connected\n")?.registered).toBe(
+    expect(claude("plugin:mockingbird:mockingbird: /p/launch - ✔ Connected\n")?.registered).toBe(
       true,
     );
   });
@@ -205,15 +217,18 @@ test("setup installs missing tools and models after asking, then adds the agents
   const ran: string[] = [];
   const asked: string[] = [];
   let pulled = false;
+  let chromePulled = false;
   const tools = new Set(["brew"]);
   const code = await setup([], {
+    ...mac,
     home: h,
     mbHome: mb,
+    env: {},
     which: (n) => (tools.has(n) ? `/opt/homebrew/bin/${n}` : null),
     run: (argv) => {
       ran.push(argv.join(" "));
       if (argv[0] === "brew") for (const t of ["ffmpeg", "whisper-server"]) tools.add(t);
-      return { code: 0, out: argv[0] === "ffmpeg" ? "libx264" : "" };
+      return { code: 0, out: argv[0] === "ffmpeg" ? ffmpegLists() : "" };
     },
     ask: (q) => {
       asked.push(q);
@@ -223,16 +238,25 @@ test("setup installs missing tools and models after asking, then adds the agents
       pulled = true;
       mkdirSync(join(mb, "models"), { recursive: true });
       writeFileSync(join(mb, "models", "silero_vad.onnx"), "");
-      writeFileSync(join(mb, "models", "ggml-large-v3-q5_0.bin"), "");
+      writeFileSync(join(mb, "models", DEFAULT_ASR_MODEL), "");
+      return 0;
+    },
+    pullChrome: async () => {
+      chromePulled = true;
       return 0;
     },
     log: () => {},
   });
   expect(asked[0]).toBe("Install ffmpeg and whisper-cpp with Homebrew? [Y/n]");
   expect(asked[1]).toMatch(
-    /^Download the speech models \(up to 1\.1 GB\) from huggingface\.co and github\.com\?/,
+    // 1.1 GB on an Apple Silicon Mac, 0.2 GB where the default is small (#202).
+    /^Download the speech models \(up to [\d.]+ GB\) from huggingface\.co and github\.com\?/,
   );
-  expect(asked[2]).toBe("Add mockingbird to Cursor, Gemini CLI, VS Code, Codex? [Y/n]");
+  // Chrome is offered wherever there's a pinned build for it.
+  const chromeAsked = !!pinnedChrome(mb);
+  if (chromeAsked) expect(asked[2]).toMatch(/^Download the headless Chrome .* \[Y\/n\]$/);
+  expect(chromePulled).toBe(chromeAsked);
+  expect(asked.at(-1)).toBe("Add mockingbird to Cursor, Gemini CLI, VS Code, Codex? [Y/n]");
   expect(ran).toContain("brew install ffmpeg whisper-cpp");
   expect(pulled).toBe(true);
   expect(existsSync(join(h, ".gemini", "settings.json"))).toBe(true);
@@ -248,8 +272,9 @@ test("a no to the download still adds the agents, and setup exits 1 for the miss
   const code = await setup([], {
     home: h,
     mbHome: join(h, ".mockingbird"),
+    ...mac,
     which: (n) => `/opt/homebrew/bin/${n}`,
-    run: () => ({ code: 0, out: "libx264" }),
+    run: () => ({ code: 0, out: ffmpegLists() }),
     ask: (q) => !q.startsWith("Download"),
     log: () => {},
   });
@@ -257,23 +282,101 @@ test("a no to the download still adds the agents, and setup exits 1 for the miss
   expect(existsSync(join(h, ".cursor", "mcp.json"))).toBe(true);
 });
 
+test("doctor checks Chrome, which MOCKINGBIRD_CHROME can stand in for", () => {
+  const h = home();
+  const chrome = (env: Record<string, string>) =>
+    checks({ home: h, mbHome: join(h, "mb"), which: none, env }).find((c) => c.name === "chrome");
+  expect(chrome({})).toMatchObject({
+    ok: false,
+    needed: false,
+    fix: "`mockingbird models pull chrome`",
+  });
+  expect(chrome({ MOCKINGBIRD_CHROME: process.execPath })).toMatchObject({
+    ok: true,
+    detail: process.execPath,
+  });
+  // A bad override wins over the pinned one, so the fix is the override, not a download.
+  expect(chrome({ MOCKINGBIRD_CHROME: "/nowhere/chrome" })).toMatchObject({
+    ok: false,
+    detail: "MOCKINGBIRD_CHROME is /nowhere/chrome, which isn't a program that can run",
+    fix: "point MOCKINGBIRD_CHROME at a Chrome that runs, or unset it",
+  });
+});
+
+test("doctor names the pinned fonts that aren't pulled, even with Chrome (#276)", () => {
+  const h = home();
+  const mb = join(h, "mb");
+  const fonts = () =>
+    checks({
+      home: h,
+      mbHome: mb,
+      which: none,
+      env: { MOCKINGBIRD_CHROME: process.execPath },
+    }).find((c) => c.name === "fonts");
+  mkdirSync(join(mb, "fonts"), { recursive: true });
+  for (const f of FONT_FILES.slice(1)) writeFileSync(join(mb, "fonts", f.file), "");
+  expect(fonts()).toMatchObject({
+    ok: false,
+    needed: false,
+    fix: "`mockingbird models pull chrome`",
+  });
+  expect(fonts()?.detail).toContain(FONT_FILES[0]?.name as string);
+  writeFileSync(join(mb, "fonts", FONT_FILES[0]?.file as string), "");
+  expect(fonts()).toMatchObject({ ok: true });
+});
+
+test("a Chrome pull that throws doesn't stop setup; a bad MOCKINGBIRD_CHROME isn't offered a download", async () => {
+  const base = (env: Record<string, string>, logs: string[], asked: string[]) => {
+    const h = home();
+    return setup([], {
+      home: h,
+      mbHome: join(h, ".mockingbird"),
+      env,
+      which: (n) => `/opt/homebrew/bin/${n}`,
+      run: () => ({ code: 0, out: "libx264" }),
+      ask: (q) => {
+        asked.push(q);
+        return !q.startsWith("Download the speech");
+      },
+      pullChrome: async () => {
+        throw new Error("unpack failed");
+      },
+      log: (m) => logs.push(m),
+    });
+  };
+  const logs: string[] = [];
+  const asked: string[] = [];
+  await base({}, logs, asked);
+  if (pinnedChrome(join(home(), ".mockingbird"))) {
+    expect(logs).toContain("Chrome: unpack failed");
+  }
+  // It carried on to the agents.
+  expect(asked.at(-1)).toMatch(/^Add mockingbird to /);
+
+  const logs2: string[] = [];
+  const asked2: string[] = [];
+  await base({ MOCKINGBIRD_CHROME: "/nowhere/chrome" }, logs2, asked2);
+  expect(asked2.some((q) => q.includes("headless Chrome"))).toBe(false);
+  expect(logs2.join("\n")).toContain("MOCKINGBIRD_CHROME is /nowhere/chrome");
+});
+
 test("an empty or cut-short pinned speech model counts as damaged", () => {
   const h = home();
   const mb = join(h, "mb");
   mkdirSync(join(mb, "models"), { recursive: true });
-  writeFileSync(join(mb, "models", "ggml-large-v3-q5_0.bin"), "");
+  writeFileSync(join(mb, "models", DEFAULT_ASR_MODEL), "");
   const speech = checks({ home: h, mbHome: mb, which: none, env: {} }).find(
     (c) => c.name === "speech model",
   );
   expect(speech).toMatchObject({
     ok: false,
-    detail: "ggml-large-v3-q5_0.bin is damaged or incomplete",
+    detail: `${DEFAULT_ASR_MODEL} is damaged or incomplete`,
   });
 });
 
 test("doctor's needed checks name a fix", () => {
   const h = home();
-  const broken = checks({ home: h, mbHome: join(h, "mb"), which: none }).filter(
+  const broken = checks({ ...mac, home: h, mbHome: join(h, "mb"), which: none }).filter(
     (c) => !c.ok && c.needed,
   );
   expect(broken.map((c) => [c.name, c.fix])).toEqual([
@@ -285,6 +388,70 @@ test("doctor's needed checks name a fix", () => {
     ],
     ["speech detection model", "`mockingbird models pull`"],
   ]);
+});
+
+test("doctor names every encoder and filter ffmpeg lacks, not only libx264 (#223)", () => {
+  const h = home();
+  const list = (without: string[]) =>
+    checks({
+      home: h,
+      mbHome: join(h, "mb"),
+      which: (n) => (n === "ffmpeg" ? "/usr/bin/ffmpeg" : null),
+      run: () => ({ code: 0, out: ffmpegLists(without) }),
+    });
+  // A missing filter is named, but isn't needed: only the tool using it stops.
+  const filter = list(["sidechaincompress"]);
+  expect(filter.find((c) => c.name === "ffmpeg")).toMatchObject({ ok: true });
+  expect(filter.find((c) => c.name === "ffmpeg filters")).toMatchObject({
+    ok: false,
+    needed: false,
+    detail:
+      "/usr/bin/ffmpeg is built without sidechaincompress; the tools that use them won't work",
+  });
+  // A missing encoder is: render can't write a file.
+  expect(list(["libx264"]).find((c) => c.name === "ffmpeg")).toMatchObject({
+    ok: false,
+    detail: "/usr/bin/ffmpeg is built without libx264, which render encodes with",
+  });
+});
+
+test("on Linux with no Homebrew, setup downloads the pinned whisper-server and doctor sees it (#223)", async () => {
+  const h = home();
+  const mb = join(h, ".mockingbird");
+  const linux = { platform: "linux", arch: "x64" };
+  const pin = pinnedWhisper(mb, "linux-x64");
+  if (!pin) throw new Error("no pinned whisper-server for linux-x64");
+  const asked: string[] = [];
+  const which = (n: string) => (n === "ffmpeg" ? "/usr/bin/ffmpeg" : null);
+  // A full ffmpeg, faked: CI's runners have none on the PATH.
+  const run = () => ({ code: 0, out: ffmpegLists() });
+  const before = checks({ ...linux, home: h, mbHome: mb, which, run, env: {} });
+  expect(before.find((c) => c.name === "whisper-server")?.fix).toContain("mockingbird models pull");
+  await setup([], {
+    ...linux,
+    home: h,
+    mbHome: mb,
+    env: {},
+    which,
+    run,
+    ask: (q) => {
+      asked.push(q);
+      return true;
+    },
+    pull: async () => {
+      mkdirSync(join(pin.program, ".."), { recursive: true });
+      writeFileSync(pin.program, "", { mode: 0o755 });
+      return 0;
+    },
+    log: () => {},
+  });
+  expect(asked.some((q) => q.includes("Homebrew"))).toBe(false);
+  expect(asked[0]).toMatch(/^Download the speech models and whisper-server \(up to/);
+  expect(
+    checks({ ...linux, home: h, mbHome: mb, which, run, env: {} }).find(
+      (c) => c.name === "whisper-server",
+    ),
+  ).toMatchObject({ ok: true, detail: pin.program });
 });
 
 test("a model MOCKINGBIRD_ASR_MODEL points at outside models/ counts", () => {
@@ -316,34 +483,108 @@ test("--help shows help, and an unknown option stops before anything runs", asyn
   expect(() => doctor(["--jsno"], deps)).toThrow('unknown option "--jsno"');
 });
 
-// launch.sh is a shell script, and Windows has no sh to run it with.
-test.skipIf(process.platform === "win32")(
-  "the plugin's launcher answers MCP itself when mockingbird isn't installed",
-  () => {
-    const requests = [
-      { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18" } },
-      { jsonrpc: "2.0", method: "notifications/initialized" },
-      { jsonrpc: "2.0", id: "b", method: "tools/list" },
-      { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "install_mockingbird" } },
-      { jsonrpc: "2.0", id: 4, method: "resources/list", params: { method: "ping" } },
-      { jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "transcribe" } },
-    ];
-    const r = Bun.spawnSync(["sh", join(PLUGIN, "launch.sh")], {
-      stdin: Buffer.from(`${requests.map((m) => JSON.stringify(m)).join("\n")}\n`),
-      env: { HOME: mkdtempSync(join(tmpdir(), "mb-setup-")), PATH: "/usr/bin:/bin" },
-    });
-    const replies = r.stdout
-      .toString()
-      .trim()
-      .split("\n")
-      .map((l) => JSON.parse(l));
-    expect(replies.map((m) => m.id)).toEqual([1, "b", 3, 4, 5]);
-    expect(replies[0].result.protocolVersion).toBe("2025-06-18");
-    expect(replies[0].result.instructions).toContain("isn't installed");
-    expect(replies[1].result.tools[0].name).toBe("install_mockingbird");
-    expect(replies[2].result.content[0].text).toContain("AGENT_INSTALL.md");
-    // The method is the request's, not one inside its params.
-    expect(replies[3].error.code).toBe(-32601);
-    expect(replies[4].error.code).toBe(-32602);
-  },
-);
+test("the plugin's launcher answers MCP itself when mockingbird isn't installed", () => {
+  const requests = [
+    { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18" } },
+    { jsonrpc: "2.0", method: "notifications/initialized" },
+    { jsonrpc: "2.0", id: "b", method: "tools/list" },
+    { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "install_mockingbird" } },
+    { jsonrpc: "2.0", id: 4, method: "resources/list", params: { method: "ping" } },
+    { jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "transcribe" } },
+  ];
+  // Windows runs launch.cmd, which hands this to launch.ps1 when mockingbird isn't installed (#202).
+  const server =
+    process.platform === "win32"
+      ? [
+          "powershell",
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          join(PLUGIN, "launch.ps1"),
+        ]
+      : ["sh", join(PLUGIN, "launch")];
+  const r = Bun.spawnSync(server, {
+    stdin: Buffer.from(`${requests.map((m) => JSON.stringify(m)).join("\n")}\n`),
+    env:
+      process.platform === "win32"
+        ? process.env
+        : { HOME: mkdtempSync(join(tmpdir(), "mb-setup-")), PATH: "/usr/bin:/bin" },
+  });
+  const said = r.stdout.toString().trim();
+  // No reply at all: show why, not a JSON parse error (#215).
+  if (!said) throw new Error(`the launcher exited ${r.exitCode} with no reply: ${r.stderr}`);
+  const replies = said.split("\n").map((l) => JSON.parse(l));
+  expect(replies.map((m) => m.id)).toEqual([1, "b", 3, 4, 5]);
+  expect(replies[0].result.protocolVersion).toBe("2025-06-18");
+  expect(replies[0].result.instructions).toContain("isn't installed");
+  expect(replies[1].result.tools[0].name).toBe("install_mockingbird");
+  expect(replies[2].result.content[0].text).toContain("AGENT_INSTALL.md");
+  // The method is the request's, not one inside its params.
+  expect(replies[3].error.code).toBe(-32601);
+  expect(replies[4].error.code).toBe(-32602);
+  // PowerShell can take seconds to start on a busy Windows runner (#215).
+}, 30_000);
+
+test("oldPlugin finds the pre-#140 mockingbird-studio plugin in Claude Code (#256)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "mb-claude-"));
+  const env = { CLAUDE_CONFIG_DIR: dir };
+  expect(oldPlugin(env)).toBe(false);
+  mkdirSync(join(dir, "plugins"));
+  const file = join(dir, "plugins", "installed_plugins.json");
+  writeFileSync(file, JSON.stringify({ version: 2, plugins: { "mockingbird@mockingbird": [] } }));
+  expect(oldPlugin(env)).toBe(false);
+  writeFileSync(
+    file,
+    JSON.stringify({ version: 2, plugins: { "mockingbird-studio@mockingbird-studio": [] } }),
+  );
+  expect(oldPlugin(env)).toBe(true);
+  expect(
+    checks({ env, mbHome: dir, which: () => null }).find((c) => c.name === "old plugin")?.fix,
+  ).toContain("/plugin uninstall mockingbird-studio");
+});
+
+test("doctor fails a whisper-server that won't start, an override that isn't there, and an ffmpeg that fails", () => {
+  const h = home();
+  const mb = join(h, ".mockingbird");
+  // Like Bun.which, a full path that's there comes back as it is.
+  const at = (n: string) =>
+    /(^|\/)(ffmpeg|whisper-server)$/.test(n) ? `/usr/bin/${n.split("/").at(-1)}` : null;
+  const glibc = checks({
+    ...mac,
+    home: h,
+    mbHome: mb,
+    env: {},
+    which: at,
+    run: (argv) =>
+      argv[1] === "--help"
+        ? { code: 127, out: "/lib64/libc.so.6: version `GLIBC_2.38' not found" }
+        : { code: 0, out: ffmpegLists() },
+  });
+  const server = glibc.find((c) => c.name === "whisper-server");
+  expect(server).toMatchObject({ ok: false });
+  expect(server?.detail).toContain("GLIBC_2.38");
+  expect(server?.fix).toContain("MOCKINGBIRD_WHISPER_SERVER");
+  const wrong = checks({
+    ...mac,
+    home: h,
+    mbHome: mb,
+    env: { MOCKINGBIRD_WHISPER_SERVER: "/no/whisper-server" },
+    which: none,
+    run: () => ({ code: 0, out: "" }),
+  }).find((c) => c.name === "whisper-server");
+  expect(wrong?.detail).toContain("isn't there");
+  expect(wrong?.fix).toStartWith("point MOCKINGBIRD_WHISPER_SERVER");
+  const ffmpeg = checks({
+    ...mac,
+    home: h,
+    mbHome: mb,
+    env: {},
+    which: at,
+    run: () => ({ code: 1, out: `${ffmpegLists()}\nSegmentation fault` }),
+  }).find((c) => c.name === "ffmpeg");
+  expect(ffmpeg).toMatchObject({
+    ok: false,
+    detail: "/usr/bin/ffmpeg won't run: Segmentation fault",
+  });
+});

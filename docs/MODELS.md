@@ -23,6 +23,7 @@ its eval and its benchmarks, is in git: `git show v0.3.2:docs/MODELS.md`.
 7. [Adapting Whisper to one voice: no-go](#7-adapting-whisper-to-one-voice-no-go)
 8. [Acquisition, storage & integrity](#8-acquisition-storage--integrity)
 9. [Licensing](#9-licensing)
+10. [Subject masks — MODNet](#10-subject-masks--modnet)
 
 ---
 
@@ -31,7 +32,9 @@ its eval and its benchmarks, is in git: `git show v0.3.2:docs/MODELS.md`.
 | Model | Job | Runs via | Size |
 |---|---|---|---|
 | **Silero VAD** v6.2.2 | finds the speech in a file, so Whisper hears speech and not silence | `onnxruntime-node`, in-process | 2 MB |
-| **Whisper `large-v3`, Q5_0** | speech to text with word times | `whisper.cpp`'s `whisper-server`, a subprocess per call on a free `127.0.0.1` port | 1.08 GB |
+| **Whisper `large-v3`, Q5_0** (Apple Silicon Macs) | speech to text with word times | `whisper.cpp`'s `whisper-server`, a subprocess per call on a free `127.0.0.1` port | 1.08 GB |
+| **Whisper `small`, Q5_1** (Windows, Linux, Intel Macs) | the same, on the CPU | the same | 190 MB |
+| **MODNet**, fp32, only after `models pull modnet` | finds the person in a frame, for a `subject` mask (§10) | `onnxruntime-node`, in-process | 26 MB |
 
 ## 2. Speech detection — Silero VAD
 
@@ -156,10 +159,14 @@ fixed one name and bent two others the model had right ("Bhattacharjee" →
 - **Detection:** with the language on `auto`, no `model` given,
   `MOCKINGBIRD_ASR_MODEL` unset, and at least one model mapped to a
   language, the call transcribes the first stretch of
-  speech (up to 30 s) with the default model, reads the language Whisper
-  names ("german"), and, if the map has another model for it, restarts on
-  that one. That costs one extra model load, only when the model changes.
-  The transcript's first line says which language and model it used.
+  speech (up to 30 s) with the saved global model (`models use`), reads the
+  language Whisper names ("german"), and, if the map has another model for
+  it, restarts on that one. That costs one extra model load, only when the
+  model changes; when it doesn't, the later chunks are held to the language
+  heard rather than detected again. A `.en` global model can't detect, so a
+  multilingual model from the map does it; with none, the call stays on the
+  `.en` model and says detection can't run. The transcript's first line says
+  which language and model it used.
 - Mixed speech in one video is transcribed with the model chosen from the
   start. For Bangla and English in one sentence, give `language` (and the
   model) rather than rely on detection.
@@ -185,8 +192,38 @@ Word error is summed over the corpus (total edits over total words).
 | small.en-q5_1 | 190 MB | 0.5 s | 456 MB | 290 ms | 304 ms | 5.9% | 6.5% | 8/32 |
 | base.en | 148 MB | 0.3 s | 322 MB | 103 ms | 109 ms | 8.5% | 7.5% | 5/32 |
 | large-v3 | 3095 MB | 2.1 s | 3351 MB | 1620 ms | 1721 ms | 3.2% | 3.9% | 17/32 |
+| small-q5_1 (multilingual, 2026-11-18) | 190 MB | 0.3 s | 329 MB | 309 ms | 346 ms | 6.9% | 7.5% | 4/32 |
 
-`large-v3` Q5_0 stays: the most accurate overall, on the Indian-accent
+Re-run on 2026-11-18, same Mac: every WER and name count above came out the
+same. A run on 2026-11-06 read 27.4% for large-v3-q5_0 and 68.1% en_IN
+(#211). The models hadn't changed: `say` had written about 5 ms of silence
+for all 16 Aman and Tara clips, so every model lost every word in them.
+`say` also gets a single clip wrong now and then (Tara once took 6.6 s of
+babble over a 3.9 s line). The corpus now makes again any clip that's silent,
+won't decode or runs outside 2-5 words a second, cached ones included, and
+stops if `say` keeps getting one wrong. The good clips run at 2.3-4.1.
+
+**On a CPU (#202).** On Windows and Linux, whisper-server is whisper.cpp's
+CPU build, and an Intel Mac has no Metal to speak of. On `windows-latest`
+(AMD EPYC 7763, 2 cores and 4 threads, 16 GB), here's the time for
+`mockingbird transcribe` on 60 s of speech, model load included, two runs
+each:
+
+| Model | Time for 60 s | An hour of video | Disk |
+|---|---|---|---|
+| base | 7.6 s, 7.4 s | ~7.5 min | 148 MB |
+| small-q5_1 | 30.3 s, 30.3 s | ~30 min | 190 MB |
+| large-v3-turbo-q5_0 | 114.1 s, 124.7 s | ~2 h | 574 MB |
+| large-v3-q5_0 | 156.3 s, 158.7 s | ~2.6 h | 1081 MB |
+
+Turbo barely helps on a CPU: it shares large-v3's encoder, which is most of
+the work there. So off Apple Silicon the default is multilingual `small`
+Q5_1, which runs at half real time even on 2 cores. In the table above, multilingual small-q5_1
+reads 6.9% (7.5% en_IN) against large-v3-q5_0's 3.2%, and 4/32 names against
+17/32. So on a PC, names lean on the dictionary.
+`mockingbird models pull large-v3-turbo` and `models use` it on a fast PC.
+
+`large-v3` Q5_0 stays on Apple Silicon: the most accurate overall, on the Indian-accent
 voices and on names, and full precision buys nothing for three times the
 size. `large-v3-turbo` Q5_0 is half the disk and ~0.4 s faster per clip for
 ~1 point more word error and 4 fewer names right. Re-run `bun run
@@ -254,10 +291,14 @@ The spike's script is on #109.
   `large-v3` Q5_0 from a pinned Hugging Face commit and Silero VAD v6.2.2
   from GitHub, prints each URL, and checks each against a pinned sha256
   (`MODEL_FILES` in `apps/daemon/src/models.ts`). An interrupted download is
-  continued, and one that doesn't match is deleted. `models pull <name or
+  continued, and one that doesn't match is deleted. A 5xx, a 429, a timeout or a
+  dropped connection is tried again, three tries in all, 2 and 4 seconds
+  apart; a 404 or a checksum mismatch isn't. `models pull <name or
   URL>` downloads one more model the same way, against the sha256 Hugging
   Face gives or `--sha256` (§5). whisper-server's build is pinned the same
-  way (`pinnedWhisper` in `apps/daemon/src/runtime.ts`).
+  way (`pinnedWhisper` in `apps/daemon/src/runtime.ts`). `models pull
+  modnet` fetches MODNet the same way (`MODNET_FILE`); a plain `models pull`
+  doesn't, since only a subject mask needs it.
 - They're plain files in `~/.mockingbird/models/`. `data.db` keeps only file
   names: the one chosen for every language (`asr_model`), and one per
   language picked with `--language` (`asr_model.<code>`).
@@ -272,7 +313,41 @@ their own terms:
 | `whisper.cpp` | MIT |
 | Whisper weights | MIT (OpenAI) |
 | Silero VAD | MIT |
+| MODNet | Apache-2.0 (ZHKKKe/MODNet; the ONNX export from Xenova/modnet) |
 | ffmpeg | LGPL or GPL depending on the build; mockingbird uses the system's and ships none |
 
 Check a model's card before adding it to `MODEL_FILES`: weights and the code
 that runs them often carry different licenses.
+
+## 10. Subject masks — MODNet
+
+A mask with `shape: "subject"` (#260) is MODNet's matte of each frame:
+how much of each pixel is the person, 0 to 255. MODNet is a portrait
+matting model (Apache-2.0, trained for people facing the camera), 26 MB as
+fp32 ONNX, pinned to a Hugging Face commit of Xenova/modnet. It runs on
+`onnxruntime-node`, which Silero already uses (`packages/matte`). Frames are
+scaled so the short side is 512 and both sides are multiples of 32, the
+shape it was trained at, and the matte is scaled back to the source's shape
+before the clip's framing.
+
+Picked over MobileSAM (Apache-2.0, any object, but it needs a point or a box
+for each subject) because a talking head is the job, and over Robust Video
+Matting, which is GPL.
+
+Measured on an M3 (16 GB), 8 s of a 1080p talking head at 60 fps (a NASA
+interview, public domain), the background blurred:
+
+| | Time |
+|---|---|
+| render, no effects | 3.8 s |
+| render, `blur` on the whole frame | 6.8 s |
+| making the mask, 480 frames at 896x512 | 146 s (about 300 ms a frame) |
+| render with the mask cached | 8.9 s |
+| the same, cropped vertical | 9.2 s |
+
+A frame takes about 250 ms in onnxruntime on the CPU with its default
+threads. Four threads took 320 ms and eight 417 ms; CoreML took 1061 ms, since it can
+run only 176 of the graph's 236 nodes. The mask is made once per stretch of
+a source and kept in `~/.mockingbird/cache/masks/`, so re-rendering an edit
+doesn't make it again.
+

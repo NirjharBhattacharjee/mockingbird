@@ -5,7 +5,7 @@
 //
 // Energy opens the pads' filter and brings in more bells; above 0.6 a soft
 // pulse of eighth notes runs under the pads.
-import { bell, bus, chord, degree, energyAt, pad, parseKey, pluck, route } from "./lib.js";
+import { bell, bus, chord, degree, energyAt, pad, parseKey, pluck, route, soon } from "./lib.js";
 
 /** Major: I V vi IV. Minor: i VI III VII. Two bars each. */
 const PROGRESSION = { major: [0, 4, 5, 3], minor: [0, 5, 2, 6] };
@@ -34,31 +34,33 @@ export default function ambient(ctx, { duration, tempo = 60, key = "D major", en
   const progression = PROGRESSION[k.minor ? "minor" : "major"];
   const scale = [0, 1, 2, 4, 5];
   for (let n = 0, t = 0; t < duration; n++, t = n * span) {
-    const e = energyAt(energy, t);
-    const d = progression[n % progression.length];
-    // Chords overlap by a beat, so one swells as the last fades.
-    for (const midi of chord(k, d, 3, 3).concat(degree(k, d + 7, 4))) {
-      pad(ctx, pads, t, midi, span + beat, 0.045, {
-        cutoff: 700 + 2600 * e,
-        spread: 14,
-        attack: beat * 3,
-        release: beat * 3,
-      });
-    }
-    // Bells: a few notes from the scale, more as the energy rises. Each slot
-    // of the span (16 half-beats) rings with a chance from the energy there.
-    for (let s = 0; s < 16; s++) {
-      const at = t + (s * beat) / 2;
-      if (Math.random() >= (1 + energyAt(energy, at) * 4) / 16) continue;
-      const step = scale[Math.floor(Math.random() * scale.length)];
-      bell(ctx, bells, at, degree(k, step, 5), 0.035 + Math.random() * 0.02, 4);
-    }
-    for (let s = 0; s < 16; s++) {
-      const at = t + (s * beat) / 2;
-      const es = energyAt(energy, at);
-      if (es <= 0.6) continue;
-      const note = degree(k, d + (s % 4 === 3 ? 4 : 0), 3);
-      pluck(ctx, pulse, at, note, beat * 0.4, 0.05 * (es - 0.5));
-    }
+    soon(ctx, t, () => {
+      const e = energyAt(energy, t);
+      const d = progression[n % progression.length];
+      // Chords overlap by a beat, so one swells as the last fades.
+      for (const midi of chord(k, d, 3, 3).concat(degree(k, d + 7, 4))) {
+        pad(ctx, pads, t, midi, span + beat, 0.045, {
+          cutoff: 700 + 2600 * e,
+          spread: 14,
+          attack: beat * 3,
+          release: beat * 3,
+        });
+      }
+      // Bells: a few notes from the scale, more as the energy rises. Each slot
+      // of the span (16 half-beats) rings with a chance from the energy there.
+      for (let s = 0; s < 16; s++) {
+        const at = t + (s * beat) / 2;
+        if (Math.random() >= (1 + energyAt(energy, at) * 4) / 16) continue;
+        const step = scale[Math.floor(Math.random() * scale.length)];
+        bell(ctx, bells, at, degree(k, step, 5), 0.035 + Math.random() * 0.02, 4);
+      }
+      for (let s = 0; s < 16; s++) {
+        const at = t + (s * beat) / 2;
+        const es = energyAt(energy, at);
+        if (es <= 0.6) continue;
+        const note = degree(k, d + (s % 4 === 3 ? 4 : 0), 3);
+        pluck(ctx, pulse, at, note, beat * 0.4, 0.05 * (es - 0.5));
+      }
+    });
   }
 }

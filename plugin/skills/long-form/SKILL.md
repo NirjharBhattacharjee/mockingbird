@@ -19,11 +19,14 @@ needs a reason to stay, and music under explanation hurts.
 The other skills apply here too: **hooks** (the first minute),
 **retention-editing** (cutting and pace), **captions**, **motion-graphics**,
 **style-match**. For shorts cut from this same video, use **viral-short**
-after.
+after. If the video will have graphics, chapter cards or explainers, run
+**look** before step 1's edit work: design this video's look with the user and
+edit only once they approve it.
 
 ## Steps
 
-1. **Read the video.** `transcribe` the whole file. `frames` every 30
+1. **Read the video.** If **brief** already ran, start from its brief and
+   skip what it read. `transcribe` the whole file. `frames` every 30
    seconds, and look: is it a talking head, slides, a screen share with a
    webcam, more than one camera? Measure the source with `measure` and
    `scenes`, as style-match does.
@@ -63,6 +66,8 @@ after.
    screen recording, zoom in (`focus` on the area, `zoom` 1.5–2) when the
    speaker talks about something too small to read; the edX data says cutting
    between the face and the screen beats the screen alone.
+   Grade each clip per **color-grade**: its `color` correction and the
+   look go in the clip's `effects`.
 7. **Captions file.** `captions` with the clips, `perCue: 8, lit: false`. Fix
    misheard names, then write it as `<name>.srt` beside the render for the
    user to upload to YouTube; uploaded captions beat YouTube's automatic ones

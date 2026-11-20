@@ -1,7 +1,15 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.14/schema.json",
   "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
-  "files": { "includes": ["**", "!plugin/skills/motion-graphics/kit.js"] },
+  "files": {
+    "includes": [
+      "**",
+      "!plugin/skills/motion-graphics/kit.js",
+      "!plugin/skills/motion-graphics/styles.js",
+      "!plugin/skills/motion-graphics/vendor",
+      "!plugin/skills/motion-graphics/styles/index.ts"
+    ]
+  },
   "formatter": { "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },
   "assist": { "actions": { "source": { "organizeImports": "on" } } },
   "overrides": [

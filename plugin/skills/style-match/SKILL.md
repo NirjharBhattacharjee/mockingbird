@@ -1,6 +1,6 @@
 ---
 name: style-match
-description: Measure a video that already did well (its cuts per minute, seconds per shot, loudness, speaking pace, caption style) and set an edit to match it. Use when the user gives a reference video or says "make it like this", or to compare a render against a target.
+description: Measure a video that already did well (its cuts per minute, seconds per shot, loudness, speaking pace, caption style, colour) and set an edit to match it. Use when the user gives a reference video or says "make it like this", or to compare a render against a target.
 ---
 
 # Style match
@@ -17,20 +17,24 @@ With mockingbird's tools:
 
 - `measure` on the reference gives its size, length, integrated loudness and
   true peak.
-- `scenes` on it gives when each cut happens, and the pace. Cuts per minute is their count
-  over the length in minutes, and seconds per shot is the length over the
-  cuts plus one. A punch-in on the same shot often doesn't count as a cut, so
-  look at the stills too.
+- `scenes` on it gives when each cut happens and the pace. Cuts per minute
+  is their count over the length in minutes, and seconds per shot is the
+  length over the cuts plus one. It finds changes of shot, not jump cuts
+  within one shot, and a punch-in on the same shot often doesn't count as a
+  cut, so look at the stills too.
 
 Then with mockingbird:
 
-- **Speaking pace**: `transcribe` the reference; words divided by minutes of
-  speech. Lecturers in the edX study averaged 156, and the fastest held
+- **Speaking pace**: `transcribe` the reference. Its first line gives the
+  words and words a minute over the stretch heard, pauses included. Lecturers in the edX study averaged 156, and the fastest held
   viewers longest, likely because speed went with enthusiasm.
 - **Look**: `frames` every 1–2 s over the first 15 s and two other stretches.
   Note words per caption, case, colour of the spoken word, caption height,
   title use, how often b-roll appears, whether there's music.
 - **Hook**: what happens in its first 3 s (short) or 30 s (long-form).
+- **Colour**: `scopes` on it, over the whole video and over two or three
+  shots. Note mean luma, the 5th to 95th percentile spread (its contrast),
+  saturation and where skin sits.
 
 ## Match
 
@@ -41,6 +45,7 @@ Then with mockingbird:
 | Caption height | `captionsY` |
 | B-roll every N seconds | `inserts` spacing (only where the speech supports it) |
 | Loudness | nothing: mockingbird renders at −14 LUFS regardless |
+| Luma, spread, saturation | the grade's targets in **color-grade**: correct to land within about 0.05 of its mean luma and spread and 0.03 of its saturation, then pick the look nearest it (a low spread and saturation is `faded`, a high one `punchy`) |
 
-Render, run `measure` and `scenes` on your render, and compare. Within about 20% on
+Render, run `measure`, `scenes` and `scopes` on your render, and compare. Within about 20% on
 seconds per shot is close enough; the content decides the rest.

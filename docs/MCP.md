@@ -45,21 +45,27 @@ with `"args": ["/c", "C:\\Users\\<you>\\.mockingbird\\bin\\mockingbird.cmd", "mc
 
 | Tool | What it does |
 |---|---|
-| `transcribe(project)` | The words in a project's cut, clip by clip, each line at its time in the finished video: the edit as text, to choose what `cut_words` cuts. See [Text-based editing](#text-based-editing). |
-| `transcribe(path, from, to, words, model, language)` | An audio or video file (anything ffmpeg reads: m4a, mp3, wav, mp4, mov, mkv) as text, in lines timestamped `[mm:ss]`, with names fixed from your dictionary (a `heard => term` entry first, then anything that sounds like a term). Each call starts its own whisper-server, so two can run at once. The client's model does any cleanup or summarising. `from` and `to` (seconds) take one stretch of the file. `words: true` gives one line per word with its start and end, `[01:23.48-01:23.71] Catppuccin`, to cut a clip on; names are fixed one word at a time there, so a name misheard as two words stays as heard. `model` (a file in `models/`) and `language` (a Whisper code, or `auto`) pick the model and language for this call only; given neither, with the language on `auto` and a model mapped to a language (`models use --language`), it detects the language from the first speech and uses that model. The first line then names the language and model. |
+| `transcribe(path, from, to, words, model, language)` | An audio or video file (anything ffmpeg reads: m4a, mp3, wav, mp4, mov, mkv) as text, in lines timestamped `[mm:ss]`, with names fixed from your dictionary (a `heard => term` entry first, then anything that sounds like a term). Each call starts its own whisper-server, so two can run at once. The client's model does any cleanup or summarising. `from` and `to` (seconds) take one stretch of the file. `words: true` gives one line per word with its start and end, `[01:23.48-01:23.71] Catppuccin`, to cut a clip on; names are fixed one word at a time there, so a name misheard as two words stays as heard. `model` (a file in `models/`) and `language` (a Whisper code, or `auto`) pick the model and language for this call only; given neither, with the language on `auto` and a model mapped to a language (`models use --language`), it detects the language from the first speech and uses that model (`MOCKINGBIRD_ASR_MODEL` in the server's environment turns detection off; see [MODELS.md §5](MODELS.md#5-choosing-a-model)). The first line then names the language and model. It also gives the word count and words a minute over the stretch heard, pauses included: a reference's speaking pace for style-match. |
+| `transcribe(project, model, language)` | The words in a project's cut, clip by clip, each line at its time in the finished video: the edit as text, to choose what `cut_words` cuts. `model` and `language` are kept on the project as its `transcription`, so `cut_words`, `captions` and `render` hear the same words. See [Text-based editing](#text-based-editing). |
+| `effects` | The effects catalog: each effect's name, whether it's on the picture or the sound, and its settings with ranges and defaults; see [Effects](#effects). |
+| `export(project, format, out)` | A project as FCPXML 1.10 and OpenTimelineIO, to finish the cut in Final Cut, Resolve or Premiere; see [Exporting to an editor](#exporting-to-an-editor). |
+| `track(path, from, to, box)` | Follows a box through a video by template matching on frames shrunk to 320 wide: its top left over time, five points a second, to give a mask as its `path` so a blur or a grade stays on a moving face, plate or logo. A test pattern moving across a busy 1280x720 background was followed for 6 s in 0.38 s, at most 4.4 px off. `worst` under about 0.5 means it was lost. A call follows up to two minutes: give `to` no later than `from` + 120 s (or the end of the video), since a longer window is refused. Every frame is kept at 320 wide while it runs, so track a long take a shot at a time. |
+| `sync(paths, window)` | Lines up recordings of one take (cameras, a separate recorder) by their sound: each file's offset against the first, for a multicam edit. Two cameras offset by 1.234 s, with different mic tone, gain and room noise, came out at 1.234 s (0.0 ms off) in 0.44 s. It compares the first `window` seconds (default 120, up to 1200) and finds offsets up to half of that, so recordings started further apart need a longer window. |
+| `scopes(path, from, to, every)` | What a colourist reads off the scopes, as numbers: luma, the histogram's thirds, clipping, saturation and skin's distance from the skin-tone line; see [Effects](#effects). An HDR source is measured after it's brought to SDR, as `render` will show it. |
 | `audio_stats(path, from, to)` | What a file's sound measures, since the agent can't listen: see [Measuring sound](#measuring-sound). |
-| `scenes(path, from, to, threshold)` | The shot changes in a video, from ffmpeg's `scdet` over frames shrunk to 180 lines: each one's `[mm:ss.cc]` time and how big a change it is (0 to 100), and cuts a minute and seconds a shot. `threshold` (default 10) is how big a change counts. It finds changes of shot, such as a cut to b-roll, a new slide or another camera, not jump cuts within one shot: in the first minute of the v2 edit, the two cuts that changed the framing scored 5.9 and 7.5, and eight jump cuts scored under 1 or not at all, below ordinary movement. Decoded with the hardware where there's a decoder: a minute of 4K HEVC phone video took 21.6 s, against 165.6 s in software; a 4-minute 1080p60 screen recording took 29.5 s. |
-| `frames(path, every, from, to)` | Stills from a video, one every `every` seconds (default 60), saved to a temp folder; returns their paths with `[mm:ss]` times, so a client that reads images can see slides and screen shares, or where the speaker is before framing a clip. `from` and `to` (seconds) take one stretch. Each still is read by seeking to it, so a long 4K phone video takes seconds, not minutes. |
+| `scenes(path, from, to, threshold)` | The shot changes in a video, from ffmpeg's `scdet` over frames shrunk to 180 lines: each one's `[mm:ss.cc]` time and how big a change it is (0 to 100), and cuts a minute and seconds a shot. `threshold` (default 10) is how big a change counts. It finds changes of shot, such as a cut to b-roll, a new slide or another camera, not jump cuts within one shot: in the first minute of the v2 edit, the two cuts that changed the framing scored 5.9 and 7.5, and eight jump cuts scored under 1 or not at all, below ordinary movement. Decoded with the hardware where there's a decoder: a minute of 4K HEVC phone video took 21.6 s, against 165.6 s in software; a 4-minute 1080p60 screen recording took 29.5 s. A cut on the first frame looked at counts, since the scan starts a frame early; a file whose length ffprobe can't tell is scanned over the asked-for range, or to the end without a pace. |
+| `frames(path, every, from, to)` | Stills from a video, one every `every` seconds (default 60), saved to a temp folder; returns their paths with `[mm:ss]` times, so a client that reads images can see slides and screen shares, or where the speaker is before framing a clip. `from` and `to` (seconds) take one stretch. An HDR source's stills are brought to SDR, as `render` shows it. Each still is read by seeking to it, so a long 4K phone video takes seconds, not minutes. |
+| `captions(path, clips, perCue, lit, upper, model, language)` | Word-by-word captions for the video `render` will make from `clips`, as SRT timed to the finished video: up to `perCue` words a cue (default 3), the word being said written `*like this*` (`lit`, default on), in capitals if `upper`. A new cue starts at each clip, after a sentence, after half a second's pause, or when its words span 1.2 seconds. Each clip is transcribed with two seconds either side, clips whose padded stretches overlap are transcribed together as one, and a word belongs to the clip its middle falls in. `model` and `language` work as in `transcribe`; detection listens to the opening clips, up to a minute of them, so a silent first clip doesn't stop it. |
+| `captions(project)` | The same word-by-word SRT for an `edit` project's cut, timed to its finished video with speed, transitions and J and L cuts, from the word cache; `perCue`, `lit` and `upper` default to the project's captions. Pass it to `motion` as `captions` over the project's render. |
 | `pauses(path, from, to, noise, shortest, minPause, margin)` | The pauses in a file's sound (ffmpeg's `silencedetect`, quieter than `noise` dB, default −35, for at least `shortest` s, default 0.25), one `start end length` line each, then `render`'s `clips` as JSON: what's between pauses of at least `minPause` s (default 0.4), `margin` s (default 0.15) kept into each, a stretch of 0.3 s or less joined to the next. |
 | `measure(path)` | A finished video's picture size (WxH), length, integrated loudness and true peak; its cuts come from `scenes`. |
-| `captions(project)` | The same word-by-word SRT for an `edit` project's cut, timed to its finished video with speed, transitions and J and L cuts, from the word cache; `perCue`, `lit` and `upper` default to the project's captions. Pass it to `motion` as `captions` over the project's render. |
-| `captions(path, clips, perCue, lit, upper, model, language)` | Word-by-word captions for the video `render` will make from `clips`, as SRT timed to the finished video: up to `perCue` words a cue (default 3), the word being said written `*like this*` (`lit`, default on), in capitals if `upper`. A new cue starts at each clip, after a sentence, after half a second's pause, or when its words span 1.2 seconds. Each clip is transcribed with two seconds either side, clips whose padded stretches overlap are transcribed together as one, and a word belongs to the clip its middle falls in. `model` and `language` work as in `transcribe`; detection listens to the first clip. |
 | `edit(project, ops)` | Changes a project file, an edit kept between calls; see [Projects](#projects). Applies `ops` in order, all of them or none, saves the file, and returns an outline of the cut. Makes the file if it isn't there; with no ops it only reads it. |
-| `render(project)` or `render(path, clips, …)` | Renders a project, or cuts `clips` out of one video and joins them, into one MP4 with ffmpeg; see [Render options](#render-options). Saves to `out`, or `<name>-render-N.mp4` beside the project (`<name>-short-N.mp4` beside the source), and never overwrites a file. |
+| `render(project)` or `render(path, clips, …)` | Renders a project, or cuts `clips` out of one video and joins them, into one MP4 with ffmpeg; see [Render options](#render-options). Saves to `out`, or `<name>-render-N.mp4` beside the project (`<name>-short-N.mp4` beside the source), and never overwrites a file. An HDR source (HLG or PQ, which phones record by default) is brought to SDR BT.709 first, and a render with one in it is tagged BT.709; see [HDR sources](#hdr-sources). |
 | `motion(script, path, captions, size, duration, fps, out)` | Motion graphics written as code: an HTML page rendered in a pinned headless Chrome; see [Motion graphics](#motion-graphics). Saves to `out`, or `<name>-motion-N.mp4` beside the video or script, and never overwrites a file. |
+| `look(file, page, path, duration, board, size, out)` | Shows a look made for one video before editing starts: builds the agent's look module, draws a storyboard of `board` (words from the video) in it, and saves the clip and a sheet of twelve stills beside the look. See [Looks](#looks). |
 | `music(script, duration, out, tempo, key, energy, seed)` | Background music written as code: a generator module played into Web Audio's `OfflineAudioContext` in the pinned headless Chrome, saved as a WAV at −14 LUFS for `render`'s `audio`; see [Music](#music). Never overwrites a file. |
-| `guide(topic)` | A playbook for one job, from [`plugin/`](../plugin/README.md): `product-demo`, `viral-short`, `long-form`, `hooks`, `retention-editing`, `captions`, `motion-graphics`, `music`, `style-match`, or `reviewer` (the checks a finished video has to pass). Use `product-demo` first for product demos and software walkthroughs, including silent recordings in any aspect ratio. It starts with the folder holding the playbook's scripts, kit and templates. |
-| `status` | Whether mockingbird is ready: the transcription model in use, the speech detection model, ffmpeg, whisper-server, the Chrome that `motion` renders HTML in, and how many words the dictionary has. |
+| `guide(topic)` | A playbook for one job, from [`plugin/`](../plugin/README.md): `brief` (start here when the user hasn't said what kind of video it is: it reads the transcript, decides the format and picks the playbook), `product-demo` (product demos and software walkthroughs, including silent recordings in any aspect ratio), `viral-short`, `long-form`, `look`, `hooks`, `retention-editing`, `captions`, `motion-graphics`, `music`, `color-grade` (measure, correct, match the shots, then a free LUT look), `style-match`, or `reviewer` (the checks a finished video has to pass). It starts with the folder holding the playbook's scripts, kit and templates. |
+| `status` | Whether mockingbird is ready: the transcription model in use, the speech detection model, ffmpeg, whisper-server, the Chrome that `motion` renders HTML in, how many words the dictionary has, and `oldPlugin`: how to switch when Claude Code still has the mockingbird-studio plugin from before v0.4.2 (#256). `whisperServer` is true only when the one transcribe would run answers `--help` within 10 s; when one is there but won't start (a build for a newer glibc, no execute permission), `whisperServerError` says why. |
 | `dictionary_list` | Your dictionary: the names, places and jargon mockingbird spells a particular way. |
 | `dictionary_add(entry)` | Adds a word, like `mockingbird dictionary add`: `"Catppuccin"`, `"Catppuccin (a colour theme)"`, or `"cat puck => Catppuccin"`. |
 
@@ -77,9 +83,10 @@ with `MCP_TOOL_TIMEOUT` (milliseconds) if a long file stops partway.
 | `split` | `{ top, bottom }`: two areas of the source, each `{ x, y, w, h }` from 0 to 1, each scaled to fill half of a 1080x1920 frame. This is for a screen recording with a webcam in a corner: the screen on top, the webcam below. Clips' focus and zoom don't apply. |
 | `captions` | SRT text timed to the finished video (from `captions`, or written by the client), drawn onto the picture. A word written `*like this*` is drawn yellow. |
 | `captionsY` | Where the middle of the captions sits, 0 to 1 of the height (default 0.7). Use 0.5 for a split, so they sit on the seam. |
+| `captionStyle` | How the captions and texts look (#276): a preset's name, or `{ preset, ...fields }` over one. `classic` (the default) is white Inter 700, a black outline, the spoken word yellow. `subtitle` is for long-form: mixed case, a thin outline and a shadow, about 42 characters a line, no lit word. `creator` is Montserrat 900 in capitals with a thick outline. `pill` puts the spoken word on a yellow pill. Fields: `font` (Inter, Montserrat, Anton, Archivo Black, Bebas Neue, Oswald, Bangers, Space Grotesk, Playfair Display, Charis SIL), `weight`, `upper` (capitals get 0.06 em of tracking unless `tracking` is given), `tracking` (em), `fill`, `stroke`, `active` and `pill` (colours), `outline` (0 to 0.5 of the text height), `shadow`, `maxChars`, `pop` (1 to 1.4: the spoken word that much bigger), `keyword` (the colour of a word written `**like this**`, drawn 15% bigger) and `look` (a motion style's id: its title font, if a caption can use it, and its accent, so an approved look sets the captions with its titles). `creator` pops the spoken word 1.15x with pink keywords; `classic` and `subtitle` don't animate words. A project sets the same thing as `captions.style`. |
 | `texts` | `[{ text, from, to, y }]`: more text drawn the same way over a stretch of the finished video, such as a title for the first seconds. |
 | `inserts` | `[{ path, from, to }]`: pictures or videos laid over the whole frame for a stretch of the finished video (b-roll) while the speech carries on. They sit under the captions and are scaled to fill. A video's own sound isn't used. |
-| `audio` | `[{ path, at, volume, loop, duck }]`: sounds mixed under the speech from `at` seconds in. Music is `loop: true, duck: true` at about 0.15: it repeats to the end and drops while someone speaks (auto-editor's defaults: 85% down once the speech is above 4%, in 100 ms, back up in 500 ms). A sound effect is a path and an `at`. |
+| `audio` | `[{ path, at, volume, loop, duck }]`: sounds mixed under the speech from `at` seconds in. Music is `loop: true, duck: true` at about 0.15: it repeats to the end and drops while someone speaks (auto-editor's defaults: 85% down once the speech is above 4%, in 100 ms, back up in 500 ms). `volume` is relative to the speech brought to −14 LUFS first, so it means the same on a quiet recording as on a loud one. A sound effect is a path and an `at`. |
 
 The sound comes out at −14 LUFS (within about half a dB), the loudness Shorts, Reels, TikTok and YouTube play at, with peaks under −1.5 dBTP, so a quiet phone recording doesn't sound weak next to everything else in the feed. The sound is measured, measured again through the peak limiter, and the gain corrected once; a single pass of ffmpeg's `loudnorm` fell 1 to 2 dB short on quiet recordings with loud peaks (#127). The gain stops at +30 dB, so a recording quieter than −44 LUFS comes out under −14, and silence is left as it is.
 
@@ -121,9 +128,31 @@ call and changing the cut doesn't break the timing of what's laid over it
   the start of the video. One can run past the end of its clip, over the
   clips after it, like a title held across a jump cut; a `split` leaves an
   item that crosses it on the first half, still running on.
+- **`transcription`**, `{ "model": "ggml-large-v3-turbo-q5_0.bin", "language":
+  "de" }`, is the model and language the project's words are heard with,
+  when not the user's settings. `transcribe` with the project and a `model`
+  or `language` sets it. With the language on `auto`, the language is
+  detected from the first stretch heard, as `transcribe` does.
+- **`level`** evens out loudness between sources (#265): `true` for −16
+  LUFS, or `{ "target": -18 }`. `render` measures each source's sound once
+  (ffmpeg's `ebur128`) and puts a `gain` on all its clips, up to 30 dB either
+  way, so a quiet recording and a loud one meet in the middle. It keeps each
+  speaker's own dynamics, and the finished video is still brought to −14 LUFS.
+  The log says what it measured and the gain it set. A source quieter than
+  −60 LUFS (silence, a card) is left alone. On the seven D5 recordings, the
+  speakers' loudness spread went from 21.1 LU to 1.9 LU.
 - **`captions`** makes word-by-word captions for the cut as it is when it's
   rendered, as the `captions` tool does: `perCue`, `lit`, `upper`, and `y`
   (where their middle sits). Leave it out, or `null`, for none.
+- **`look`** is the video's look ([Looks](#looks)): `file` (the look module
+  the agent wrote), `mood` (the vibe the user picked), and `approved`, which
+  is true once the user has seen the board and said yes. `{ "skipped": true }`
+  records that the user said to edit without one. The outline shows it.
+  `render` refuses a project with graphics (texts or HTML overlays) until its
+  look is approved or skipped, and the refusal says what to ask the user
+  (#264). A draft is held back too, since it has every text and overlay in
+  it; a sound-only render and a cut with no graphics aren't. An approved
+  look whose file is gone is refused as well.
 - **`split`** is `render`'s split; its clips are brought to the first
   clip's size first. A split always comes out 1080x1920, so `size` is that
   or left out.
@@ -134,13 +163,14 @@ call and changing the cut doesn't break the timing of what's laid over it
 | Op | What it does |
 |---|---|
 | `{op: "add", type: "clip", path, from, to, focus?, zoom?, speed?, moves?, transition?, lead?, index?}` | A clip on the main track, at `index` (default the end). See [Speed, moves and transitions](#speed-moves-and-transitions). |
-| `{op: "add", type: "text" \| "insert" \| "audio", …}` | A text, picture or video, or sound, with the fields above. |
+| `{op: "add", type: "text" \| "insert" \| "audio", …}` | A text, picture or video, or sound, with the fields above. A sound can take `generator: {generator, tempo?, key?, energy?, seed?, length?}` in place of `path`: see [Music in a project](#music-in-a-project). |
+| `{op: "add", type: "overlay", page, from, to, clip?}` | An HTML page laid over its stretch with its transparency: see [Overlays](#overlays). |
 | `{op: "remove", id}` | Removes an item. A clip takes what's on it with it, and the cut closes up. |
 | `{op: "split", id, at}` | Splits a clip in two at `at` seconds in its source. What starts on the second half moves to the new clip. |
 | `{op: "trim", id, from?, to?}` | Changes a clip's source times. What's on it moves with the picture: trimming 2 s off the start moves its texts 2 s earlier, and drops any that were only on what's gone. |
 | `{op: "move", id, index}` | Moves a clip to another place in the cut. |
 | `{op: "cut_words", text, clip?, all?}` or `{op: "cut_words", from, to, clip?}` | Cuts words out of the cut by quoting them; see [Text-based editing](#text-based-editing). |
-| `{op: "set", id?, …fields}` | Sets fields of an item (`null` clears one), or without `id` the project's `size`, `fps`, `split` and `captions`. Unlike `trim`, setting a clip's `from`/`to` leaves what's on it where it is. |
+| `{op: "set", id?, …fields}` | Sets fields of an item (`null` clears one), or without `id` the project's `size`, `fps`, `split`, `captions`, `level`, `look` and `transcription`. Unlike `trim`, setting a clip's `from`/`to` leaves what's on it where it is. |
 
 New items get ids like `c1`, `t1`, `b1` and `a1` unless given one. A field
 the project doesn't have is an error, not ignored, so a misspelling is
@@ -215,6 +245,18 @@ clips. A long-form edit of 35 s clips rendered 4.6x faster this way, and
 the copied frames are the source's, untouched
 ([ARCHITECTURE.md](./ARCHITECTURE.md#7-rendering)).
 
+### The segment cache
+
+`render(project)` renders a project in segments of about 10 s and keeps them
+in `~/.mockingbird/cache/segments/`. The next render after an edit renders
+only the segments the edit touched and joins the rest from the cache; the
+result says how many were reused (`26 of 28 segments reused`). A segment is
+keyed by its clips and their sources, the captions, texts and inserts over
+it, the look and the engine's code, so a changed source file, word or engine
+renders it again. On the 6.5-minute v2 edit, changing one text took 16.4 s
+instead of about 75 s ([ARCHITECTURE.md](./ARCHITECTURE.md#7-rendering)).
+Deleting the folder is safe.
+
 ### Drafts
 
 `render` with `draft: true` makes a quick preview to check the cut with:
@@ -228,6 +270,50 @@ render always reads the source.
 On an M3, a one-minute 1080x1920 project of two clips from a 4K HEVC phone
 video: the render took 37.4 s, the first draft 29.9 s (making its proxies,
 52 MB), and every draft after it 6.3 s.
+
+### Overlays
+
+An overlay is a motion graphics page on a project's timeline: a title card,
+a lower third, a callout. `{op: "add", type: "overlay", page:
+"/abs/lower.html", clip: "c2", from: 1, to: 4}` keeps it as an insert whose
+picture is the page, so it stays on its clip through `split`, `trim`,
+`move` and `remove`, and the outline lists it as `overlay lower.html`.
+
+`render` draws the page on its own for its stretch, at the project's size
+and rate, in the pinned Chrome under the same no-network sandbox as
+`motion`, keeping its transparency (ProRes 4444), and lays it over the cut
+like b-roll, under the captions. The page is written as for `motion`
+([HTML pages](#html-pages)), without `path`: it gets `mockingbird.width`,
+`height`, `fps`, `duration` and `frame`, and anything it doesn't paint
+shows the video. Its `mockingbird.audio` joins the project's sound, timed
+from the overlay's start. Each rendered overlay is kept in
+`~/.mockingbird/cache/overlays/`, by the page's folder (each file's name,
+size and time) and the size, rate and length, so a render after an edit
+draws only the overlays that changed. On an M3, a 9 s project with a kit
+title card and lower third rendered in 4.3 s, and again after a `split`
+and a `remove` in 1.7 s.
+
+### Music in a project
+
+A project's sound can be generated instead of a file: `{op: "add", type:
+"audio", generator: {generator: "/abs/lofi.js", tempo: 80, key: "A minor",
+energy: [[0, 0.2], [30, 0.8]], seed: 1}, volume: 0.15, duck: true}`. The
+generator is one of [`music`](#music)'s. `render` makes the bed as long as
+the video from where the sound starts, or `length` seconds when it's given
+(a bed under just the intro of a long edit), and keeps it in
+`~/.mockingbird/cache/music/`, by the generator's folder of modules and its
+arguments, so a render after an edit reuses it. Making the bed waits a
+minute plus a second for each second of music, so a long bed isn't cut off
+(#266). The plugin's generators make a bed in time that grows with its
+length: on an M3, 60 s of `corporate.js` took 5 s and 600 s took 44 s
+(#272).
+
+`render` with `project` and `sound: true` saves the sound alone as
+`<name>-sound-N.m4a` at −14 LUFS, to check the mix without the picture:
+nothing is drawn or encoded, and captions aren't transcribed. Overlays'
+sounds aren't in it. On an M3, a 12 s project with speech and a lo-fi bed:
+the sound alone in 2.5 s (making the bed), then full renders in 1.2 s and
+1.1 s, the bed reused; all three at −14.3 LUFS.
 
 ### Text-based editing
 
@@ -246,6 +332,8 @@ and `cut_words` cuts by quoting it, the way an editor edits a document:
   case and punctuation. The words must be said once in the cut; if they're
   said more often, quote more of the sentence, give the `clip`, or add
   `all: true` to cut every time they're said (`{text: "like", all: true}`).
+  A word the dictionary made two (`geminipro` → `Gemini Pro`) is quoted as
+  it's shown.
 - `{op: "cut_words", from: "This is actually how most", to: "from AI models"}`
   cuts from the first words through the last, a sentence or a whole tangent,
   across as many clips as it spans.
@@ -278,7 +366,11 @@ After, seven cuts (three phrases, a stray "I'm", every "like" and a
 Each source is heard once and kept in `~/.mockingbird/cache/words/`, keyed by
 the file's path, size and modified time, the model and the language, so a
 changed file or another model is heard again. Only the stretches a project
-uses are heard: a short from an hour-long podcast hears the minute it uses.
+uses are decoded and heard: a short from an hour-long podcast hears the
+minute it uses (decoding a stretch of an hour-long source took 25 MB and
+0.03 s, against 264 MB and 0.59 s for the whole file). Two calls filling one
+source's words take turns. An `edit` whose project changed while its words
+were being heard hears what the project asks for now before it applies.
 The first `transcribe` of a 4-minute talk took 37.0 s on an M3 (28.2 s
 without DTW); after that, the transcript and every `cut_words` take no time,
 and a render's captions don't run Whisper.
@@ -317,11 +409,12 @@ the client.
 
 Captions are drawn onto the picture: white bold text with a black outline,
 centred a little below the middle (or at `captionsY`), wrapped to fit, with
-words marked `*like this*` in yellow. In a tall video the text is 7.5% of
+words marked `*like this*` in yellow, unless `captionStyle` picks another
+look. In a tall video the text is 7.5% of
 the width, as Shorts captions are; in a wide one it's 5% of the height and
 wraps at 60% of the width, as subtitles do, clear of a webcam in a corner. mockingbird draws each cue
-as an image in the same pinned headless Chrome as `motion` (white bold
-system font, a black outline under it, as HTML), and ffmpeg lays it over the
+as an image in the same pinned headless Chrome as `motion` (the style's
+pinned font, an outline under it, as HTML), and ffmpeg lays it over the
 video, so this works with Homebrew's `ffmpeg`, which has no libass, and
 looks the same on every OS. Emoji and non-Latin scripts come out as Chrome
 draws them; a word too long for a line breaks between characters. Each
@@ -336,6 +429,147 @@ short from a 60 fps screen recording, with word-by-word captions, a title, a
 picture insert, ducked music and a sound effect, took 2.8 seconds; 9 seconds
 cut from a 4K HEVC phone video took 11.5. `captions` for five clips took about
 5 seconds, most of it starting whisper-server.
+
+## Effects
+
+Effects come from one catalog, not a tool each, so it can grow without
+filling the agent's context with tool descriptions. `effects` lists it.
+Put them on a project's clip with `edit`, `{op: "set", id: "c1", effects:
+[{name: "color", exposure: 0.5}, {name: "denoise", amount: 0.6, floor:
+-45}]}`, or on `render`'s `clips`. They apply in order, after the clip's
+framing, and a clip with effects is always encoded, never stream-copied.
+
+| Effect | On | Settings |
+|---|---|---|
+| `color` | picture | `exposure` (stops, −3 to 3), `contrast`, `saturation`, `gamma`, `temperature` (kelvin) |
+| `lut` | picture | `file`, a `.cube` 3D LUT, at full strength |
+| `vignette` | picture | `amount` |
+| `sharpen` | picture | `amount` |
+| `blur` | picture | `radius` |
+| `gain` | sound | `db`, −30 to 30: raise or lower the clip's sound; a project's `level` sets it per source (#265) |
+| `denoise` | sound | `amount`, and `floor`: where the noise sits in dBFS, from `audio_stats` on the source |
+| `highpass` | sound | `frequency` (80 Hz suits speech) |
+| `compress` | sound | `threshold` (dB), `ratio` |
+| `deess` | sound | `amount` |
+| `chromakey` | picture | `color` (`#00ff00`), `similarity`, `blend`, `spill`; put it on an insert so the cut shows through |
+| `stabilize` | picture | `strength`, `zoom` (crops in to hide the moving edges); ffmpeg's `deshake` |
+| `crop` | picture | `left`, `right`, `top`, `bottom`, each 0–0.5; on an insert the cut shows through |
+| `freeze` | picture | holds the clip's first frame for its length while the sound plays on |
+| `reverse` | picture and sound | plays the clip backwards; keep it short, it's held in memory |
+| `interpolate` | picture | smooth slow motion: a clip at speed under 1 gets new in-between frames instead of repeats. In a 0.25x clip, repeated frames went from 89 of 118 to 7, but 4 s at 720p took 9.5 s to render instead of 0.7 |
+
+Any picture effect except `interpolate` (whose new frames are made for the whole clip) takes a `mask` to apply it to part of the frame only:
+`{shape: "rect" | "ellipse" | "polygon", x, y, w, h, feather, invert, end}`.
+Sizes are 0–1 of the picture, a polygon has `points: [[x, y], ...]`,
+`feather` softens the edge (0–0.5 of the width), and `end: {x, y, w, h}`
+moves a rectangle or ellipse there over the clip, e.g. a blur that follows a
+face across the shot. Or give a rectangle or ellipse a `path`, the points
+`track` returns, and it follows them instead. The mask is drawn per frame, so a masked effect costs
+more: 6 s at 1280x720 rendered in 7 to 8 s, against under a second without.
+
+`{shape: "subject"}` is the person in the frame instead of a shape (#260),
+found on every frame by MODNet ([MODELS.md §10](./MODELS.md#10-subject-masks--modnet)),
+which `mockingbird models pull modnet` fetches first. With `invert: true` a
+`blur` or a `color` lands on everything but them: a blurred background
+behind a talking head. Only a clip's effects take it. Before the graph, render
+writes the clip's stretch as a grey video to `~/.mockingbird/cache/masks/`,
+and the graph reads it back through the clip's own speed, crop and moves, so
+it stays on the person in a vertical crop or a punch-in. `feather` softens
+its edge. Without MODNet, render says to pull it and stops.
+
+Inserts take `box: {x, y, w, h}` (a picture in the picture; give it
+`track`'s points as `path` and it moves with a subject, a title that follows
+someone across the shot), `blend`
+(`screen`, `multiply`, `overlay`, `softlight`, `lighten`, `darken`,
+`addition` or `difference`, whole frame only), `effects`, and in a project
+`moves` like a clip's (a Ken Burns pan over a still). A green-screen clip
+keys over the cut as an insert with `effects: [{name: "chromakey"}]`.
+
+An adjustment layer, `{op: "add", type: "adjust", from, to, clip?, effects}`
+in a project or `render`'s `adjust: [{from, to, effects}]`, puts its effects
+on everything under the text (the clips and the inserts) for its stretch:
+one grade over a whole section, or a masked blur over it.
+
+`scopes` measures a picture the way a colourist reads the scopes: mean luma
+and its 5th to 95th percentile, the share of pixels in the shadows, mids and
+highlights, crushed blacks and clipped whites, mean saturation, and how far
+skin-coloured pixels sit from the skin-tone line. Each number comes with
+what a graded talking head usually shows, so the agent grades by measuring:
+`scopes`, an effect, render, `scopes` again, then `frames` to look. The
+`color-grade` playbook sets out the steps and ships five looks as `.cube`
+files for `lut`, and the reviewer fails a render on colour.
+
+Measured on 8 s of a portrait talking head darkened 1.5 stops: `scopes`
+read mean luma 0.16, every pixel in the shadows and saturation 0.04 (the
+original: 0.44 and 0.12). `color` with exposure +1.5 brought it to 0.30;
++2 overshot to 0.64 with 3.2% clipped; +1.7 and saturation 1.4 came out at
+mean 0.51, 95th percentile 0.80, nothing clipped, saturation 0.18 and skin
+1° off the line. On clean speech with pink noise and a 50 Hz hum added,
+`highpass` and `denoise` (floor −47) lowered the noise floor of the levelled
+render from −41.9 to −47.4 dBFS, and Whisper still heard every word.
+
+### HDR sources
+
+Phones record HDR by default: an iPhone writes HEVC, 10-bit, BT.2020, with
+the HLG transfer. Encoded as 8-bit SDR without a conversion, that picture
+comes out flat and grey, and grading can't bring it back (#252). So
+`render`, `frames` and `scopes` read each source's transfer, and an HLG or
+PQ picture is converted before anything else touches it: BT.2020 YUV to
+RGB, a 3D LUT, then BT.709 YUV, with the frames labelled BT.709 so every
+encode after tags the file SDR. That covers a render's video `inserts` as
+well as its clips. In an edit that mixes HDR and SDR sources, the SDR clips
+are labelled BT.709 too, so the file is tagged whichever clip comes first.
+An SDR-only render keeps its source's tags, untagged or not.
+
+`motion` converts an HDR `path` the same way before the page sees it or it's
+drawn under, and tags its output BT.709, a transparent `alpha` page included.
+
+The LUT is made by mockingbird (`apps/daemon/src/hdr.ts`), since Homebrew's
+ffmpeg has neither zscale nor libplacebo and every ffmpeg has `lut3d`. It
+takes the signal to display light (HLG's OOTF for a 1000-nit display, or
+PQ's EOTF), puts HDR's reference white (203 nits) at SDR display light 0.56,
+moves BT.2020's primaries to BT.709's, rolls the brightness off above 0.5
+with the hue kept, pulls out-of-gamut colours toward their grey, and
+encodes for gamma 2.4. It's written once to the temp folder under a name
+taken from its contents, so a changed conversion never reuses an old file.
+
+Measured on a 59 s vlog from 11 iPhone HLG clips, the render before the
+motion pass: it was tagged HLG/BT.2020 in an 8-bit SDR file, with mean luma
+0.52, saturation 0.11 and skin 8.4° off the skin-tone line. Now it's tagged
+BT.709, with mean luma 0.50, nothing clipped, saturation 0.14 and skin 0.8°
+off. The conversion costs time: the same render took 38–40 s, against
+23–24 s without it. An SDR source doesn't go through it.
+
+## Exporting to an editor
+
+`export(project)` saves the project beside it as `<name>.fcpxml` (FCPXML
+1.10: Final Cut Pro, and DaVinci Resolve or Premiere, which import it) and
+`<name>.otio` (OpenTimelineIO, which Resolve imports, and Premiere and Avid
+through OTIO's adapters). `format` picks one, and `out` picks a folder.
+The export carries:
+
+- the clips, with their source times and transitions, each transition split
+  by whole frames around its cut;
+- inserts on video tracks above the clips;
+- texts, as Basic Title titles in FCPXML and markers in OTIO;
+- sounds on their own audio tracks, with their volume in FCPXML (OTIO has
+  no standard gain, so its export lists the volumes as left out);
+- in OTIO, speed changes and J and L cuts too.
+
+What an editor can't take this way is listed in the reply, so it can be
+redone there. Before choosing a format, these are what to rebuild after
+either export: effects (grades, keys, masks), adjustment layers, framing
+(focus, zoom, moves), split screens, inserts' boxes, blend modes and moves
+(they come in full frame), generated music beds, the word captions and
+ducking. FCPXML also leaves out speed changes and J and L cuts, which OTIO
+keeps; OTIO leaves out sound volumes, and a transition with no room for it
+in the clips beside it (picture or sound) comes in as a cut.
+
+Checked on a three-clip project with a dissolve, a 2x clip with a J cut, two
+titles, an insert and a sound: OpenTimelineIO 0.18.1 read the `.otio`, and
+its FCPXML adapter read the `.fcpxml`. Every track came to the cut's 4.5 s.
+It isn't tested in Final Cut or Resolve yet, since neither is on the build
+machine.
 
 ## Measuring sound
 
@@ -378,7 +612,23 @@ HyperFrames. `script` is an HTML page, rendered in a pinned headless Chrome.
 Graphics; a canvas script becomes a page with a `<canvas>`, and the
 motion-graphics kit's `page()` does that wrapping.)
 
+A page that imports `from "KIT"`, as the kit's templates do, gets the kit:
+`motion` loads a copy beside the page with `"KIT"` swapped for the kit's
+file URL, and deletes the copy after (#213). Leave `"KIT"` as it is. A page
+that imports `from "STYLES"` gets the explainer styles (`styles.js`, built
+from the motion-graphics skill's `styles/` folder) the same way.
+
 ### HTML pages
+
+A page can import the kit `from "KIT"`, the explainer styles `from "STYLES"`
+and three.js `from "THREE"` (0.187.0, shipped in the plugin, #270) with its
+light and post-processing add-ons `from "THREE_ADDONS"` (#275); `motion`
+fills each one in with its file. A page that imports three.js is drawn on the
+GPU (ANGLE on Metal on macOS, falling back to Chrome's software renderer when
+the GPU can't start; elsewhere, software), and 2D pages keep software
+rendering so their pixels don't change. On an M3, 10 s of a
+lit, shadowed 1920x1080 scene with footage as a texture drew in 33.4 s,
+against 199 s in software.
 
 ```html
 <!-- title.html -->
@@ -401,17 +651,44 @@ motion-graphics kit's `page()` does that wrapping.)
   (about 100 MB) into `~/.mockingbird/bin/` and checks its sha256;
   `MOCKINGBIRD_CHROME=/path` uses another build instead. Without either,
   `motion` says so and does nothing.
-- **Fonts** come with Chrome (about 43 MB, [NOTICE.md](../NOTICE.md)), so
+- **Fonts** come with Chrome (about 52 MB, [NOTICE.md](../NOTICE.md)), so
   text looks the same on every machine: a page can name `Inter`,
   `Charis SIL`, `JetBrains Mono`, `Noto Sans Bengali`, `Noto Sans
   Devanagari`, `Noto Sans Arabic`, `Noto Sans Hebrew`, `Noto Sans Thai`,
-  `Noto Sans Tamil`, `Noto Sans SC`, `Noto Sans JP` and `Noto Sans KR` in
-  CSS (the full names), and
-  each loads the first time text needs it. Captions use Inter, then the Noto
-  family for the script.
+  `Noto Sans Tamil`, `Noto Sans SC`, `Noto Sans JP` and `Noto Sans KR`, and
+  the display, hand and typewriter faces the styles use (`Anton`,
+  `Bebas Neue`, `Oswald`, `Archivo Black`, `Playfair Display`,
+  `Space Grotesk`, `Montserrat`, `Bangers`, `Nunito`, `Cormorant Garamond`,
+  `Fraunces`, `Caveat`, `Kalam`, `VT323`, `Space Mono`, `Silkscreen`,
+  `Courier Prime`, `Comic Neue`, `Arvo`), in CSS or a canvas's `font` (the
+  full names), and each loads the first time text needs it. `Noto Color
+  Emoji` (the COLRv1 build, 5 MB) is last in every stack, so an emoji draws
+  the same everywhere. Captions use their style's font, then the Noto family
+  for the script, then the emoji. Han characters are drawn in Japanese,
+  Chinese or Korean shapes by the captions first: any kana makes them
+  Japanese, any Hangul Korean. Han alone goes by `MOCKINGBIRD_LANGUAGE` when
+  it's `ja`, `zh` or `ko`, and Chinese otherwise.
+  Each family's licence file lands in `~/.mockingbird/fonts/licences/`.
+- **Your own fonts**: put any `.ttf`, `.otf`, `.woff` or `.woff2` in
+  `~/.mockingbird/fonts/user/` and name it after its family: `Brand
+  Sans.ttf` is `"Brand Sans"`, `Brand Sans Italic.otf` its italic. As many
+  as you like. `motion`'s result lists the fonts each render's text was
+  drawn in, so a substitution can't hide.
+- **A font the page doesn't have is a warning** (#276): the first family of
+  every canvas `font` and of every element with text that's drawn should be
+  one of those, or one the page loads with `@font-face`. A generic family
+  (`sans-serif`, `system-ui`) or a system font (`Futura`, `Helvetica Neue`)
+  first draws something different on every machine, so the render finishes
+  in Chrome's fallback and `motion`'s result ends with a warning naming the
+  font. If a pinned font isn't downloaded, the warning says to run
+  `mockingbird models pull chrome`. Captions whose style's font isn't
+  downloaded are drawn in a fallback the same way, and `render`'s result
+  says so. `doctor` names the missing fonts. (#276 asked for a failure; the
+  user chose a warning, so a missing font degrades a render rather than
+  breaking it.)
 - **The page** is the size of the video, with a transparent background.
   Anything Chrome draws works: CSS, SVG, gradients, blend modes, filters,
-  fonts installed on the Mac or loaded with `@font-face`, images by relative
+  the fonts above or ones loaded with `@font-face`, images by relative
   path. Without `path`, a transparent page comes out over black; with
   `path`, it's laid over each frame of that video, whose sound is kept.
 - **Time.** For the frame at `t` seconds, mockingbird sets every CSS
@@ -461,6 +738,30 @@ motion-graphics kit's `page()` does that wrapping.)
   network denied, so a page can't fetch anything from the internet. Chrome's own
   sandbox can't run inside that one, so it's off.
 
+## Looks
+
+A look is a style written for one video (#262), so graphics aren't the same
+from one video to the next. The agent reads the transcript, settles a mood
+with the user and writes a module like the ones in
+`plugin/skills/motion-graphics/styles/`: a default export
+`{ id, name, category, make(ctx, t, m) }` whose `make` returns the ten
+pieces every style draws (surface, title, label, node, box, link, store,
+stat, mark, finish) and anything else the look adds. The module can
+import from `"STYLES"` (every style and the helpers in `styles/look.ts`) and
+from `"KIT"`. The steps are in `guide("look")`: the agent makes three deliberately different looks for each video (safe, bold, strange), each following two constraint cards drawn from the transcript and avoiding a list of default clichés, and the user picks one to refine (#268).
+
+`look(file, page, path, duration, board, size, out)` builds the module with Bun into
+`<name>.look.js` beside it, with what it imports bundled in. A mistake comes back as
+`file:line:column` with the line. It then draws the board in Chrome the way `motion` does. The board is the
+agent's own `page`, which imports the look `from "LOOK"` and shows the
+video's real content, drawn over `path` if one is given. Without a `page`, it's
+`plugin/skills/motion-graphics/templates/look-board.html`: an 8.5 s storyboard of `board`, which is
+`{ title, points: [up to three labels], stat: { value, unit, label } }`,
+default `size` 1920x1080. It saves `<name>-board-N.mp4` (or `out`) and
+`…-sheet.jpg`, a 4x3 contact sheet. Pages for the edit import the
+built module by the file URL in the reply. On an M-series Mac, a test
+look's board drew in 3.6 s at 1280x720.
+
 ## Music
 
 `music` makes background music from code, so there are no samples to
@@ -485,6 +786,15 @@ export default function (ctx, { duration, tempo = 80, key, energy, seed }) {
   once it has; Chrome then renders the whole track at once. 60 s of the
   plugin's lo-fi generator takes about 6 s, most of it starting Chrome and
   levelling.
+- **Make each bar when it's about to play.** A note made up front sits in
+  the graph from the start, and Chrome works through every one for every
+  block of sound, so a track scheduled all at once takes time that grows
+  with the square of its length: 300 s of `corporate.js` took over 6
+  minutes that way, 18 s bar by bar (#272). The plugin's `lib.js` has
+  `soon(ctx, t, make, lead = 1)`, which runs `make` when the track is `lead`
+  seconds short of `t` (with `OfflineAudioContext.suspend`); wrap each bar's
+  notes in it. While Chrome renders, the page collects its garbage every
+  second, so finished notes leave the graph.
 - **The second argument** has `duration`, `sampleRate`, `seed`, and the
   `tempo`, `key` and `energy` the call gave, for the generator to read.
   `energy` is 0 to 1, or a curve of `[seconds, level]` points, so the music

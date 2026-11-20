@@ -2,7 +2,7 @@
 <html lang="en">
   <body style="margin: 0">
     <script type="module">
-      // Copy beside the cut. Replace KIT with the absolute path to kit.js.
+      // Copy beside the cut and leave the import as it is: motion swaps in the kit.
       // Measure targets on the video passed to motion, after earlier crops.
       // Coordinates are fractions of that frame, not of the original recording.
       import { kit, page } from "KIT";
@@ -23,8 +23,9 @@
         labelPadding: 14,
         labelStroke: "transparent",
         labelLineWidth: 0,
-        // Load a brand font with a local @font-face before naming it here.
-        font: "system-ui",
+        // A pinned family, so labels look the same on every machine. Load a brand
+        // font with a local @font-face before naming it here.
+        font: "Inter",
         fontWeight: 500,
         fontSize: 28,
       };
@@ -41,6 +42,9 @@
           labelAt: { x: 0.5, y: 0.84 },
         },
       ];
+
+      // Speech captions: where their middle sits (share of the height) and their size.
+      const CAPTIONS = { y: 0.94, size: 32 };
 
       CALLOUTS.sort((a, b) => a.at - b.at);
       for (const [i, c] of CALLOUTS.entries()) {
@@ -67,7 +71,7 @@
           moves,
         });
         // Supplied speech captions remain visible between callouts too.
-        if (m.cues?.length) k.captions({ y: H * 0.94, size: 32, upper: false });
+        if (m.cues?.length) k.captions({ y: H * CAPTIONS.y, size: CAPTIONS.size, upper: false });
         if (!active || !m.video) return;
 
         const s = { ...STYLE, ...active.style };
@@ -111,6 +115,10 @@
           // Keep the label clear of the target. Move labelAt if they overlap.
           if (lx < x + w && lx + lw > x && ly < y + h && ly + lh > y) {
             throw new Error(`Callout at ${active.at}: move labelAt clear of the target`);
+          }
+          // Keep it above the speech captions too: they stay on screen during callouts.
+          if (m.cues?.length && ly + lh > H * CAPTIONS.y - CAPTIONS.size * u * 1.4) {
+            throw new Error(`Callout at ${active.at}: move labelAt above the captions`);
           }
           ctx.fillStyle = s.labelFill;
           ctx.strokeStyle = s.labelStroke;

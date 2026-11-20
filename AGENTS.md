@@ -3,7 +3,7 @@
 > This file governs every agent working in this repository — human-invoked
 > or automated, including the skills in [`agent-skills/`](./agent-skills)
 > (`new-feature`, `code-structure`, `evidence-driven-testing`,
-> `before-and-after`, `greploop`/`greploop-apps`, `unslop`). It's the
+> `before-and-after`, `coderabbit-loop`, `ponytail`, `unslop`). It's the
 > repo-specific fill-in that collection's own template asks for.
 > **Read [docs/PHILOSOPHY.md](./docs/PHILOSOPHY.md) and
 > [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) first**, plus
@@ -18,8 +18,8 @@
    live in `.worktrees/` (already gitignored), branch prefix `agent/`.
 2. **Build — `/code-structure`.** Maps onto this repo's existing split
    ([ARCHITECTURE.md §10](./docs/ARCHITECTURE.md#10-repository-layout)):
-   `packages/*` (`asr`, `vad`, `audio`, `captions`, `motion`, `store`)
-   **is** the service layer — reusable mechanics, explicit inputs,
+   `packages/*` (`asr`, `vad`, `matte`, `audio`, `captions`, `motion`, `store`,
+   `timeline`) **is** the service layer — reusable mechanics, explicit inputs,
    structured returns. `apps/daemon` (the engine: the MCP server, its tools
    and the commands) **is** the orchestration layer — it owns *which* clips,
    *which* model, *what* filter graph. Don't let platform-specific logic
@@ -31,14 +31,19 @@
    measured: render time, loudness, WER, a frame from the output, or the
    tool's output before and after, not a claim. A change to what a render
    looks like gets stills from the real output.
-4. **Ship — `/before-and-after`, then `/greploop`.** Use `before-and-after`
-   for a change to what a render looks like (two stills); otherwise ship
-   with measured before/after numbers in the PR description. Run `/greploop` (or
-   `/greploop-apps` for huge PRs) until Greptile reports 5/5 with zero
-   unresolved comments — but read [§Hard invariants](#hard-invariants)
-   first: greploop fixes whatever Greptile flags with no awareness of this
-   repo's constraints, so the fixing agent (you) is the actual check
-   against a Greptile suggestion crossing one of them.
+4. **Ship — `/before-and-after`, then `/coderabbit-loop`.** Use
+   `before-and-after` for a change to what a render looks like (two
+   stills); otherwise ship with measured before/after numbers in the PR
+   description. Run `/coderabbit-loop` until the task is complete: either
+   CodeRabbit's latest review has zero actionable comments and zero
+   unresolved threads, or CodeRabbit can't review (rate-limited, down, or
+   skipped) and a local `/code-review` at medium has every finding fixed.
+   Read [§Hard invariants](#hard-invariants) first: CodeRabbit
+   flags things with no awareness of this repo's constraints, so the fixing
+   agent (you) is the actual check against a CodeRabbit suggestion crossing
+   one of them. Every push starts a review and the free plan allows about
+   one an hour across the account, so don't post `@coderabbitai review`
+   after a push.
 
 ## Writing for humans
 
@@ -49,11 +54,11 @@ didn't touch.
 
 ## Hard invariants
 
-Non-negotiable. If a Greptile comment, a feature request, or your own
+Non-negotiable. If a CodeRabbit comment, a feature request, or your own
 judgment call would cross one of these, **stop and flag it — do not
 silently implement it**, regardless of how reasonable the suggestion looks
 in isolation. This list exists specifically so automated loops like
-greploop have something to check a "fix" against.
+coderabbit-loop have something to check a "fix" against.
 
 **Product / philosophy** — from [PHILOSOPHY.md §3](./docs/PHILOSOPHY.md#3-non-negotiables):
 
@@ -114,6 +119,26 @@ greploop have something to check a "fix" against.
 - If a conflict can't be resolved confidently, stop and report instead of
   guessing.
 
+## Pacing and cost
+
+Usage is shared across every session, so waste in one session takes work
+from the others. The general rules (one engineer per project, model
+choice, merge pacing, CI waiting, reporting) are in `~/.claude/CLAUDE.md`.
+This repo tightens them in these ways:
+
+- **Parallel sessions only on separate files**, each in its own worktree
+  (see [Multi-agent rules](#multi-agent-rules)).
+- **Keep PRs under 100 changed files** and stacked at most one level deep.
+  Count with `gh pr view <n> --json changedFiles`, because `--json files`
+  stops at 100.
+- **CodeRabbit is the reviewer.** Run `/code-review` locally only when
+  CodeRabbit can't review (rate-limited, down, or it skipped the PR). Make
+  one push per review round, with every fix from that round in it, and
+  don't push just to set off a review.
+- **Run integration tests** only for a change to
+  `packages/{audio,vad,asr,captions,motion}`, a tool, or an integration
+  test or its setup, as in [§Commands & checks](#commands--checks).
+
 ## Completing a task
 
 1. Keep changes limited to the assigned task.
@@ -121,13 +146,16 @@ greploop have something to check a "fix" against.
 3. Assemble evidence into a before/after pair (measured numbers, or stills
    from a render).
 4. Commit with a clear message, signed off (`git commit -s`, the `dco` CI
-   job checks it; run the message through `/unslop`), rebase onto
-   latest `origin/main`, rerun the checks.
-5. Push (`git push -u origin <branch>`; after rebasing an already-pushed
-   branch, `--force-with-lease`).
+   job checks it; run the message through `/unslop`). If this PR is next
+   to merge, rebase onto latest `origin/main` and rerun the checks.
+5. Push (`git push -u origin <branch>`; after a rebase of an
+   already-pushed branch, `--force-with-lease`).
 6. Open the PR — body explains what changed, how it was tested, before/after
    proof, and risks/follow-up. Run title and body through `/unslop`.
-7. Run `/greploop` (or `/greploop-apps`) until 5/5, zero unresolved comments.
+7. Run `/coderabbit-loop` until the task is complete: either CodeRabbit's
+   latest review has zero actionable comments and zero unresolved threads,
+   or CodeRabbit can't review (rate-limited, down, or skipped) and a local
+   `/code-review` at medium has every finding fixed.
 8. End by presenting the PR URL.
 
 Do not merge the PR unless explicitly instructed. Keep the worktree until
@@ -145,7 +173,7 @@ the local setup the integration tests need.
 | Typecheck, all workspaces | `bun run typecheck` | yes |
 | Lint + format (Biome) | `bun run lint` (`bun run format` to fix) | yes |
 | Unit tests | `bun test` | yes |
-| Integration tests (real VAD, whisper-server, ffmpeg) | `bun run test:integration` | no — run locally for any change to `packages/{audio,vad,asr,captions,motion}` or a tool |
+| Integration tests (real VAD, whisper-server, ffmpeg) | `bun run test:integration` | no — run locally for any change to `packages/{audio,vad,asr,captions,motion}`, a tool, or an integration test or its setup |
 | Build smoke test | `bun build --compile` | not yet — onnxruntime's dylib isn't embedded |
 | Go command (`apps/cli`) | `cd apps/cli && gofmt -l . && go vet ./... && go test -race ./...` | yes |
 | Whisper model comparison | `bun run bench:models` | no — run locally before changing the default model (MODELS.md §6) |
@@ -158,8 +186,8 @@ transcription, WER and time from `bench:models`.
 
 - Runtime: Bun ≥ 1.2 — full stack table in
   [ARCHITECTURE.md §3](./docs/ARCHITECTURE.md#3-technology-stack).
-- Target platform: macOS on Apple Silicon for now; Linux and Windows are
-  pivot step 4 ([#134](https://github.com/NirjharBhattacharjee/mockingbird/issues/134)).
+- Platforms: macOS, Linux (x64, arm64) and Windows (x64). Development and
+  the measured numbers are on an Apple Silicon Mac; CI runs all three.
 - Data dir: `~/.mockingbird/` — `data.db` (schema:
   [DATABASE.md](./docs/DATABASE.md)), `models/`, `logs/` (install logs).
 - **License: MIT** ([LICENSE](./LICENSE)). Don't add per-file license
@@ -212,6 +240,6 @@ To move to a newer version of the skills, run
 |---|---|
 | `new-feature`, `code-structure`, `evidence-driven-testing` | the skills repo itself |
 | `before-and-after` | vendored there from `vercel-labs/before-and-after` (PolyForm Shield 1.0.0) |
-| `greploop` | vendored there from `greptileai/skills` (MIT) |
-| `greploop-apps` | local variant there, for huge PRs (MIT) |
+| `coderabbit-loop` | rewritten there for CodeRabbit from `greptileai/skills`' greploop (MIT) |
+| `ponytail` | vendored there from `DietrichGebert/ponytail` (MIT) |
 | `unslop` | vendored there from `cursor/plugins (pstack)` (MIT) |

@@ -29,6 +29,57 @@ export type PageScene = {
 export type PageFont = { family: string; url: string; weight: string; style: string };
 
 /**
+ * Page script defining `checkFonts(dom)` (#276). Chrome draws text whose font
+ * the page doesn't have in a system font, and says nothing, so the same page
+ * looks different on every machine. This records a warning in `fontWarnings`
+ * when the first family of a canvas's `font`, or with `dom` of any element
+ * holding text, isn't one in `document.fonts` (a pinned font, or the page's
+ * own @font-face), or is only a generic like `sans-serif`. The render goes on
+ * in the fallback (degrade, don't break) and says so.
+ */
+export const fontCheck = `
+  const fontsAsked = new Set();
+  const fontsSeen = new Set();
+  const fontWarnings = new Set();
+  for (const P of [CanvasRenderingContext2D.prototype, OffscreenCanvasRenderingContext2D.prototype]) {
+    const d = Object.getOwnPropertyDescriptor(P, "font");
+    Object.defineProperty(P, "font", { ...d, set(v) { fontsAsked.add(v); d.set.call(this, v); } });
+  }
+  const unquote = (s) => s.trim().replace(/^["']|["']$/g, "");
+  const parsed = document.createElement("span").style;
+  const firstFamily = (families) => unquote(families.split(",")[0] ?? "");
+  const checkFamily = (first, where) => {
+    if (!first || fontsSeen.has(first)) return;
+    const have = [...new Set([...document.fonts].map((f) => unquote(f.family)))];
+    // CSS matches family names whatever their case.
+    const known = have.some((f) => f.toLowerCase() === first.toLowerCase());
+    const hint = "Use one of the fonts the page has (" + (have.join(", ") || "none") + "), or load one with @font-face.";
+    if (/^(serif|sans-serif|monospace|cursive|fantasy|system-ui|ui-[a-z-]+|emoji|math|fangsong)$/i.test(first))
+      fontWarnings.add(where + " names no font, only the generic " + first + ", which draws differently on every machine. " + hint);
+    else if (!known)
+      fontWarnings.add("the font " + JSON.stringify(first) + " (" + where + ") isn't loaded, so Chrome drew a fallback in its place. If it's one of mockingbird's fonts, run \\\`mockingbird models pull chrome\\\`. " + hint);
+    fontsSeen.add(first);
+  };
+  const checkFonts = (dom) => {
+    for (const font of fontsAsked) {
+      parsed.font = "";
+      parsed.font = font;
+      checkFamily(firstFamily(parsed.fontFamily), "a canvas's font " + JSON.stringify(font));
+    }
+    fontsAsked.clear();
+    if (!dom || !document.body) return;
+    const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+      const el = n.parentElement;
+      // Only text that's drawn: not a canvas's fallback, a template or a hidden element.
+      if (!n.textContent.trim() || !el || el.closest("script, style, noscript, template, canvas")) continue;
+      if (!el.checkVisibility({ visibilityProperty: true })) continue;
+      checkFamily(firstFamily(getComputedStyle(el).fontFamily), "<" + el.tagName.toLowerCase() + ">'s text");
+    }
+  };
+`;
+
+/**
  * Registers `fonts` with the page, unloaded, as @font-face rules would: each
  * loads the first time text needs it, and the frame waits for it.
  */
@@ -38,6 +89,7 @@ export const pageFonts = (fonts: PageFont[]) =>
 export function pageClock(scene: PageScene, epoch: number, fonts: PageFont[] = []): string {
   return `(() => {
   ${pageFonts(fonts)}
+  ${fontCheck}
   let now = 0;
   const born = new WeakMap();
   const callbacks = new Map();
@@ -78,6 +130,7 @@ export function pageClock(scene: PageScene, epoch: number, fonts: PageFont[] = [
     async ready() {
       if (document.readyState !== "complete") await new Promise((r) => addEventListener("load", r, { once: true }));
       await document.fonts.ready;
+      checkFonts(true);
       for (const a of document.getAnimations()) born.set(a, 0);
       const audio = m.audio === undefined ? null : JSON.parse(JSON.stringify(m.audio));
       return { errors, audio, drawVideo: m.drawVideo === true };
@@ -111,6 +164,7 @@ export function pageClock(scene: PageScene, epoch: number, fonts: PageFont[] = [
         seek();
         // A font draw used for the first time loads now; the frame waits for it.
         await document.fonts.ready;
+        checkFonts(false);
         this.check();
       }
     },
@@ -125,7 +179,10 @@ export function pageClock(scene: PageScene, epoch: number, fonts: PageFont[] = [
     // After the last frame: anything still running gets a turn to fail.
     async done() {
       await new Promise((r) => setTimeout(r, 0));
+      checkFonts(true);
       this.check();
+      // The fonts its text was drawn in, and those it asked for and lacked (#276).
+      return { fonts: [...fontsSeen].sort(), warnings: [...fontWarnings] };
     },
   } });
 })();`;
@@ -162,6 +219,11 @@ export async function renderHtml(
     fonts = [],
     tabs: tabCount = TABS,
     onLoad = () => {},
+    onWarning = () => {},
+    onFonts = () => {},
+    alpha = false,
+    videoFilters = "",
+    gpu = false,
   }: {
     chrome: string;
     out: string;
@@ -177,8 +239,19 @@ export async function renderHtml(
     fonts?: PageFont[];
     tabs?: number;
     onLoad?: (page: { audio: unknown }) => void;
+    /** Each warning the page left, after the last frame: a font it asked for and didn't have (#276). */
+    onWarning?: (message: string) => void;
+    /** The font families the page's text was drawn in, once the last frame is done. */
+    onFonts?: (families: string[]) => void;
+    /** Keep the page's transparency: ProRes 4444 in a .mov, to lay over a video later (#163). */
+    alpha?: boolean;
+    /** Filters every frame of `video` goes through first, e.g. the engine's HDR-to-SDR conversion. */
+    videoFilters?: string;
+    /** Draw WebGL on the GPU (macOS), for 3D pages; see launchChrome. */
+    gpu?: boolean;
   },
 ): Promise<number> {
+  if (alpha && video) throw new Error("alpha is for a page on its own, not over a video");
   if (!(Number.isInteger(tabCount) && tabCount >= 1)) {
     throw new Error(`tabs must be a whole number, 1 or more; got ${tabCount}`);
   }
@@ -196,18 +269,19 @@ export async function renderHtml(
   let pictures: AsyncGenerator<Uint8Array> | undefined;
   let drawn = 0;
   try {
-    chrome = await launchChrome(chromePath);
+    chrome = await launchChrome(chromePath, { gpu });
     const browser = chrome;
     const tabs = await Promise.all(
       Array.from({ length: Math.min(tabCount, total) }, () => openTab(browser, page, scene, clock)),
     );
     onLoad({ audio: tabs[0]?.audio ?? undefined });
     const drawsVideo = !!video && !!tabs[0]?.drawVideo;
+    const pre = videoFilters ? `${videoFilters},` : "";
     if (drawsVideo && video) {
       decoder = Bun.spawn(
         [
           ...["ffmpeg", "-nostdin", "-loglevel", "error", "-i", video, "-an"],
-          ...["-vf", `fps=${fps},scale=${width}:${height},setsar=1`],
+          ...["-vf", `${pre}fps=${fps},scale=${width}:${height},setsar=1`],
           ...["-f", "image2pipe", "-c:v", "mjpeg", "-q:v", "2", "-"],
         ],
         { stdout: "pipe", stderr: "pipe" },
@@ -220,15 +294,24 @@ export async function renderHtml(
     // The page over the video, or over black, so a half-transparent pixel blends as it shows.
     const under =
       video && !drawsVideo
-        ? `[0:v]fps=${fps},scale=${width}:${height},setsar=1[under]`
+        ? `[0:v]${pre}fps=${fps},scale=${width}:${height},setsar=1[under]`
         : `color=c=black:s=${width}x${height}:r=${fps}[under]`;
-    const graph = `${under};[under][${video ? 1 : 0}:v]overlay=format=auto:shortest=1[v]`;
+    // The page's RGB turned to YUV with BT.709's matrix, and the file tagged BT.709,
+    // so players don't guess the colours (#252).
+    const bt709 = "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv";
+    const graph = alpha
+      ? `[0:v]scale=out_color_matrix=bt709:out_range=tv,format=yuva444p10le,${bt709}[v]`
+      : `${under};[${video ? 1 : 0}:v]scale=out_color_matrix=bt709:out_range=tv,format=yuva420p[page];` +
+        `[under][page]overlay=format=auto:shortest=1,${bt709}[v]`;
+    const codec = alpha
+      ? ["-c:v", "prores_ks", "-profile:v", "4444", "-pix_fmt", "yuva444p10le"]
+      : ["-c:v", "libx264", "-crf", "18", "-preset", "veryfast", "-pix_fmt", "yuv420p"];
     const sound = video && audio ? ["-map", "0:a", "-c:a", "aac", "-b:a", "160k", "-shortest"] : [];
     encoder = Bun.spawn(
       [
         ...["ffmpeg", "-nostdin", "-loglevel", "error", "-y", ...inputs],
         ...["-filter_complex", graph, "-map", "[v]", ...sound],
-        ...["-c:v", "libx264", "-crf", "18", "-preset", "veryfast", "-pix_fmt", "yuv420p"],
+        ...codec,
         ...["-movflags", "+faststart", out],
       ],
       { stdin: "pipe", stderr: "pipe" },
@@ -292,7 +375,19 @@ export async function renderHtml(
       );
     }
     // And once more for anything that failed while ffmpeg finished.
-    for (const tab of tabs) await onClock(browser, tab, "done()", total - 1, fps);
+    // The fonts each tab's text was drawn in, and each one it lacked, once (#276).
+    const used = new Set<string>();
+    const warned = new Set<string>();
+    for (const tab of tabs) {
+      const said = (await onClock(browser, tab, "done()", total - 1, fps)) as {
+        fonts?: unknown[];
+        warnings?: unknown[];
+      } | null;
+      for (const f of said?.fonts ?? []) used.add(String(f));
+      for (const w of said?.warnings ?? []) warned.add(String(w));
+    }
+    onFonts([...used].sort());
+    for (const w of warned) onWarning(w);
     return drawn;
   } catch (error) {
     // ffmpeg acts on SIGTERM only between writes, so a blocked one needs SIGKILL.
@@ -371,9 +466,15 @@ async function openTab(chrome: Chrome, page: string, scene: PageScene, clock: st
 }
 
 /** Runs `call` on the page's clock in `tab`, naming `frame` if the page fails. */
-async function onClock(chrome: Chrome, tab: Tab, call: string, frame: number, fps: number) {
+async function onClock(
+  chrome: Chrome,
+  tab: Tab,
+  call: string,
+  frame: number,
+  fps: number,
+): Promise<unknown> {
   try {
-    await evaluate(chrome, tab.session, `__mockingbird.${call}`);
+    return await evaluate(chrome, tab.session, `__mockingbird.${call}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(

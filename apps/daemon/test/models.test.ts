@@ -3,7 +3,9 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -26,7 +28,7 @@ import {
   sha256Of,
   speechName,
 } from "../src/models.ts";
-import { savedModelFor } from "../src/runtime.ts";
+import { DEFAULT_ASR_MODEL, savedModelFor } from "../src/runtime.ts";
 
 /** Where pullFile keeps an unfinished download of `model`: named for its checksum. */
 const partOf = (model: ModelFile) => `model.bin.${model.sha256.slice(0, 12)}.part`;
@@ -53,6 +55,20 @@ function serving(body: string, status = 200) {
 }
 
 describe("pullFile", () => {
+  test("removes partials an older pull left for another version, and keeps others' (#225)", async () => {
+    const dir = tempDir();
+    writeFileSync(join(dir, "model.bin.part"), "old");
+    writeFileSync(join(dir, partOf(modelOf("older weights"))), "old");
+    writeFileSync(join(dir, "other.bin.part"), "someone else's");
+    const { get } = serving("weights");
+    expect(await pullFile(modelOf("weights"), dir, { fetch: get })).toBe(true);
+    expect(readdirSync(dir).sort()).toEqual(["model.bin", "other.bin.part"]);
+    // Already downloaded: an old partial still goes.
+    writeFileSync(join(dir, "model.bin.part"), "old");
+    expect(await pullFile(modelOf("weights"), dir, { fetch: get })).toBe(false);
+    expect(readdirSync(dir).sort()).toEqual(["model.bin", "other.bin.part"]);
+  });
+
   test("downloads a missing model and checks it", async () => {
     const dir = tempDir();
     const { get, calls } = serving("weights");
@@ -150,11 +166,96 @@ describe("pullFile", () => {
     expect(readFileSync(join(dir, "model.bin"), "utf8")).toBe("weights");
   });
 
-  test("an HTTP error says so", async () => {
-    const { get } = serving("", 404);
+  test("an HTTP error says so, and a 404 isn't tried again", async () => {
+    const { get, calls } = serving("", 404);
     await expect(pullFile(modelOf("weights"), tempDir(), { fetch: get })).rejects.toThrow(
       "HTTP 404",
     );
+    expect(calls).toHaveLength(1);
+  });
+
+  test("a checksum mismatch isn't tried again", async () => {
+    const { get, calls } = serving("something else");
+    await expect(pullFile(modelOf("weights"), tempDir(), { fetch: get })).rejects.toThrow(
+      "expected checksum",
+    );
+    expect(calls).toHaveLength(1);
+  });
+
+  test("a 429 is tried again, like a 5xx", async () => {
+    let n = 0;
+    const get = (async () =>
+      ++n === 1
+        ? new Response(null, { status: 429 })
+        : new Response("weights")) as unknown as typeof fetch;
+    expect(
+      await pullFile(modelOf("weights"), tempDir(), { fetch: get, wait: async () => {} }),
+    ).toBe(true);
+    expect(n).toBe(2);
+  });
+
+  test("a 5xx is tried again after a wait (#214)", async () => {
+    const dir = tempDir();
+    const waits: number[] = [];
+    let n = 0;
+    const get = (async () =>
+      ++n === 1
+        ? new Response(null, { status: 504 })
+        : new Response("weights")) as unknown as typeof fetch;
+    expect(
+      await pullFile(modelOf("weights"), dir, {
+        fetch: get,
+        wait: async (ms) => void waits.push(ms),
+      }),
+    ).toBe(true);
+    expect(readFileSync(join(dir, "model.bin"), "utf8")).toBe("weights");
+    expect(waits).toEqual([2000]);
+  });
+
+  test("gives up after three tries", async () => {
+    const waits: number[] = [];
+    const { get, calls } = serving("", 503);
+    await expect(
+      pullFile(modelOf("weights"), tempDir(), {
+        fetch: get,
+        wait: async (ms) => void waits.push(ms),
+      }),
+    ).rejects.toThrow("HTTP 503");
+    expect(calls).toHaveLength(3);
+    expect(waits).toEqual([2000, 4000]);
+  });
+
+  test("a dropped connection is continued from where it stopped", async () => {
+    const dir = tempDir();
+    const asked: (string | null)[] = [];
+    const get = (async (_url: string, init?: RequestInit) => {
+      const range = new Headers(init?.headers).get("range");
+      asked.push(range);
+      if (range) return new Response("ghts", { status: 206 });
+      // Sends "wei", then the connection drops.
+      const body = (async function* () {
+        yield new TextEncoder().encode("wei");
+        throw new Error("socket closed");
+      })();
+      return { ok: true, status: 200, headers: new Headers(), body };
+    }) as unknown as typeof fetch;
+    const wait = async () => {};
+    expect(await pullFile(modelOf("weights"), dir, { fetch: get, wait })).toBe(true);
+    expect(asked).toEqual([null, "bytes=3-"]);
+    expect(readFileSync(join(dir, "model.bin"), "utf8")).toBe("weights");
+  });
+
+  test("a fetch that throws (a timeout, no network) is tried again", async () => {
+    const dir = tempDir();
+    let n = 0;
+    const get = (async () => {
+      if (++n === 1) throw new Error("The operation timed out.");
+      return new Response("weights");
+    }) as unknown as typeof fetch;
+    expect(await pullFile(modelOf("weights"), dir, { fetch: get, wait: async () => {} })).toBe(
+      true,
+    );
+    expect(n).toBe(2);
   });
 });
 
@@ -218,13 +319,16 @@ test("sha256Of matches a known digest", async () => {
 });
 
 describe("modelsCommand", () => {
+  /** This platform's default: large-v3 on an Apple Silicon Mac, small elsewhere (#202). */
+  const D = DEFAULT_ASR_MODEL;
+  const esc = (s: string) => s.replaceAll(".", "\\.");
   /** A home with two Whisper files and the VAD model, which isn't one. */
   function fake(env: Record<string, string | undefined> = {}) {
     const lines: string[] = [];
     const home = tempDir();
     const modelsDir = join(home, "models");
     mkdirSync(modelsDir);
-    writeFileSync(join(modelsDir, "ggml-large-v3-q5_0.bin"), "x".repeat(30));
+    writeFileSync(join(modelsDir, D), "x".repeat(30));
     writeFileSync(join(modelsDir, "ggml-base.en.bin"), "x".repeat(10));
     writeFileSync(join(modelsDir, "silero_vad.onnx"), "x");
     const deps = {
@@ -241,7 +345,7 @@ describe("modelsCommand", () => {
     const f = fake();
     expect(modelsCommand([], f.deps)).toBe(0);
     const all = f.lines.join("\n");
-    expect(all).toMatch(/ggml-large-v3-q5_0\.bin\s+0\.0 GB\s+in use, default/);
+    expect(all).toMatch(new RegExp(`${esc(D)}\\s+0\\.0 GB\\s+in use, default`));
     expect(all).toContain("ggml-base.en.bin");
     expect(all).not.toContain("silero_vad");
   });
@@ -251,7 +355,7 @@ describe("modelsCommand", () => {
     expect(modelsCommand(["use", "ggml-base.en.bin"], f.deps)).toBe(0);
     expect(listModels(f.deps).find((m) => m.inUse)?.file).toBe("ggml-base.en.bin");
     expect(modelsCommand(["use", "--default"], f.deps)).toBe(0);
-    expect(listModels(f.deps).find((m) => m.inUse)?.file).toBe("ggml-large-v3-q5_0.bin");
+    expect(listModels(f.deps).find((m) => m.inUse)?.file).toBe(D);
   });
 
   test("refuses a file that isn't a Whisper model in models/", () => {
@@ -265,13 +369,13 @@ describe("modelsCommand", () => {
   test("a model for one language is used for it, and the rest keep the one for all", () => {
     const f = fake({ MOCKINGBIRD_LANGUAGE: "bn" });
     expect(modelsCommand(["use", "ggml-base.en.bin"], f.deps)).toBe(0);
-    expect(modelsCommand(["use", "ggml-large-v3-q5_0.bin", "--language", "bn"], f.deps)).toBe(0);
-    expect(savedModelFor("bn", f.deps.home)).toBe("ggml-large-v3-q5_0.bin");
+    expect(modelsCommand(["use", D, "--language", "bn"], f.deps)).toBe(0);
+    expect(savedModelFor("bn", f.deps.home)).toBe(D);
     expect(savedModelFor("de", f.deps.home)).toBe("ggml-base.en.bin");
-    expect(listModels(f.deps).find((m) => m.inUse)?.file).toBe("ggml-large-v3-q5_0.bin");
+    expect(listModels(f.deps).find((m) => m.inUse)?.file).toBe(D);
     f.lines.length = 0;
     modelsCommand([], f.deps);
-    expect(f.lines.join("\n")).toMatch(/By language:\n\s+bn\s+ggml-large-v3-q5_0\.bin/);
+    expect(f.lines.join("\n")).toMatch(new RegExp(`By language:\\n\\s+bn\\s+${esc(D)}`));
     // --default for bn goes back to the one for every language.
     expect(modelsCommand(["use", "--default", "--language", "bn"], f.deps)).toBe(0);
     expect(savedModelFor("bn", f.deps.home)).toBe("ggml-base.en.bin");
@@ -279,38 +383,43 @@ describe("modelsCommand", () => {
     expect(modelsCommand(["use", "ggml-base.en.bin", "--language"], f.deps)).toBe(2);
   });
 
+  test("listModels checks a language's model in the models folder it was given (#225)", () => {
+    const f = fake({ MOCKINGBIRD_LANGUAGE: "bn" });
+    expect(modelsCommand(["use", "ggml-base.en.bin"], f.deps)).toBe(0);
+    // The default model's file, which the fake folder has on every platform.
+    expect(modelsCommand(["use", D, "--language", "bn"], f.deps)).toBe(0);
+    const elsewhere = join(f.deps.home, "elsewhere");
+    renameSync(f.deps.modelsDir, elsewhere);
+    const deps = { ...f.deps, modelsDir: elsewhere };
+    expect(listModels(deps).find((m) => m.inUse)?.file).toBe(D);
+  });
+
   test("--language is read like MOCKINGBIRD_LANGUAGE, and a deleted one gives way", () => {
     const f = fake();
     expect(modelsCommand(["use", "ggml-base.en.bin", "--language", "DE-de"], f.deps)).toBe(0);
     expect(savedModelFor("de", f.deps.home)).toBe("ggml-base.en.bin");
-    expect(modelsCommand(["use", "ggml-large-v3-q5_0.bin"], f.deps)).toBe(0);
+    expect(modelsCommand(["use", D], f.deps)).toBe(0);
     rmSync(join(f.deps.modelsDir, "ggml-base.en.bin"));
-    expect(savedModelFor("de", f.deps.home)).toBe("ggml-large-v3-q5_0.bin");
+    expect(savedModelFor("de", f.deps.home)).toBe(D);
   });
 
   test("says when MOCKINGBIRD_ASR_MODEL will win over the choice", () => {
-    const f = fake({ MOCKINGBIRD_ASR_MODEL: "ggml-large-v3-q5_0.bin" });
+    const f = fake({ MOCKINGBIRD_ASR_MODEL: D });
     modelsCommand(["use", "ggml-base.en.bin"], f.deps);
     expect(f.lines.join("\n")).toContain("wins over this choice");
   });
 
   test("in another language the .en models are left out, unless one is in use", () => {
     const f = fake({ MOCKINGBIRD_LANGUAGE: "de" });
-    expect(listModels(f.deps).map((m) => m.file)).toEqual(["ggml-large-v3-q5_0.bin"]);
+    expect(listModels(f.deps).map((m) => m.file)).toEqual([D]);
     modelsCommand(["use", "ggml-base.en.bin"], f.deps);
-    expect(listModels(f.deps).map((m) => m.file)).toEqual([
-      "ggml-large-v3-q5_0.bin",
-      "ggml-base.en.bin",
-    ]);
+    expect(listModels(f.deps).map((m) => m.file)).toEqual([D, "ggml-base.en.bin"]);
   });
 
   test("a Whisper entry that can't be read is left out, not the whole list", () => {
     const f = fake();
     symlinkSync(join(f.deps.modelsDir, "nowhere"), join(f.deps.modelsDir, "ggml-broken.bin"));
-    expect(listModels(f.deps).map((m) => m.file)).toEqual([
-      "ggml-large-v3-q5_0.bin",
-      "ggml-base.en.bin",
-    ]);
+    expect(listModels(f.deps).map((m) => m.file)).toEqual([D, "ggml-base.en.bin"]);
   });
 
   test("names Whisper files the way a person would", () => {
@@ -398,7 +507,7 @@ describe("resolveModel", () => {
 });
 
 describe("Chrome", () => {
-  test("is pinned per Mac, in ~/.mockingbird/bin, and not yet anywhere else", () => {
+  test("is pinned per OS in ~/.mockingbird/bin, and not for Linux on Arm", () => {
     const pin = pinnedChrome("/home", "darwin-arm64");
     // join, so the expected path has the separators of the OS running the test.
     expect(pin?.program).toBe(
@@ -447,6 +556,32 @@ describe("Chrome", () => {
     expect(calls).toEqual([]);
     expect(existsSync(old)).toBe(false);
     expect(existsSync(pin.program)).toBe(true);
+  });
+
+  test("a licence that won't download is said, and the pull still succeeds (#276)", async () => {
+    const home = tempDir();
+    const pin = pinnedChrome(home);
+    if (!pin) return;
+    mkdirSync(join(pin.program, ".."), { recursive: true });
+    writeFileSync(pin.program, "");
+    const said: string[] = [];
+    const get = (async () => new Response("gone", { status: 404 })) as unknown as typeof fetch;
+    const licence = {
+      name: "x licence",
+      file: "x.txt",
+      url: "https://example.invalid/x",
+      sha256: "0".repeat(64),
+    };
+    expect(
+      await pullChrome({
+        home,
+        fetch: get,
+        log: (m) => said.push(m),
+        fonts: [],
+        licences: [licence],
+      }),
+    ).toBe(0);
+    expect(said.join("\n")).toContain("licences didn't download");
   });
 
   test("one pull at a time; a lock left by a pull that died is taken over", async () => {

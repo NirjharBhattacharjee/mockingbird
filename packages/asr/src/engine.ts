@@ -28,6 +28,8 @@ export type AsrResult = {
 export type TranscribeOptions = {
   /** Words to expect, so unusual names aren't spelled phonetically. */
   vocabulary?: string;
+  /** A Whisper language code for this request, over the engine's own. */
+  language?: string;
 };
 
 export interface AsrEngine {

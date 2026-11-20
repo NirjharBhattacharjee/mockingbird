@@ -9,11 +9,28 @@ import { basename, join } from "node:path";
 import { type Agent, agents } from "./agents.ts";
 import { readDictionary } from "./dictionary.ts";
 import { playbooks } from "./guide.ts";
-import { MODEL_FILES } from "./models.ts";
-import { ASR_MODEL_SETTING, findAsrModel, mockingbirdHome, savedSetting } from "./runtime.ts";
+import { findChrome, MODEL_FILES, missingFonts, pinnedChrome } from "./models.ts";
+import {
+  ASR_MODEL_SETTING,
+  FFMPEG_NEEDS,
+  ffmpegMissing,
+  findAsrModel,
+  findWhisperServer,
+  mockingbirdHome,
+  pinnedWhisper,
+  savedSetting,
+} from "./runtime.ts";
 import { UsageError } from "./transcribe.ts";
 
-export type Check = { name: string; ok: boolean; detail: string; fix?: string; needed: boolean };
+export type Check = {
+  name: string;
+  ok: boolean;
+  detail: string;
+  fix?: string;
+  needed: boolean;
+  /** What setup can do about it by itself: `models pull` it, or `brew install` it. */
+  install?: "pull" | "brew";
+};
 
 export type SetupDeps = {
   home?: string;
@@ -24,16 +41,20 @@ export type SetupDeps = {
   ask?: (question: string, fallback: boolean) => boolean;
   /** `models pull`, with its progress shown. */
   pull?: () => Promise<number>;
+  /** `models pull chrome`, with its progress shown. */
+  pullChrome?: () => Promise<number>;
+  env?: Record<string, string | undefined>;
+  /** Stand-ins for process.platform and process.arch. */
   platform?: string;
   arch?: string;
-  env?: Record<string, string | undefined>;
 };
 
 export const SETUP_USAGE = `usage: mockingbird setup [--yes]
 
 Installs what's missing (ffmpeg and whisper-cpp with Homebrew, the speech
-models), then adds mockingbird to the coding agents on this computer. It asks
-before each step; --yes answers yes to all of them.`;
+models, the headless Chrome that captions and motion draw in), then adds
+mockingbird to the coding agents on this computer. It asks before each step;
+--yes answers yes to all of them.`;
 
 export const DOCTOR_USAGE = `usage: mockingbird doctor [--json]
 
@@ -57,10 +78,19 @@ function helped(
   return false;
 }
 
-const runIt = (argv: string[]) => {
-  const r = Bun.spawnSync(argv, { stderr: "pipe" });
-  return { code: r.exitCode, out: `${r.stdout}${r.stderr}` };
+/** Runs a command; a probe passes `timeout`, so a hung program can't hold up doctor. */
+const runIt = (argv: string[], timeout?: number) => {
+  try {
+    const r = Bun.spawnSync(argv, { stderr: "pipe", timeout, killSignal: "SIGKILL" });
+    return { code: r.exitCode ?? 1, out: `${r.stdout}${r.stderr}` };
+  } catch (error) {
+    return { code: 127, out: error instanceof Error ? error.message : String(error) };
+  }
 };
+
+/** The last line a failed command printed, or its exit code. */
+const why = (r: { code: number; out: string }) =>
+  r.out.trim().split("\n").at(-1) || `exit ${r.code}`;
 
 /** The full path an agent's config should run: the `mockingbird` command the installer or Homebrew put in place. */
 export function commandPath(deps: SetupDeps = {}): string | undefined {
@@ -96,46 +126,112 @@ function modelThere(mb: string, file: string): boolean {
 
 const gb = (bytes: number) => `${(bytes / 1e9).toFixed(1)} GB`;
 
+/** Whether Claude Code still has the mockingbird-studio plugin from before v0.4.2, whose playbooks no longer match the engine (#256). */
+export function oldPlugin(
+  env: Record<string, string | undefined> = process.env,
+  home = homedir(),
+): boolean {
+  const dir = env.CLAUDE_CONFIG_DIR || join(home, ".claude");
+  try {
+    const file = JSON.parse(readFileSync(join(dir, "plugins", "installed_plugins.json"), "utf8"));
+    return Object.keys(file.plugins ?? {}).some((k) => k.startsWith("mockingbird-studio@"));
+  } catch {
+    return false;
+  }
+}
+
+export const OLD_PLUGIN_FIX =
+  "in Claude Code, `/plugin uninstall mockingbird-studio`, then `/plugin marketplace add NirjharBhattacharjee/mockingbird` and `/plugin install mockingbird@mockingbird`";
+
 /** Every check, in the order `doctor` prints them. `needed` ones decide its exit code. */
 export function checks(deps: SetupDeps = {}): Check[] {
   const which = deps.which ?? ((name: string) => Bun.which(name));
-  const run = deps.run ?? runIt;
+  // Probes only: setup's own `brew install` takes minutes, and runs without one.
+  const run = deps.run ?? ((argv: string[]) => runIt(argv, 10_000));
   const mb = deps.mbHome ?? mockingbirdHome();
   const brew = which("brew") ? "`brew install" : "install";
   const list: Check[] = [];
 
   const ffmpeg = which("ffmpeg");
-  const encoders = ffmpeg ? run(["ffmpeg", "-hide_banner", "-encoders"]).out : "";
-  // Homebrew's ffmpeg has libx264; another one earlier on the PATH can hide it.
+  // Every encoder and filter the engine uses, as `status` checks them.
+  // A listing from an ffmpeg that failed isn't trusted: it says why instead.
+  let broken: string | undefined;
+  const lacks = ffmpeg
+    ? ffmpegMissing((what) => {
+        const r = run(["ffmpeg", "-hide_banner", what]);
+        if (r.code !== 0) broken ??= why(r);
+        return r.out;
+      })
+    : [];
+  // Homebrew's ffmpeg has them all; another one earlier on the PATH can hide it.
   const brewed = "/opt/homebrew/bin/ffmpeg";
   const hidden = !!ffmpeg && ffmpeg !== brewed && existsSync(brewed);
+  // Without an encoder render can't write a file, so that's needed. A missing
+  // filter only takes the tool that uses it (scdet: scenes), so it's reported
+  // and doesn't stop setup: a dependency dying degrades, it never breaks every tool.
+  const encoders = lacks.filter((n) => FFMPEG_NEEDS.encoders.includes(n));
+  const filters = lacks.filter((n) => !encoders.includes(n));
+  const fix = hidden
+    ? `put /opt/homebrew/bin before ${ffmpeg?.replace(/\/ffmpeg$/, "")} on your PATH, so Homebrew's ffmpeg is used`
+    : `${brew} ffmpeg${brew.startsWith("`") ? "`" : ""}`;
   list.push({
     name: "ffmpeg",
     needed: true,
-    ok: !!ffmpeg && encoders.includes("libx264"),
+    ok: !!ffmpeg && !broken && !encoders.length,
     detail: !ffmpeg
       ? "missing"
-      : encoders.includes("libx264")
-        ? ffmpeg
-        : `${ffmpeg} has no libx264, which render encodes with`,
-    fix: hidden
-      ? `put /opt/homebrew/bin before ${ffmpeg?.replace(/\/ffmpeg$/, "")} on your PATH, so Homebrew's ffmpeg is used`
-      : `${brew} ffmpeg${brew.startsWith("`") ? "`" : ""}`,
+      : broken
+        ? `${ffmpeg} won't run: ${broken}`
+        : !encoders.length
+          ? ffmpeg
+          : `${ffmpeg} is built without ${encoders.join(", ")}, which render encodes with`,
+    fix,
   });
-  const whisper = which("whisper-server");
+  if (ffmpeg && !broken && filters.length) {
+    list.push({
+      name: "ffmpeg filters",
+      needed: false,
+      ok: false,
+      detail: `${ffmpeg} is built without ${filters.join(", ")}; the tools that use them won't work`,
+      fix,
+    });
+  }
+  // The one transcribe runs: the override, the pinned download, or the PATH's.
+  const env = deps.env ?? process.env;
+  const system = `${deps.platform ?? process.platform}-${deps.arch ?? process.arch}`;
+  const whisper = findWhisperServer(env, mb, which, system);
+  const pinned = pinnedWhisper(mb, system);
+  const there = !!whisper && (existsSync(whisper) || !!which(whisper));
+  // There isn't enough: a build for a newer glibc is there but can't load (#223).
+  const help = there && whisper ? run([whisper, "--help"]) : undefined;
+  const serverOverride = env.MOCKINGBIRD_WHISPER_SERVER;
   list.push({
     name: "whisper-server",
     needed: true,
-    ok: !!whisper,
-    detail: whisper ?? "missing",
-    fix: `${brew} whisper-cpp${brew.startsWith("`") ? "`" : ""}`,
+    ok: !!help && help.code === 0,
+    detail: !there
+      ? serverOverride
+        ? `${serverOverride} (MOCKINGBIRD_WHISPER_SERVER) isn't there`
+        : "missing"
+      : help && help.code !== 0
+        ? `${whisper} won't start: ${why(help)}`
+        : (whisper as string),
+    // The override always wins, so downloading another wouldn't help.
+    fix: serverOverride
+      ? "point MOCKINGBIRD_WHISPER_SERVER at a whisper-server that runs, or unset it"
+      : there
+        ? "install a whisper-server built for this computer (`brew install whisper-cpp`, or build whisper.cpp) and set MOCKINGBIRD_WHISPER_SERVER to it"
+        : pinned
+          ? "`mockingbird models pull` (downloads whisper.cpp's build)"
+          : `${brew} whisper-cpp${brew.startsWith("`") ? "`" : ""}`,
+    // Only a missing one with no override; one that won't start needs the person.
+    install: serverOverride || there ? undefined : pinned ? "pull" : "brew",
   });
   // The model transcribe would load: MOCKINGBIRD_ASR_MODEL, the saved
   // choice, or the default, as findAsrModel picks it.
   let speech: string;
   let speechOk = true;
   try {
-    const env = deps.env ?? process.env;
     speech = basename(
       findAsrModel(
         join(mb, "models"),
@@ -182,20 +278,31 @@ export function checks(deps: SetupDeps = {}): Check[] {
     detail: words,
     fix: `move ${join(mb, "data.db")} aside; names are then spelled as heard`,
   });
-  const mac = (deps.platform ?? process.platform) === "darwin";
+  // Captions, `motion` and `music` all draw in the pinned Chrome (#145, #155, #170).
+  const chrome = findChrome(deps.env ?? process.env, mb);
+  // A MOCKINGBIRD_CHROME that can't run wins over the pinned one, so a download wouldn't fix it.
+  const override = (deps.env ?? process.env).MOCKINGBIRD_CHROME;
   list.push({
-    name: "captions",
+    name: "chrome",
     needed: false,
-    ok: mac,
-    detail: mac ? "drawn with Core Text" : "need macOS; they become a subtitle track",
+    ok: !!chrome,
+    detail:
+      chrome ??
+      (override
+        ? `MOCKINGBIRD_CHROME is ${override}, which isn't a program that can run`
+        : "missing: captions become plain subtitles, and motion and music can't run"),
+    fix: override
+      ? "point MOCKINGBIRD_CHROME at a Chrome that runs, or unset it"
+      : "`mockingbird models pull chrome`",
   });
-  // packages/motion's canvas needs Apple silicon.
-  const appleSilicon = mac && (deps.arch ?? process.arch) === "arm64";
+  // The styles' fonts come with Chrome; an install from before #276 lacks the newer ones.
+  const fonts = missingFonts(mb);
   list.push({
-    name: "motion",
+    name: "fonts",
     needed: false,
-    ok: appleSilicon,
-    detail: appleSilicon ? "drawn with Core Graphics" : "needs a Mac with Apple silicon",
+    ok: fonts.length === 0,
+    detail: fonts.length ? `missing ${fonts.join(", ")}: styles draw in a fallback` : "all pinned",
+    fix: "`mockingbird models pull chrome`",
   });
   const books = playbooks().length;
   list.push({
@@ -205,6 +312,16 @@ export function checks(deps: SetupDeps = {}): Check[] {
     detail: books ? `${books}, for \`guide\`` : "the plugin/ folder is missing",
     fix: "reinstall mockingbird",
   });
+  if (oldPlugin(deps.env ?? process.env, deps.home ?? homedir())) {
+    list.push({
+      name: "old plugin",
+      needed: false,
+      ok: false,
+      detail:
+        "Claude Code has the old mockingbird-studio plugin, whose playbooks don't match this engine",
+      fix: OLD_PLUGIN_FIX,
+    });
+  }
   return list;
 }
 
@@ -261,10 +378,17 @@ export async function setup(args: string[], deps: SetupDeps = {}): Promise<numbe
     );
     return 1;
   }
-  const formulas = [
-    ...(ffmpeg ? ["ffmpeg"] : []),
-    ...(broken.some((c) => c.name === "whisper-server") ? ["whisper-cpp"] : []),
-  ];
+  const mb = deps.mbHome ?? mockingbirdHome();
+  // Linux and Windows download whisper.cpp's own build with the models, no Homebrew needed.
+  const pinned = pinnedWhisper(
+    mb,
+    `${deps.platform ?? process.platform}-${deps.arch ?? process.arch}`,
+  );
+  const server = broken.find((c) => c.name === "whisper-server");
+  // Only a missing one is installed here; an override or a build that won't start needs the person.
+  const noServer = server?.install !== undefined;
+  if (server && !noServer) log(`whisper-server: ${server.detail}. To fix it, ${server.fix}.`);
+  const formulas = [...(ffmpeg ? ["ffmpeg"] : []), ...(noServer && !pinned ? ["whisper-cpp"] : [])];
   if (formulas.length) {
     if (!which("brew")) {
       log(
@@ -279,19 +403,52 @@ export async function setup(args: string[], deps: SetupDeps = {}): Promise<numbe
       return 1;
     }
   }
-  const mb = deps.mbHome ?? mockingbirdHome();
   const absent = MODEL_FILES.filter((m) => !modelThere(mb, m.file));
-  if (broken.some((c) => c.name.endsWith("model")) && absent.length) {
+  const needModels = broken.some((c) => c.name.endsWith("model")) && absent.length > 0;
+  if (needModels || (noServer && pinned)) {
     // `models pull` checks every pinned file and fetches any that's missing or
-    // fails its sha256, so the most it can download is all of them.
+    // fails its sha256, so the most it can download is all of them, then
+    // whisper-server where it's pinned.
     const size = MODEL_FILES.reduce((sum, m) => sum + (m.bytes ?? 0), 0);
-    const from = [...new Set(MODEL_FILES.map((m) => new URL(m.url).host))].join(" and ");
-    if (ask(`Download the speech models (up to ${gb(size)}) from ${from}? [Y/n]`)) {
+    const hosts = [...MODEL_FILES.map((m) => m.url), ...(pinned ? [pinned.archive.url] : [])];
+    const from = [...new Set(hosts.map((u) => new URL(u).host))].join(" and ");
+    const what = pinned ? "the speech models and whisper-server" : "the speech models";
+    if (ask(`Download ${what} (up to ${gb(size)}) from ${from}? [Y/n]`)) {
       const code = await (deps.pull ?? (() => Promise.resolve(1)))();
       if (code !== 0) return code;
     } else {
       // Agents can still be added: the tools that don't transcribe work without the models.
-      log("Skipped the models: transcribe and captions need them (`mockingbird models pull`).");
+      log(`Skipped ${what}: transcribe and captions need them (\`mockingbird models pull\`).`);
+    }
+  }
+
+  // Not needed to transcribe or cut, so a no or a failed download carries on.
+  const override = (deps.env ?? process.env).MOCKINGBIRD_CHROME;
+  if (override && !findChrome(deps.env ?? process.env, mb)) {
+    log(
+      `MOCKINGBIRD_CHROME is ${override}, which isn't a program that can run: point it at a Chrome that runs, or unset it.`,
+    );
+  } else if (
+    (!findChrome(deps.env ?? process.env, mb) || missingFonts(mb).length) &&
+    pinnedChrome(mb)
+  ) {
+    if (
+      ask(
+        "Download the headless Chrome that captions and motion graphics draw in, and its fonts (about 150 MB), from storage.googleapis.com and raw.githubusercontent.com? [Y/n]",
+      )
+    ) {
+      // A pull that throws (an unpack that fails) counts as a failed download, not the end of setup.
+      const code = await (deps.pullChrome ?? (() => Promise.resolve(1)))().catch((error) => {
+        log(`Chrome: ${error instanceof Error ? error.message : error}`);
+        return 1;
+      });
+      if (code !== 0) {
+        log("Chrome didn't download: run `mockingbird models pull chrome` to try again.");
+      }
+    } else {
+      log(
+        "Skipped Chrome: captions become plain subtitles, and motion and music can't run (`mockingbird models pull chrome`).",
+      );
     }
   }
 

@@ -7,10 +7,18 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/NirjharBhattacharjee/mockingbird/stargazers"><img src="https://img.shields.io/github/stars/NirjharBhattacharjee/mockingbird?style=for-the-badge&logo=starship&color=cba6f7&logoColor=cdd6f4&labelColor=313244" alt="stars"></a>
+  <a href="https://github.com/NirjharBhattacharjee/mockingbird/commits/main"><img src="https://img.shields.io/github/last-commit/NirjharBhattacharjee/mockingbird?style=for-the-badge&logo=git&color=a6e3a1&logoColor=cdd6f4&labelColor=313244" alt="last commit"></a>
   <img src="https://img.shields.io/badge/runs%20on-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-89b4fa?style=for-the-badge&logoColor=cdd6f4&labelColor=313244" alt="macOS, Linux and Windows">
   <img src="https://img.shields.io/badge/runs-100%25%20local-fab387?style=for-the-badge&logo=lock&logoColor=cdd6f4&labelColor=313244" alt="runs 100% local">
+  <img src="https://img.shields.io/badge/built%20with-Bun-f5e0dc?style=for-the-badge&logo=bun&logoColor=cdd6f4&labelColor=313244" alt="built with Bun">
   <img src="https://img.shields.io/badge/price-free%20forever-f38ba8?style=for-the-badge&logo=githubsponsors&logoColor=cdd6f4&labelColor=313244" alt="free forever">
+  <img src="https://img.shields.io/badge/for-AI%20agents%20over%20MCP-b4befe?style=for-the-badge&logo=modelcontextprotocol&logoColor=cdd6f4&labelColor=313244" alt="for AI agents over MCP">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-94e2d5?style=for-the-badge&logo=opensourceinitiative&logoColor=cdd6f4&labelColor=313244" alt="MIT license"></a>
+</p>
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/catppuccin/catppuccin/main/assets/palette/macchiato.png" width="400" alt="">
 </p>
 
 You give your AI agent a recording. It gives you back an edited video.
@@ -25,7 +33,7 @@ Your footage never leaves your computer. There's no account, no cloud and no
 usage limit, and nothing is held back for a paid tier
 ([why](docs/PHILOSOPHY.md)).
 
-## What you can ask for
+## 🎬 What you can ask for
 
 Once it's set up, talk to your agent the way you'd brief an editor:
 
@@ -41,7 +49,7 @@ at stills to find the speaker, frames the shot, makes the captions and
 renders. You get an MP4 next to the original. mockingbird never overwrites
 a file.
 
-## Install
+## 🚀 Install
 
 You need about 3 GB of free space, plus one of these:
 
@@ -49,7 +57,8 @@ You need about 3 GB of free space, plus one of these:
 - Linux with git, curl, ffmpeg and unzip from your package manager
 - Windows x64
 
-Captions and motion graphics work on macOS only for now.
+The speech model is Whisper `large-v3` on Apple Silicon (1.1 GB) and the
+smaller `small` elsewhere (0.2 GB), which a CPU keeps up with.
 
 On a Mac or Linux, run this in a terminal:
 
@@ -63,11 +72,18 @@ On Windows, run this in PowerShell:
 irm https://github.com/NirjharBhattacharjee/mockingbird/releases/latest/download/install.ps1 | iex
 ```
 
-It's safe to run again. You can also install with Homebrew:
+The installer also downloads the headless Chrome that captions and motion
+graphics are drawn in (about 150 MB, with the fonts they use). There's no
+Chrome build for Linux on ARM yet, so there it warns and carries on: set
+`MOCKINGBIRD_CHROME` to a Chrome that runs, for motion graphics. Captions
+fall back to ffmpeg without one.
+
+It's all safe to run again. You can also install with Homebrew:
 
 ```sh
 brew install nirjharbhattacharjee/mockingbird/mockingbird
 mockingbird models pull
+mockingbird models pull chrome
 ```
 
 Or install [by hand](docs/README.md#manual-install).
@@ -124,7 +140,7 @@ To update, run the install command again, or `brew upgrade mockingbird`.
 mockingbird never checks for updates by itself. To remove it, follow
 [Uninstalling](docs/README.md#uninstalling).
 
-## What your agent can do with it
+## 🧰 What your agent can do with it
 
 | Tool | What it does |
 |---|---|
@@ -132,10 +148,13 @@ mockingbird never checks for updates by itself. To remove it, follow
 | `frames` | Pulls stills from a video so the agent can see what's on screen |
 | `scenes` | Finds where the shot changes, like a cut to b-roll or a new slide |
 | `audio_stats` | Measures the sound, since the agent can't listen |
+| `pauses`, `measure` | Finds the pauses in the sound, and measures a finished video's size, length and loudness |
 | `captions` | Makes word-by-word captions timed to the finished cut |
 | `edit` | Keeps an edit in a project file the agent can change step by step |
 | `render` | Cuts, frames and joins the clips, adds captions, titles, b-roll, music and sound effects, and sets the loudness |
+| `effects`, `scopes` | Lists the color and audio effects a clip can take, and measures the picture so the agent can grade by numbers |
 | `motion` | Renders animated titles and graphics, written as code |
+| `music` | Writes background music as code, with no samples to license |
 | `guide` | Hands the agent a playbook for one job, like a short, a long-form video or a final review |
 | `status`, `dictionary_list`, `dictionary_add` | Shows what's installed, and keeps the names it should spell right |
 
@@ -145,13 +164,19 @@ terminal too: `mockingbird transcribe`, `dictionary`, `models` and `status`.
 
 Something not working? See [troubleshooting](docs/README.md#troubleshooting).
 
-## Coming from dictation?
+## 📚 Coming from dictation?
 
 Up to v0.3.2, mockingbird was a voice dictation app. Dictation is gone, and
 [#134](https://github.com/NirjharBhattacharjee/mockingbird/issues/134)
 explains why. Updating from v0.3.2 or earlier removes dictation's background
 agent and keeps your dictionary.
 
-## License
+## 📜 License
+
+- [User guide](docs/README.md): every command, troubleshooting, privacy
+- [MCP.md](docs/MCP.md): every tool and option
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md), [MODELS.md](docs/MODELS.md),
+  [PHILOSOPHY.md](docs/PHILOSOPHY.md)
+- [CONTRIBUTING.md](CONTRIBUTING.md)
 
 [MIT](LICENSE). Use it, change it, share it.

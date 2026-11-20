@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
+import { captionStyle } from "@mockingbird/captions";
 
 /**
  * An edit kept in a file, `project.json` (#148): the clips that make the cut
@@ -75,6 +76,8 @@ export type Clip = {
   moves?: Move[];
   transition?: Transition;
   lead?: number;
+  /** Effects from the engine's catalog (#197), checked there: { name, ...settings }. */
+  effects?: ({ name: string } & Record<string, unknown>)[];
 };
 
 /** How long a clip lasts in the finished video. */
@@ -118,10 +121,40 @@ export type Text = {
   to: number;
   y?: number;
 };
-export type Insert = { id: string; path: string; clip?: string; from: number; to: number };
-export type Sound = {
+type Effects = ({ name: string } & Record<string, unknown>)[];
+/** B-roll laid over the cut: in a box (picture in picture), blended, with effects (a chroma key), moving (Ken Burns). */
+export type Insert = {
   id: string;
   path: string;
+  clip?: string;
+  from: number;
+  to: number;
+  /** `path`, from `track`: the box's top left over time, `at` seconds from the insert's start. */
+  box?: Area & { path?: { at: number; x: number; y: number }[] };
+  blend?: string;
+  effects?: Effects;
+  moves?: Move[];
+};
+/** An adjustment layer: its effects on everything under the text for its stretch (#198). */
+export type Adjust = { id: string; clip?: string; from: number; to: number; effects: Effects };
+/** Music made by a generator module (`music`'s), in place of a file (#170). */
+export type Generated = {
+  /** The generator: a .js module, as `music` takes. */
+  generator: string;
+  tempo?: number;
+  key?: string;
+  /** 0-1, or [seconds, level] points in time order. */
+  energy?: number | [number, number][];
+  seed?: number;
+  /** Seconds of music; default as long as the video from where it starts (#266). */
+  length?: number;
+};
+
+export type Sound = {
+  id: string;
+  /** A sound file; or, with `generator`, none. */
+  path?: string;
+  generator?: Generated;
   clip?: string;
   at: number;
   volume?: number;
@@ -130,7 +163,21 @@ export type Sound = {
 };
 
 /** Word-by-word captions, made for the cut as it is when it's rendered. */
-export type Captions = { perCue?: number; lit?: boolean; upper?: boolean; y?: number };
+export type Captions = {
+  perCue?: number;
+  lit?: boolean;
+  upper?: boolean;
+  y?: number;
+  /** How they look: a preset's name or `{ preset?, ...fields }`, as render's captionStyle (#276). */
+  style?: string | Record<string, unknown>;
+};
+
+/**
+ * The video's look (#262): a style file the agent wrote for this video, the
+ * mood it was made for, and whether the user approved it. Graphics in the edit
+ * are drawn with it; editing waits for `approved`.
+ */
+export type ProjectLook = { file?: string; mood?: string; approved?: boolean; skipped?: boolean };
 
 export type Project = {
   version: 1;
@@ -139,10 +186,23 @@ export type Project = {
   fps?: number;
   split?: { top: Area; bottom: Area };
   captions?: Captions | null;
+  /**
+   * Even out loudness between sources (#265): render measures each source's
+   * sound and brings it to `target` LUFS with a `gain` on its clips.
+   */
+  level?: { target: number };
+  look?: ProjectLook;
+  /**
+   * The Whisper model (a file in models/) and language its words are heard
+   * with, when not the user's settings: `transcribe` with the project sets it,
+   * so cut_words, captions and render hear what the transcript showed (#235).
+   */
+  transcription?: { model?: string; language?: string };
   clips: Clip[];
   texts: Text[];
   inserts: Insert[];
   audio: Sound[];
+  adjust?: Adjust[];
 };
 
 type Obj = Record<string, unknown>;
@@ -202,15 +262,109 @@ function area(v: unknown, what: string): Area {
   return a;
 }
 
-const CLIP = ["id", "path", "from", "to", "focus", "zoom", "speed", "moves", "transition", "lead"];
+/** An insert's box: an area, and the `path` `track` gives to follow a subject. */
+function tracked(v: unknown, what: string): NonNullable<Insert["box"]> {
+  const { path, ...rest } = obj(v, what, ["x", "y", "w", "h", "path"]);
+  const box = area(rest, what);
+  if (path === undefined) return box;
+  if (!Array.isArray(path) || !path.length) fail(`${what}.path must be a list of { at, x, y }`);
+  let last = -1;
+  const points = (path as unknown[]).map((p, i) => {
+    const o = obj(p, `${what}.path[${i}]`, ["at", "x", "y"]);
+    const at = num(o.at, `${what}.path[${i}].at`, 0, 86400);
+    if (!(at > last)) fail(`${what}.path[${i}].at must be rising`);
+    last = at;
+    return {
+      at,
+      x: num(o.x, `${what}.path[${i}].x`, -1, 2),
+      y: num(o.y, `${what}.path[${i}].y`, -1, 2),
+    };
+  });
+  return { ...box, path: points };
+}
+
+const CLIP = [
+  "id",
+  "path",
+  "from",
+  "to",
+  "focus",
+  "zoom",
+  "speed",
+  "moves",
+  "transition",
+  "lead",
+  "effects",
+];
 const TEXT = ["id", "text", "clip", "from", "to", "y"];
-const INSERT = ["id", "path", "clip", "from", "to"];
-const SOUND = ["id", "path", "clip", "at", "volume", "loop", "duck"];
-const CAPTIONS = ["perCue", "lit", "upper", "y"];
+const INSERT = ["id", "path", "clip", "from", "to", "box", "blend", "effects", "moves"];
+const ADJUST = ["id", "clip", "from", "to", "effects"];
+const SOUND = ["id", "path", "generator", "clip", "at", "volume", "loop", "duck"];
+const GENERATED = ["generator", "tempo", "key", "energy", "seed", "length"];
+const CAPTIONS = ["perCue", "lit", "upper", "y", "style"];
+const LOOK = ["file", "mood", "approved", "skipped"];
+
+function look(v: unknown, what: string): ProjectLook {
+  const o = obj(v, what, LOOK);
+  const skipped = maybe(o.skipped, (b) => bool(b, `${what}.skipped`));
+  return clean({
+    // A skipped look has no file: the user said to edit without one (#264).
+    file: skipped ? maybe(o.file, (f) => str(f, `${what}.file`)) : str(o.file, `${what}.file`),
+    mood: maybe(o.mood, (m) => str(m, `${what}.mood`)),
+    approved: maybe(o.approved, (b) => bool(b, `${what}.approved`)),
+    skipped,
+  });
+}
+
+/**
+ * Why `p` can't be rendered yet, or nothing (#264): a project with graphics
+ * (texts or HTML overlays) needs a look the user approved, or their word to
+ * skip it, so no user gets graphics they never chose.
+ */
+export function lookGate(p: Project): string | undefined {
+  const graphics = p.texts.length > 0 || p.inserts.some((i) => /\.html?$/i.test(i.path));
+  if (!graphics || p.look?.approved || p.look?.skipped) return;
+  return [
+    "This project has graphics, but the user hasn't approved a look for them yet.",
+    'Before rendering, ask the user: "What vibe should this video have?" Offer three moods that fit what the video says, and say which you\'d pick.',
+    'Then show them the look: write it, draw a board of the video\'s own content with `look`, and ask: "Should I edit with this look, or what should change?"',
+    'When they say yes, set it with edit: { "op": "set", "look": { "file": "<look.ts>", "mood": "<their vibe>", "approved": true } }.',
+    'If they say to skip the look, set { "op": "set", "look": { "skipped": true } } instead.',
+  ].join("\n");
+}
 
 function point(v: unknown, what: string): Point {
   const p = obj(v, what, ["x", "y"]);
   return { x: num(p.x, `${what}.x`, 0, 1), y: num(p.y, `${what}.y`, 0, 1) };
+}
+
+function moves(l: unknown, what: string): Move[] {
+  if (!Array.isArray(l)) fail(`${what}.moves must be a list`);
+  return (l as unknown[]).map((m, i) => {
+    const at = `${what}.moves[${i}]`;
+    const r = obj(m, at, ["at", "focus", "zoom", "ease"]);
+    if (r.focus === undefined && r.zoom === undefined) fail(`${at} needs a focus or a zoom`);
+    if (r.ease !== undefined && r.ease !== "linear" && r.ease !== "smooth") {
+      fail(`${at}.ease must be "linear" or "smooth"`);
+    }
+    return clean({
+      at: num(r.at, `${at}.at`, 0, Number.MAX_VALUE),
+      focus: maybe(r.focus, (f) => point(f, `${at}.focus`)),
+      zoom: maybe(r.zoom, (z) => num(z, `${at}.zoom`, 1, 4)),
+      ease: r.ease as Move["ease"],
+    });
+  });
+}
+
+/** Effects by name; the engine checks each against its catalog when it renders. */
+function effectList(l: unknown, what: string): Effects {
+  if (!Array.isArray(l)) fail(`${what}.effects must be a list of { name, ... }`);
+  return (l as unknown[]).map((e, i) => {
+    if (typeof e !== "object" || e === null || typeof (e as Obj).name !== "string") {
+      fail(`${what}.effects[${i}] needs a name`);
+    }
+    return e as { name: string } & Obj;
+  });
 }
 
 function clip(v: unknown, what: string): Clip {
@@ -222,24 +376,9 @@ function clip(v: unknown, what: string): Clip {
     focus: maybe(o.focus, (f) => point(f, `${what}.focus`)),
     zoom: maybe(o.zoom, (z) => num(z, `${what}.zoom`, 1, 4)),
     speed: maybe(o.speed, (n) => num(n, `${what}.speed`, 0.25, 4)),
-    moves: maybe(o.moves, (l) => {
-      if (!Array.isArray(l)) fail(`${what}.moves must be a list`);
-      return (l as unknown[]).map((m, i) => {
-        const at = `${what}.moves[${i}]`;
-        const r = obj(m, at, ["at", "focus", "zoom", "ease"]);
-        if (r.focus === undefined && r.zoom === undefined) fail(`${at} needs a focus or a zoom`);
-        if (r.ease !== undefined && r.ease !== "linear" && r.ease !== "smooth") {
-          fail(`${at}.ease must be "linear" or "smooth"`);
-        }
-        return clean({
-          at: num(r.at, `${at}.at`, 0, Number.MAX_VALUE),
-          focus: maybe(r.focus, (f) => point(f, `${at}.focus`)),
-          zoom: maybe(r.zoom, (z) => num(z, `${at}.zoom`, 1, 4)),
-          ease: r.ease as Move["ease"],
-        });
-      });
-    }),
+    moves: maybe(o.moves, (l) => moves(l, what)),
     lead: maybe(o.lead, (n) => num(n, `${what}.lead`, -5, 5)),
+    effects: maybe(o.effects, (l) => effectList(l, what)),
     transition: maybe(o.transition, (t) => {
       const r = obj(t, `${what}.transition`, ["type", "duration"]);
       if (!TRANSITIONS.includes(String(r.type))) {
@@ -282,14 +421,59 @@ function insert(v: unknown, what: string): Insert {
     path: str(o.path, `${what}.path`),
     clip: maybe(o.clip, (c) => str(c, `${what}.clip`)),
     ...stretch(o, what),
+    box: maybe(o.box, (b) => tracked(b, `${what}.box`)),
+    blend: maybe(o.blend, (b) => str(b, `${what}.blend`)),
+    effects: maybe(o.effects, (l) => effectList(l, what)),
+    moves: maybe(o.moves, (l) => moves(l, what)),
+  });
+}
+
+function adjust(v: unknown, what: string): Adjust {
+  const o = obj(v, what, ADJUST);
+  return clean({
+    id: str(o.id, `${what}.id`),
+    clip: maybe(o.clip, (c) => str(c, `${what}.clip`)),
+    ...stretch(o, what),
+    effects: effectList(o.effects ?? fail(`${what} needs effects`), what),
+  });
+}
+
+function energy(v: unknown, what: string): number | [number, number][] {
+  if (!Array.isArray(v)) return num(v, what, 0, 1);
+  if (!v.length) fail(`${what} needs at least one [seconds, level] point`);
+  let last = -1;
+  return v.map((pt, i): [number, number] => {
+    if (!Array.isArray(pt) || pt.length !== 2) fail(`${what}[${i}] must be [seconds, level]`);
+    const at = num(pt[0], `${what}[${i}][0]`, 0, 7200);
+    if (at <= last) fail(`${what}'s points must be in time order; ${what}[${i}] isn't`);
+    last = at;
+    return [at, num(pt[1], `${what}[${i}][1]`, 0, 1)];
+  });
+}
+
+function generated(v: unknown, what: string): Generated {
+  const o = obj(v, what, GENERATED);
+  const script = str(o.generator, `${what}.generator`);
+  if (!/\.m?js$/i.test(script)) fail(`${what}.generator must be a .js module; got ${script}`);
+  return clean({
+    generator: script,
+    tempo: maybe(o.tempo, (n) => num(n, `${what}.tempo`, 30, 240)),
+    key: maybe(o.key, (k) => str(k, `${what}.key`).slice(0, 40)),
+    energy: maybe(o.energy, (e) => energy(e, `${what}.energy`)),
+    seed: maybe(o.seed, (n) => Math.round(num(n, `${what}.seed`, 0, 2 ** 32 - 1))),
+    length: maybe(o.length, (n) => num(n, `${what}.length`, 1, 7200)),
   });
 }
 
 function sound(v: unknown, what: string): Sound {
   const o = obj(v, what, SOUND);
+  if ((o.path === undefined) === (o.generator === undefined)) {
+    fail(`${what} needs a path or a generator, not both`);
+  }
   return clean({
     id: str(o.id, `${what}.id`),
-    path: str(o.path, `${what}.path`),
+    path: maybe(o.path, (f) => str(f, `${what}.path`)),
+    generator: maybe(o.generator, (g) => generated(g, `${what}.generator`)),
     clip: maybe(o.clip, (c) => str(c, `${what}.clip`)),
     at: num(o.at ?? 0, `${what}.at`, 0, Number.MAX_VALUE),
     volume: maybe(o.volume, (n) => num(n, `${what}.volume`, 0, 4)),
@@ -306,7 +490,43 @@ function captions(v: unknown, what: string): Captions | null {
     lit: maybe(o.lit, (b) => bool(b, `${what}.lit`)),
     upper: maybe(o.upper, (b) => bool(b, `${what}.upper`)),
     y: maybe(o.y, (n) => num(n, `${what}.y`, 0, 1)),
+    // Checked here, kept as written, so the project file reads as it was set.
+    style: maybe(o.style, (v) => {
+      captionStyle(v, `${what}.style`);
+      return v as Captions["style"];
+    }),
   });
+}
+
+/**
+ * The project's `transcription`: a model's file name in models/ (no folder)
+ * and a Whisper language code or auto, checked for shape here; the engine
+ * checks the model is there and the code is one Whisper knows.
+ */
+function transcription(v: unknown): Project["transcription"] {
+  const o = obj(v, "transcription", ["model", "language"]);
+  return clean({
+    model: maybe(o.model, (m) => {
+      const file = str(m, "transcription.model");
+      if (!/^[^/\\]+\.bin$/.test(file))
+        fail(`transcription.model is a file name in models/, like ggml-large-v3.bin; got ${file}`);
+      return file;
+    }),
+    language: maybe(o.language, (l) => {
+      const code = str(l, "transcription.language");
+      if (!/^(auto|[a-z]{2,3})$/.test(code))
+        fail(`transcription.language is a Whisper code like en or de, or auto; got ${code}`);
+      return code;
+    }),
+  });
+}
+
+/** `true`, or `{ target }` in LUFS (default -16): the project's `level`. */
+function level(v: unknown): { target: number } | undefined {
+  if (v === false || v === null) return undefined;
+  if (v === true) return { target: -16 };
+  const o = obj(v, "level", ["target"]);
+  return { target: o.target === undefined ? -16 : num(o.target, "level.target", -30, -6) };
 }
 
 function size(v: unknown): string {
@@ -326,6 +546,7 @@ const KINDS = [
   ["texts", text],
   ["inserts", insert],
   ["audio", sound],
+  ["adjust", adjust],
 ] as const;
 
 /** `v` as a project, or an error naming what's wrong in it. */
@@ -336,10 +557,14 @@ export function check(v: unknown): Project {
     "fps",
     "split",
     "captions",
+    "level",
+    "look",
+    "transcription",
     "clips",
     "texts",
     "inserts",
     "audio",
+    "adjust",
   ]);
   if (o.version !== 1) fail(`version must be 1; got ${JSON.stringify(o.version)}`);
   const list = (key: string) => {
@@ -356,10 +581,15 @@ export function check(v: unknown): Project {
       return { top: area(t.top, "split.top"), bottom: area(t.bottom, "split.bottom") };
     }),
     captions: maybe(o.captions, (c) => captions(c, "captions")),
+    level: maybe(o.level, (v) => level(v)),
+    look: maybe(o.look, (l) => look(l, "look")),
+    transcription: maybe(o.transcription, transcription),
     clips: list("clips").map((c, i) => clip(c, `clips[${i}]`)),
     texts: list("texts").map((t, i) => text(t, `texts[${i}]`)),
     inserts: list("inserts").map((t, i) => insert(t, `inserts[${i}]`)),
     audio: list("audio").map((t, i) => sound(t, `audio[${i}]`)),
+    adjust:
+      o.adjust === undefined ? undefined : list("adjust").map((t, i) => adjust(t, `adjust[${i}]`)),
   });
   for (const [i, c] of p.clips.entries()) {
     if (!c.lead) continue;
@@ -391,7 +621,7 @@ export function check(v: unknown): Project {
   }
   const seen = new Set<string>();
   for (const [key] of KINDS) {
-    for (const item of p[key]) {
+    for (const item of p[key] ?? []) {
       if (seen.has(item.id)) fail(`Two items have the id ${item.id}`);
       seen.add(item.id);
     }
@@ -405,8 +635,23 @@ export function check(v: unknown): Project {
   return p;
 }
 
+/** What's laid over the cut for a stretch: texts, inserts, adjustment layers. */
+const stretched = (p: Project): (Text | Insert | Adjust)[] => [
+  ...p.texts,
+  ...p.inserts,
+  ...(p.adjust ?? []),
+];
+
 /** Everything laid over the cut. */
-const attached = (p: Project): (Text | Insert | Sound)[] => [...p.texts, ...p.inserts, ...p.audio];
+const attached = (p: Project): (Text | Insert | Sound | Adjust)[] => [...stretched(p), ...p.audio];
+
+/** `p` without the items in `ids`, from whichever list each is in. */
+function drop(p: Project, ids: Set<string>) {
+  p.texts = p.texts.filter((t) => !ids.has(t.id));
+  p.inserts = p.inserts.filter((t) => !ids.has(t.id));
+  p.audio = p.audio.filter((t) => !ids.has(t.id));
+  if (p.adjust) p.adjust = p.adjust.filter((t) => !ids.has(t.id));
+}
 
 const empty = (): Project => ({ version: 1, clips: [], texts: [], inserts: [], audio: [] });
 
@@ -433,18 +678,18 @@ export function save(file: string, p: Project): void {
   renameSync(temp, file);
 }
 
-const PREFIX = { clips: "c", texts: "t", inserts: "b", audio: "a" } as const;
+const PREFIX = { clips: "c", texts: "t", inserts: "b", audio: "a", adjust: "j" } as const;
 
 /** The first `<prefix>N` no item has. */
 function freeId(p: Project, prefix: string): string {
-  const ids = new Set(KINDS.flatMap(([key]) => p[key].map((i) => i.id)));
+  const ids = new Set(KINDS.flatMap(([key]) => (p[key] ?? []).map((i) => i.id)));
   for (let n = 1; ; n++) if (!ids.has(`${prefix}${n}`)) return `${prefix}${n}`;
 }
 
 /** The list `id` is in, and where. */
 function find(p: Project, id: unknown) {
   for (const [key] of KINDS) {
-    const index = (p[key] as { id: string }[]).findIndex((i) => i.id === id);
+    const index = ((p[key] ?? []) as { id: string }[]).findIndex((i) => i.id === id);
     if (index >= 0) return { key, index };
   }
   return fail(`No item has the id ${JSON.stringify(id)}`);
@@ -456,8 +701,62 @@ function findClip(p: Project, id: unknown): Clip {
   return p.clips[index] as Clip;
 }
 
+type PathPoint = { at: number; x: number; y: number };
+
+/** `path` with its first `cut` seconds gone: the point it had reached then, at 0, and the rest moved up. */
+export function rebase(path: PathPoint[], cut: number): PathPoint[] {
+  const next = path.findIndex((q) => q.at > cut);
+  if (next < 0) return [{ ...(path.at(-1) as PathPoint), at: 0 }];
+  const rest = path.slice(next).map((q) => ({ ...q, at: ms(q.at - cut) }));
+  const a = path[next - 1];
+  // Not started by then: it's held at its first point until it does, so it only moves up.
+  if (!a) return rest;
+  const b = path[next] as PathPoint;
+  const k = (cut - a.at) / (b.at - a.at);
+  return [{ at: 0, x: ms(a.x + (b.x - a.x) * k), y: ms(a.y + (b.y - a.y) * k) }, ...rest];
+}
+
 /** To the millisecond, so a file the agent reads says 2.7 and not 2.6999999999999997. */
 const ms = (t: number) => Math.round(t * 1000) / 1000;
+
+/**
+ * Clip `c`'s masks kept to the part of it from `a` to `b` (0-1 of its old
+ * length), `cut` source seconds now gone from its start (less than 0 when
+ * it grew there). A tracked path moves with the picture; a box moving to
+ * `end` starts and ends where it was at `a` and `b`, so a split or trim
+ * doesn't replay the whole move (#257).
+ */
+function cutMasks(c: Clip, a: number, b: number, cut: number) {
+  if (!c.effects?.some((e) => (e as Obj).mask)) return;
+  c.effects = c.effects.map((e) => {
+    const m = (e as Obj).mask as Obj | undefined;
+    if (!m) return e;
+    const next: Obj = { ...m };
+    const path = m.path as PathPoint[] | undefined;
+    if (path?.length && cut > 0) next.path = rebase(path, cut);
+    if (path?.length && cut < 0) next.path = path.map((q) => ({ ...q, at: ms(q.at - cut) }));
+    const end = m.end as { x: number; y: number; w: number; h: number } | undefined;
+    if (end) {
+      const from = {
+        x: (m.x as number) ?? 0,
+        y: (m.y as number) ?? 0,
+        w: (m.w as number) ?? 1,
+        h: (m.h as number) ?? 1,
+      };
+      const at = (f: number) => {
+        const k = Math.min(1, Math.max(0, f));
+        return {
+          x: ms(from.x + (end.x - from.x) * k),
+          y: ms(from.y + (end.y - from.y) * k),
+          w: ms(from.w + (end.w - from.w) * k),
+          h: ms(from.h + (end.h - from.h) * k),
+        };
+      };
+      Object.assign(next, at(a), { end: at(b) });
+    }
+    return { ...e, mask: next } as typeof e;
+  });
+}
 
 /**
  * Moves what's on `clip` by `by` seconds (a trim off its start moves it
@@ -467,11 +766,15 @@ const ms = (t: number) => Math.round(t * 1000) / 1000;
  */
 function shift(p: Project, clip: string, by: number, notes: string[]) {
   const gone = new Set<string>();
-  for (const t of [...p.texts, ...p.inserts]) {
+  for (const t of stretched(p)) {
     if (t.clip !== clip) continue;
     t.from = ms(t.from + by);
     t.to = ms(t.to + by);
     if (t.to <= 0) gone.add(t.id);
+    // A trim into a tracked insert takes the start of its path too, so it carries on from there.
+    const path = "box" in t ? (t as Insert).box?.path : undefined;
+    if (t.from < 0 && path?.length)
+      (t as Insert).box = { ...((t as Insert).box as Area), path: rebase(path, -t.from) };
     t.from = Math.max(0, t.from);
   }
   for (const s of p.audio) {
@@ -480,9 +783,7 @@ function shift(p: Project, clip: string, by: number, notes: string[]) {
     if (s.at < 0) gone.add(s.id);
   }
   if (!gone.size) return;
-  p.texts = p.texts.filter((t) => !gone.has(t.id));
-  p.inserts = p.inserts.filter((t) => !gone.has(t.id));
-  p.audio = p.audio.filter((t) => !gone.has(t.id));
+  drop(p, gone);
   notes.push(`removed ${[...gone].join(", ")}: what they were on was cut`);
 }
 
@@ -497,9 +798,7 @@ function dropPast(p: Project, clip: string, length: number, notes: string[]) {
       .map((t) => t.id),
   );
   if (!gone.size) return;
-  p.texts = p.texts.filter((t) => !gone.has(t.id));
-  p.inserts = p.inserts.filter((t) => !gone.has(t.id));
-  p.audio = p.audio.filter((t) => !gone.has(t.id));
+  drop(p, gone);
   notes.push(`removed ${[...gone].join(", ")}: what they were on was cut`);
 }
 
@@ -557,13 +856,23 @@ function spoken(p: Project, words: Words) {
 
 type Spoken = ReturnType<typeof spoken>;
 
-/** Where `query` is said in `said`, as the first word's position, in clip `scope` if given. */
-function places(said: Spoken, query: string[], scope?: string): number[] {
-  const found: number[] = [];
-  for (let at = 0; at + query.length <= said.length; at++) {
-    const run = said.slice(at, at + query.length);
-    if (scope && run.some((s) => s.clip.id !== scope)) continue;
-    if (run.every((s, k) => plain(s.word.word) === query[k])) found.push(at);
+/**
+ * Where `query` is said in `said`, as the first and last word's positions,
+ * in the clips `scope` names if given. A word can hold more than one: a
+ * dictionary correction makes "geminipro" "Gemini Pro" (#235).
+ */
+function places(said: Spoken, query: string[], scope?: Set<string>) {
+  const tokens = said.flatMap((s, i) => plainWords(s.word.word).map((t, k) => ({ t, i, k })));
+  const found: { first: number; last: number }[] = [];
+  for (let at = 0; at + query.length <= tokens.length; at++) {
+    const run = tokens.slice(at, at + query.length);
+    const first = run[0] as (typeof run)[number];
+    const last = run.at(-1) as (typeof run)[number];
+    // Whole words only: a quote starts on a word's first part and ends on its last.
+    const ends = plainWords((said[last.i] as Spoken[number]).word.word).length - 1;
+    if (first.k !== 0 || last.k !== ends) continue;
+    if (scope && run.some((r) => !scope.has((said[r.i] as Spoken[number]).clip.id))) continue;
+    if (run.every((r, k) => r.t === query[k])) found.push({ first: first.i, last: last.i });
   }
   return found;
 }
@@ -582,6 +891,8 @@ function cutSaid(
   last: number,
   notes: string[],
   gaps?: Gaps,
+  /** Gets the id of each clip a split makes. */
+  made?: Set<string>,
 ) {
   const cuts: { id: string; from: number; to: number }[] = [];
   for (let k = first; k <= last; k++) {
@@ -606,8 +917,9 @@ function cutSaid(
       a ? Math.min(a.from + MARGIN, (a.from + a.to) / 2) : from,
       b ? Math.max(b.to - MARGIN, (b.from + b.to) / 2) : to,
     ] as const;
-    // Both edges in one silence would cut nothing: keep Whisper's then.
-    if (snapped[1] - snapped[0] >= 0.05) [from, to] = snapped;
+    // Both edges in one silence would cut nothing, or a stretch of that
+    // silence and not the words: keep Whisper's then.
+    if (!(a && a === b) && snapped[1] - snapped[0] >= 0.05) [from, to] = snapped;
     const span = {
       id: clip.id,
       from: ms(Math.max(clip.from, from)),
@@ -630,6 +942,7 @@ function cutSaid(
       const second = freeId(p, "c");
       step(p, { op: "split", id, at: from, newId: second }, `cut_words`, notes);
       step(p, { op: "trim", id: second, from: to }, `cut_words`, notes);
+      made?.add(second);
     }
   }
   const length = cuts.reduce((sum, c) => sum + c.to - c.from, 0);
@@ -647,18 +960,20 @@ function cutSaid(
 function cutWords(p: Project, a: Obj, what: string, notes: string[], words?: Words, gaps?: Gaps) {
   obj(a, what, ["text", "from", "to", "clip", "all"]);
   if (!words) return fail(`${what}: cut_words needs the transcript, which only the engine has`);
-  const scope = maybe(a.clip, (c) => findClip(p, c).id);
+  const clipId = maybe(a.clip, (c) => findClip(p, c).id);
+  // The clip asked for, and what splitting it makes: its later words are there (#235).
+  const scope = clipId === undefined ? undefined : new Set([clipId]);
   const all = maybe(a.all, (b) => bool(b, `${what}.all`)) ?? false;
-  const where = scope ?? "the cut";
+  const where = clipId ?? "the cut";
   const query = (v: unknown, key: string) => {
     const q = plainWords(str(v, `${what}.${key}`));
     if (!q.length) fail(`${what}.${key} has no words`);
     return q;
   };
-  const listed = (said: Spoken, found: number[]) =>
+  const listed = (said: Spoken, found: { first: number }[]) =>
     found
       .slice(0, 5)
-      .map((at) => (said[at] as Spoken[number]).clip.id)
+      .map(({ first }) => (said[first] as Spoken[number]).clip.id)
       .join(", ");
   const missing = (text: unknown) =>
     `${what}: "${text}" isn't said in ${where}. Words match without case or punctuation; \`transcribe\` with the project shows the cut's words.`;
@@ -679,7 +994,7 @@ function cutWords(p: Project, a: Obj, what: string, notes: string[], words?: Wor
       const now = spoken(p, words);
       const at = places(now, q, scope)[0];
       if (at === undefined) break;
-      cutSaid(p, now, at, at + q.length - 1, notes, gaps);
+      cutSaid(p, now, at.first, at.last, notes, gaps, scope);
     }
     return;
   }
@@ -693,16 +1008,22 @@ function cutWords(p: Project, a: Obj, what: string, notes: string[], words?: Wor
       `${what}: "${a.from}" is said ${begins.length} times (in ${listed(said, begins)}); add words to it or give its clip`,
     );
   }
-  const first = begins[0] as number;
+  const first = (begins[0] as { first: number }).first;
   // The first place `to` is said from there on, so a range can run across clips.
-  const stop = places(said, end).find((at) => at >= first);
+  const stop = places(said, end).find((at) => at.first >= first);
   if (stop === undefined) fail(`${what}: "${a.to}" isn't said after "${a.from}"`);
-  cutSaid(p, said, first, (stop as number) + end.length - 1, notes, gaps);
+  cutSaid(p, said, first, (stop as { last: number }).last, notes, gaps);
 }
 
 const OPS = ["add", "remove", "split", "trim", "move", "set", "cut_words"];
-const READ = { clip, text, insert, audio: sound } as const;
-const LIST = { clip: "clips", text: "texts", insert: "inserts", audio: "audio" } as const;
+const READ = { clip, text, insert, audio: sound, adjust } as const;
+const LIST = {
+  clip: "clips",
+  text: "texts",
+  insert: "inserts",
+  audio: "audio",
+  adjust: "adjust",
+} as const;
 
 /** One op applied to `p` in place. */
 function step(p: Project, raw: unknown, what: string, notes: string[], words?: Words, gaps?: Gaps) {
@@ -710,13 +1031,24 @@ function step(p: Project, raw: unknown, what: string, notes: string[], words?: W
   const { op, ...a } = raw as Obj;
   switch (op) {
     case "add": {
-      const { type, index, ...fields } = a;
+      const { type: asked, index, ...given } = a;
+      // An overlay (#163) is an insert whose picture is an HTML page, rendered
+      // with its transparency at render time; it's kept as one, so it stays on
+      // its clip through split, trim and remove like any insert.
+      const overlay = asked === "overlay";
+      if (overlay && !(typeof given.page === "string" && /\.html?$/i.test(given.page))) {
+        fail(`${what}: an overlay needs page, the path of an .html page`);
+      }
+      const { page, ...rest } = given;
+      const fields = overlay ? { ...rest, path: page } : given;
+      const type = overlay ? "insert" : asked;
       if (!(typeof type === "string" && type in READ)) {
-        fail(`${what}: add needs type: clip, text, insert or audio`);
+        fail(`${what}: add needs type: clip, text, insert, overlay, audio or adjust`);
       }
       const kind = type as keyof typeof READ;
       const key = LIST[kind];
       const item = READ[kind]({ id: freeId(p, PREFIX[key]), ...fields }, what);
+      p[key] ??= [];
       const list = p[key] as unknown[];
       const at = index === undefined ? list.length : num(index, `${what}.index`, 0, list.length);
       list.splice(Math.round(at), 0, item);
@@ -730,9 +1062,7 @@ function step(p: Project, raw: unknown, what: string, notes: string[], words?: W
       const on = attached(p).filter((t) => t.clip === a.id);
       if (!on.length) return;
       const ids = new Set(on.map((t) => t.id));
-      p.texts = p.texts.filter((t) => !ids.has(t.id));
-      p.inserts = p.inserts.filter((t) => !ids.has(t.id));
-      p.audio = p.audio.filter((t) => !ids.has(t.id));
+      drop(p, ids);
       notes.push(`removed ${[...ids].join(", ")} with ${a.id}`);
       return;
     }
@@ -746,7 +1076,14 @@ function step(p: Project, raw: unknown, what: string, notes: string[], words?: W
       const id = a.newId === undefined ? freeId(p, "c") : str(a.newId, `${what}.newId`);
       // Where the split falls in the finished video, which a speed changes.
       const offset = (at - c.from) / (c.speed ?? 1);
+      // What's on the clip is timed to the millisecond, so it moves by a whole
+      // number of them: an unrounded offset could round a 1 ms text's two ends
+      // to one time and fail the batch (#235). Moves keep the exact one.
+      const shift = ms(offset);
       const second: Clip = { ...c, id, from: at };
+      const f = offset / lengthOf(c);
+      cutMasks(second, f, 1, at - c.from);
+      cutMasks(c, 0, f, 0);
       delete second.transition;
       delete second.lead;
       if (c.moves?.length) {
@@ -762,14 +1099,13 @@ function step(p: Project, raw: unknown, what: string, notes: string[], words?: W
       p.clips.splice(p.clips.indexOf(c) + 1, 0, second);
       // What starts in the second half goes with it.
       c.to = at;
-      for (const t of [...p.texts, ...p.inserts]) {
-        if (t.clip === c.id && t.from >= offset) {
-          Object.assign(t, { clip: id, from: ms(t.from - offset), to: ms(t.to - offset) });
+      for (const t of stretched(p)) {
+        if (t.clip === c.id && t.from >= shift) {
+          Object.assign(t, { clip: id, from: ms(t.from - shift), to: ms(t.to - shift) });
         }
       }
       for (const s of p.audio) {
-        if (s.clip === c.id && s.at >= offset)
-          Object.assign(s, { clip: id, at: ms(s.at - offset) });
+        if (s.clip === c.id && s.at >= shift) Object.assign(s, { clip: id, at: ms(s.at - shift) });
       }
       return;
     }
@@ -781,6 +1117,8 @@ function step(p: Project, raw: unknown, what: string, notes: string[], words?: W
       if (!(from < to)) fail(`${what}: ${c.id} needs from < to; got ${from} and ${to}`);
       // How far the clip's picture moves in the finished video: a speed changes it.
       const by = (c.from - from) / (c.speed ?? 1);
+      const old = lengthOf(c);
+      cutMasks(c, -by / old, (to - c.from) / (c.speed ?? 1) / old, from - c.from);
       if (c.moves?.length && by < 0) {
         // Trimmed off the start: frame the new start as it was there, and keep the moves after.
         Object.assign(c, framing(c, -by));
@@ -811,7 +1149,7 @@ function step(p: Project, raw: unknown, what: string, notes: string[], words?: W
         }
       };
       if (id === undefined) {
-        obj(fields, what, ["size", "fps", "split", "captions"]);
+        obj(fields, what, ["size", "fps", "split", "captions", "level", "look", "transcription"]);
         merge(p as unknown as Obj);
         return;
       }
@@ -888,22 +1226,38 @@ export function outline(p: Project, file: string): string {
     p.captions
       ? `captions on${p.captions.perCue ? ` (${p.captions.perCue} a cue)` : ""}`
       : undefined,
+    p.level ? `sources levelled to ${p.level.target} LUFS` : undefined,
+    p.look
+      ? p.look.skipped
+        ? "look skipped by the user"
+        : `look ${basename(p.look.file ?? "")}${p.look.mood ? ` (${p.look.mood})` : ""}, ${p.look.approved ? "approved" : "not approved yet"}`
+      : undefined,
   ].filter(Boolean);
-  const line = (t: Text | Insert | Sound, base: number) => {
+  const line = (t: Text | Insert | Sound | Adjust, base: number) => {
     if ("at" in t) {
       const how = [
         t.volume === undefined ? "" : ` volume ${short(t.volume)}`,
         t.loop ? " loop" : "",
         t.duck ? " duck" : "",
       ].join("");
-      return `${t.id}  ${stamp(base + t.at)}  audio ${basename(t.path)}${how}`;
+      const what = t.generator
+        ? `music ${basename(t.generator.generator)}`
+        : `audio ${basename(t.path ?? "")}`;
+      return `${t.id}  ${stamp(base + t.at)}  ${what}${how}`;
     }
     const when = `${stamp(base + t.from)}-${stamp(base + t.to)}`;
     if ("text" in t) {
       const y = t.y === undefined ? "" : ` y ${short(t.y)}`;
       return `${t.id}  ${when}  text ${JSON.stringify(t.text)}${y}`;
     }
-    return `${t.id}  ${when}  insert ${basename(t.path)}`;
+    const fx = t.effects?.length ? ` effects ${t.effects.map((e) => e.name).join(", ")}` : "";
+    if (!("path" in t)) return `${t.id}  ${when}  adjust${fx}`;
+    const look = [
+      t.box ? ` box ${short(t.box.x)},${short(t.box.y)} ${short(t.box.w)}x${short(t.box.h)}` : "",
+      t.blend ? ` blend ${t.blend}` : "",
+      t.moves?.length ? ` moves ${t.moves.length}` : "",
+    ].join("");
+    return `${t.id}  ${when}  ${/\.html?$/i.test(t.path) ? "overlay" : "insert"} ${basename(t.path)}${look}${fx}`;
   };
   const lines = [`${file}: ${head.join(", ")}`];
   for (const c of p.clips) {
@@ -942,10 +1296,26 @@ export type Compiled = {
     transition?: Transition;
     /** The stretch of the source its sound comes from, where a J or L cut moves it off the picture's. */
     sound?: { from: number; to: number };
+    effects?: Clip["effects"];
   }[];
   texts: { text: string; from: number; to: number; y?: number }[];
-  inserts: { path: string; from: number; to: number }[];
-  sounds: { path: string; at: number; volume: number; loop: boolean; duck: boolean }[];
+  inserts: ({ path: string; from: number; to: number } & Omit<
+    Insert,
+    "id" | "path" | "clip" | "from" | "to"
+  >)[];
+  /** Adjustment layers, timed in the finished video. */
+  adjust: { from: number; to: number; effects: Effects }[];
+  /** A generated sound has `generator` (its module's path resolved) instead of `path`. */
+  sounds: {
+    path?: string;
+    generator?: Generated;
+    at: number;
+    volume: number;
+    loop: boolean;
+    duck: boolean;
+  }[];
+  /** The finished video's length, in seconds. */
+  length: number;
   size?: string;
   fps?: number;
   split?: { top: Area; bottom: Area };
@@ -954,9 +1324,12 @@ export type Compiled = {
 
 /** `p` as render's inputs, its relative paths taken from `dir`, the project file's folder. */
 export function compile(p: Project, dir: string): Compiled {
-  const { at } = starts(p);
+  const { at, length } = starts(p);
   const base = (clip?: string) => (clip === undefined ? 0 : (at.get(clip) ?? 0));
   const path = (f: string) => resolve(dir, f);
+  // An effect's file (a LUT) is relative to the project like everything else.
+  const files = (effects?: Effects) =>
+    effects?.map((e) => (typeof e.file === "string" ? { ...e, file: path(e.file) } : e));
   return clean({
     clips: p.clips.map(({ id, path: f, lead, ...rest }, i) => {
       // A lead in finished seconds is that much source at the clip's speed.
@@ -966,23 +1339,37 @@ export function compile(p: Project, dir: string): Compiled {
         lead || next
           ? { from: ms(rest.from - (lead ?? 0) * speed), to: ms(rest.to - next * speed) }
           : undefined;
-      return clean({ path: path(f), ...rest, sound });
+      return clean({ path: path(f), ...rest, effects: files(rest.effects), sound });
     }),
     texts: p.texts.map(({ text, clip, from, to, y }) =>
       clean({ text, from: base(clip) + from, to: base(clip) + to, y }),
     ),
-    inserts: p.inserts.map(({ path: f, clip, from, to }) => ({
-      path: path(f),
+    inserts: p.inserts.map(({ id: _, path: f, clip, from, to, effects, ...look }) =>
+      clean({
+        path: path(f),
+        from: base(clip) + from,
+        to: base(clip) + to,
+        ...look,
+        effects: files(effects),
+      }),
+    ),
+    adjust: (p.adjust ?? []).map(({ clip, from, to, effects }) => ({
       from: base(clip) + from,
       to: base(clip) + to,
+      effects: files(effects) as Effects,
     })),
-    sounds: p.audio.map(({ path: f, clip, at: when, volume = 1, loop = false, duck = false }) => ({
-      path: path(f),
-      at: base(clip) + when,
-      volume,
-      loop,
-      duck,
-    })),
+    sounds: p.audio.map(
+      ({ path: f, generator: g, clip, at: when, volume = 1, loop = false, duck = false }) =>
+        clean({
+          path: f === undefined ? undefined : path(f),
+          generator: g && { ...g, generator: path(g.generator) },
+          at: base(clip) + when,
+          volume,
+          loop,
+          duck,
+        }),
+    ),
+    length,
     size: p.size,
     fps: p.fps,
     split: p.split,
@@ -1018,18 +1405,42 @@ export function transcript(p: Project, file: string, words: Words): string {
   return lines.join("\n");
 }
 
-/** The sources a project and its ops ask for, and the stretches of each: what cut_words needs heard. */
-export function wanted(p: Project, ops: unknown[]): Map<string, { from: number; to: number }[]> {
+/**
+ * The sources a project and its ops ask for, and the stretches of each: what
+ * cut_words needs heard. Each clip there is after each op, so an add, trim or
+ * set earlier in the batch counts (#235). Given the words heard so far, the
+ * cut_words ops are replayed too, so a trim of a clip one of them splits off
+ * asks for its stretch; hear that, and ask again until nothing new comes.
+ */
+export function wanted(
+  p: Project,
+  ops: unknown[],
+  words?: Words,
+  gaps?: Gaps,
+): Map<string, { from: number; to: number }[]> {
   const out = new Map<string, { from: number; to: number }[]>();
-  const add = (path: string, from: number, to: number) =>
-    out.set(path, [...(out.get(path) ?? []), { from, to }]);
-  for (const c of p.clips) add(c.path, c.from, c.to);
-  for (const op of ops) {
-    const o = op as Obj;
-    if (o?.op === "add" && o.type === "clip" && typeof o.path === "string") {
-      const [from, to] = [Number(o.from), Number(o.to)];
-      if (from < to) add(o.path, from, to);
+  const seen = new Set<string>();
+  const take = (q: Project) => {
+    for (const c of q.clips) {
+      const key = JSON.stringify([c.path, c.from, c.to]);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.set(c.path, [...(out.get(c.path) ?? []), { from: c.from, to: c.to }]);
     }
+  };
+  const q = structuredClone(p);
+  take(q);
+  for (const op of ops) {
+    // A cut_words is replayed once there are words for it, so the clips it
+    // splits off are there for the ops after it (the engine hears again).
+    if ((op as Obj)?.op === "cut_words" && !words) continue;
+    try {
+      step(q, op, "op", [], words, gaps);
+    } catch {
+      // A clip a cut_words made before its words were heard, or a batch that fails anyway.
+      continue;
+    }
+    take(q);
   }
   return out;
 }

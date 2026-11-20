@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, type Hash, randomUUID } from "node:crypto";
 import {
   closeSync,
   copyFileSync,
@@ -14,40 +14,74 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, extname, join, resolve } from "node:path";
+import { basename, dirname, extname, join, relative, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { type AsrWord, stripNonSpeech } from "@mockingbird/asr";
 import { loadAudio, type PcmAudio } from "@mockingbird/audio";
-import { type Cue, drawCaptions, parseSrt } from "@mockingbird/captions";
-import type { MusicParams } from "@mockingbird/motion";
+import {
+  CAPTION_FONTS,
+  CAPTION_PRESETS,
+  type CaptionStyle,
+  type Cue,
+  captionStyle,
+  drawCaptions,
+  hanOrder,
+  parseSrt,
+} from "@mockingbird/captions";
+import type { MusicParams, PageFont } from "@mockingbird/motion";
 import { noNetwork } from "@mockingbird/motion/sandbox";
 import { applyCorrections, correctNames } from "@mockingbird/store";
 import {
+  apply,
   compile,
   edit,
   lengthOf,
   load,
+  lookGate,
   type Move,
   type Project,
   transcript,
   type Word,
   wanted,
 } from "@mockingbird/timeline";
+import { type Source, toFcpxml, toOtio } from "@mockingbird/timeline/export";
 import type { SpeechSegment } from "@mockingbird/vad";
 import { audioStats } from "./audio-stats.ts";
 import { addEntries, formatEntry, readDictionary } from "./dictionary.ts";
-import { guide, INSTRUCTIONS, playbooks } from "./guide.ts";
+import {
+  type Ctx,
+  catalog,
+  checkEffects,
+  checkPath,
+  EFFECTS,
+  type Effect,
+  effectFilters,
+  type Mask,
+  masked,
+  pictureSteps,
+  quoted,
+} from "./effects.ts";
+import { guide, INSTRUCTIONS, PLUGIN, playbooks } from "./guide.ts";
+import { BT709, type Transfer, toSdrFor, transferOf } from "./hdr.ts";
 import { findChrome, fontFaces } from "./models.ts";
 import { clipsFrom, findPauses, measure } from "./pauses.ts";
 import {
   asrChoice,
+  checkChoice,
+  choiceEnv,
   type Engines,
   enginesFor,
+  languageModels,
   type ModelChoice,
   mockingbirdHome,
   requireFile,
-  startEngines,
+  spokenLanguage,
   WHISPER_LANGUAGES,
 } from "./runtime.ts";
+import { scopes } from "./scopes.ts";
+import { subjectMask } from "./subject.ts";
+import { sync } from "./sync.ts";
+import { along, type Point, track } from "./track.ts";
 
 /**
  * `mockingbird mcp` (#88): mockingbird's local functions as Model Context
@@ -292,11 +326,14 @@ export async function transcribe(
   const spell = speller(log, picked.language);
   try {
     const lines: string[] = [];
+    let count = 0;
     for await (const { heard, offsetMs } of hear(audio, startMs, engines)) {
+      const timed = timedWords(heard, offsetMs);
+      count += timed.length;
       if (words) {
         // ponytail: names are fixed one word at a time, so a name misheard as
         // two words stays as heard; the line transcript fixes those.
-        for (const w of timedWords(heard, offsetMs)) {
+        for (const w of timed) {
           const word = spell(w.word);
           lines.push(`[${fineClock(w.startMs)}-${fineClock(w.endMs)}] ${word}`);
         }
@@ -316,8 +353,11 @@ export async function transcribe(
       choice.model || choice.language || picked.detected
         ? `, ${WHISPER_LANGUAGES.get(picked.language) ?? picked.language}${picked.detected ? " (detected)" : ""} with ${picked.model}`
         : "";
+    // Speaking pace over the whole stretch, pauses included, as style-match compares it.
+    const minutes = audio.samples.length / rate / 60;
+    const pace = `, ${count} words, ${Math.round(count / minutes)} a minute`;
     return lines.length
-      ? `${path} (${span}${how})\n\n${lines.join("\n")}`
+      ? `${path} (${span}${how}${pace})\n\n${lines.join("\n")}`
       : `${path} (${span}${how}): no speech found.`;
   } finally {
     await engines.close();
@@ -336,6 +376,8 @@ async function frames(
   requireFile(path, "File");
   const source = await probe(path);
   if (!source.video) return `${path} has no video, only audio. \`transcribe\` reads it.`;
+  // Stills from an HDR source as SDR, as render shows it, not flat and grey.
+  const sdr = toSdrFor(source.transfer);
   const end = Math.min(to ?? source.seconds, source.seconds);
   const times: number[] = [];
   for (let t = from; t < end; t += every) times.push(t);
@@ -360,7 +402,7 @@ async function frames(
             "-i",
             path,
           ],
-          ...["-frames:v", "1", "-vf", "scale='min(1280,iw)':-2", file],
+          ...["-frames:v", "1", "-vf", `${sdr ? `${sdr},` : ""}scale='min(1280,iw)':-2`, file],
         ],
         { stderr: "pipe" },
       );
@@ -383,9 +425,15 @@ async function frames(
  * a seek starts its times at 0: `lavfi.scd.score: 29.3, lavfi.scd.time: 2`.
  */
 export function parseScenes(log: string, from = 0): { at: number; score: number }[] {
-  return [...log.matchAll(/lavfi\.scd\.score: ([\d.]+), lavfi\.scd\.time: ([\d.]+)/g)]
-    .map(([, score, at]) => ({ at: from + Number(at), score: Number(score) }))
-    .filter((c) => c.score > 0); // At threshold 0, an unchanged frame is logged too.
+  return (
+    [...log.matchAll(/lavfi\.scd\.score: ([\d.]+), lavfi\.scd\.time: ([\d.]+)/g)]
+      // To the millisecond, so a seek that started a frame early doesn't read 3.9999 as 3.99.
+      .map(([, score, at]) => ({
+        at: Math.round((from + Number(at)) * 1000) / 1000,
+        score: Number(score),
+      }))
+      .filter((c) => c.score > 0)
+  ); // At threshold 0, an unchanged frame is logged too.
 }
 
 /**
@@ -403,14 +451,21 @@ async function scenes(
   requireFile(path, "File");
   const source = await probe(path);
   if (!source.video) return `${path} has no video, only audio.`;
-  const end = Math.min(to ?? source.seconds, source.seconds);
-  if (!(end > from))
+  // ffprobe can't always tell a length (some streams and broken files): 0 then
+  // means unknown, so the asked-for range is scanned, or to the end.
+  const known = source.seconds > 0;
+  const end = known ? Math.min(to ?? source.seconds, source.seconds) : to;
+  if (end !== undefined && !(end > from))
     throw new Error(`Nothing to look at from ${from}s: ${path} is ${source.seconds}s.`);
+  // scdet compares each frame with the one before, so a cut on the first frame
+  // needs a frame before it: start one early and drop cuts before `from`.
+  const start = Math.max(0, from - 1 / source.fps);
   const run = async (hw: boolean) => {
     const proc = Bun.spawn(
       [
         ...["ffmpeg", "-nostdin", "-nostats", ...(hw ? ["-hwaccel", "auto"] : [])],
-        ...["-ss", String(from), "-t", String(end - from), "-i", path, "-an"],
+        ...["-ss", String(start), ...(end === undefined ? [] : ["-t", String(end - start)])],
+        ...["-i", path, "-an"],
         ...["-vf", `scale=-2:180,scdet=threshold=${threshold}`, "-f", "null", "-"],
       ],
       { stderr: "pipe" },
@@ -426,10 +481,14 @@ async function scenes(
       `ffmpeg couldn't look for cuts in ${path}: ${said.trim().split("\n").slice(-3).join("\n")}`,
     );
   }
-  const cuts = parseScenes(said, from);
-  const length = end - from;
-  const pace = `, ${((cuts.length / length) * 60).toFixed(1)} a minute, ${(length / (cuts.length + 1)).toFixed(1)} s a shot`;
-  const head = `${path}: ${cuts.length} cut${cuts.length === 1 ? "" : "s"} from ${fineClock(from * 1000)} to ${fineClock(end * 1000)}${pace}`;
+  const half = 1 / source.fps / 2;
+  const cuts = parseScenes(said, start).filter((c) => c.at >= from - half);
+  const length = end === undefined ? 0 : end - from;
+  const pace = length
+    ? `, ${((cuts.length / length) * 60).toFixed(1)} a minute, ${(length / (cuts.length + 1)).toFixed(1)} s a shot`
+    : "";
+  const until = end === undefined ? "the end (its length is unknown)" : fineClock(end * 1000);
+  const head = `${path}: ${cuts.length} cut${cuts.length === 1 ? "" : "s"} from ${fineClock(from * 1000)} to ${until}${pace}`;
   return [head, ...cuts.map((c) => `[${fineClock(c.at * 1000)}] ${c.score.toFixed(1)}`)].join("\n");
 }
 
@@ -454,6 +513,8 @@ export type Clip = {
   transition?: { type: string; duration: number };
   /** Where its sound comes from in the source, when a J or L cut moves it off the picture's stretch. */
   sound?: { from: number; to: number };
+  /** From the effects catalog (#197), on its picture and its sound. */
+  effects?: Effect[];
 };
 
 /** The stretch of the source a clip's input opens: its picture's and its sound's together. */
@@ -551,6 +612,88 @@ export type Sound = { at: number; volume: number; loop: boolean; duck: boolean }
 /** Where caption images sit unless told: a little below the middle, where Shorts and Reels leave room for text. */
 export const CAPTIONS_Y = 0.7;
 
+/** Each motion style's typography roles (#276), from plugin/skills/motion-graphics/styles/roles.json. */
+type Roles = Record<
+  string,
+  {
+    title: { family: string };
+    body: { family: string };
+    ink: string;
+    accent: string;
+    background: string;
+  }
+>;
+let roles: Roles | undefined;
+
+/**
+ * A caption style with `look: "<style id>"` turned into fields: the look's
+ * title font if a caption can use it (its body font, or Inter, if not), and
+ * its accent (or ink) for the spoken word when it's light enough to read on
+ * the outline, so the approved look sets the captions with its titles.
+ * Anything else given stays as given.
+ */
+export function lookCaptions(v: unknown, what = "captionStyle"): unknown {
+  if (!v || typeof v !== "object" || !("look" in v)) return v;
+  const { look, ...rest } = v as Record<string, unknown>;
+  roles ??= JSON.parse(
+    readFileSync(join(PLUGIN, "skills", "motion-graphics", "styles", "roles.json"), "utf8"),
+  ) as Roles;
+  const r = roles[String(look)];
+  if (!r) throw new Error(`${what}.look: no style "${look}"; see the motion-graphics styles`);
+  const usable = (f: string) => (CAPTION_FONTS as readonly string[]).includes(f);
+  const font = usable(r.title.family)
+    ? r.title.family
+    : usable(r.body.family)
+      ? r.body.family
+      : "Inter";
+  // Captions are light text on a black outline: a dark accent would vanish, so
+  // the look's accent if it's light enough, else its ink, else the preset's.
+  const light = (c: string) => {
+    if (!/^#[0-9a-f]{6}$/i.test(c)) return false;
+    const n = Number.parseInt(c.slice(1), 16);
+    return (
+      (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255 >= 0.35
+    );
+  };
+  const accent = [r.accent, r.ink].find(light);
+  // The colour goes where the preset puts its lit word: behind it on a pill
+  // (the word stays dark on it), on it otherwise, and nowhere for a preset
+  // with no lit word, like subtitle.
+  const presets: Record<string, CaptionStyle> = CAPTION_PRESETS;
+  const p = presets[String(rest.preset ?? "classic")];
+  const lit = !p ? {} : p.pill ? { pill: accent } : p.active !== p.fill ? { active: accent } : {};
+  return { font, ...(accent && lit), ...rest };
+}
+
+/** render's `captionStyle`, and a project's `captions.style` (#276). */
+const CAPTION_STYLE_SCHEMA = {
+  description: `How the captions and texts look: a preset's name (${Object.keys(CAPTION_PRESETS).join(", ")}; default classic, white Inter 700 with a black outline and the *spoken* word yellow), or an object with \`preset\` and any of: font (${CAPTION_FONTS.join(", ")}), weight, upper (capitals, which get 0.06 em of tracking), tracking (em), fill, stroke and active (colours; active is the *spoken* word's), outline (0-0.5 of the text height), shadow, pill (a colour behind the spoken word), maxChars (about this many characters a line), pop (1-1.4: the spoken word that much bigger), keyword (the colour of a word written **like this**, drawn 15% bigger) and look (a motion style's id: its title font and accent, so the approved look sets the captions too). subtitle suits long-form; creator and pill suit Shorts.`,
+  oneOf: [
+    { type: "string", enum: Object.keys(CAPTION_PRESETS) },
+    {
+      type: "object",
+      properties: {
+        preset: { type: "string", enum: Object.keys(CAPTION_PRESETS) },
+        font: { type: "string", enum: [...CAPTION_FONTS] },
+        weight: { type: "number" },
+        upper: { type: "boolean" },
+        tracking: { type: "number" },
+        fill: { type: "string" },
+        stroke: { type: "string" },
+        active: { type: "string" },
+        pill: { type: "string" },
+        outline: { type: "number" },
+        shadow: { type: "boolean" },
+        maxChars: { type: "number" },
+        pop: { type: "number" },
+        keyword: { type: "string" },
+        look: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+  ],
+};
+
 /** The loudness Shorts, Reels, TikTok and YouTube play at: EBU R128 integrated, in LUFS. */
 const LUFS = -14;
 
@@ -598,6 +741,13 @@ function frame({ focus = { x: 0.5, y: 0.5 }, zoom = 1 }: Clip, size: string) {
 }
 
 /**
+ * A clip as render hands it on: `silent` if its source has no sound, and
+ * `sdr`, the filters that bring an HDR source's picture to SDR, or label an
+ * SDR clip BT.709 to match in an edit with HDR in it (#252).
+ */
+type Shaped = Clip & { silent?: boolean; sdr?: string };
+
+/**
  * The ffmpeg filter graph that joins `clips` in order, each its own input
  * (0, 1, …, from seekClips), cropped to `size`'s shape around its focus,
  * punched in by its zoom or moved by its moves, scaled to `size` and set to
@@ -611,10 +761,26 @@ function frame({ focus = { x: 0.5, y: 0.5 }, zoom = 1 }: Clip, size: string) {
  * speech, the sound cut to the picture's length unless `whole`, and left
  * for `level` to bring to LUFS. `size` is the finished picture's, `WxH` (a
  * split's clips are brought to it before their areas are taken). A `silent`
- * clip's sound is silence. Ends in [v], and [a] if there's sound.
+ * clip's sound is silence; an `sdr` clip's picture goes through those filters first. Ends in [v], and [a] if there's sound.
  */
+/**
+ * Clip `i`'s sound as the render hears it, from input `i`: its own stretch
+ * (a J or L cut's), its speed and its sound effects. speechGain measures
+ * this, so a `gain` effect (a project's `level`) isn't lifted twice.
+ */
+export function soundOf(clip: Shaped, i: number, ctx: Ctx): string {
+  const start = opened(clip).from;
+  const heard = clip.sound ?? clip;
+  const acut = clip.sound
+    ? `atrim=start=${heard.from - start}:duration=${heard.to - heard.from},`
+    : "";
+  const speed = clip.speed && clip.speed !== 1 ? `,${tempo(clip.speed)}` : "";
+  const fx = effectFilters(clip.effects, ctx).audio;
+  return `[${i}:a]${acut}asetpts=PTS-STARTPTS${speed}${fx ? `,${fx}` : ""}`;
+}
+
 export function renderGraph(
-  clips: (Clip & { silent?: boolean })[],
+  clips: Shaped[],
   {
     audio,
     size = "1920x1080",
@@ -626,6 +792,8 @@ export function renderGraph(
     inserts = [],
     sounds = [],
     whole = false,
+    gain = 0,
+    adjust = [],
   }: {
     audio: boolean;
     size?: string;
@@ -634,9 +802,13 @@ export function renderGraph(
     burn?: boolean;
     captionsY?: number;
     overlays?: (Omit<Cue, "text"> & { y?: number })[];
-    inserts?: Omit<Cue, "text">[];
+    inserts?: (Omit<Cue, "text"> & Look & { sdr?: string })[];
+    /** Adjustment layers: effects on everything under the text for a stretch (#198). */
+    adjust?: (Omit<Cue, "text"> & { effects: Effect[] })[];
     sounds?: Sound[];
     whole?: boolean;
+    /** The speech's gain in dB before sounds are mixed under it: see mixGraph. */
+    gain?: number;
   },
 ): string {
   const out = split ? "1080x1920" : size;
@@ -648,25 +820,50 @@ export function renderGraph(
   // one by one, only brought to one size if they're from different sources.
   const parts = clips.map((clip, i) => {
     const speed = clip.speed && clip.speed !== 1 ? `,setpts=PTS/${clip.speed}` : "";
+    // Slow motion made of new frames, not repeats (#200): motion-compensated, after the
+    // framing so it works on the finished size, before fps would repeat frames.
+    const rate = clip.effects?.some((e) => e.name === "interpolate")
+      ? `minterpolate=fps=${fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1,fps=${fps}`
+      : `fps=${fps}`;
     const look =
       split || !clip.moves?.length
-        ? `${frame(split ? { from: 0, to: 0 } : clip, size)},fps=${fps}`
-        : `,fps=${fps},${moving(clip, size, fps)}`;
+        ? `${frame(split ? { from: 0, to: 0 } : clip, size)},${rate}`
+        : `,${rate},${moving(clip, size, fps)}`;
     const tb = chained ? `,settb=1/${fps}` : "";
     // The input opens the picture's and the sound's stretches together; each takes its own.
     const start = opened(clip).from;
     const cut = clip.sound
       ? `trim=start=${clip.from - start}:duration=${clip.to - clip.from},`
       : "";
-    const v = `[${i}:v]${cut}setpts=PTS-STARTPTS${speed},${SQUARE}${look}${tb}[v${i}]`;
+    const [width, height] = size.split("x").map(Number) as [number, number];
+    const ctx = { width, height, fps, length: lengthOf(clip), speed: clip.speed ?? 1 };
+    const fx = effectFilters(clip.effects, ctx);
+    // A subject mask's video goes through the clip's own speed and framing, so
+    // it stays on the person through a crop, a punch-in or a move (#260).
+    const effects = (clip.effects ?? []).map((e) => {
+      const m = e.mask as Mask | undefined;
+      if (m?.shape !== "subject" || !m.file) return e;
+      // Back to the source's shape first (MODNet's sides are multiples of 32, a
+      // slightly different one), 540 high: the framing scales it from there.
+      const [sw = 16, sh = 9] = (m.size ?? "").split("x").map(Number);
+      const back = m.size ? `,scale=${even((540 * sw) / sh)}:540` : "";
+      const source = `movie=filename=${quoted(m.file)}${back},setpts=PTS-STARTPTS${speed},setsar=1${look},tpad=stop_mode=clone:stop_duration=1,trim=duration=${ctx.length}`;
+      return { ...e, mask: { ...m, source } };
+    });
+    const head = `[${i}:v]${clip.sdr ? `${clip.sdr},` : ""}${cut}setpts=PTS-STARTPTS${speed},${SQUARE}${look}`;
+    // A masked effect needs labels of its own (#198); the rest stay one chain.
+    const v = masked(clip.effects)
+      ? [
+          `${head}[b${i}]`,
+          ...pictureSteps(effects, `[b${i}]`, `[e${i}]`, ctx, `c${i}`),
+          `[e${i}]${tb ? tb.slice(1) : "null"}[v${i}]`,
+        ].join(";")
+      : `${head}${fx.video ? `,${fx.video}` : ""}${tb}[v${i}]`;
     if (!audio) return v;
     const heard = clip.sound ?? clip;
-    const acut = clip.sound
-      ? `atrim=start=${heard.from - start}:duration=${heard.to - heard.from},`
-      : "";
     const a = clip.silent
       ? `aevalsrc=0:c=stereo:s=48000:d=${(heard.to - heard.from) / (clip.speed ?? 1)}[a${i}]`
-      : `[${i}:a]${acut}asetpts=PTS-STARTPTS${speed ? `,${tempo(clip.speed as number)}` : ""}[a${i}]`;
+      : `${soundOf(clip, i, ctx)}[a${i}]`;
     return `${v};${a}`;
   });
   const inputs = clips.map((_, i) => (audio ? `[v${i}][a${i}]` : `[v${i}]`)).join("");
@@ -687,25 +884,79 @@ export function renderGraph(
     "[top][bottom]vstack,setsar=1[stacked]",
   ];
   const base = stacked ? "[stacked]" : "[joined]";
-  // Inserts go under the text, so captions stay readable over b-roll.
-  const layers = [
+  // Inserts go under the text, so captions stay readable over b-roll, and
+  // adjustment layers between them, so they change the inserts too (#198).
+  const [W, H] = out.split("x").map(Number) as [number, number];
+  type Layer = {
+    start: number;
+    end: number;
+    y?: number;
+    input: number;
+    kind: string;
+    sdr?: string;
+  } & Look;
+  const layers: Layer[] = [
     ...inserts.map((cue, i) => ({
       ...cue,
       y: 0,
       input: clips.length + overlays.length + i,
-      insert: true,
+      kind: "insert",
     })),
-    ...overlays.map((cue, i) => ({ ...cue, input: clips.length + i, insert: false })),
+    ...adjust.map((a) => ({ ...a, input: -1, kind: "adjust" })),
+    ...overlays.map((cue, i) => ({ ...cue, input: clips.length + i, kind: "text" })),
   ];
   const label = (i: number) => (i < layers.length ? `[c${i}]` : burn ? "[laid]" : "[v]");
-  const laid = layers.flatMap(({ start, end, y = CAPTIONS_Y, input, insert }, i) => {
+  const laid = layers.flatMap((layer, i) => {
+    const { start, end, y = CAPTIONS_Y, input, kind } = layer;
     const when = `enable='gte(t,${start})*lt(t,${end})'`;
-    if (!insert) {
+    if (kind === "text") {
       return `${label(i)}[${input}:v]overlay=x=(main_w-overlay_w)/2:y=main_h*${y}-overlay_h/2:${when}${label(i + 1)}`;
     }
-    // Its own first frame lands at `start`; once it runs out, the picture underneath shows again.
-    const shaped = `[${input}:v]trim=duration=${end - start},setpts=PTS-STARTPTS+${start}/TB,${fill({ x: 0, y: 0, w: 1, h: 1 }, out)},setsar=1[i${i}]`;
-    return [shaped, `${label(i)}[i${i}]overlay=eof_action=pass:${when}${label(i + 1)}`];
+    const ctx = { width: W, height: H, fps, length: end - start };
+    if (kind === "adjust") {
+      // Its stretch of everything under it, through its effects, laid back over it.
+      return [
+        `${label(i)}split[ak${i}][ae${i}]`,
+        `[ae${i}]trim=start=${start}:end=${end},setpts=PTS-STARTPTS[ar${i}]`,
+        ...pictureSteps(layer.effects ?? [], `[ar${i}]`, `[ag${i}]`, ctx, `a${i}`),
+        `[ag${i}]setpts=PTS+${start}/TB[ad${i}]`,
+        `[ak${i}][ad${i}]overlay=eof_action=pass:${when}${label(i + 1)}`,
+      ];
+    }
+    const { box, blend, effects = [], moves } = layer;
+    // HDR b-roll is brought to SDR like the clips under it (#252).
+    const sdr = layer.sdr ? `${layer.sdr},` : "";
+    if (!box && !blend && !effects.length && !moves?.length) {
+      // Its own first frame lands at `start`; once it runs out, the picture underneath shows again.
+      const shaped = `[${input}:v]${sdr}trim=duration=${end - start},setpts=PTS-STARTPTS+${start}/TB,${fill({ x: 0, y: 0, w: 1, h: 1 }, out)},setsar=1[i${i}]`;
+      return [shaped, `${label(i)}[i${i}]overlay=eof_action=pass:${when}${label(i + 1)}`];
+    }
+    // A box is a picture in the picture: the insert filled to the box, laid at its corner.
+    const shape = box ? `${evenSize(box.w * W)}x${evenSize(box.h * H)}` : out;
+    const [bw, bh] = shape.split("x").map(Number) as [number, number];
+    const moved = moves?.length
+      ? `,${moving({ from: 0, to: end - start, moves }, shape, fps)}`
+      : "";
+    const steps = [
+      `[${input}:v]${sdr}trim=duration=${end - start},setpts=PTS-STARTPTS,fps=${fps},${fill({ x: 0, y: 0, w: 1, h: 1 }, shape)}${moved},setsar=1[ib${i}]`,
+      ...pictureSteps(effects, `[ib${i}]`, `[ie${i}]`, { ...ctx, width: bw, height: bh }, `i${i}`),
+      `[ie${i}]setpts=PTS+${start}/TB[i${i}]`,
+    ];
+    if (blend && blend !== "normal") {
+      // Blended in RGB, since a mode like screen on YUV's colour planes shifts the hue.
+      return [
+        ...steps,
+        `${label(i)}format=gbrp[ig${i}]`,
+        `[i${i}]format=gbrp[ih${i}]`,
+        `[ig${i}][ih${i}]blend=all_mode=${blend}:eof_action=pass:${when},format=yuv420p${label(i + 1)}`,
+      ];
+    }
+    const at = box?.path?.length
+      ? `x='${along(box.path, "x", `(t-${start})`, W)}':y='${along(box.path, "y", `(t-${start})`, H)}':`
+      : box
+        ? `x=${Math.round(box.x * W)}:y=${Math.round(box.y * H)}:`
+        : "";
+    return [...steps, `${label(i)}[i${i}]overlay=${at}eof_action=pass:${when}${label(i + 1)}`];
   });
   // libass's captions go on last, over the inserts like the images. An .srt is
   // laid out 288 lines high: its bottom margin puts the line's middle near captionsY.
@@ -728,6 +979,7 @@ export function renderGraph(
       length,
       first: clips.length + overlays.length + inserts.length,
       whole,
+      gain,
     }),
   ].join(";");
 }
@@ -767,7 +1019,8 @@ function chain(clips: Clip[], audio: boolean, fps: number): string {
 
 /**
  * The filter steps that mix `sounds` (inputs `first`, `first + 1`, …) under
- * the speech, labelled [speech] if there is any, cut to `length` seconds and
+ * the speech, labelled [speech] if there is any and raised by `gain` dB
+ * when there's something to mix under it, cut to `length` seconds and
  * left for `level` to bring to LUFS; a batch's, with `whole`, isn't cut. Ends
  * in [a] if there's any sound at all.
  */
@@ -778,12 +1031,18 @@ export function mixGraph(
     length,
     first,
     whole = false,
-  }: { speech: boolean; length: number; first: number; whole?: boolean },
+    gain = 0,
+  }: { speech: boolean; length: number; first: number; whole?: boolean; gain?: number },
 ): string[] {
   const ducked = sounds.filter((s) => s.duck).length;
   const keyLabels = sounds.flatMap((s, i) => (s.duck ? [`[key${i}]`] : [])).join("");
-  const speech = ducked ? "[voice]" : "[speech]";
-  const keys = audio && ducked ? [`[speech]asplit=${ducked + 1}${speech}${keyLabels}`] : [];
+  // The speech brought to LUFS first (`gain`, from speechGain), so a sound's
+  // volume and the duck's threshold mean the same on any recording (#212).
+  const lift =
+    audio && sounds.length && gain ? [`[speech]volume=${gain.toFixed(2)}dB[lifted]`] : [];
+  const source = lift.length ? "[lifted]" : "[speech]";
+  const speech = ducked ? "[voice]" : source;
+  const keys = audio && ducked ? [`${source}asplit=${ducked + 1}${speech}${keyLabels}`] : [];
   const mixed = sounds.flatMap(({ at, volume, loop, duck }, i) => {
     // A looped sound plays to the end of the video; any other plays once.
     const trim = loop ? `atrim=duration=${Math.max(0, length - at)},` : "";
@@ -809,7 +1068,7 @@ export function mixGraph(
           : `${tracks.join("")}amix=inputs=${tracks.length}:duration=longest:normalize=0,${level}`,
       ]
     : [];
-  return [...keys, ...mixed, ...sound];
+  return [...lift, ...keys, ...mixed, ...sound];
 }
 
 /**
@@ -827,12 +1086,14 @@ async function probe(path: string): Promise<{
   /** The picture's codec and pixel format, e.g. "h264" and "yuv420p". */
   codec: string;
   pix: string;
+  /** Its HDR transfer, or undefined for SDR. */
+  transfer?: Transfer;
 }> {
   const proc = Bun.spawn(
     [
       "ffprobe",
       ...["-v", "error", "-show_entries"],
-      "stream=codec_type,codec_name,pix_fmt,width,height,sample_aspect_ratio,avg_frame_rate:stream_side_data=rotation:format=duration",
+      "stream=codec_type,codec_name,pix_fmt,color_transfer,width,height,sample_aspect_ratio,avg_frame_rate:stream_side_data=rotation:format=duration",
       ...["-of", "json", path],
     ],
     { stderr: "pipe" },
@@ -848,6 +1109,7 @@ async function probe(path: string): Promise<{
     codec_type: string;
     codec_name?: string;
     pix_fmt?: string;
+    color_transfer?: string;
     width?: number;
     height?: number;
     sample_aspect_ratio?: string;
@@ -870,6 +1132,7 @@ async function probe(path: string): Promise<{
     fps,
     codec: picture?.codec_name ?? "",
     pix: picture?.pix_fmt ?? "",
+    transfer: transferOf(picture?.color_transfer),
     video: has("video"),
     audio: has("audio"),
     seconds: Number(format?.duration ?? 0),
@@ -917,12 +1180,13 @@ function claimAll(video: string, sidecar: boolean): boolean {
   return both;
 }
 
-/** `out`, or `<name>-<kind>-N.mp4` next to the source with the first N that's free; claimed. */
+/** `out`, or `<name>-<kind>-N.mp4` (or `ext`) next to the source with the first N that's free; claimed. */
 function outputFor(
   path: string,
   out: string | undefined,
   sidecar: boolean,
   kind = "short",
+  ext = ".mp4",
 ): string {
   if (out) {
     if (!claimAll(out, sidecar)) {
@@ -934,7 +1198,7 @@ function outputFor(
   }
   const base = join(dirname(path), basename(path, extname(path)));
   for (let n = 1; ; n++) {
-    if (claimAll(`${base}-${kind}-${n}.mp4`, sidecar)) return `${base}-${kind}-${n}.mp4`;
+    if (claimAll(`${base}-${kind}-${n}${ext}`, sidecar)) return `${base}-${kind}-${n}${ext}`;
   }
 }
 
@@ -947,13 +1211,29 @@ const srtClock = (seconds: number) => {
   return `${hh}:${mm}:${ss},${String(ms % 1000).padStart(3, "0")}`;
 };
 
+/** Chinese and Japanese script and its punctuation (。、「」！？), written without spaces. */
+const CJK = /[\u3000-\u30ff\u3400-\u9fff\uf900-\ufaff\uff00-\uffef]/;
+
+/** Words as a line: a space between them, except between two Chinese or Japanese ones. */
+const joined = (words: string[]) =>
+  words.reduce(
+    (line, w, i) =>
+      line +
+      (i && CJK.test(w.replace(/\*/g, "")) && CJK.test(words[i - 1] ?? "") ? "" : i ? " " : "") +
+      w,
+    "",
+  );
+
 /**
  * Word-by-word captions as SRT, timed to the video `clips` make: `words`
  * holds each clip's words, timed in the source. A cue shows up to `perCue`
  * words with the one being said written *like this*, which render draws
  * yellow (`lit: false` shows the words without it). A new cue starts at a
- * clip, after a sentence, after a pause of half a second, or once its words
- * span 1.2 s, which is how often Remotion's TikTok template turns the page.
+ * clip, after a sentence, after a pause of half a second, once its words
+ * span 1.2 s (how often Remotion's TikTok template turns the page), or
+ * before it would show more than 20 characters a second (Netflix's limit).
+ * Chinese and Japanese have no spaces: their words are joined without one,
+ * and a cue holds about four characters for each of `perCue` (#276).
  */
 export function wordCaptions(
   clips: Clip[],
@@ -984,11 +1264,14 @@ export function wordCaptions(
         text: upper ? text.toLocaleUpperCase() : text,
         start: at(Math.max(start, from)),
         end: at(Math.min(end, to)),
-        ends: /[.?!]["')\]]?$/.test(w.word),
+        ends: /[.?!。！？]["')\]」』]?$/.test(w.word),
       };
       const last = page.at(-1);
+      const chars = page.reduce((n, w) => n + w.text.length, 0);
+      const cjk = page.length > 0 && page.every((w) => CJK.test(w.text)) && CJK.test(said.text);
       const full =
-        page.length >= perCue ||
+        (cjk ? chars + said.text.length > perCue * 4 : page.length >= perCue) ||
+        (page[0] && (chars + said.text.length) / Math.max(0.3, said.end - page[0].start) > 20) ||
         (last && (last.ends || said.start - last.end >= 0.5)) ||
         (page[0] && said.start - page[0].start >= 1.2);
       if (full) {
@@ -1010,13 +1293,11 @@ export function wordCaptions(
         next <= last.end ? last.end : next - last.end <= 0.5 ? next : last.end + 0.2,
       );
       if (!lit)
-        return [
-          { start: page[0]?.start ?? 0, end: until, text: page.map((w) => w.text).join(" ") },
-        ];
+        return [{ start: page[0]?.start ?? 0, end: until, text: joined(page.map((w) => w.text)) }];
       return page.map((w, j) => ({
         start: j ? w.start : (page[0]?.start ?? w.start),
         end: page[j + 1]?.start ?? until,
-        text: page.map((o, k) => (k === j ? `*${o.text}*` : o.text)).join(" "),
+        text: joined(page.map((o, k) => (k === j ? `*${o.text}*` : o.text))),
       }));
     });
   return cues
@@ -1028,7 +1309,37 @@ export function wordCaptions(
 export type Text = { text: string; from: number; to: number; y?: number };
 
 /** A picture or video laid over the finished video from `from` to `to` seconds; its sound isn't used. */
-export type Insert = { path: string; from: number; to: number };
+export type Insert = { path: string; from: number; to: number } & Look;
+
+/** Blend modes an insert can be laid with: ffmpeg's blend names. */
+export const BLENDS = [
+  "normal",
+  "screen",
+  "multiply",
+  "overlay",
+  "softlight",
+  "lighten",
+  "darken",
+  "addition",
+  "difference",
+];
+
+/**
+ * How an insert is laid over the cut (#198): in a `box` (0-1 of the picture;
+ * a picture in the picture), with a blend mode, through catalog effects (a
+ * chroma key keys it over the cut), and moving like a clip's `moves` (a Ken
+ * Burns pan over a still).
+ */
+export type Look = {
+  /** `path`, from `track`: the box's top left over time, from the insert's start. */
+  box?: { x: number; y: number; w: number; h: number; path?: Point[] };
+  blend?: string;
+  effects?: Effect[];
+  moves?: Move[];
+};
+
+/** A size in pixels rounded to an even number, at least 2. */
+const evenSize = (n: number) => Math.max(2, Math.round(n / 2) * 2);
 
 /**
  * ffmpeg's inputs for `clips`: the source once per clip, opened at its start
@@ -1049,6 +1360,43 @@ export const seekClips = (path: string, clips: Clip[]) =>
  */
 export const CLIPS_PER_PASS = 100;
 
+/**
+ * ffmpeg's `-filter_complex graph`, read from a file in `dir`: 100 clips make
+ * a graph longer than a Windows command line can be (32,767 characters, #202).
+ */
+function graphFile(graph: string, dir: string, name = "graph"): string[] {
+  const file = join(dir, `${name}.txt`);
+  writeFileSync(file, graph);
+  // `-/option file` arrived in ffmpeg 7.0; 6.x (Ubuntu 24.04's) only knows
+  // -filter_complex_script, which newer releases dropped (9.0 has none).
+  return [ffmpegMajor() >= 7 ? "-/filter_complex" : "-filter_complex_script", file];
+}
+
+/**
+ * `effects` checked, and each LUT they read there. On an insert or an
+ * adjustment layer (`picture`), only effects that work on a picture laid
+ * over the cut: a sound effect or interpolate there would do nothing (#257).
+ */
+function checkFx(effects: unknown, what: string, picture = false) {
+  for (const [n, e] of checkEffects(effects, what).entries()) {
+    if (picture && (EFFECTS[e.name]?.kind !== "video" || e.name === "interpolate")) {
+      throw new Error(`${what}[${n}]: ${e.name} works on a clip, not on what's laid over the cut`);
+    }
+    if (typeof e.file === "string") requireFile(e.file, "LUT");
+  }
+}
+
+/** The system ffmpeg's major version, read once; 99 for a git build, which is newer than any release. */
+let major: number | undefined;
+export const ffmpegMajor = () => {
+  major ??= (() => {
+    const r = Bun.spawnSync(["ffmpeg", "-hide_banner", "-version"], { stderr: "ignore" });
+    const n = Number(r.stdout.toString().match(/^ffmpeg version n?(\d+)\./)?.[1]);
+    return Number.isFinite(n) && n > 0 ? n : 99;
+  })();
+  return major;
+};
+
 /** Runs ffmpeg with `args`, throwing its error output if it fails. */
 async function ffmpeg(args: string[], what: string): Promise<void> {
   const proc = Bun.spawn(["ffmpeg", "-nostdin", "-y", "-loglevel", "error", ...args], {
@@ -1060,6 +1408,30 @@ async function ffmpeg(args: string[], what: string): Promise<void> {
 }
 
 /** `file`'s integrated loudness in LUFS, through `filter` first if given. */
+/**
+ * The gain that brings each source among `paths` to `target` LUFS (#265),
+ * measured once a source, kept within 30 dB either way. A source with no
+ * sound, or silence, gets none.
+ */
+export async function levelGains(
+  paths: string[],
+  target: number,
+  measure: (path: string) => Promise<number>,
+): Promise<Map<string, { measured: number; db: number }>> {
+  const out = new Map<string, { measured: number; db: number }>();
+  // ponytail: measured every render; cache by path and mtime if long projects make it slow.
+  for (const path of new Set(paths)) {
+    const measured = await measure(path);
+    // No speech to level (silence, or a card with no sound): boosting it would only raise the hiss.
+    if (!Number.isFinite(measured) || measured < -60) continue;
+    out.set(path, {
+      measured,
+      db: Math.max(-30, Math.min(30, Math.round((target - measured) * 10) / 10)),
+    });
+  }
+  return out;
+}
+
 async function loudness(file: string, filter = ""): Promise<number> {
   const proc = Bun.spawn(
     [
@@ -1070,9 +1442,47 @@ async function loudness(file: string, filter = ""): Promise<number> {
   );
   const said = await new Response(proc.stderr).text();
   if ((await proc.exited) !== 0) throw new Error(`ffmpeg couldn't measure ${file}: ${said.trim()}`);
-  // The summary's "I:" line, the last one in the log.
+  return integrated(said);
+}
+
+/** The integrated loudness in an ebur128 log: its summary's "I:" line, the last one. */
+function integrated(said: string): number {
   const found = [...said.matchAll(/^\s*I:\s+(-?[\d.]+|-inf) LUFS/gm)].at(-1)?.[1];
   return found === undefined || found === "-inf" ? -Infinity : Number(found);
+}
+
+/**
+ * The gain in dB that brings the speech to LUFS before sounds are mixed
+ * under it (#212). Without it, a quiet recording (-31 LUFS is common) never
+ * reaches the duck's threshold, and music at a given volume sits far above
+ * it until `level` raises the whole mix. `input` is ffmpeg's inputs and
+ * `streams` the speech in them, joined in order. 0 for silence.
+ */
+async function speechGain(input: string[], streams: string[]): Promise<number> {
+  if (!streams.length) return 0;
+  // A stream is an input's label ("[0:a]") or a chain ending in its own label.
+  const labels = streams.map((s) => s.match(/\[[^\]]+\]$/)?.[0] ?? s);
+  const chains = streams.filter((s, i) => s !== labels[i]);
+  const graph = [
+    ...chains,
+    `${labels.join("")}concat=n=${streams.length}:v=0:a=1,ebur128=framelog=quiet`,
+  ].join(";");
+  // From a file, as the render's graph is: a hundred clips' chains are longer than a Windows command line.
+  const dir = mkdtempSync(join(tmpdir(), "mockingbird-speech-"));
+  let said: string;
+  try {
+    const proc = Bun.spawn(
+      ["ffmpeg", "-nostdin", "-nostats", ...input, ...graphFile(graph, dir), "-f", "null", "-"],
+      { stderr: "pipe" },
+    );
+    said = await new Response(proc.stderr).text();
+    if ((await proc.exited) !== 0)
+      throw new Error(`ffmpeg couldn't measure the speech: ${said.trim()}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  const lufs = integrated(said);
+  return lufs > -70 ? Math.min(MAX_GAIN, LUFS - lufs) : 0;
 }
 
 /**
@@ -1114,7 +1524,7 @@ async function level(file: string, out: string): Promise<void> {
  */
 async function joinBatches(
   path: string,
-  clips: (Clip & { silent?: boolean })[],
+  clips: Shaped[],
   dir: string,
   look: {
     audio: boolean;
@@ -1130,7 +1540,9 @@ async function joinBatches(
     await ffmpeg(
       [
         ...seekClips(path, batch),
-        ...["-filter_complex", renderGraph(batch, { ...look, whole: true }), "-map", "[v]"],
+        ...graphFile(renderGraph(batch, { ...look, whole: true }), dir),
+        "-map",
+        "[v]",
         ...(look.audio ? ["-map", "[a]", "-c:a", "pcm_f32le"] : []),
         // Encoded once more in the last pass, so near-lossless here.
         ...["-c:v", "libx264", "-crf", "10", "-preset", "veryfast", "-pix_fmt", "yuv420p"],
@@ -1233,7 +1645,7 @@ export async function copyKeys(path: string, fps: number): Promise<number[]> {
  */
 async function copyRender(
   path: string,
-  clips: (Clip & { silent?: boolean })[],
+  clips: Shaped[],
   dir: string,
   unlevelled: string,
   {
@@ -1242,18 +1654,27 @@ async function copyRender(
     fps,
     sounds,
     probes,
+    gain,
   }: {
     audio: boolean;
     size: string;
     fps: number;
     sounds: (Sound & { path: string })[];
     probes: Map<string, Awaited<ReturnType<typeof probe>>>;
+    gain: number;
   },
 ): Promise<boolean> {
   // ponytail: copies from the first source only, so its parameter sets are the only 0s; one per source if mixed edits need it.
   const from = clips[0]?.path ?? path;
   const p = probes.get(from);
-  if (p?.codec !== "h264" || p.pix !== "yuv420p" || p.size !== size || p.fps !== fps) {
+  // An HDR stretch copied as it is would land in an SDR file unconverted.
+  if (
+    p?.codec !== "h264" ||
+    p.pix !== "yuv420p" ||
+    p.transfer ||
+    p.size !== size ||
+    p.fps !== fps
+  ) {
     return false;
   }
   const keys = await copyKeys(from, fps);
@@ -1264,6 +1685,9 @@ async function copyRender(
     (c) => (c.path ?? path) === from && (c.zoom ?? 1) === 1 && !c.moves?.length,
   );
   if (!plan.some((q) => q.copy)) return false;
+  // A copied stretch keeps its source's colour tags, and the file takes the first piece's:
+  // with HDR in the edit, everything is encoded so the file is tagged BT.709.
+  if (clips.some((c) => c.sdr)) return false;
   const at = (q: Piece) => ({ ...q.clip, from: q.a / fps, to: q.b / fps });
   const files: string[] = plan.map((_, i) => `piece-${i}.ts`);
   // The encoded pieces, CLIPS_PER_PASS to an ffmpeg, each starting on a keyframe.
@@ -1282,7 +1706,9 @@ async function copyRender(
         // Decoded in software: a source in the output's codec and size decodes
         // fast anyway, and setting up 100 hardware decoders took longer (#166).
         ...seekClips(path, parts).filter((arg) => arg !== "-hwaccel" && arg !== "auto"),
-        ...["-filter_complex", renderGraph(parts, { audio: false, size, fps }), "-map", "[v]"],
+        ...graphFile(renderGraph(parts, { audio: false, size, fps }), dir),
+        "-map",
+        "[v]",
         ...["-c:v", "libx264", "-crf", "18", "-preset", "veryfast", "-pix_fmt", "yuv420p"],
         ...["-x264-params", "sps-id=1", "-forced-idr", "1"],
         // A quarter frame early: a time a hair past frame s would force the keyframe onto s + 1.
@@ -1352,13 +1778,14 @@ async function copyRender(
     const length = cut.reduce((t, c) => t + c.to - c.from, 0);
     const graph = [
       ...speech,
-      ...mixGraph(sounds, { speech: audio, length, first: cut.length }),
+      ...mixGraph(sounds, { speech: audio, length, first: cut.length, gain }),
     ].join(";");
     await ffmpeg(
       [
         ...seekClips(path, cut),
         ...sounds.flatMap((s) => [...(s.loop ? ["-stream_loop", "-1"] : []), "-i", s.path]),
-        ...["-filter_complex", graph, "-map", "[a]", "-c:a", "pcm_f32le", sound],
+        ...graphFile(graph, dir, "sound"),
+        ...["-map", "[a]", "-c:a", "pcm_f32le", sound],
       ],
       `cut ${path}'s sound`,
     );
@@ -1392,6 +1819,323 @@ async function packets(file: string): Promise<number> {
 /** Files ffmpeg reads as one still picture, which then has to be repeated to last. */
 const STILL = /\.(png|jpe?g|webp|heic|bmp|tiff?)$/i;
 
+/** How long a segment runs before the cache may start another (#165). */
+const SEGMENT_SECONDS = 10;
+
+/**
+ * Where a project's render is cut into cached segments (#165): runs of
+ * clips, as [first, end) indexes. A segment ends at a clip edge once it's
+ * SEGMENT_SECONDS long or CLIPS_PER_PASS clips, but never where a transition
+ * joins two clips or an insert plays across the edge: the insert, a video,
+ * would start over. Captions and texts are still pictures, so each segment
+ * draws its part of one that crosses.
+ */
+export function segments(
+  clips: Clip[],
+  inserts: { from: number; to: number }[],
+): [number, number][] {
+  const { starts } = timeline(clips);
+  const runs: [number, number][] = [];
+  let first = 0;
+  for (let i = 1; i < clips.length; i++) {
+    const t = starts[i] as number;
+    const long = t - (starts[first] as number) >= SEGMENT_SECONDS || i - first >= CLIPS_PER_PASS;
+    // A J or L cut moves the sound's edge off the picture's, and concat would
+    // start the next file's sound after this one's: keep that edge inside a segment.
+    const next = clips[i];
+    const before = clips[i - 1];
+    const moved =
+      (next?.sound && next.sound.from !== next.from) ||
+      (before?.sound && before.sound.to !== before.to);
+    const crossed = next?.transition || moved || inserts.some((s) => s.from < t && s.to > t);
+    if (long && !crossed) {
+      runs.push([first, i]);
+      first = i;
+    }
+  }
+  runs.push([first, clips.length]);
+  return runs;
+}
+
+/** What a file is, for a cache key: a file changed on disk gets a new key. */
+/** Effects with their files (a LUT) stamped, so one edited in place misses the cache. */
+const stampFiles = (effects: Effect[]) =>
+  effects.map((e) => (typeof e.file === "string" ? { ...e, file: stamp(e.file) } : e));
+
+const stamp = (file: string) => {
+  const s = statSync(file);
+  return `${resolve(file)}:${s.size}:${s.mtimeMs}`;
+};
+
+/**
+ * Every file under `dir` that `keep` accepts, by path, size and time, into a
+ * cache key: a page's image in assets/, or lib/harmony.js a generator
+ * imports, changes the key when it changes. Hidden entries (a kit copy being
+ * rendered, a temp file) and node_modules are left out.
+ */
+// ponytail: at most 5,000 files, so a page kept in a big folder can't stall a render; past that the rest go unnoticed.
+function stampFolder(hash: Hash, dir: string, keep: (name: string) => boolean = () => true) {
+  let left = 5000;
+  const walk = (at: string) => {
+    for (const f of readdirSync(at).sort()) {
+      if (left <= 0 || f.startsWith(".") || f === "node_modules") continue;
+      const full = join(at, f);
+      const s = statSync(full);
+      if (s.isDirectory()) walk(full);
+      else if (s.isFile() && keep(f)) {
+        left--;
+        hash.update(`${relative(dir, full)}:${s.size}:${s.mtimeMs}\n`);
+      }
+    }
+  };
+  walk(dir);
+}
+
+/**
+ * The fonts a page draws with, for a cache key: each file's path, size and
+ * time. A pinned font never changes, but a user's can be replaced under the
+ * same name (#276).
+ */
+function fontStamps(fonts: PageFont[]): [string, number, number][] {
+  return fonts.map((f) => {
+    const s = statSync(fileURLToPath(f.url), { throwIfNoEntry: false });
+    return [f.url, s?.size ?? 0, s?.mtimeMs ?? 0];
+  });
+}
+
+/** The engine's own code, so a segment drawn by an older engine isn't used again. */
+// ponytail: the files that build the picture, not everything they import; add any whose change goes unnoticed.
+const ENGINE = createHash("sha256")
+  .update(readFileSync(import.meta.path))
+  .update(readFileSync(join(import.meta.dir, "effects.ts")))
+  .update(readFileSync(Bun.resolveSync("@mockingbird/captions", import.meta.dir)))
+  .digest("hex");
+
+/**
+ * A project's render from segments kept under ~/.mockingbird/cache/segments/
+ * (#165): each run of clips from `segments` is rendered with the captions,
+ * texts and inserts over it, keyed by all of those, the look and the engine,
+ * so an edit renders again only the segments it touches. The segments are
+ * joined without encoding again, then the sounds are mixed and levelled over
+ * the whole video. Undefined, having made nothing, if the captions or texts
+ * can't be drawn as pictures here: render's own way handles those.
+ */
+async function segmented(
+  path: string,
+  clips: Shaped[],
+  {
+    audio,
+    size,
+    fps,
+    split,
+    cues,
+    captionsY,
+    style,
+    texts,
+    inserts,
+    adjust,
+    sounds,
+    out,
+    named,
+    kind,
+    language: spoken,
+  }: {
+    /** The captions' language (a Whisper code), for the shapes Han characters take. */
+    language?: string;
+    audio: boolean;
+    size: string;
+    fps: number;
+    split?: { top: Area; bottom: Area };
+    cues: Cue[];
+    captionsY: number;
+    style: CaptionStyle;
+    texts: Text[];
+    inserts: (Insert & { sdr?: string })[];
+    adjust: { from: number; to: number; effects: Effect[] }[];
+    sounds: (Sound & { path: string })[];
+    out?: string;
+    named: string;
+    kind: string;
+  },
+): Promise<string | undefined> {
+  const dir = mkdtempSync(join(tmpdir(), "mockingbird-segments-"));
+  let target: string | undefined;
+  let made = false;
+  try {
+    const lines = [...cues.map((c) => c.text), ...texts.map((t) => t.text)];
+    const [width, height] = (split ? "1080x1920" : size).split("x").map(Number);
+    const chrome = lines.length ? findChrome() : undefined;
+    const wrap = noNetwork();
+    const fonts = captionFonts(lines, style);
+    const language = spoken ?? spokenLanguage();
+    // Which shapes Han characters take: in the segment key, since it changes what's drawn.
+    const han = hanOrder(language, lines);
+    const images = lines.length
+      ? await drawCaptions(lines, dir, width ?? 1080, height, {
+          chrome,
+          wrap,
+          fonts,
+          language,
+          style,
+        })
+      : [];
+    if (!images) return undefined;
+    const layers = [
+      ...cues.map(({ start, end }) => ({ start, end, y: captionsY })),
+      ...texts.map(({ from, to, y }) => ({ start: from, end: to, y })),
+    ].map((l, i) => ({ ...l, image: images[i] as string, text: lines[i] }));
+    const put = inserts.map(({ from, to, ...rest }) => ({ ...rest, start: from, end: to }));
+    const adjusted = adjust.map(({ from, to, effects }) => ({ start: from, end: to, effects }));
+    const { starts, length } = timeline(clips);
+    const cache = join(mockingbirdHome(), "cache", "segments");
+    mkdirSync(cache, { recursive: true });
+    // A segment never cuts through an insert or an adjustment layer.
+    const runs = segments(clips, [...inserts, ...adjust]);
+    // ponytail: one segment at a time, since each is timed from the ones before; a first render is ~10% slower than one pass. Render the segments with nothing over them in parallel if that matters.
+    const files: string[] = [];
+    let reused = 0;
+    // Where this segment starts in the joined video: concat puts each file after
+    // the ones before by their length, sound included, which rounding to whole
+    // frames leaves a little off the timeline's time.
+    let t0 = 0;
+    for (const [a, b] of runs) {
+      const part = clips.slice(a, b);
+      const t1 = t0 + (b < clips.length ? (starts[b] as number) : length) - (starts[a] as number);
+      // What lies over this segment, timed from its first frame; a frame to spare at its end.
+      const over = <T extends { start: number; end: number }>(xs: T[]) =>
+        xs
+          .filter((x) => x.start < t1 + 1 / fps && x.end > t0)
+          .map((x) => ({ ...x, start: Math.max(0, x.start - t0), end: x.end - t0 }));
+      const laid = over(layers);
+      const shown = over(put);
+      const adjusting = over(adjusted);
+      const key = createHash("sha256")
+        .update(
+          JSON.stringify([
+            ENGINE,
+            audio,
+            size,
+            fps,
+            split ?? null,
+            // A LUT edited in place changes the grade, so effects' files are stamped too.
+            part.map((c) => ({
+              ...c,
+              path: stamp(c.path ?? path),
+              ...(c.effects && { effects: stampFiles(c.effects) }),
+            })),
+            // By its words, not its pixels: Chrome's antialiasing varies a little with the line drawn before.
+            chrome ?? null,
+            // Which fonts are there, and each file's size and time, say what they draw.
+            fontStamps(fonts),
+            han,
+            style,
+            laid.map((l) => [l.start, l.end, l.y, l.text]),
+            shown.map(({ path: f, ...rest }) => ({
+              ...rest,
+              path: stamp(f),
+              ...(rest.effects && { effects: stampFiles(rest.effects) }),
+            })),
+            adjusting.map((a) => ({ ...a, effects: stampFiles(a.effects) })),
+          ]),
+        )
+        .digest("hex")
+        .slice(0, 32);
+      const file = join(cache, `${key}.mkv`);
+      files.push(file);
+      if (existsSync(file)) {
+        reused++;
+        t0 += (await probe(file)).seconds;
+        continue;
+      }
+      // Its own temp name, so two renders of the same segment don't write one file.
+      const tmp = join(cache, `${key}.${process.pid}-${randomUUID()}.part.mkv`);
+      try {
+        await ffmpeg(
+          [
+            ...seekClips(path, part),
+            ...laid.flatMap((l) => ["-i", l.image]),
+            ...shown.flatMap((s) => [...(STILL.test(s.path) ? ["-loop", "1"] : []), "-i", s.path]),
+            ...graphFile(
+              renderGraph(part, {
+                audio,
+                size,
+                fps,
+                split,
+                overlays: laid,
+                inserts: shown,
+                adjust: adjusting,
+                whole: true,
+              }),
+              dir,
+              "segment",
+            ),
+            ...["-map", "[v]", ...(audio ? ["-map", "[a]", "-c:a", "pcm_f32le"] : [])],
+            ...["-c:v", "libx264", "-crf", "18", "-preset", "veryfast", "-pix_fmt", "yuv420p", tmp],
+          ],
+          `render clips ${a + 1}-${b} of ${named}`,
+        );
+        renameSync(tmp, file);
+      } finally {
+        rmSync(tmp, { force: true });
+      }
+      t0 += (await probe(file)).seconds;
+    }
+    const list = join(dir, "segments.txt");
+    writeFileSync(list, files.map((f) => `file '${f.replaceAll("'", "'\\''")}'`).join("\n"));
+    const joined = join(dir, "joined.mkv");
+    await ffmpeg(
+      ["-f", "concat", "-safe", "0", "-i", list, "-c", "copy", joined],
+      `join ${named}'s segments`,
+    );
+    target = outputFor(named, out, false, kind);
+    if (audio || sounds.length) {
+      const unlevelled = join(dir, "unlevelled.mkv");
+      const gain = audio && sounds.length ? await speechGain(["-i", joined], ["[0:a]"]) : 0;
+      const graph = [
+        ...(audio ? ["[0:a]anull[speech]"] : []),
+        ...mixGraph(sounds, { speech: audio, length, first: 1, gain }),
+      ].join(";");
+      await ffmpeg(
+        [
+          "-i",
+          joined,
+          ...sounds.flatMap((s) => [...(s.loop ? ["-stream_loop", "-1"] : []), "-i", s.path]),
+          ...["-filter_complex", graph, "-map", "0:v", "-map", "[a]"],
+          ...["-c:v", "copy", "-c:a", "pcm_f32le", unlevelled],
+        ],
+        `mix ${target}'s sound`,
+      );
+      await level(unlevelled, target);
+    } else {
+      await ffmpeg(
+        ["-i", joined, "-map", "0", "-c", "copy", "-movflags", "+faststart", target],
+        `save ${target}`,
+      );
+    }
+    made = true;
+    const kept = `${reused} of ${runs.length} segments reused`;
+    return `${target} (${fineClock((await probe(target)).seconds * 1000)}), ${kept}${cues.length ? ", captions drawn on the picture" : ""}`;
+  } finally {
+    if (!made && target) rmSync(target, { force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** The pinned fonts for drawing captions: whichever are downloaded. */
+function captionFonts(_lines: string[], _style: CaptionStyle): PageFont[] {
+  return fontFaces();
+}
+
+/**
+ * A warning for render's result when the captions' font isn't downloaded:
+ * they're drawn in a fallback, not refused (#276; degrade, don't break).
+ */
+export function captionFontWarning(captions: string | undefined, style: CaptionStyle): string {
+  if (!captions?.trim() || !findChrome() || fontFaces().some((f) => f.family === style.font))
+    return "";
+  return `. Warning: the captions' font, ${style.font}, isn't downloaded, so they're drawn in a fallback font; run \`mockingbird models pull chrome\``;
+}
+
 /**
  * Cuts `clips` out of a video and joins them into one MP4, optionally 9:16
  * or split, with captions, text, inserts and sounds. The client chooses all
@@ -1403,7 +2147,13 @@ const STILL = /\.(png|jpe?g|webp|heic|bmp|tiff?)$/i;
  * framed to `size` (default the first clip's source) at `fps` (default its
  * rate), so clips from different sources join.
  */
-async function render(
+async function render(...args: Parameters<typeof renderCut>): Promise<string> {
+  const said = await renderCut(...args);
+  const o = args[2] ?? {};
+  return said + captionFontWarning(o.captions, o.captionStyle ?? captionStyle(undefined));
+}
+
+async function renderCut(
   path: string,
   clips: Clip[],
   {
@@ -1412,21 +2162,32 @@ async function render(
     split,
     captions,
     captionsY = CAPTIONS_Y,
+    captionStyle: style = captionStyle(undefined),
     texts = [],
     inserts = [],
+    adjust = [],
     sounds = [],
     out,
     named = path,
     kind = "short",
     draft = false,
+    soundOnly = false,
+    cache = false,
+    language,
   }: {
+    /** The captions' language (a Whisper code): a project's, over the user's setting. */
+    language?: string;
     size?: string;
     fps?: number;
     split?: { top: Area; bottom: Area };
     captions?: string;
     captionsY?: number;
+    /** How the captions and texts look (#276); `classic` if not given. */
+    captionStyle?: CaptionStyle;
     texts?: Text[];
     inserts?: Insert[];
+    /** Adjustment layers (#198): effects on everything under the text, each for its stretch. */
+    adjust?: { from: number; to: number; effects: Effect[] }[];
     sounds?: (Sound & { path: string })[];
     out?: string;
     /** The file the default output is named after and put beside: the source, unless this is render's last pass over joined batches. */
@@ -1435,14 +2196,33 @@ async function render(
     kind?: string;
     /** Half the size, encoded as fast as x264 goes: a preview to check the edit with. */
     draft?: boolean;
+    /** The sound alone, as an .m4a: the picture is built but not encoded (#170). */
+    soundOnly?: boolean;
+    /** A project's: rendered from cached segments, so an edit renders only what it changed (#165). */
+    cache?: boolean;
   },
 ): Promise<string> {
   requireFile(path, "File");
   if (!clips.length) throw new Error("No clips: give at least one { from, to } in seconds.");
-  for (const c of clips) {
+  for (const [i, c] of clips.entries()) {
     if (!(Number.isFinite(c.from) && Number.isFinite(c.to) && c.from >= 0 && c.to > c.from)) {
       throw new Error(`A clip needs 0 <= from < to, in seconds; got ${JSON.stringify(c)}.`);
     }
+    checkFx(c.effects, `clips[${i}].effects`);
+  }
+  for (const [i, t] of inserts.entries()) {
+    if (t.blend !== undefined && !BLENDS.includes(t.blend)) {
+      throw new Error(`inserts[${i}].blend must be one of ${BLENDS.join(", ")}; got ${t.blend}`);
+    }
+    if (t.blend && t.blend !== "normal" && t.box) {
+      throw new Error(`inserts[${i}]: a blend mode covers the whole frame, so it can't have a box`);
+    }
+    checkFx(t.effects, `inserts[${i}].effects`, true);
+  }
+  for (const [i, a] of adjust.entries()) {
+    if (!(a.to > a.from)) throw new Error(`adjust[${i}] needs from < to`);
+    if (!a.effects.length) throw new Error(`adjust[${i}] needs effects`);
+    checkFx(a.effects, `adjust[${i}].effects`, true);
   }
   const files = [...new Set([path, ...clips.map((c) => c.path ?? path)])];
   for (const file of [...files, ...inserts.map((i) => i.path), ...sounds.map((s) => s.path)]) {
@@ -1470,10 +2250,78 @@ async function render(
   }
   // The whole cut has sound if any clip does; a clip without fills its stretch with silence.
   const audio = clips.some((c) => of(c).audio);
-  const shaped = clips.map((c) => ({ ...c, silent: audio && !of(c).audio }));
+  // An HDR source is brought to SDR first, or it comes out flat and grey (#252). The
+  // SDR clips beside one are labelled BT.709 to match, or an untagged clip first (or
+  // a segment of only SDR clips) leaves the whole file untagged.
+  const hdr = clips.some((c) => of(c).transfer);
+  const shaped = clips.map((c) => ({
+    ...c,
+    silent: audio && !of(c).audio,
+    sdr: toSdrFor(of(c).transfer) ?? (hdr ? BT709 : undefined),
+  }));
+  // A subject mask is made before the graph: MODNet runs outside ffmpeg (#260).
+  const subject = (e: Effect) => (e.mask as Mask | undefined)?.shape === "subject";
+  // Said before any mask is made, which can take minutes.
+  for (const fx of [...adjust.map((a) => a.effects), ...inserts.map((i) => i.effects ?? [])]) {
+    if (fx.some(subject)) {
+      throw new Error("A subject mask goes on a clip's effects, not a layer or insert's.");
+    }
+  }
+  // A sound-only pass never draws the picture.
+  for (const c of soundOnly ? [] : shaped) {
+    if (!c.effects?.some(subject)) continue;
+    const from = of(c);
+    const file = await subjectMask(
+      {
+        ...{ path: c.path ?? path, from: c.from, to: c.to, size: from.size, fps: from.fps },
+        prefix: `${c.sdr ? `${c.sdr},` : ""}${SQUARE},`,
+        home: mockingbirdHome(),
+      },
+      (m) => console.error(m),
+    );
+    c.effects = c.effects.map((e) =>
+      subject(e) ? { ...e, mask: { ...(e.mask as Mask), file, size: from.size } } : e,
+    );
+  }
+  // HDR b-roll too: a video insert is probed for its transfer, a still has none.
+  const placed = await Promise.all(
+    inserts.map(async (i) =>
+      STILL.test(i.path) ? i : { ...i, sdr: toSdrFor((await probe(i.path)).transfer) },
+    ),
+  );
   // A split takes its areas from one picture, so its clips are brought to the first's size.
   const frameSize = split ? source.size : (size ?? source.size);
   const rate = fps ?? source.fps;
+  const bare =
+    !soundOnly &&
+    !captions?.trim() &&
+    !texts.length &&
+    !split &&
+    !draft &&
+    !inserts.length &&
+    !adjust.length &&
+    clips.every((c) => !c.transition && !c.sound && (c.speed ?? 1) === 1 && !c.effects?.length);
+  // Nothing drawn and every clip as recorded: copying (#166) beats encoding segments to cache.
+  if (cache && !draft && !soundOnly && !bare) {
+    const made = await segmented(path, shaped, {
+      audio,
+      size: frameSize,
+      fps: rate,
+      split,
+      cues: captions?.trim() ? parseSrt(captions.trim()) : [],
+      captionsY,
+      style,
+      texts,
+      inserts: placed,
+      adjust,
+      sounds,
+      out,
+      named,
+      kind,
+      language,
+    });
+    if (made) return made;
+  }
   if (clips.length > CLIPS_PER_PASS) {
     // ponytail: a transition can't cross two batches; join batches with xfade if long edits need them.
     if (clips.some((c, i) => i > 0 && c.transition)) {
@@ -1488,16 +2336,20 @@ async function render(
       // Its own length, which rounding to whole frames can leave a hair short of the clips'.
       const { seconds } = await probe(joined);
       // Framed and split already; this pass lays everything else over it.
-      return await render(joined, [{ from: 0, to: seconds }], {
+      return await renderCut(joined, [{ from: 0, to: seconds }], {
         captions,
         captionsY,
+        captionStyle: style,
         texts,
         inserts,
+        adjust,
         sounds,
         out,
         named,
         kind,
         draft,
+        soundOnly,
+        language,
       });
     } finally {
       rmSync(batches, { recursive: true, force: true });
@@ -1515,18 +2367,32 @@ async function render(
     const [width, height] = (split ? "1080x1920" : frameSize).split("x").map(Number);
     // Drawn in the pinned Chrome, started under the no-network sandbox where there is one (#157).
     const chrome = lines.length ? findChrome() : undefined;
+    const wrap = noNetwork();
     const images = chrome
       ? await drawCaptions(lines, dir, width ?? 1080, height, {
           chrome,
-          wrap: noNetwork(),
-          fonts: fontFaces(),
+          wrap,
+          fonts: captionFonts(lines, style),
+          language: language ?? spokenLanguage(),
+          style,
         })
       : undefined;
     const burn = !!text && !images && (await canBurn());
     sidecar = !!text && !images && !burn;
-    target = outputFor(named, out, sidecar, kind);
+    target = outputFor(named, out, sidecar, kind, soundOnly ? ".m4a" : ".mp4");
     const srt = text && !images ? join(dir, CAPTIONS) : undefined;
     if (srt) writeFileSync(srt, `${text}\n`);
+    const gain =
+      audio && sounds.length
+        ? await speechGain(
+            seekClips(path, clips),
+            shaped.flatMap((c, i) => {
+              if (c.silent) return [];
+              const ctx = { width: 1, height: 1, fps: rate, length: lengthOf(c) };
+              return [`${soundOf(c, i, ctx)}[m${i}]`];
+            }),
+          )
+        : 0;
     const graph = renderGraph(shaped, {
       audio,
       size: frameSize,
@@ -1538,8 +2404,10 @@ async function render(
         ...cues.map(({ start, end }) => ({ start, end, y: captionsY })),
         ...texts.map(({ from, to, y }) => ({ start: from, end: to, y })),
       ],
-      inserts: inserts.map(({ from, to }) => ({ start: from, end: to })),
+      inserts: placed.map(({ from, to, path: _, ...look }) => ({ start: from, end: to, ...look })),
+      adjust: adjust.map(({ from, to, effects }) => ({ start: from, end: to, effects })),
       sounds,
+      gain,
     });
     const extras = [
       ...(images ?? []).flatMap((image) => ["-i", image]),
@@ -1547,26 +2415,24 @@ async function render(
       ...sounds.flatMap((s) => [...(s.loop ? ["-stream_loop", "-1"] : []), "-i", s.path]),
     ];
     const hasSound = audio || sounds.length > 0;
+    if (soundOnly && !hasSound) throw new Error("This edit has no sound to render on its own.");
     const unlevelled = join(dir, "unlevelled.mkv");
     // Nothing drawn over the picture, no split, and every clip played as it
     // was recorded: the stretches already in the output's codec, size and rate
     // can be copied (#166). If copying fails, the whole picture is encoded.
-    const plain =
-      !lines.length &&
-      !burn &&
-      !sidecar &&
-      !split &&
-      !draft &&
-      !inserts.length &&
-      clips.every((c) => !c.transition && !c.sound && (c.speed ?? 1) === 1);
+    // The sound alone still runs the picture's graph, into ffmpeg's null output: unencoded, it costs little.
+    const picture = soundOnly
+      ? ["-map", "[a]", "-c:a", "pcm_f32le", unlevelled, "-map", "[v]", "-f", "null", "-"]
+      : undefined;
     const copied =
-      plain &&
+      bare &&
       (await copyRender(path, shaped, dir, unlevelled, {
         audio,
         size: frameSize,
         fps: rate,
         sounds,
         probes,
+        gain,
       }).catch(() => false));
     if (!copied) {
       const proc = Bun.spawn(
@@ -1576,22 +2442,25 @@ async function render(
           ...extras,
           ...(sidecar ? ["-i", CAPTIONS] : []),
           // A draft is the finished picture at half the size, captions and all.
-          ...(draft
-            ? ["-filter_complex", `${graph};[v]scale=trunc(iw/4)*2:trunc(ih/4)*2,setsar=1[small]`]
-            : ["-filter_complex", graph]),
-          ...["-map", draft ? "[small]" : "[v]"],
-          // Uncompressed until `level` sets the volume, and in floating point:
-          // music and effects mixed over speech can go past full scale, which
-          // 16-bit samples would clip before the limiter could hold it.
-          ...(hasSound ? ["-map", "[a]", "-c:a", "pcm_f32le"] : []),
-          // The subtitle file is the input after the clips and the extras.
-          ...(sidecar
-            ? ["-map", `${clips.length + extras.filter((a) => a === "-i").length}:s`]
-            : []),
-          ...(sidecar ? ["-c:s", "srt"] : []),
-          ...["-c:v", "libx264", "-crf", draft ? "23" : "18"],
-          ...["-preset", draft ? "ultrafast" : "veryfast", "-pix_fmt", "yuv420p"],
-          unlevelled,
+          // The sound alone maps [v] to the null output, so it's never scaled.
+          ...(draft && !soundOnly
+            ? graphFile(`${graph};[v]scale=trunc(iw/4)*2:trunc(ih/4)*2,setsar=1[small]`, dir)
+            : graphFile(graph, dir)),
+          ...(picture ?? [
+            ...["-map", draft ? "[small]" : "[v]"],
+            // Uncompressed until `level` sets the volume, and in floating point:
+            // music and effects mixed over speech can go past full scale, which
+            // 16-bit samples would clip before the limiter could hold it.
+            ...(hasSound ? ["-map", "[a]", "-c:a", "pcm_f32le"] : []),
+            // The subtitle file is the input after the clips and the extras.
+            ...(sidecar
+              ? ["-map", `${clips.length + extras.filter((a) => a === "-i").length}:s`]
+              : []),
+            ...(sidecar ? ["-c:s", "srt"] : []),
+            ...["-c:v", "libx264", "-crf", draft ? "23" : "18"],
+            ...["-preset", draft ? "ultrafast" : "veryfast", "-pix_fmt", "yuv420p"],
+            unlevelled,
+          ]),
         ],
         { cwd: dir, stderr: "pipe" },
       );
@@ -1697,6 +2566,50 @@ function needChrome(): string {
   );
 }
 
+/** The motion kit, as the URL a page imports it from. */
+export const KIT_URL = pathToFileURL(join(PLUGIN, "skills", "motion-graphics", "kit.js")).href;
+/** The explainer styles (whiteboard, comic and the rest), as the URL a page imports them from. */
+export const STYLES_URL = pathToFileURL(
+  join(PLUGIN, "skills", "motion-graphics", "styles.js"),
+).href;
+/** three.js, pinned and shipped with the plugin, as the URL a page imports it from (#270). */
+export const THREE_URL = pathToFileURL(
+  join(PLUGIN, "skills", "motion-graphics", "vendor", "three.module.min.js"),
+).href;
+/** three.js's add-ons for light and post-processing (#275): RoomEnvironment, EffectComposer, bloom, depth of field. */
+export const THREE_ADDONS_URL = pathToFileURL(
+  join(PLUGIN, "skills", "motion-graphics", "vendor", "three-addons.min.js"),
+).href;
+/** What a page can import by name, and where each one is. */
+const NAMED = {
+  KIT: KIT_URL,
+  STYLES: STYLES_URL,
+  THREE: THREE_URL,
+  THREE_ADDONS: THREE_ADDONS_URL,
+};
+
+/**
+ * A template imports the kit `from "KIT"`, and motion fills it in (#213): an
+ * agent replacing it by hand hit the template's comment first, and a Windows
+ * path isn't a URL. The filled-in copy goes beside the page, so the page's own
+ * files are where it says. `from "STYLES"`, `from "THREE"` and
+ * `from "THREE_ADDONS"` are filled in the same way. Returns the page to load: `script` itself when it imports none.
+ */
+export function withKit(script: string): string {
+  const html = readFileSync(script, "utf8");
+  const used = Object.entries(NAMED).filter(([name]) => html.includes(`from "${name}"`));
+  if (!used.length) return script;
+  const copy = join(dirname(script), `.${basename(script)}.${process.pid}-${Date.now()}.html`);
+  writeFileSync(
+    copy,
+    used.reduce(
+      (page, [name, url]) => page.replaceAll(`from "${name}"`, `from ${JSON.stringify(url)}`),
+      html,
+    ),
+  );
+  return copy;
+}
+
 /**
  * Renders `script`, an HTML page, in Chrome, over the video at `path` or on
  * its own at `size` for `duration` seconds, and saves the result. It runs in its own
@@ -1711,6 +2624,7 @@ async function motion(
     fps = 30,
     captions,
     out,
+    gpu,
   }: {
     path?: string;
     size?: string;
@@ -1718,6 +2632,8 @@ async function motion(
     fps?: number;
     captions?: string;
     out?: string;
+    /** Draw on the GPU; by default, when the page imports "THREE". */
+    gpu?: boolean;
   },
 ): Promise<string> {
   requireFile(script, "Script");
@@ -1731,12 +2647,15 @@ async function motion(
   let seconds = duration;
   let audio = false;
   let picture = size;
+  let videoFilters: string | undefined;
   if (path) {
     const source = await probe(path);
     if (!source.video) throw new Error(`${path} has no video, only audio.`);
     picture = source.size;
     audio = source.audio;
     seconds = Math.min(duration ?? source.seconds, source.seconds);
+    // An HDR video is brought to SDR before the page sees it or it's drawn under (#252).
+    videoFilters = toSdrFor(source.transfer);
   }
   const [width = 0, height = 0] = picture.split("x").map(Number);
   if (
@@ -1756,8 +2675,9 @@ async function motion(
   }
   const target = outputFor(path ?? script, out, false, "motion");
   const started = performance.now();
+  const page = withKit(script);
   const options = {
-    script,
+    script: page,
     chrome,
     out: target,
     width,
@@ -1768,6 +2688,9 @@ async function motion(
     audio,
     cues: captions?.trim() ? parseSrt(captions) : [],
     fonts: fontFaces(),
+    videoFilters,
+    // A three.js page draws on the GPU; 2D pages keep software rendering's exact pixels (#270).
+    gpu: gpu ?? /from "THREE(_ADDONS)?"/.test(readFileSync(script, "utf8")),
   };
   let said: string;
   try {
@@ -1775,17 +2698,23 @@ async function motion(
   } catch (error) {
     rmSync(target, { force: true });
     throw error;
+  } finally {
+    if (page !== script) rmSync(page, { force: true });
   }
   let frames = 0;
+  let warnings: string[] = [];
+  let fonts: unknown = [];
   let work: string | undefined;
   try {
     // The runner's last line; a script's own console.log comes before it. A
     // script that exits early leaves none, and the claimed target goes with the error.
-    let result: { frames?: unknown; sounds?: unknown } = {};
+    let result: { frames?: unknown; sounds?: unknown; warnings?: unknown; fonts?: unknown } = {};
     try {
       result = JSON.parse(said.trim().split("\n").at(-1) || "{}") ?? {};
     } catch {}
     frames = Number(result.frames);
+    warnings = Array.isArray(result.warnings) ? result.warnings.map(String) : [];
+    fonts = result.fonts;
     if (!Number.isInteger(frames) || frames < 1) {
       throw new Error("the motion script stopped without drawing; did it call process.exit?");
     }
@@ -1803,9 +2732,10 @@ async function motion(
       work = mkdtempSync(join(dirname(target), ".mockingbird-mix-"));
       const mixing = join(work, "mix.mkv");
       const levelled = join(work, "levelled.mp4");
+      const gain = audio ? await speechGain(["-i", target], ["[0:a]"]) : 0;
       const graph = [
         ...(audio ? ["[0:a]anull[speech]"] : []),
-        ...mixGraph(sounds, { speech: audio, length: frames / fps, first: 1 }),
+        ...mixGraph(sounds, { speech: audio, length: frames / fps, first: 1, gain }),
       ].join(";");
       const mix = Bun.spawn(
         [
@@ -1832,7 +2762,213 @@ async function motion(
     if (work) rmSync(work, { recursive: true, force: true });
   }
   const took = ((performance.now() - started) / 1000).toFixed(1);
-  return `${target} (${clock((frames / fps) * 1000)}, ${width}x${height}, ${fps} fps), drawn in ${took} s`;
+  // Which fonts drew its text, so a substitution can't hide, and any it lacked (#276).
+  const families = Array.isArray(fonts) && fonts.length ? `; fonts: ${fonts.join(", ")}` : "";
+  const warned = warnings.length ? `. Warning: ${warnings.join(" ")}` : "";
+  return `${target} (${clock((frames / fps) * 1000)}, ${width}x${height}, ${fps} fps), drawn in ${took} s${families}${warned}`;
+}
+
+const MOTION = join(PLUGIN, "skills", "motion-graphics");
+/** The page a look board renders: templates/look-board.html. */
+export const LOOK_BOARD = join(MOTION, "templates", "look-board.html");
+
+/** Words from the video for the look board: a title, up to three short labels, and a number. */
+export type Board = {
+  title: string;
+  points: string[];
+  stat?: { value: number; unit?: string; label?: string };
+};
+
+/** A build message with its place: `file:line:column: message`, then the line. */
+function where(log: unknown): string {
+  const { message, position: p } = log as {
+    message?: string;
+    position?: { file: string; line: number; column: number; lineText: string } | null;
+  };
+  if (!p) return String(message ?? log);
+  return `${p.file}:${p.line}:${p.column}: ${message}\n  ${p.lineText.trim()}`;
+}
+
+/**
+ * Builds the look the agent wrote at `file` (TypeScript or JavaScript) into
+ * one module, `out` (`<name>.look.js` beside it by default), that a page
+ * imports. "STYLES", "KIT" and "THREE" stay imports of the plugin's built
+ * files by their file URLs, so the module holds only the look itself. A
+ * mistake comes back with its line. Returns the module's path.
+ */
+export async function buildLook(
+  file: string,
+  out = join(dirname(file), `${basename(file, extname(file))}.look.js`),
+): Promise<string> {
+  requireFile(file, "Look");
+  if (!/\.(ts|js|mjs)$/i.test(file)) {
+    throw new Error(`A look is a .ts or .js module; ${file} isn't one.`);
+  }
+  let built: Awaited<ReturnType<typeof Bun.build>>;
+  try {
+    built = await Bun.build({
+      entrypoints: [file],
+      target: "browser",
+      format: "esm",
+      plugins: [
+        {
+          name: "mockingbird-look",
+          setup(b) {
+            // The plugin's built files, imported by their file URLs, not bundled:
+            // the kit finds its sounds and grain beside itself (a bundled copy
+            // would look beside the look), and a page that imports STYLES too
+            // loads one copy of the styles, not two (#263).
+            const external = (path: string) => () => ({ path, external: true });
+            b.onResolve({ filter: /^KIT$|[\\/]kit\.ts$/ }, external(KIT_URL));
+            b.onResolve({ filter: /^STYLES$/ }, external(STYLES_URL));
+            b.onResolve({ filter: /^THREE$/ }, external(THREE_URL));
+          },
+        },
+      ],
+    });
+  } catch (error) {
+    const logs = (error as { errors?: unknown[] }).errors;
+    throw new Error(
+      `The look at ${file} doesn't build:\n${logs?.length ? logs.map(where).join("\n") : String(error)}`,
+    );
+  }
+  const [module] = built.outputs;
+  if (!built.success || !module) {
+    throw new Error(`The look at ${file} doesn't build:\n${built.logs.map(where).join("\n")}`);
+  }
+  writeFileSync(out, await module.text());
+  return out;
+}
+
+/** `v` as board words, or an error naming what's wrong. */
+export function boardFrom(v: unknown): Board {
+  const o = (v ?? {}) as Record<string, unknown>;
+  if (typeof o !== "object" || Array.isArray(o)) throw new Error("board must be an object");
+  const short = (s: unknown, what: string, max: number) => {
+    if (typeof s !== "string" || !s.trim()) throw new Error(`${what} must be some words`);
+    const t = s.trim();
+    if (t.length > max) throw new Error(`${what} is ${t.length} characters; keep it to ${max}`);
+    return t;
+  };
+  const points = o.points ?? [];
+  if (!Array.isArray(points) || points.length > 3) {
+    throw new Error("board.points must be a list of up to three labels");
+  }
+  // null is no stat, as a client leaving it out often sends it.
+  const stat = (o.stat ?? undefined) as Record<string, unknown> | undefined;
+  if (stat !== undefined && (typeof stat !== "object" || Array.isArray(stat))) {
+    throw new Error("board.stat must be { value, unit?, label? }");
+  }
+  return {
+    title: o.title === undefined ? "Your video" : short(o.title, "board.title", 60),
+    points: points.map((p, i) => short(p, `board.points[${i}]`, 24)),
+    stat:
+      stat === undefined
+        ? undefined
+        : {
+            value: within(stat.value, -1e9, 1e9, "board.stat.value"),
+            unit: stat.unit === undefined ? undefined : short(stat.unit, "board.stat.unit", 4),
+            label: stat.label === undefined ? undefined : short(stat.label, "board.stat.label", 24),
+          },
+  };
+}
+
+/**
+ * `out`, or `<look>-board-N.mp4` beside the look with the first N whose clip
+ * and contact sheet are both free. The sheet is claimed here; the clip is
+ * left for `motion` to claim.
+ */
+function boardTarget(file: string, out: string | undefined): { clip: string; sheet: string } {
+  const sheetOf = (clip: string) => `${clip.replace(/\.mp4$/i, "")}-sheet.jpg`;
+  if (out) {
+    const sheet = sheetOf(out);
+    if (existsSync(out) || !claim(sheet)) {
+      throw new Error(`${out} or its sheet ${sheet} already exists; give another \`out\`.`);
+    }
+    return { clip: out, sheet };
+  }
+  const base = join(dirname(file), basename(file, extname(file)));
+  for (let n = 1; ; n++) {
+    const clip = `${base}-board-${n}.mp4`;
+    if (!existsSync(clip) && claim(sheetOf(clip))) return { clip, sheet: sheetOf(clip) };
+  }
+}
+
+/**
+ * Shows a look before editing starts (#262): builds it, draws it, and saves
+ * the clip and a contact sheet of twelve stills beside the look, for the user
+ * to approve or send back. With `page`, the agent's own board (a page that
+ * imports the look `from "LOOK"`, drawn from the video's content) is drawn,
+ * over `path` if given; without, a generic storyboard of `board`'s words.
+ */
+async function lookBoard(
+  file: string,
+  board: Board,
+  {
+    size = "1920x1080",
+    duration = 8.5,
+    out,
+    page: own,
+    path,
+  }: { size?: string; duration?: number; out?: string; page?: string; path?: string },
+): Promise<string> {
+  if (own) requireFile(own, "Board page");
+  if (path) requireFile(path, "File");
+  // Claimed before anything is written, so a taken `out` leaves nothing behind.
+  const { clip: target, sheet } = boardTarget(file, out);
+  // This board's own build, so a rebuild running alongside can't swap it out;
+  // the stable <name>.look.js beside it is what the edit's pages import.
+  const stamp = `${process.pid}-${randomUUID()}`;
+  const mine = join(dirname(file), `.${basename(file)}.${stamp}.look.js`);
+  const module = join(dirname(file), `${basename(file, extname(file))}.look.js`);
+  const template = own ?? LOOK_BOARD;
+  const page = join(dirname(own ?? file), `.${basename(template)}.board-${stamp}.html`);
+  let drawn: string;
+  try {
+    await buildLook(file, mine);
+    const url = JSON.stringify(pathToFileURL(mine).href);
+    // Inline as data, never as code: "<" escaped so a title can't close the script,
+    // and given through callbacks so "$&" in it isn't a replacement pattern.
+    const words = JSON.stringify(board).replace(/</g, "\\u003c");
+    writeFileSync(
+      page,
+      readFileSync(template, "utf8")
+        .replaceAll('from "LOOK"', () => `from ${url}`)
+        .replaceAll('const BOARD = "BOARD";', () => `const BOARD = ${words};`),
+    );
+    // A 3D look draws on the GPU, as a page that imports THREE does.
+    const gpu = readFileSync(file, "utf8").includes('from "THREE"');
+    drawn = await motion(
+      page,
+      path ? { path, duration, out: target, gpu } : { size, duration, out: target, gpu },
+    );
+    // Twelve stills over the clip as drawn: over a shorter `path`, it's shorter than `duration`.
+    const length = (await probe(target)).seconds || duration;
+    await ffmpeg(
+      ["-i", target, "-vf", `fps=12/${length},scale=480:-2,tile=4x3`, "-frames:v", "1", sheet],
+      "make the contact sheet",
+    );
+    // Only a look that drew becomes the one the edit's pages import, swapped in
+    // whole so a render reading it never sees half a file.
+    const swap = `${module}.${stamp}.tmp`;
+    copyFileSync(mine, swap);
+    renameSync(swap, module);
+  } catch (error) {
+    rmSync(sheet, { force: true });
+    rmSync(target, { force: true });
+    throw error;
+  } finally {
+    rmSync(page, { force: true });
+    rmSync(mine, { force: true });
+  }
+  const pageUrl = JSON.stringify(pathToFileURL(module).href);
+  return [
+    `Look board: ${drawn}`,
+    `Stills: ${sheet}`,
+    `Built look: ${module}. A page imports it with \`import look from ${pageUrl}\` and draws with look.make(ctx, t, m).`,
+    'Now show the user the stills and the clip, and ask them, word for word: "Should I edit with this look, or what should change?" Don\'t start editing until they say yes.',
+    "When they do, save it in the project with edit's set { look: { file, mood, approved: true } }. If they say to skip the look, set { look: { skipped: true } }.",
+  ].join("\n");
 }
 
 /**
@@ -1847,23 +2983,28 @@ async function clipWords(
   choice: ModelChoice = {},
 ) {
   const words: AsrWord[][] = clips.map(() => []);
-  // The first clip's source, loaded once: the language is detected from that
-  // clip (what's captioned first), and the loop below reuses the file.
-  const opening = clips[0];
-  const openingSource = opening ? (opening.path ?? path) : undefined;
-  let loaded: { source: string; file: PcmAudio } | undefined;
-  let sample: PcmAudio = { sampleRate: 16_000, samples: new Int16Array(0) };
-  if (opening && openingSource && (await probe(requireFile(openingSource, "File"))).audio) {
-    const file = await loadAudio(openingSource);
-    loaded = { source: openingSource, file };
-    const rate = file.sampleRate;
-    sample = {
-      sampleRate: rate,
-      samples: file.samples.subarray(
-        Math.round(opening.from * rate),
-        Math.round(opening.to * rate),
-      ),
-    };
+  // The language is detected from the opening clips (what's captioned
+  // first), up to a minute of them, so an opening on a silent clip still
+  // reaches speech. Only those seconds are decoded, never a whole recording.
+  const pieces: Int16Array[] = [];
+  let left = 60; // seconds
+  for (const c of clips) {
+    if (left <= 0) break;
+    const source = c.path ?? path;
+    if (!(await probe(requireFile(source, "File"))).audio) continue;
+    const seconds = Math.min(c.to - c.from, left);
+    pieces.push((await loadAudio(source, { from: c.from, to: c.from + seconds })).samples);
+    left -= seconds;
+  }
+  // loadAudio gives 16 kHz mono, so the pieces join as they are.
+  const sample: PcmAudio = {
+    sampleRate: 16_000,
+    samples: new Int16Array(pieces.reduce((n, p) => n + p.length, 0)),
+  };
+  let at = 0;
+  for (const p of pieces) {
+    sample.samples.set(p, at);
+    at += p.length;
   }
   // A whisper-server per call, since two requests can run at once.
   const { engines, language } = await enginesFor(sample, choice, log);
@@ -1872,7 +3013,7 @@ async function clipWords(
     for (const source of new Set(clips.map((c) => c.path ?? path))) {
       const mine = clips.flatMap((c, i) => ((c.path ?? path) === source ? [{ c, i }] : []));
       if (!(await probe(requireFile(source, "File"))).audio) continue;
-      const file = loaded?.source === source ? loaded.file : await loadAudio(source);
+      const file = await loadAudio(source);
       const rate = file.sampleRate;
       const stretches = spans(mine.map(({ c }) => c));
       const heard: AsrWord[][] = [];
@@ -2024,8 +3165,12 @@ export function align(words: (Word & { at?: [number, number] })[], gaps: Span[])
   });
 }
 
-/** A source's words and silences as heard so far, and the stretches they cover. */
-type Heard = { covered: Span[]; words: Word[]; gaps: Span[] };
+/**
+ * A source's words and silences as heard so far, and the stretches they
+ * cover. `language` is the one detected for it on auto, and `model` the one
+ * that heard it, kept so every later stretch is heard the same way.
+ */
+type Heard = { covered: Span[]; words: Word[]; gaps: Span[]; language?: string; model?: string };
 
 /**
  * The silences in `source` from `from` to `to` seconds: 80 ms or more under
@@ -2075,71 +3220,139 @@ function heardFile(source: string, model: string, language: string): string {
   return join(mockingbirdHome(), "cache", "words", `${key}.json`);
 }
 
+/** The cache file each call is filling now: a second call for it waits (#235). */
+const filling = new Map<string, Promise<unknown>>();
+
+/** `fn` once no other call in this process is filling `file`. */
+async function serially<T>(file: string, fn: () => Promise<T>): Promise<T> {
+  const run = (filling.get(file) ?? Promise.resolve()).catch(() => {}).then(fn);
+  filling.set(file, run);
+  try {
+    return await run;
+  } finally {
+    if (filling.get(file) === run) filling.delete(file);
+  }
+}
+
 /**
  * Each source's words and silences over the stretches asked for (absolute
  * paths), heard once and kept, so a later call hears only what no call
- * before it did. A new stretch is heard with 2 s either side, as captions
- * are, and keeps the words whose middle is in it. Names are fixed from the
- * dictionary as the words are read, so a word added to the dictionary later
- * still applies.
+ * before it did. A new stretch is decoded and heard with 2 s either side, as
+ * captions are, and keeps the words whose middle is in it. Names are fixed
+ * from the dictionary as the words are read, so a word added to the
+ * dictionary later still applies. `choice` is the project's transcription;
+ * with the language on auto it's detected from the first stretch heard, as
+ * `transcribe` does.
+ * ponytail: calls are serialised per cache file in this process only; two
+ * engine processes filling one file at once keep the last one's words.
  */
 export async function sourceWords(
   sources: Map<string, Span[]>,
   log: (m: string) => void,
+  choice: ModelChoice = {},
 ): Promise<Map<string, { words: Word[]; gaps: Span[] }>> {
-  const { whisperModel, language } = asrChoice(log);
-  const spell = speller(log, language);
+  checkChoice(choice);
+  // The cache file for `source` under the settings as they are now: the model
+  // and language, and on auto the language map detection picks the model from.
+  const settings = (say = log) => asrChoice(say, choiceEnv(choice, process.env));
+  const { language } = settings();
+  const keyFor = (source: string) => {
+    const { whisperModel, language: l } = settings(() => {});
+    return heardFile(
+      source,
+      whisperModel,
+      l === "auto" ? `auto ${JSON.stringify(languageModels())}` : l,
+    );
+  };
   const out = new Map<string, { words: Word[]; gaps: Span[] }>();
   let engines: Engines | undefined;
   try {
     for (const [source, spans] of sources) {
-      const file = heardFile(requireFile(source, "File"), whisperModel, language);
-      let heard: Heard = { covered: [], words: [], gaps: [] };
-      try {
-        heard = JSON.parse(readFileSync(file, "utf8"));
-      } catch {
-        // Not heard yet, or a file from a crash: hear it again.
-      }
-      // Stretches less than 4 s apart are heard as one: their padding would overlap anyway.
-      const todo = union(uncovered(spans, heard.covered), 4);
-      if (todo.length) {
-        if ((await probe(source)).audio) {
-          const audio = await loadAudio(source);
-          const rate = audio.sampleRate;
-          engines ??= await startEngines(log, undefined, undefined, { dtw: true });
-          const before = heard.covered;
-          const fresh = (middle: number, s: Span) =>
-            middle >= s.from &&
-            middle < s.to &&
-            !before.some((c) => middle >= c.from && middle < c.to);
-          for (const s of todo) {
-            // Silences either side too, for a cut at the stretch's edge to land in.
-            const around = { from: Math.max(0, s.from - 2), to: s.to + 2 };
-            heard.gaps = union([...heard.gaps, ...(await silences(source, around))]);
-            const first = Math.max(0, Math.round((s.from - 2) * rate));
-            const last = Math.min(audio.samples.length, Math.round((s.to + 2) * rate));
-            const piece = { sampleRate: rate, samples: audio.samples.subarray(first, last) };
-            const placed: (Word & { at?: [number, number] })[] = [];
-            for await (const c of hear(piece, (first / rate) * 1000, engines)) {
-              for (const w of timedWords(c.heard, c.offsetMs)) {
-                const at: [number, number] | undefined =
-                  w.atMs === undefined ? undefined : [w.atMs / 1000, (w.atEndMs ?? w.atMs) / 1000];
-                placed.push({ word: w.word, start: w.startMs / 1000, end: w.endMs / 1000, at });
-              }
-            }
-            // A word belongs to the stretch its middle is in: by its DTW points where it has them.
-            for (const w of align(placed, heard.gaps)) {
-              if (fresh((w.start + w.end) / 2, s)) heard.words.push(w);
+      const file = keyFor(requireFile(source, "File"));
+      const heard = await serially(file, async () => {
+        let heard: Heard = { covered: [], words: [], gaps: [] };
+        try {
+          heard = JSON.parse(readFileSync(file, "utf8"));
+        } catch {
+          // Not heard yet, or a file from a crash: hear it again.
+        }
+        // Stretches less than 4 s apart are heard as one: their padding would overlap anyway.
+        const todo = union(uncovered(spans, heard.covered), 4);
+        if (!todo.length) return heard;
+        // On auto, each source is detected on its own, once: the language heard
+        // first is kept with its words, and later stretches are held to it.
+        let mine: Engines | undefined;
+        const enginesHere = async (piece: PcmAudio) => {
+          if (language !== "auto") {
+            engines ??= (await enginesFor(piece, choice, log, process.env, { dtw: true })).engines;
+            return engines;
+          }
+          if (!mine) {
+            // The model detection chose comes back with the language: an
+            // English-only global model can't hear the Italian it found (#282).
+            const held = heard.language
+              ? { model: choice.model ?? heard.model, language: heard.language }
+              : choice;
+            const picked = await enginesFor(piece, held, log, process.env, { dtw: true });
+            mine = picked.engines;
+            if (picked.language !== "auto") {
+              heard.language = picked.language;
+              heard.model = picked.model;
             }
           }
+          return mine;
+        };
+        try {
+          if ((await probe(source)).audio) {
+            const before = heard.covered;
+            const fresh = (middle: number, s: Span) =>
+              middle >= s.from &&
+              middle < s.to &&
+              !before.some((c) => middle >= c.from && middle < c.to);
+            for (const s of todo) {
+              // Silences either side too, for a cut at the stretch's edge to land in.
+              const around = { from: Math.max(0, s.from - 2), to: s.to + 2 };
+              heard.gaps = union([...heard.gaps, ...(await silences(source, around))]);
+              // Only this stretch decoded: a minute of an 8-hour source isn't 880 MiB of PCM.
+              const piece = await loadAudio(source, around);
+              const using = await enginesHere(piece);
+              const placed: (Word & { at?: [number, number] })[] = [];
+              for await (const c of hear(piece, around.from * 1000, using)) {
+                for (const w of timedWords(c.heard, c.offsetMs)) {
+                  const at: [number, number] | undefined =
+                    w.atMs === undefined
+                      ? undefined
+                      : [w.atMs / 1000, (w.atEndMs ?? w.atMs) / 1000];
+                  placed.push({ word: w.word, start: w.startMs / 1000, end: w.endMs / 1000, at });
+                }
+              }
+              // A word belongs to the stretch its middle is in: by its DTW points where it has them.
+              for (const w of align(placed, heard.gaps)) {
+                if (fresh((w.start + w.end) / 2, s)) heard.words.push(w);
+              }
+            }
+          }
+          heard.covered = union([...heard.covered, ...todo]);
+          heard.words.sort((a, b) => a.start - b.start);
+          // Settings changed while these were heard (`models use`): they're this
+          // call's, but kept under the old model's name they'd be wrong (#282).
+          if (keyFor(source) !== file) {
+            log(
+              "warning: the transcription settings changed while words were heard; they aren't kept",
+            );
+            return heard;
+          }
+          mkdirSync(dirname(file), { recursive: true });
+          const temp = `${file}.${process.pid}.tmp`;
+          writeFileSync(temp, JSON.stringify(heard));
+          renameSync(temp, file);
+          return heard;
+        } finally {
+          await (mine as Engines | undefined)?.close();
         }
-        heard.covered = union([...heard.covered, ...todo]);
-        heard.words.sort((a, b) => a.start - b.start);
-        mkdirSync(dirname(file), { recursive: true });
-        const temp = `${file}.${process.pid}.tmp`;
-        writeFileSync(temp, JSON.stringify(heard));
-        renameSync(temp, file);
-      }
+      });
+      // Names are fixed as English ones only when the words are English.
+      const spell = speller(log, heard.language ?? language);
       out.set(source, {
         words: heard.words.map((w) => ({ ...w, word: spell(w.word) })),
         gaps: heard.gaps,
@@ -2152,13 +3365,35 @@ export async function sourceWords(
 }
 
 /** What `wanted` asks of a project in `dir`, by absolute path. */
-function wantedFrom(p: Project, ops: unknown[], dir: string): Map<string, Span[]> {
+function wantedFrom(
+  p: Project,
+  ops: unknown[],
+  dir: string,
+  heard?: Map<string, { words: Word[]; gaps: Span[] }>,
+): Map<string, Span[]> {
   const out = new Map<string, Span[]>();
-  for (const [path, spans] of wanted(p, ops)) {
+  const words = heard && ((path: string) => heard.get(resolve(dir, path))?.words ?? []);
+  const gaps = heard && ((path: string) => heard.get(resolve(dir, path))?.gaps ?? []);
+  for (const [path, spans] of wanted(p, ops, words, gaps)) {
     const full = resolve(dir, path);
     out.set(full, [...(out.get(full) ?? []), ...spans]);
   }
   return out;
+}
+
+/**
+ * The transcription in effect when the batch's first cut_words runs: a set
+ * before it changes which words the cut is made on. Ops that fail here fail
+ * the real batch too, so the saved one stands then.
+ */
+export function transcriptionAt(p: Project, ops: unknown[]): ModelChoice | undefined {
+  const first = ops.findIndex((o) => (o as { op?: unknown })?.op === "cut_words");
+  if (first < 0) return p.transcription;
+  try {
+    return apply(p, ops.slice(0, first)).project.transcription;
+  } catch {
+    return p.transcription;
+  }
 }
 
 /**
@@ -2168,7 +3403,27 @@ function wantedFrom(p: Project, ops: unknown[], dir: string): Map<string, Span[]
 async function editProject(file: string, ops: unknown[], log: (m: string) => void) {
   if (!ops.some((o) => (o as { op?: unknown })?.op === "cut_words")) return edit(file, ops);
   const dir = dirname(file);
-  const heard = await sourceWords(wantedFrom(load(file).project, ops, dir), log);
+  // Hearing takes a while: if what the project asks to be heard changed
+  // meanwhile (another edit added a clip), hear that too, so no clip is
+  // missing words (#235). A text or a size changed alongside doesn't count.
+  // ponytail: an edit landing between the last check and the save isn't seen;
+  // a lock file if agents edit one project at once.
+  // With words heard, the cut_words ops are replayed too, so a later op on a
+  // clip one of them splits off asks for its stretch, and that's heard next.
+  const asks = (p: Project, heard?: Awaited<ReturnType<typeof sourceWords>>) => {
+    const spans = wantedFrom(p, ops, dir, heard);
+    const choice = transcriptionAt(p, ops);
+    return { spans, choice, key: JSON.stringify([[...spans], choice]) };
+  };
+  let want = asks(load(file).project);
+  let heard: Awaited<ReturnType<typeof sourceWords>>;
+  // ponytail: a few rounds at most; each can only add stretches a cut made reachable.
+  for (let round = 0; ; round++) {
+    heard = await sourceWords(want.spans, log, want.choice);
+    const now = asks(load(file).project, heard);
+    if (now.key === want.key || round >= 4) break;
+    want = now;
+  }
   return edit(
     file,
     ops,
@@ -2178,11 +3433,22 @@ async function editProject(file: string, ops: unknown[], log: (m: string) => voi
 }
 
 /** The words in the project in `file`'s cut, from the word cache. */
-async function projectTranscript(file: string, log: (m: string) => void) {
-  const { project, created } = load(file);
-  if (created) throw new Error(`No project at ${file}; make one with \`edit\`.`);
+async function projectTranscript(file: string, log: (m: string) => void, choice: ModelChoice) {
+  if (load(file).created) throw new Error(`No project at ${file}; make one with \`edit\`.`);
+  checkChoice(choice);
+  const models = join(mockingbirdHome(), "models");
+  if (choice.model && !existsSync(join(models, choice.model))) {
+    throw new Error(`${choice.model} isn't in ${models}; \`mockingbird models\` lists what is.`);
+  }
+  // A model or language given here is kept on the project, over what it had,
+  // so cut_words, captions and render hear the words this transcript shows.
+  if (choice.model || choice.language) {
+    const transcription = { ...load(file).project.transcription, ...choice };
+    edit(file, [{ op: "set", transcription }]);
+  }
+  const { project } = load(file);
   const dir = dirname(file);
-  const heard = await sourceWords(wantedFrom(project, [], dir), log);
+  const heard = await sourceWords(wantedFrom(project, [], dir), log, project.transcription);
   return transcript(project, file, (path) => heard.get(resolve(dir, path))?.words ?? []);
 }
 
@@ -2206,6 +3472,7 @@ async function cutCaptions(
   cut: ReturnType<typeof compile>,
   log: (m: string) => void,
   { perCue = 3, lit = true, upper = false }: { perCue?: number; lit?: boolean; upper?: boolean },
+  choice: ModelChoice = {},
 ): Promise<string> {
   const heard = await sourceWords(
     new Map(
@@ -2216,6 +3483,7 @@ async function cutCaptions(
       ]),
     ),
     log,
+    choice,
   );
   // Every word of the clip's source: wordCaptions keeps the ones inside each clip.
   const asr = (path: string): AsrWord[] =>
@@ -2297,29 +3565,314 @@ async function proxied(clips: Clip[]): Promise<Clip[]> {
  * its size, with captions made for the cut as it is now and everything on
  * it timed from its clips. Saved beside the project as `<name>-render-N.mp4`.
  */
-async function renderProject(file: string, log: (m: string) => void, out?: string, draft = false) {
+/**
+ * A project's overlays (#163), inserts whose picture is an HTML page: each
+ * rendered alone with its transparency (ProRes 4444) at the project's size
+ * and rate for its stretch, kept under ~/.mockingbird/cache/overlays/ by the
+ * page's folder and the look, and laid over the cut like b-roll. A page's
+ * `mockingbird.audio` joins the project's sound, timed from the overlay.
+ */
+async function overlays(
+  inserts: Insert[],
+  look: { size: string; fps: number },
+  log: (m: string) => void,
+): Promise<{ inserts: Insert[]; sounds: (Sound & { path: string })[] }> {
+  const laid: Insert[] = [];
+  const heard: (Sound & { path: string })[] = [];
+  for (const insert of inserts) {
+    if (!/\.html?$/i.test(insert.path)) {
+      laid.push(insert);
+      continue;
+    }
+    const page = requireFile(insert.path, "Page");
+    const [width = 0, height = 0] = look.size.split("x").map(Number);
+    const duration = Math.round((insert.to - insert.from) * 1000) / 1000;
+    // A page loads its neighbours (CSS, images, the kit), so their sizes and times are in the key.
+    // The pinned fonts are in it too, since the page draws with them. 3: pages
+    // drawn before the font check (#276) are drawn again, through it.
+    const fonts = fontFaces();
+    const hash = createHash("sha256").update(
+      JSON.stringify([3, basename(page), look, duration, fontStamps(fonts)]),
+    );
+    stampFolder(hash, dirname(page));
+    // The kit and the styles live in the plugin, not beside the page: a rebuilt
+    // kit.js or styles.js has to change the key of every page that imports it.
+    const html = readFileSync(page, "utf8");
+    const motionDir = join(PLUGIN, "skills", "motion-graphics");
+    hash.update(
+      JSON.stringify(
+        [
+          ['from "KIT"', "kit.js"],
+          ['from "STYLES"', "styles.js"],
+        ]
+          .filter(([use]) => html.includes(use as string))
+          .map(([, file]) => stamp(join(motionDir, file as string))),
+      ),
+    );
+    const key = hash.digest("hex").slice(0, 32);
+    const cache = join(mockingbirdHome(), "cache", "overlays");
+    const mov = join(cache, `${key}.mov`);
+    const listed = join(cache, `${key}.json`);
+    if (existsSync(mov) && existsSync(listed)) {
+      log(`${basename(page)}: reusing the overlay rendered before`);
+    } else {
+      mkdirSync(cache, { recursive: true });
+      log(`${basename(page)}: rendering ${duration.toFixed(1)} s of overlay`);
+      // Temp names of its own, so two renders of one overlay don't write the same file.
+      const part = join(cache, `${key}.${process.pid}-${randomUUID()}.part`);
+      // A page copied from the templates imports "KIT", which motion fills in; so does this.
+      const filled = withKit(page);
+      try {
+        const said = await sandboxed(
+          {
+            script: filled,
+            chrome: needChrome(),
+            out: `${part}.mov`,
+            width,
+            height,
+            fps: look.fps,
+            duration,
+            alpha: true,
+            fonts,
+          },
+          "the overlay page",
+        );
+        const result = JSON.parse(said.trim().split("\n").at(-1) || "{}") ?? {};
+        writeFileSync(`${part}.json`, JSON.stringify(result.sounds ?? []));
+        // The sounds first: a reader goes by the .mov, and finds its list there.
+        renameSync(`${part}.json`, listed);
+        renameSync(`${part}.mov`, mov);
+      } finally {
+        rmSync(`${part}.mov`, { force: true });
+        rmSync(`${part}.json`, { force: true });
+        if (filled !== page) rmSync(filled, { force: true });
+      }
+    }
+    laid.push({ ...insert, path: mov });
+    const sounds = JSON.parse(readFileSync(listed, "utf8")) as unknown;
+    for (const [i, t] of items(sounds).entries()) {
+      heard.push({
+        path: requireFile(String(t.path), `${basename(page)}'s audio[${i}]`),
+        at: insert.from + within(t.at, 0, Number.MAX_VALUE, `audio[${i}].at`, 0),
+        volume: within(t.volume, 0, 4, `audio[${i}].volume`, 1),
+        loop: !!t.loop,
+        duck: !!t.duck,
+      });
+    }
+  }
+  return { inserts: laid, sounds: heard };
+}
+
+/**
+ * A project's generated sounds made into WAVs (#170), each as long as the
+ * video from where it starts, and kept under ~/.mockingbird/cache/music/ by
+ * the generator's folder of modules and its arguments, so a render after an
+ * edit doesn't generate the same bed again.
+ */
+async function beds(
+  cut: ReturnType<typeof compile>,
+  log: (m: string) => void,
+): Promise<(Sound & { path: string })[]> {
+  const out: (Sound & { path: string })[] = [];
+  for (const { generator: g, path: file, ...rest } of cut.sounds) {
+    if (!g) {
+      out.push({ ...rest, path: file ?? "" });
+      continue;
+    }
+    const script = requireFile(g.generator, "Generator");
+    const params = {
+      // As long as asked (a bed under just the intro), never past the video's end (#266).
+      duration: Math.min(
+        MOTION_MAX_SECONDS,
+        g.length ?? Number.POSITIVE_INFINITY,
+        Math.max(1, Math.round((cut.length - rest.at) * 1000) / 1000),
+      ),
+      seed: g.seed ?? 1,
+      tempo: g.tempo,
+      key: g.key,
+      energy: g.energy,
+    };
+    // The generator imports its neighbours (lib.js, lib/harmony.js), so all of them are in the key.
+    const hash = createHash("sha256").update(JSON.stringify([2, params]));
+    stampFolder(hash, dirname(script), (f) => /\.m?js$/i.test(f));
+    hash.update(basename(script));
+    const wav = join(mockingbirdHome(), "cache", "music", `${hash.digest("hex").slice(0, 32)}.wav`);
+    if (existsSync(wav)) {
+      log(`${basename(script)}: reusing the bed made before`);
+    } else {
+      mkdirSync(dirname(wav), { recursive: true });
+      log(`${basename(script)}: generating ${params.duration.toFixed(1)} s of music`);
+      // Made under a temp name and renamed when whole: music() claims its out
+      // file at the start, and another render would mix that empty file.
+      const part = `${wav.slice(0, -4)}.${process.pid}-${randomUUID()}.part.wav`;
+      try {
+        await music(script, part, params);
+        renameSync(part, wav);
+      } catch (error) {
+        // A generator that schedules every note up front takes time that grows with the square of the length (#272).
+        if (/didn't answer/.test(String(error))) {
+          throw new Error(
+            `${basename(script)} couldn't make ${params.duration.toFixed(0)} s of music in time. If it schedules every note up front, wrap each bar in lib.js's \`soon\` so it's made as it plays. Or give the sound a \`length\` (just the part that needs music), or make a shorter bed with \`music\` and \`loop\` it. (${(error as Error).message})`,
+          );
+        }
+        throw error;
+      } finally {
+        rmSync(part, { force: true });
+      }
+    }
+    out.push({ ...rest, path: wav });
+  }
+  return out;
+}
+
+async function renderProject(
+  file: string,
+  log: (m: string) => void,
+  out?: string,
+  draft = false,
+  soundOnly = false,
+) {
   const { project, created } = load(file);
   if (created) throw new Error(`No project at ${file}; make one with \`edit\`.`);
+  // The sound alone draws nothing; any picture with graphics waits for the look,
+  // a draft too, since it has every text and overlay in it (#264).
+  const gate = soundOnly ? undefined : lookGate(project);
+  if (gate) throw new Error(gate);
+  const { approved: yes, file: lookFile } = project.look ?? {};
+  const approved = yes && lookFile ? resolve(dirname(file), lookFile) : undefined;
+  if (!soundOnly && approved && !existsSync(approved)) {
+    throw new Error(
+      `The approved look ${approved} isn't there. Draw it again with \`look\` and get the user's yes before rendering.`,
+    );
+  }
   const cut = compile(project, dirname(file));
   const first = cut.clips[0]?.path;
   if (!first) throw new Error(`${file} has no clips yet; add some with \`edit\`.`);
-  const said = cut.captions ? await cutCaptions(cut, log, cut.captions) : undefined;
+  if (project.level) {
+    const gains = await levelGains(
+      cut.clips.map((c) => c.path),
+      project.level.target,
+      (path) => loudness(path).catch(() => -Infinity),
+    );
+    for (const [path, { measured, db }] of gains)
+      log(
+        `level: ${basename(path)} ${measured.toFixed(1)} LUFS, ${db >= 0 ? "+" : ""}${db.toFixed(1)} dB`,
+      );
+    cut.clips = cut.clips.map((c) => {
+      const db = gains.get(c.path)?.db;
+      return db ? { ...c, effects: [...(c.effects ?? []), { name: "gain", db }] } : c;
+    });
+  }
+  // The sound alone needs nothing drawn, so nothing is transcribed for captions.
+  const said =
+    cut.captions && !soundOnly
+      ? await cutCaptions(cut, log, cut.captions, project.transcription)
+      : undefined;
   // A draft reads 4K from proxies; its size is still the source's, not the proxy's.
   const clips = draft ? await proxied(cut.clips) : cut.clips;
+  const source = await probe(first);
+  const laid = soundOnly
+    ? { inserts: [], sounds: [] }
+    : await overlays(
+        cut.inserts,
+        { size: cut.size ?? source.size, fps: cut.fps ?? source.fps },
+        log,
+      );
   return render(clips[0]?.path ?? first, clips, {
-    size: cut.size ?? (draft ? (await probe(first)).size : undefined),
+    size: cut.size ?? (draft ? source.size : undefined),
     fps: cut.fps,
     split: cut.split,
     captions: said,
     captionsY: cut.captions?.y ?? CAPTIONS_Y,
-    texts: cut.texts,
-    inserts: cut.inserts,
-    sounds: cut.sounds,
+    captionStyle: captionStyle(
+      lookCaptions(cut.captions?.style, "captions.style"),
+      "captions.style",
+    ),
+    texts: soundOnly ? [] : cut.texts,
+    inserts: laid.inserts,
+    adjust: soundOnly ? [] : cut.adjust,
+    sounds: [...(await beds(cut, log)), ...laid.sounds],
     out,
     named: file,
-    kind: draft ? "draft" : "render",
+    kind: soundOnly ? "sound" : draft ? "draft" : "render",
     draft,
+    soundOnly,
+    cache: true,
+    // The project's language draws its Han captions; auto leaves it to the setting.
+    language:
+      project.transcription?.language === "auto" ? undefined : project.transcription?.language,
   });
+}
+
+/**
+ * `export`: the project at `file` as FCPXML and/or OTIO (#198), each source
+ * probed for its length, size and rate. Never overwrites: a taken name gets -N.
+ */
+async function exportProject(file: string, format: string, out: unknown): Promise<string> {
+  if (!["fcpxml", "otio", "both"].includes(format)) {
+    throw new Error(`format must be fcpxml, otio or both; got ${format}`);
+  }
+  const project = load(requireFile(file, "Project")).project;
+  if (!project.clips.length) throw new Error(`${file} has no clips to export.`);
+  const compiled = compile(project, dirname(file));
+  // An HTML overlay is drawn by Chrome at render time, so there's no media for an editor to take.
+  const pages = compiled.inserts.filter((i) => /\.html?$/i.test(i.path));
+  const cut = { ...compiled, inserts: compiled.inserts.filter((i) => !pages.includes(i)) };
+  const paths = [
+    ...new Set([
+      ...cut.clips.map((c) => c.path),
+      ...cut.inserts.map((i) => i.path),
+      ...cut.sounds.flatMap((s) => (s.path ? [s.path] : [])),
+    ]),
+  ];
+  const facts = new Map<string, Source>();
+  for (const p of paths) {
+    const pr = await probe(requireFile(p, "Source"));
+    facts.set(p, {
+      seconds: pr.seconds,
+      video: pr.video,
+      audio: pr.audio,
+      size: pr.size,
+      fps: pr.fps,
+    });
+  }
+  const info = (p: string) => facts.get(p) as Source;
+  const first = info(cut.clips[0]?.path as string);
+  const size = cut.size ?? (cut.split ? "1080x1920" : first.size);
+  const fps = cut.fps ?? first.fps;
+  const name = basename(file).replace(/\.json$/i, "");
+  const dir = out === undefined ? dirname(file) : resolve(String(out));
+  mkdirSync(dir, { recursive: true });
+  const free = (ext: string) => {
+    for (let n = 0; ; n++) {
+      const f = join(dir, `${name}${n ? `-${n}` : ""}.${ext}`);
+      if (!existsSync(f)) return f;
+    }
+  };
+  const saved: string[] = [];
+  let left: string[] = [];
+  if (format !== "otio") {
+    const x = toFcpxml(cut, name, size, fps, info);
+    const f = free("fcpxml");
+    writeFileSync(f, x.text);
+    saved.push(f);
+    left = x.left;
+  }
+  if (format !== "fcpxml") {
+    const o = toOtio(cut, name, fps, info);
+    const f = free("otio");
+    writeFileSync(f, o.text);
+    saved.push(f);
+    // Both formats: everything either one leaves out, said once.
+    left = [...new Set([...left, ...o.left])];
+  }
+  if (pages.length) left = [...left, `${pages.length} HTML overlay page(s)`];
+  return [
+    `Saved ${saved.join(" and ")} (${size}, ${fps} fps, ${cut.clips.length} clips).`,
+    left.length ? `Not carried, so redo them in the editor: ${left.join("; ")}.` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 /** A tool's `model` and `language`, each only if given. */
@@ -2361,6 +3914,14 @@ function area(value: unknown, what: string): Area {
   };
   if (r.x + r.w > 1.001 || r.y + r.h > 1.001) throw new Error(`${what} goes past the picture`);
   return r;
+}
+
+/** An insert's box: an area, and the `path` `track` gives to move it with a subject. */
+function tracked(value: unknown, what: string): NonNullable<Look["box"]> {
+  const path = (value as { path?: unknown } | null)?.path;
+  if (path === undefined) return area(value, what);
+  checkPath(path, `${what}.path`);
+  return { ...area(value, what), path: path as Point[] };
 }
 
 /** A stretch of the finished video, `from` before `to`. */
@@ -2405,7 +3966,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
     {
       name: "transcribe",
       description:
-        "Transcribe an audio or video file on this Mac (anything ffmpeg reads: m4a, mp3, wav, mp4, mov, mkv) with mockingbird's local Whisper. Returns the text in lines timestamped [mm:ss], with names fixed from the user's dictionary. Takes a few minutes for an hour of audio. `from`/`to` (seconds) transcribe one stretch only; `words: true` gives every word's start and end ([mm:ss.cc-mm:ss.cc] word) to cut a clip on, so keep that to a few minutes at a time. With `project` (an `edit` project file) instead of `path`: the words in its cut, clip by clip, each line at its time in the finished video, to read the edit and choose words for `cut_words`. A project's sources are heard once and kept, so this is quick after the first time.",
+        "Transcribe an audio or video file on this Mac (anything ffmpeg reads: m4a, mp3, wav, mp4, mov, mkv) with mockingbird's local Whisper. Returns the text in lines timestamped [mm:ss], with names fixed from the user's dictionary. Takes a few minutes for an hour of audio. `from`/`to` (seconds) transcribe one stretch only; `words: true` gives every word's start and end ([mm:ss.cc-mm:ss.cc] word) to cut a clip on, so keep that to a few minutes at a time. With `project` (an `edit` project file) instead of `path`: the words in its cut, clip by clip, each line at its time in the finished video, to read the edit and choose words for `cut_words`. A project's sources are heard once and kept, so this is quick after the first time. `model` and `language` given with a project are kept on it, so cut_words, captions and render hear the same words.",
       inputSchema: {
         type: "object",
         properties: {
@@ -2428,11 +3989,8 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
       },
       run: (a) => {
         if (a.project !== undefined) {
-          // A project's words come from the word cache, heard with the user's settings.
-          if (a.model !== undefined || a.language !== undefined) {
-            throw new Error("`model` and `language` work with `path`, not with `project` yet.");
-          }
-          return projectTranscript(resolve(String(a.project)), log);
+          // A project's words come from the word cache, heard with its transcription or the user's settings.
+          return projectTranscript(resolve(String(a.project)), log, choiceOf(a));
         }
         if (a.path === undefined) throw new Error("Give a `path`, or a `project`.");
         return transcribe(
@@ -2449,14 +4007,15 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
       description: `Edit a project file (project.json): an edit kept between calls, whose clips can come from several sources and whose texts, b-roll and sounds stay on their clips as the cut changes. Applies \`ops\` in order, all or none, saves, and returns an outline: each clip's place in the finished video and what's on it. Makes the file if it isn't there; no ops only reads it. You can also edit the JSON by hand. Times: a clip's from/to are seconds in its source (as \`transcribe\` gives them); a text's, insert's or sound's are seconds from the start of its \`clip\` in the finished video, or of the video without one. Ops:
 - {op:"add", type:"clip", path, from, to, focus?:{x,y}, zoom?, speed?, moves?, transition?, lead?, index?}: on the main track, which plays in order with no gaps (default at the end). speed: 0.25-4. moves: [{at, focus?, zoom?, ease?}], the framing by \`at\` seconds into the clip, eased ("smooth", or "linear") from the one before: a slow push-in, a move to the other speaker. transition: {type, duration}, how the clip comes in over the end of the one before: ffmpeg xfade's fade, fadeblack, fadewhite, dissolve, wipe*, slide*, smooth*, circleopen, zoomin and others. lead: a J cut (positive: the clip's sound starts that many seconds before its picture) or an L cut (negative: the clip before's sound carries on over its picture)
 - {op:"add", type:"text", text, from, to, clip?, y?}: drawn like the captions, *words* yellow
-- {op:"add", type:"insert", path, from, to, clip?}: a picture or video over the whole frame (b-roll)
-- {op:"add", type:"audio", path, at?, clip?, volume?, loop?, duck?}: music or a sound effect under the speech
+- {op:"add", type:"insert", path, from, to, clip?, box?, blend?, effects?, moves?}: a picture or video over the whole frame (b-roll). box: {x, y, w, h, path?}, 0-1 of the picture, makes it a picture in the picture; path, from track, moves it with a subject. blend: screen, multiply, overlay, softlight, lighten, darken, addition or difference (whole frame only). effects: from the catalog; chromakey keys a green screen over the cut. moves: as a clip's, a Ken Burns pan over a still
+- {op:"add", type:"adjust", from, to, clip?, effects}: an adjustment layer; its effects change everything under the text (clips and inserts) for its stretch, e.g. a grade over a whole section
+- {op:"add", type:"audio", path, at?, clip?, volume?, loop?, duck?}: music or a sound effect under the speech. Or generated music in place of path: generator:{generator:"/abs/lofi.js", tempo?, key?, energy?, seed?, length?} (a music generator; the bed is made at render time, as long as the video from at or \`length\` seconds if given, and kept, so it isn't made again)
 - {op:"remove", id}: a clip goes with everything on it, and the cut closes up
 - {op:"split", id, at}: a clip in two at a source time; what's on the second half moves with it
 - {op:"trim", id, from?, to?}: a clip's source times; what's on it stays on the same picture
 - {op:"move", id, index}: a clip to another place in the cut
 - {op:"cut_words", text, clip?, all?} or {op:"cut_words", from, to, clip?}: cut words out of the cut by quoting them from \`transcribe\` with the project (no case or punctuation needed): \`text\` must be said once (or give \`clip\`, or \`all: true\` for every time), and from/to cuts from the first words through the last, across clips. Cuts land in the pauses, 0.2 s from the words kept; clips are split, trimmed or removed to do it
-- {op:"set", id, ...fields}: change an item (null clears a field); without id, the project's size ("1080x1920" makes it vertical, cropping each clip around its focus), fps, split {top, bottom} and captions {perCue?, lit?, upper?, y?} (null for none). Ids are given out as c1, t1, b1, a1.`,
+- {op:"set", id, ...fields}: change an item (null clears a field); without id, the project's size ("1080x1920" makes it vertical, cropping each clip around its focus), fps, split {top, bottom} and captions {perCue?, lit?, upper?, y?, style?} (null for none; style is as render's captionStyle). Ids are given out as c1, t1, b1, a1.`,
       inputSchema: {
         type: "object",
         properties: {
@@ -2481,6 +4040,11 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
       inputSchema: {
         type: "object",
         properties: {
+          sound: {
+            type: "boolean",
+            description:
+              "A project's sound alone, as <name>-sound-N.m4a at -14 LUFS, to check the mix (speech, music, effects) without rendering the picture",
+          },
           draft: {
             type: "boolean",
             description:
@@ -2511,6 +4075,11 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
                   description:
                     "Punch in on the focus, 1-4 (default 1). 1.1-1.2 on alternate jump cuts hides them.",
                 },
+                effects: {
+                  type: "array",
+                  items: { type: "object" },
+                  description: "Effects from the catalog (`effects` lists them), in order",
+                },
               },
               required: ["from", "to"],
             },
@@ -2536,6 +4105,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
             description:
               "Where the middle of the captions sits, 0-1 of the height (default 0.7). 0.5 puts them on a split's seam.",
           },
+          captionStyle: CAPTION_STYLE_SCHEMA,
           texts: {
             type: "array",
             description:
@@ -2557,8 +4127,42 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
               "Pictures or videos (b-roll) laid over the whole frame for a stretch of the finished video while the speech carries on, under the text. Scaled to fill; a video's own sound isn't used.",
             items: {
               type: "object",
-              properties: { path, from: { type: "number" }, to: { type: "number" } },
+              properties: {
+                path,
+                from: { type: "number" },
+                to: { type: "number" },
+                box: {
+                  type: "object",
+                  description:
+                    "{x, y, w, h, path?}, 0-1 of the picture: a picture in the picture, filled to the box. path: the points `track` gives, to move the box with a subject (a title that follows someone)",
+                },
+                blend: {
+                  type: "string",
+                  enum: BLENDS,
+                  description: "How it mixes with the cut under it (whole frame only)",
+                },
+                effects: {
+                  type: "array",
+                  items: { type: "object" },
+                  description:
+                    "Effects from the catalog, on the insert alone: chromakey keys a green screen so the cut shows through",
+                },
+              },
               required: ["path", "from", "to"],
+            },
+          },
+          adjust: {
+            type: "array",
+            description:
+              "Adjustment layers: catalog effects on everything under the text (the clips and the inserts) from `from` to `to` seconds of the finished video",
+            items: {
+              type: "object",
+              properties: {
+                from: { type: "number" },
+                to: { type: "number" },
+                effects: { type: "array", items: { type: "object" } },
+              },
+              required: ["from", "to", "effects"],
             },
           },
           audio: {
@@ -2587,7 +4191,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
       run: (a) => {
         const out = a.out === undefined ? undefined : resolve(String(a.out));
         if (a.project !== undefined) {
-          return renderProject(resolve(String(a.project)), log, out, !!a.draft);
+          return renderProject(resolve(String(a.project)), log, out, !!a.draft, !!a.sound);
         }
         if (a.path === undefined) throw new Error("Give a `project`, or a `path` and `clips`.");
         return render(
@@ -2604,6 +4208,9 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
                 },
               }),
               zoom: within(c.zoom, 1, 4, `clips[${i}].zoom`, 1),
+              ...(c.effects === undefined
+                ? {}
+                : { effects: checkEffects(c.effects, `clips[${i}].effects`) }),
             };
           }),
           {
@@ -2617,6 +4224,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
               : undefined,
             captions: a.captions === undefined ? undefined : String(a.captions),
             captionsY: within(a.captionsY, 0, 1, "captionsY", CAPTIONS_Y),
+            captionStyle: captionStyle(lookCaptions(a.captionStyle)),
             texts: items(a.texts).map((t, i) => ({
               text: String(t.text ?? ""),
               ...stretch(t, `texts[${i}]`),
@@ -2625,6 +4233,15 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
             inserts: items(a.inserts).map((t, i) => ({
               path: resolve(String(t.path)),
               ...stretch(t, `inserts[${i}]`),
+              ...(t.box === undefined ? {} : { box: tracked(t.box, `inserts[${i}].box`) }),
+              ...(t.blend === undefined ? {} : { blend: String(t.blend) }),
+              ...(t.effects === undefined
+                ? {}
+                : { effects: checkEffects(t.effects, `inserts[${i}].effects`) }),
+            })),
+            adjust: items(a.adjust).map((t, i) => ({
+              ...stretch(t, `adjust[${i}]`),
+              effects: checkEffects(t.effects ?? [], `adjust[${i}].effects`),
             })),
             sounds: items(a.audio).map((t, i) => ({
               path: resolve(String(t.path)),
@@ -2679,7 +4296,9 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
       run: async (a) => {
         if (a.project !== undefined) {
           if (a.model !== undefined || a.language !== undefined) {
-            throw new Error("`model` and `language` work with `path`, not with `project` yet.");
+            throw new Error(
+              "A project's captions are heard with its transcription: give `model` and `language` to `transcribe` with the project.",
+            );
           }
           const file = resolve(String(a.project));
           const { project, created } = load(file);
@@ -2688,11 +4307,16 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
           if (!cut.clips.length)
             throw new Error(`${file} has no clips yet; add some with \`edit\`.`);
           const set = project.captions ?? {};
-          const srt = await cutCaptions(cut, log, {
-            perCue: Math.round(within(a.perCue, 1, 8, "perCue", set.perCue ?? 3)),
-            lit: a.lit === undefined ? (set.lit ?? true) : !!a.lit,
-            upper: a.upper === undefined ? (set.upper ?? false) : !!a.upper,
-          });
+          const srt = await cutCaptions(
+            cut,
+            log,
+            {
+              perCue: Math.round(within(a.perCue, 1, 8, "perCue", set.perCue ?? 3)),
+              lit: a.lit === undefined ? (set.lit ?? true) : !!a.lit,
+              upper: a.upper === undefined ? (set.upper ?? false) : !!a.upper,
+            },
+            project.transcription,
+          );
           return srt || "No speech in the cut.";
         }
         if (a.path === undefined) throw new Error("Give a `path` and `clips`, or a `project`.");
@@ -2710,6 +4334,62 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
           choiceOf(a),
         );
       },
+    },
+    {
+      name: "look",
+      description:
+        'Shows a look before editing starts (guide("look")): `file` is a style module you wrote for this video (.ts or .js) whose default export is { id, name, category, make(ctx, t, m) } returning the pieces every style draws (surface, title, label, node, box, link, store, stat, mark, finish), with any of your own beside them. It can import the styles and their helpers from "STYLES" and the kit from "KIT". The look is built into `<name>.look.js` beside it and drawn on a board, then saved as a clip and a sheet of twelve stills for the user to approve. Write the board yourself as `page`, an HTML page that imports the look `from "LOOK"` and shows the real content of the video in it (its subjects, its words, over the footage as `path`). Without a `page`, a generic storyboard of the words in `board` is drawn, which only checks that the pieces work. Runs in the pinned headless Chrome with no network. A mistake in the look comes back with its line.',
+      inputSchema: {
+        type: "object",
+        properties: {
+          file: { type: "string", description: "Absolute path to the look (.ts or .js)" },
+          board: {
+            type: "object",
+            description:
+              "Words from the video: title (up to 60 characters), points (up to three labels of up to 24), stat { value, unit, label } for its key number",
+            properties: {
+              title: { type: "string" },
+              points: { type: "array", items: { type: "string" } },
+              stat: {
+                type: "object",
+                properties: {
+                  value: { type: "number" },
+                  unit: { type: "string" },
+                  label: { type: "string" },
+                },
+              },
+            },
+          },
+          page: {
+            type: "string",
+            description:
+              'Absolute path to your own board page (.html) that imports the look `from "LOOK"` (and "KIT" or "STYLES" if it likes) and draws the video\'s real content in it. Without one, a generic storyboard of `board` is drawn',
+          },
+          path: {
+            type: "string",
+            description:
+              "Absolute path to a video for the board to draw over (the page gets its frames as m.video)",
+          },
+          duration: { type: "number", description: "Seconds, 1 to 60 (default 8.5)" },
+          size: {
+            type: "string",
+            description: 'WIDTHxHEIGHT (default "1920x1080"; "1080x1920" for a short)',
+          },
+          out: {
+            type: "string",
+            description: "Absolute path for the clip (default beside the look)",
+          },
+        },
+        required: ["file"],
+      },
+      run: async (a) =>
+        lookBoard(resolve(String(a.file)), boardFrom(a.board), {
+          size: a.size === undefined ? undefined : String(a.size),
+          duration: within(a.duration, 1, 60, "duration", 8.5),
+          out: a.out === undefined ? undefined : resolve(String(a.out)),
+          page: a.page === undefined ? undefined : resolve(String(a.page)),
+          path: a.path === undefined ? undefined : resolve(String(a.path)),
+        }),
     },
     {
       name: "motion",
@@ -2740,6 +4420,134 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
           captions: a.captions === undefined ? undefined : String(a.captions),
           out: a.out === undefined ? undefined : resolve(String(a.out)),
         }),
+    },
+    {
+      name: "effects",
+      description:
+        "The effects catalog: each effect's name, whether it's on the picture or the sound, and its settings with their ranges and defaults. Put effects on a project's clip with edit's {op:\"set\", id, effects:[{name:\"color\", exposure:0.5}, {name:\"denoise\", amount:0.4}]}, or on render's clips (effects: [...]). They apply in order, after the clip's framing; check a grade with `scopes`.",
+      inputSchema: { type: "object", properties: {} },
+      run: async () => catalog(),
+    },
+    {
+      name: "sync",
+      description:
+        "Line up recordings of one take (two or more cameras, or a camera and a separate recorder) by their sound, for a multicam edit. Gives each file's offset against the first: a moment at t seconds in it is at t + offset in the first. To cut to another angle at T seconds of the first's clock, add a project clip from that file with from = T - offset. Reads the first `window` seconds of each (default 120); a score under about 0.3 means the sound didn't match and the offset is a guess. It finds offsets up to half the window: for recordings started more than a minute apart, give a window over twice the gap.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          paths: {
+            type: "array",
+            items: { type: "string" },
+            description: "The recordings, the first as the reference",
+          },
+          window: {
+            type: "number",
+            description:
+              "Seconds of each to compare (default 120); offsets up to half of it are found",
+          },
+        },
+        required: ["paths"],
+      },
+      run: async (a) => {
+        const paths = items(a.paths as unknown).map((p) => requireFile(resolve(String(p)), "File"));
+        const done = await sync(paths, within(a.window, 10, 1200, "window", 120));
+        return done
+          .map((d, i) =>
+            i === 0
+              ? `${d.path}: the reference`
+              : `${d.path}: offset ${d.offset >= 0 ? "+" : ""}${d.offset.toFixed(3)} s (score ${d.score.toFixed(2)}${d.score < 0.3 ? ", a guess" : ""})`,
+          )
+          .join("\n");
+      },
+    },
+    {
+      name: "track",
+      description:
+        "Follow a box through a video: give where the subject is at `from` (x, y, w, h, 0-1 of the picture) and get its top left over time, five points a second, `at` seconds from `from`. Give the points as a mask's `path` (with the box's w and h) to keep a blur or a grade on a moving face, plate or logo. They're in the source picture, so they line up with the clip when it isn't reframed. `worst` is the weakest match on the way: under about 0.5 the subject was probably lost there; track shorter stretches. Up to two minutes a call.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path: { type: "string" },
+          from: { type: "number", description: "Seconds where the box is given" },
+          to: { type: "number", description: "Seconds to follow it to" },
+          box: {
+            type: "object",
+            properties: {
+              x: { type: "number" },
+              y: { type: "number" },
+              w: { type: "number" },
+              h: { type: "number" },
+            },
+            required: ["x", "y", "w", "h"],
+          },
+        },
+        required: ["path", "from", "to", "box"],
+      },
+      run: async (a) => {
+        const path = requireFile(resolve(String(a.path)), "File");
+        const source = await probe(path);
+        const from = within(a.from, 0, source.seconds, "from", 0);
+        // Two minutes at most: every frame is held at 320 wide, about 330 MB for a 9:16 window.
+        const end = Math.min(source.seconds, from + 120);
+        const to = within(a.to, from, end, "to", end);
+        const b = (a.box ?? {}) as Record<string, unknown>;
+        const box = {
+          x: within(b.x, 0, 1, "box.x", 0),
+          y: within(b.y, 0, 1, "box.y", 0),
+          w: within(b.w, 0.01, 1, "box.w", 0.2),
+          h: within(b.h, 0.01, 1, "box.h", 0.2),
+        };
+        if (box.x + box.w > 1 || box.y + box.h > 1) throw new Error("box must fit in the picture");
+        const [w, h] = source.size.split("x").map(Number) as [number, number];
+        return JSON.stringify(await track(path, from, to, box, w / h));
+      },
+    },
+    {
+      name: "export",
+      description:
+        "Save a project as FCPXML 1.10 (Final Cut Pro, DaVinci Resolve, Premiere through it) and OpenTimelineIO (.otio: Resolve, Premiere, Avid through OTIO's adapters), so a person can finish the cut in an editor. Carries the clips with their source times and transitions, inserts on video tracks above, texts as titles (markers in OTIO) and sounds on audio tracks; returns what an editor can't take this way (effects, framing, generated music). Saves beside the project as <name>.fcpxml and <name>.otio, or in `out`, a folder, and never overwrites.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          project: { type: "string", description: "The project file (project.json)" },
+          format: {
+            type: "string",
+            enum: ["fcpxml", "otio", "both"],
+            description: "Which to save (default both)",
+          },
+          out: { type: "string", description: "A folder to save in (default the project's)" },
+        },
+        required: ["project"],
+      },
+      run: async (a) =>
+        exportProject(resolve(String(a.project)), String(a.format ?? "both"), a.out),
+    },
+    {
+      name: "scopes",
+      description:
+        "Measure a video's picture, as a colourist reads the scopes, since you can't judge a grade from a few stills: mean and 5th to 95th percentile luma, the histogram's shadows, mids and highlights, crushed blacks and clipped whites, mean saturation, and how far skin sits from the skin-tone line. Each number comes with what a graded picture usually shows. `from`/`to` (seconds) measure one stretch; it samples up to 60 frames. Grade with `effect`s, render, and measure again.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path,
+          from: { type: "number", description: "Start, in seconds from the start of the file" },
+          to: { type: "number", description: "End, in seconds (default the end)" },
+          every: { type: "number", description: "Seconds between frames (default 1)" },
+        },
+        required: ["path"],
+      },
+      run: async (a) => {
+        const file = requireFile(resolve(String(a.path)), "File");
+        const info = await probe(file);
+        if (!info.video) throw new Error(`${file} has no video, only audio.`);
+        const from = seconds(a.from) ?? 0;
+        return scopes(file, info.size, {
+          from,
+          to: Math.min(seconds(a.to) ?? info.seconds, info.seconds),
+          every: within(a.every, 0.04, 600, "every", 1),
+          sdr: toSdrFor(info.transfer),
+        });
+      },
     },
     {
       name: "audio_stats",
@@ -2914,7 +4722,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
     {
       name: "status",
       description:
-        "Whether mockingbird is ready: the transcription model in use, and whether ffmpeg and whisper-server are installed.",
+        "Whether mockingbird is ready: the transcription model in use, and whether ffmpeg and whisper-server are installed. A non-null `oldPlugin` means Claude Code still has the out-of-date mockingbird-studio plugin; tell the user how to switch.",
       inputSchema: { type: "object", properties: {} },
       run: async () => JSON.stringify(await status()),
     },

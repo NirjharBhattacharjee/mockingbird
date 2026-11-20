@@ -45,6 +45,17 @@ export function parseVerboseJson(body: VerboseJson): AsrResult {
       ...(w.t_dtw !== undefined && w.t_dtw >= 0 && { atMs: w.t_dtw * 10 }),
     })),
   );
+  // After a long pause whisper-server can give a run of tokens the start of
+  // the segment's end while their ends are right (#253). Such a token starts
+  // at its DTW point, or where the token before it ended.
+  let prevEnd = 0;
+  for (const w of words) {
+    if (w.startMs > w.endMs) {
+      const at = w.atMs !== undefined && w.atMs <= w.endMs ? w.atMs : prevEnd;
+      w.startMs = Math.min(at, w.endMs);
+    }
+    prevEnd = Math.max(prevEnd, w.endMs);
+  }
   // Punctuation tokens score low even when the speech was heard clearly.
   const spoken = words.filter((w) => /[\p{L}\p{N}]/u.test(w.word));
   const confidence = spoken.length
@@ -62,7 +73,10 @@ export class WhisperServerEngine implements AsrEngine {
     private readonly language = "en",
   ) {}
 
-  async transcribe(audio: PcmAudio, { vocabulary }: TranscribeOptions = {}): Promise<AsrResult> {
+  async transcribe(
+    audio: PcmAudio,
+    { vocabulary, language }: TranscribeOptions = {},
+  ): Promise<AsrResult> {
     const form = new FormData();
     form.append("file", new Blob([encodeWav(audio)], { type: "audio/wav" }), "segment.wav");
     form.append("response_format", "verbose_json");
@@ -70,7 +84,7 @@ export class WhisperServerEngine implements AsrEngine {
     // large-v3-turbo is multilingual: pinning the language stops it drifting
     // to another one on accented English. Pinned to the wrong one, it
     // translates: German pinned to English comes out as broken English.
-    form.append("language", this.language);
+    form.append("language", language ?? this.language);
     // Whisper spells a name it doesn't know phonetically ("Nerj Herbata
     // Chargy"); given the word up front it writes it properly.
     if (vocabulary) form.append("prompt", vocabulary);
