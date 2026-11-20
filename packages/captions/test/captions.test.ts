@@ -2,7 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { drawCaptions, hanOrder, parseSrt, pieces } from "../src/index.ts";
+import {
+  CAPTION_PRESETS,
+  captionStyle,
+  drawCaptions,
+  hanOrder,
+  parseSrt,
+  pieces,
+} from "../src/index.ts";
 
 describe("parseSrt", () => {
   test("reads each cue's times and text", () => {
@@ -152,4 +159,28 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("drawCaptions (integration
   test("gives up instead of throwing when it can't draw", async () => {
     expect(await draw(["hi"], "/nonexistent/folder", 1080)).toBeUndefined();
   });
+});
+
+test("a caption style is a preset, or fields laid over one", () => {
+  expect(captionStyle(undefined)).toEqual(CAPTION_PRESETS.classic);
+  expect(captionStyle("creator")).toEqual(CAPTION_PRESETS.creator);
+  const s = captionStyle({ preset: "subtitle", font: "Anton", active: "#39E508", upper: true });
+  expect(s).toMatchObject({ font: "Anton", active: "#39E508", upper: true, maxChars: 42 });
+  // Capitals get tracking unless it's given.
+  expect(s.tracking).toBe(0.06);
+  expect(captionStyle({ upper: true, tracking: 0 }).tracking).toBe(0);
+});
+
+test("a caption style refuses what it doesn't know", () => {
+  expect(() => captionStyle("loud")).toThrow(/no preset "loud"/);
+  expect(() => captionStyle({ font: "Futura" })).toThrow(/font is one of Inter/);
+  expect(() => captionStyle({ fill: "red;background:url(x)" })).toThrow(/fill is a colour/);
+  expect(() => captionStyle({ outline: 2 })).toThrow(/outline is a number from 0 to 0.5/);
+  expect(() => captionStyle({ colour: "red" })).toThrow(/no field colour/);
+  // A null or a string isn't quietly made a number, a colour or a switch.
+  expect(() => captionStyle({ fill: null })).toThrow(/fill is a colour/);
+  expect(() => captionStyle({ tracking: null })).toThrow(/tracking is a number/);
+  expect(() => captionStyle({ weight: "900" })).toThrow(/weight is a number/);
+  expect(() => captionStyle({ shadow: "false" })).toThrow(/shadow is true or false/);
+  expect(captionStyle({ fill: "hsl(50 100% 50%)" }).fill).toBe("hsl(50 100% 50%)");
 });

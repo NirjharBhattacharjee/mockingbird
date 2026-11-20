@@ -159,8 +159,10 @@ Mono). Name only fonts mockingbird ships: Inter, Charis SIL, JetBrains Mono,
 Anton, Bebas Neue, Oswald, Archivo Black, Playfair Display, Space Grotesk,
 Montserrat, Bangers, Nunito, Cormorant Garamond, Fraunces, Caveat, Kalam,
 VT323, Space Mono, Silkscreen, Courier Prime, Comic Neue, Arvo, and the Noto
-families for other scripts. Chrome quietly draws any other font, or a
-generic like `sans-serif`, as whatever system font the machine has.
+families for other scripts. Any other font, or a generic like `sans-serif`
+first, draws a different system font on every machine: the render finishes,
+and `motion`'s result ends with a warning naming it. Fix the page when you
+see one.
 
 **Sounds**: `sfx("whoosh" | "pop" | "tick" | "impact" | "riser" |
 "shimmer" | "click")`, made for the kit, free to use. Return them from the

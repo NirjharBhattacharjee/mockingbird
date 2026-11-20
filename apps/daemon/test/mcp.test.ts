@@ -14,11 +14,13 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { captionStyle } from "@mockingbird/captions";
 import {
   align,
   boardFrom,
   buildLook,
   CLIPS_PER_PASS,
+  captionFontWarning,
   chunks,
   fineClock,
   handle,
@@ -1954,5 +1956,26 @@ test("a look can be built to a path of its own (#262 review)", async () => {
     expect(existsSync(join(dir, "warm.look.js"))).toBe(false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("captions in a font that isn't downloaded are drawn anyway, with a warning (#276)", () => {
+  const saved = { home: process.env.MOCKINGBIRD_HOME, chrome: process.env.MOCKINGBIRD_CHROME };
+  process.env.MOCKINGBIRD_HOME = mkdtempSync(join(tmpdir(), "no-fonts-"));
+  process.env.MOCKINGBIRD_CHROME = process.execPath;
+  try {
+    const style = captionStyle("creator");
+    expect(captionFontWarning("1\n00:00:00,000 --> 00:00:01,000\nhi", style)).toMatch(
+      /Montserrat, isn't downloaded.*models pull chrome/,
+    );
+    expect(captionFontWarning(undefined, style)).toBe("");
+  } finally {
+    for (const [k, v] of [
+      ["MOCKINGBIRD_HOME", saved.home],
+      ["MOCKINGBIRD_CHROME", saved.chrome],
+    ] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
   }
 });

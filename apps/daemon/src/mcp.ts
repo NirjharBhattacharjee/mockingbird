@@ -18,8 +18,17 @@ import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { type AsrWord, stripNonSpeech } from "@mockingbird/asr";
 import { loadAudio, type PcmAudio } from "@mockingbird/audio";
-import { type Cue, drawCaptions, hanOrder, parseSrt } from "@mockingbird/captions";
-import type { MusicParams } from "@mockingbird/motion";
+import {
+  CAPTION_FONTS,
+  CAPTION_PRESETS,
+  type CaptionStyle,
+  type Cue,
+  captionStyle,
+  drawCaptions,
+  hanOrder,
+  parseSrt,
+} from "@mockingbird/captions";
+import type { MusicParams, PageFont } from "@mockingbird/motion";
 import { noNetwork } from "@mockingbird/motion/sandbox";
 import { applyCorrections, correctNames } from "@mockingbird/store";
 import {
@@ -602,6 +611,32 @@ export type Sound = { at: number; volume: number; loop: boolean; duck: boolean }
 
 /** Where caption images sit unless told: a little below the middle, where Shorts and Reels leave room for text. */
 export const CAPTIONS_Y = 0.7;
+
+/** render's `captionStyle`, and a project's `captions.style` (#276). */
+const CAPTION_STYLE_SCHEMA = {
+  description: `How the captions and texts look: a preset's name (${Object.keys(CAPTION_PRESETS).join(", ")}; default classic, white Inter 700 with a black outline and the *spoken* word yellow), or an object with \`preset\` and any of: font (${CAPTION_FONTS.join(", ")}), weight, upper (capitals, which get 0.06 em of tracking), tracking (em), fill, stroke and active (colours; active is the *spoken* word's), outline (0-0.5 of the text height), shadow, pill (a colour behind the spoken word) and maxChars (about this many characters a line). subtitle suits long-form; creator and pill suit Shorts.`,
+  oneOf: [
+    { type: "string", enum: Object.keys(CAPTION_PRESETS) },
+    {
+      type: "object",
+      properties: {
+        preset: { type: "string", enum: Object.keys(CAPTION_PRESETS) },
+        font: { type: "string", enum: [...CAPTION_FONTS] },
+        weight: { type: "number" },
+        upper: { type: "boolean" },
+        tracking: { type: "number" },
+        fill: { type: "string" },
+        stroke: { type: "string" },
+        active: { type: "string" },
+        pill: { type: "string" },
+        outline: { type: "number" },
+        shadow: { type: "boolean" },
+        maxChars: { type: "number" },
+      },
+      additionalProperties: false,
+    },
+  ],
+};
 
 /** The loudness Shorts, Reels, TikTok and YouTube play at: EBU R128 integrated, in LUFS. */
 const LUFS = -14;
@@ -1810,6 +1845,7 @@ async function segmented(
     split,
     cues,
     captionsY,
+    style,
     texts,
     inserts,
     adjust,
@@ -1827,6 +1863,7 @@ async function segmented(
     split?: { top: Area; bottom: Area };
     cues: Cue[];
     captionsY: number;
+    style: CaptionStyle;
     texts: Text[];
     inserts: (Insert & { sdr?: string })[];
     adjust: { from: number; to: number; effects: Effect[] }[];
@@ -1844,7 +1881,7 @@ async function segmented(
     const [width, height] = (split ? "1080x1920" : size).split("x").map(Number);
     const chrome = lines.length ? findChrome() : undefined;
     const wrap = noNetwork();
-    const fonts = fontFaces();
+    const fonts = captionFonts(lines, style);
     const language = spoken ?? spokenLanguage();
     // Which shapes Han characters take: in the segment key, since it changes what's drawn.
     const han = hanOrder(language, lines);
@@ -1854,6 +1891,7 @@ async function segmented(
           wrap,
           fonts,
           language,
+          style,
         })
       : [];
     if (!images) return undefined;
@@ -1905,6 +1943,7 @@ async function segmented(
             // The fonts are pinned, so which are there says what they draw.
             fonts.map((f) => f.url),
             han,
+            style,
             laid.map((l) => [l.start, l.end, l.y, l.text]),
             shown.map(({ path: f, ...rest }) => ({
               ...rest,
@@ -1997,6 +2036,21 @@ async function segmented(
   }
 }
 
+/** The pinned fonts for drawing captions: whichever are downloaded. */
+function captionFonts(_lines: string[], _style: CaptionStyle): PageFont[] {
+  return fontFaces();
+}
+
+/**
+ * A warning for render's result when the captions' font isn't downloaded:
+ * they're drawn in a fallback, not refused (#276; degrade, don't break).
+ */
+export function captionFontWarning(captions: string | undefined, style: CaptionStyle): string {
+  if (!captions?.trim() || !findChrome() || fontFaces().some((f) => f.family === style.font))
+    return "";
+  return `. Warning: the captions' font, ${style.font}, isn't downloaded, so they're drawn in a fallback font; run \`mockingbird models pull chrome\``;
+}
+
 /**
  * Cuts `clips` out of a video and joins them into one MP4, optionally 9:16
  * or split, with captions, text, inserts and sounds. The client chooses all
@@ -2008,7 +2062,13 @@ async function segmented(
  * framed to `size` (default the first clip's source) at `fps` (default its
  * rate), so clips from different sources join.
  */
-async function render(
+async function render(...args: Parameters<typeof renderCut>): Promise<string> {
+  const said = await renderCut(...args);
+  const o = args[2] ?? {};
+  return said + captionFontWarning(o.captions, o.captionStyle ?? captionStyle(undefined));
+}
+
+async function renderCut(
   path: string,
   clips: Clip[],
   {
@@ -2017,6 +2077,7 @@ async function render(
     split,
     captions,
     captionsY = CAPTIONS_Y,
+    captionStyle: style = captionStyle(undefined),
     texts = [],
     inserts = [],
     adjust = [],
@@ -2036,6 +2097,8 @@ async function render(
     split?: { top: Area; bottom: Area };
     captions?: string;
     captionsY?: number;
+    /** How the captions and texts look (#276); `classic` if not given. */
+    captionStyle?: CaptionStyle;
     texts?: Text[];
     inserts?: Insert[];
     /** Adjustment layers (#198): effects on everything under the text, each for its stretch. */
@@ -2162,6 +2225,7 @@ async function render(
       split,
       cues: captions?.trim() ? parseSrt(captions.trim()) : [],
       captionsY,
+      style,
       texts,
       inserts: placed,
       adjust,
@@ -2187,9 +2251,10 @@ async function render(
       // Its own length, which rounding to whole frames can leave a hair short of the clips'.
       const { seconds } = await probe(joined);
       // Framed and split already; this pass lays everything else over it.
-      return await render(joined, [{ from: 0, to: seconds }], {
+      return await renderCut(joined, [{ from: 0, to: seconds }], {
         captions,
         captionsY,
+        captionStyle: style,
         texts,
         inserts,
         adjust,
@@ -2222,8 +2287,9 @@ async function render(
       ? await drawCaptions(lines, dir, width ?? 1080, height, {
           chrome,
           wrap,
-          fonts: fontFaces(),
+          fonts: captionFonts(lines, style),
           language: language ?? spokenLanguage(),
+          style,
         })
       : undefined;
     const burn = !!text && !images && (await canBurn());
@@ -2551,15 +2617,17 @@ async function motion(
     if (page !== script) rmSync(page, { force: true });
   }
   let frames = 0;
+  let warnings: string[] = [];
   let work: string | undefined;
   try {
     // The runner's last line; a script's own console.log comes before it. A
     // script that exits early leaves none, and the claimed target goes with the error.
-    let result: { frames?: unknown; sounds?: unknown } = {};
+    let result: { frames?: unknown; sounds?: unknown; warnings?: unknown } = {};
     try {
       result = JSON.parse(said.trim().split("\n").at(-1) || "{}") ?? {};
     } catch {}
     frames = Number(result.frames);
+    warnings = Array.isArray(result.warnings) ? result.warnings.map(String) : [];
     if (!Number.isInteger(frames) || frames < 1) {
       throw new Error("the motion script stopped without drawing; did it call process.exit?");
     }
@@ -2607,7 +2675,9 @@ async function motion(
     if (work) rmSync(work, { recursive: true, force: true });
   }
   const took = ((performance.now() - started) / 1000).toFixed(1);
-  return `${target} (${clock((frames / fps) * 1000)}, ${width}x${height}, ${fps} fps), drawn in ${took} s`;
+  // A font the page lacked was drawn in a fallback; say so (#276).
+  const warned = warnings.length ? `. Warning: ${warnings.join(" ")}` : "";
+  return `${target} (${clock((frames / fps) * 1000)}, ${width}x${height}, ${fps} fps), drawn in ${took} s${warned}`;
 }
 
 const MOTION = join(PLUGIN, "skills", "motion-graphics");
@@ -3430,10 +3500,11 @@ async function overlays(
     const [width = 0, height = 0] = look.size.split("x").map(Number);
     const duration = Math.round((insert.to - insert.from) * 1000) / 1000;
     // A page loads its neighbours (CSS, images, the kit), so their sizes and times are in the key.
-    // The pinned fonts are in it too, since the page draws with them.
+    // The pinned fonts are in it too, since the page draws with them. 3: pages
+    // drawn before the font check (#276) are drawn again, through it.
     const fonts = fontFaces();
     const hash = createHash("sha256").update(
-      JSON.stringify([2, basename(page), look, duration, fonts.map((f) => f.url)]),
+      JSON.stringify([3, basename(page), look, duration, fonts.map((f) => f.url)]),
     );
     stampFolder(hash, dirname(page));
     // The kit and the styles live in the plugin, not beside the page: a rebuilt
@@ -3625,6 +3696,7 @@ async function renderProject(
     split: cut.split,
     captions: said,
     captionsY: cut.captions?.y ?? CAPTIONS_Y,
+    captionStyle: captionStyle(cut.captions?.style, "captions.style"),
     texts: soundOnly ? [] : cut.texts,
     inserts: laid.inserts,
     adjust: soundOnly ? [] : cut.adjust,
@@ -3852,7 +3924,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
 - {op:"trim", id, from?, to?}: a clip's source times; what's on it stays on the same picture
 - {op:"move", id, index}: a clip to another place in the cut
 - {op:"cut_words", text, clip?, all?} or {op:"cut_words", from, to, clip?}: cut words out of the cut by quoting them from \`transcribe\` with the project (no case or punctuation needed): \`text\` must be said once (or give \`clip\`, or \`all: true\` for every time), and from/to cuts from the first words through the last, across clips. Cuts land in the pauses, 0.2 s from the words kept; clips are split, trimmed or removed to do it
-- {op:"set", id, ...fields}: change an item (null clears a field); without id, the project's size ("1080x1920" makes it vertical, cropping each clip around its focus), fps, split {top, bottom} and captions {perCue?, lit?, upper?, y?} (null for none). Ids are given out as c1, t1, b1, a1.`,
+- {op:"set", id, ...fields}: change an item (null clears a field); without id, the project's size ("1080x1920" makes it vertical, cropping each clip around its focus), fps, split {top, bottom} and captions {perCue?, lit?, upper?, y?, style?} (null for none; style is as render's captionStyle). Ids are given out as c1, t1, b1, a1.`,
       inputSchema: {
         type: "object",
         properties: {
@@ -3942,6 +4014,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
             description:
               "Where the middle of the captions sits, 0-1 of the height (default 0.7). 0.5 puts them on a split's seam.",
           },
+          captionStyle: CAPTION_STYLE_SCHEMA,
           texts: {
             type: "array",
             description:
@@ -4060,6 +4133,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
               : undefined,
             captions: a.captions === undefined ? undefined : String(a.captions),
             captionsY: within(a.captionsY, 0, 1, "captionsY", CAPTIONS_Y),
+            captionStyle: captionStyle(a.captionStyle),
             texts: items(a.texts).map((t, i) => ({
               text: String(t.text ?? ""),
               ...stretch(t, `texts[${i}]`),

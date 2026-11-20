@@ -178,6 +178,15 @@ describe("apply", () => {
     expect(() => apply(before, [{ op: "set", id: "c1", zoom: 9 }])).toThrow("clips[0].zoom");
     expect(() => apply(before, [{ op: "fly" }])).toThrow("op must be one of");
   });
+
+  test("the captions' style is checked and kept as written", () => {
+    const style = { preset: "creator", active: "#39E508" };
+    const { project } = apply(base(), [{ op: "set", captions: { style } }]);
+    expect(project.captions).toEqual({ style });
+    expect(() => apply(base(), [{ op: "set", captions: { style: "loud" } }])).toThrow(
+      'captions.style: no preset "loud"',
+    );
+  });
 });
 
 describe("compile and outline", () => {

@@ -29,6 +29,57 @@ export type PageScene = {
 export type PageFont = { family: string; url: string; weight: string; style: string };
 
 /**
+ * Page script defining `checkFonts(dom)` (#276). Chrome draws text whose font
+ * the page doesn't have in a system font, and says nothing, so the same page
+ * looks different on every machine. This records a warning in `fontWarnings`
+ * when the first family of a canvas's `font`, or with `dom` of any element
+ * holding text, isn't one in `document.fonts` (a pinned font, or the page's
+ * own @font-face), or is only a generic like `sans-serif`. The render goes on
+ * in the fallback (degrade, don't break) and says so.
+ */
+export const fontCheck = `
+  const fontsAsked = new Set();
+  const fontsSeen = new Set();
+  const fontWarnings = new Set();
+  for (const P of [CanvasRenderingContext2D.prototype, OffscreenCanvasRenderingContext2D.prototype]) {
+    const d = Object.getOwnPropertyDescriptor(P, "font");
+    Object.defineProperty(P, "font", { ...d, set(v) { fontsAsked.add(v); d.set.call(this, v); } });
+  }
+  const unquote = (s) => s.trim().replace(/^["']|["']$/g, "");
+  const parsed = document.createElement("span").style;
+  const firstFamily = (families) => unquote(families.split(",")[0] ?? "");
+  const checkFamily = (first, where) => {
+    if (!first || fontsSeen.has(first)) return;
+    const have = [...new Set([...document.fonts].map((f) => unquote(f.family)))];
+    // CSS matches family names whatever their case.
+    const known = have.some((f) => f.toLowerCase() === first.toLowerCase());
+    const hint = "Use one of the fonts the page has (" + (have.join(", ") || "none") + "), or load one with @font-face.";
+    if (/^(serif|sans-serif|monospace|cursive|fantasy|system-ui|ui-[a-z-]+|emoji|math|fangsong)$/i.test(first))
+      fontWarnings.add(where + " names no font, only the generic " + first + ", which draws differently on every machine. " + hint);
+    else if (!known)
+      fontWarnings.add("the font " + JSON.stringify(first) + " (" + where + ") isn't loaded, so Chrome drew a fallback in its place. If it's one of mockingbird's fonts, run \\\`mockingbird models pull chrome\\\`. " + hint);
+    fontsSeen.add(first);
+  };
+  const checkFonts = (dom) => {
+    for (const font of fontsAsked) {
+      parsed.font = "";
+      parsed.font = font;
+      checkFamily(firstFamily(parsed.fontFamily), "a canvas's font " + JSON.stringify(font));
+    }
+    fontsAsked.clear();
+    if (!dom || !document.body) return;
+    const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+      const el = n.parentElement;
+      // Only text that's drawn: not a canvas's fallback, a template or a hidden element.
+      if (!n.textContent.trim() || !el || el.closest("script, style, noscript, template, canvas")) continue;
+      if (!el.checkVisibility({ visibilityProperty: true })) continue;
+      checkFamily(firstFamily(getComputedStyle(el).fontFamily), "<" + el.tagName.toLowerCase() + ">'s text");
+    }
+  };
+`;
+
+/**
  * Registers `fonts` with the page, unloaded, as @font-face rules would: each
  * loads the first time text needs it, and the frame waits for it.
  */
@@ -38,6 +89,7 @@ export const pageFonts = (fonts: PageFont[]) =>
 export function pageClock(scene: PageScene, epoch: number, fonts: PageFont[] = []): string {
   return `(() => {
   ${pageFonts(fonts)}
+  ${fontCheck}
   let now = 0;
   const born = new WeakMap();
   const callbacks = new Map();
@@ -78,6 +130,7 @@ export function pageClock(scene: PageScene, epoch: number, fonts: PageFont[] = [
     async ready() {
       if (document.readyState !== "complete") await new Promise((r) => addEventListener("load", r, { once: true }));
       await document.fonts.ready;
+      checkFonts(true);
       for (const a of document.getAnimations()) born.set(a, 0);
       const audio = m.audio === undefined ? null : JSON.parse(JSON.stringify(m.audio));
       return { errors, audio, drawVideo: m.drawVideo === true };
@@ -111,6 +164,7 @@ export function pageClock(scene: PageScene, epoch: number, fonts: PageFont[] = [
         seek();
         // A font draw used for the first time loads now; the frame waits for it.
         await document.fonts.ready;
+        checkFonts(false);
         this.check();
       }
     },
@@ -125,7 +179,9 @@ export function pageClock(scene: PageScene, epoch: number, fonts: PageFont[] = [
     // After the last frame: anything still running gets a turn to fail.
     async done() {
       await new Promise((r) => setTimeout(r, 0));
+      checkFonts(true);
       this.check();
+      return [...fontWarnings];
     },
   } });
 })();`;
@@ -162,6 +218,7 @@ export async function renderHtml(
     fonts = [],
     tabs: tabCount = TABS,
     onLoad = () => {},
+    onWarning = () => {},
     alpha = false,
     videoFilters = "",
     gpu = false,
@@ -180,6 +237,8 @@ export async function renderHtml(
     fonts?: PageFont[];
     tabs?: number;
     onLoad?: (page: { audio: unknown }) => void;
+    /** Each warning the page left, after the last frame: a font it asked for and didn't have (#276). */
+    onWarning?: (message: string) => void;
     /** Keep the page's transparency: ProRes 4444 in a .mov, to lay over a video later (#163). */
     alpha?: boolean;
     /** Filters every frame of `video` goes through first, e.g. the engine's HDR-to-SDR conversion. */
@@ -312,7 +371,13 @@ export async function renderHtml(
       );
     }
     // And once more for anything that failed while ffmpeg finished.
-    for (const tab of tabs) await onClock(browser, tab, "done()", total - 1, fps);
+    // Each font the page asked for and didn't have, once (#276).
+    const warned = new Set<string>();
+    for (const tab of tabs) {
+      const said = await onClock(browser, tab, "done()", total - 1, fps);
+      for (const w of Array.isArray(said) ? said : []) warned.add(String(w));
+    }
+    for (const w of warned) onWarning(w);
     return drawn;
   } catch (error) {
     // ffmpeg acts on SIGTERM only between writes, so a blocked one needs SIGKILL.
@@ -393,7 +458,7 @@ async function openTab(chrome: Chrome, page: string, scene: PageScene, clock: st
 /** Runs `call` on the page's clock in `tab`, naming `frame` if the page fails. */
 async function onClock(chrome: Chrome, tab: Tab, call: string, frame: number, fps: number) {
   try {
-    await evaluate(chrome, tab.session, `__mockingbird.${call}`);
+    return await evaluate(chrome, tab.session, `__mockingbird.${call}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(

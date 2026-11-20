@@ -1,11 +1,13 @@
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { CAPTION_FONTS, CAPTION_PRESETS } from "@mockingbird/captions";
 import { FONT_FILES } from "../src/models.ts";
 
 /**
- * Every family the motion kit and its styles name is one `models pull
- * chrome` downloads (#276), so a style draws the same on every machine.
+ * Every family the motion kit, its styles and the caption presets name is
+ * one `models pull chrome` downloads (#276). A family that isn't fails the
+ * render, so this catches it before anyone renders.
  */
 const MOTION = join(import.meta.dir, "../../../plugin/skills/motion-graphics");
 const sources = [
@@ -13,6 +15,7 @@ const sources = [
   ...readdirSync(join(MOTION, "styles"))
     .filter((f) => f.endsWith(".ts"))
     .map((f) => join(MOTION, "styles", f)),
+  join(import.meta.dir, "../../../packages/captions/src/index.ts"),
 ];
 const GENERIC = new Set(["serif", "sans-serif", "monospace", "cursive", "fantasy"]);
 const pinned = new Set(FONT_FILES.map((f) => f.name));
@@ -36,7 +39,7 @@ function stacks(src: string): string[] {
   return found;
 }
 
-test("every font the styles and kit name is pinned", () => {
+test("every font the styles, kit and captions name is pinned", () => {
   const wrong: string[] = [];
   let seen = 0;
   for (const file of sources) {
@@ -45,10 +48,15 @@ test("every font the styles and kit name is pinned", () => {
       seen++;
       if (GENERIC.has(families[0] as string)) wrong.push(`${file}: ${list} (generic first)`);
       for (const f of families) {
-        if (!GENERIC.has(f) && !pinned.has(f) && !f.startsWith("${")) wrong.push(`${file}: ${f}`);
+        if (!GENERIC.has(f) && !pinned.has(f) && !f.includes("${")) wrong.push(`${file}: ${f}`);
       }
     }
   }
   expect(seen).toBeGreaterThan(100);
   expect(wrong).toEqual([]);
+});
+
+test("every font a caption style can pick is pinned", () => {
+  expect(CAPTION_FONTS.filter((f) => !pinned.has(f))).toEqual([]);
+  for (const s of Object.values(CAPTION_PRESETS)) expect(pinned.has(s.font)).toBe(true);
 });
