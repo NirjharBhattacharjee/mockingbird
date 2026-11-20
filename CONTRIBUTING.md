@@ -346,8 +346,9 @@ Every contributor matters, regardless of contribution size — a one-line doc
 fix from a first-time contributor is as welcome as a large feature. Once the
 project has a real release history, contributors will be credited in
 release notes (via the Changesets-generated changelog,
-[ARCHITECTURE.md §14](./docs/ARCHITECTURE.md#14-cicd-pipeline)) and, if
-there's interest, a `CONTRIBUTORS`/`AUTHORS` file or README section.
+[ARCHITECTURE.md §14](./docs/ARCHITECTURE.md#14-cicd-pipeline)) and
+[`CONTRIBUTORS.md`](CONTRIBUTORS.md) lists them, each with the merged pull
+requests that earned the entry.
 
 ## 15. Open gaps in this process
 
