@@ -17,7 +17,7 @@ import {
   trace,
 } from "./look.ts";
 
-const SANS = '"Montserrat", sans-serif';
+const SANS = '"Montserrat", "Noto Color Emoji", sans-serif';
 const GRAD: Record<Tone, [string, string]> = {
   ink: ["#F5F5F7", "#B9B9C2"],
   accent: ["#B36BFF", "#FF7A45"],

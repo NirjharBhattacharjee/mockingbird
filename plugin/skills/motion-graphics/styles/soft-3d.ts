@@ -27,7 +27,7 @@ const CLAY: Record<Tone, [string, string, string]> = {
   muted: ["#E5DEFA", "#CFC5F2", "#B1A5E0"],
 };
 const BUTTER: [string, string, string] = ["#FFE7A0", "#FFD25E", "#E6AE2E"];
-const SANS = '"Nunito", sans-serif';
+const SANS = '"Nunito", "Noto Color Emoji", sans-serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

@@ -20,8 +20,8 @@ import {
 
 const BLACK = "#0B0B0B";
 const ACID = "#E2FF3D";
-const BLOCK = '"Anton", sans-serif';
-const MONO = '"JetBrains Mono", monospace';
+const BLOCK = '"Anton", "Noto Color Emoji", sans-serif';
+const MONO = '"JetBrains Mono", "Noto Color Emoji", monospace';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

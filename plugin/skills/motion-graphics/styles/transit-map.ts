@@ -29,8 +29,8 @@ const LINE: Record<Tone, string> = {
   muted: "#A3A3A3",
 };
 const AMBER = "#FFC21A";
-const SANS = '"Montserrat", sans-serif';
-const MONO = '"JetBrains Mono", monospace';
+const SANS = '"Montserrat", "Noto Color Emoji", sans-serif';
+const MONO = '"JetBrains Mono", "Noto Color Emoji", monospace';
 
 /** An octilinear route from a to b: straight runs joined by 45 degree diagonals, or a detour when bent. */
 function route(a: Pt, b: Pt, bend: number): Pt[] {

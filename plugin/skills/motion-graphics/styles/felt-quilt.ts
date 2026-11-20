@@ -33,7 +33,7 @@ const THREAD: Record<Tone, string> = {
   bad: "#B8322A",
   muted: "#5A8A86",
 };
-const ROUND = '"Nunito", sans-serif';
+const ROUND = '"Nunito", "Noto Color Emoji", sans-serif';
 const PRINTS = [
   "#C9786A",
   "#D9B95E",

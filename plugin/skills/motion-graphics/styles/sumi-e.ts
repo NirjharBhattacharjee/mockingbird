@@ -29,7 +29,7 @@ const INK: Record<Tone, string> = {
   bad: SEAL,
   muted: "#8A857B",
 };
-const SERIF = '"Cormorant Garamond", serif';
+const SERIF = '"Cormorant Garamond", "Noto Color Emoji", serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

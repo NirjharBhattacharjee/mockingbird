@@ -28,8 +28,8 @@ const INK: Record<Tone, string> = {
   muted: "#8A9A8E",
 };
 const IRIS = ["#3F8A64", "#4568B0", "#C05A6C", "#C08F38", "#6A52A8"];
-const SERIF = '"Playfair Display", serif';
-const NUMBERING = '"Courier Prime", monospace';
+const SERIF = '"Playfair Display", "Noto Color Emoji", serif';
+const NUMBERING = '"Courier Prime", "Noto Color Emoji", monospace';
 
 /** A hypotrochoid, the curve a lathe's rolling wheel draws: `loops` lobes, radius `R`, depth 0-1. */
 function lathe(

@@ -40,8 +40,8 @@ const BODY: Record<Tone, [string, string]> = {
   bad: ["#F6B39A", "#6A2320"],
   muted: ["#C9C3E0", "#34304F"],
 };
-const SANS = '"Montserrat", sans-serif';
-const SERIF = '"Cormorant Garamond", serif';
+const SANS = '"Montserrat", "Noto Color Emoji", sans-serif';
+const SERIF = '"Cormorant Garamond", "Noto Color Emoji", serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

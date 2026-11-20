@@ -35,7 +35,7 @@ const BANDS: [number, number, number][] = [
   [123, 44, 191],
   [255, 210, 63],
 ];
-const BULB = '"Fraunces", serif';
+const BULB = '"Fraunces", "Noto Color Emoji", serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

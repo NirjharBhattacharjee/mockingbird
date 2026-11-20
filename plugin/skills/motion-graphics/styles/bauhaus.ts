@@ -35,7 +35,7 @@ const TONE: Record<Tone, string> = {
   muted: "#9C9384",
 };
 const PRIMARY = [RED, YELLOW, BLUE];
-const GEO = '"Montserrat", sans-serif';
+const GEO = '"Montserrat", "Noto Color Emoji", sans-serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

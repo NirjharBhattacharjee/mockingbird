@@ -28,7 +28,7 @@ const TONE: Record<Tone, string> = {
   bad: RED,
   muted: "#8C8C88",
 };
-const GROTESK = '"Inter", sans-serif';
+const GROTESK = '"Inter", "Noto Color Emoji", sans-serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

@@ -30,7 +30,7 @@ const TILE: Record<Tone, string> = {
   bad: ORANGE,
   muted: GREY,
 };
-const HEAVY = '"Archivo Black", sans-serif';
+const HEAVY = '"Archivo Black", "Noto Color Emoji", sans-serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

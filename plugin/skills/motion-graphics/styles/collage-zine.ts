@@ -19,15 +19,15 @@ const TONER = "#141414";
 const SHEET = "#F1EEE6";
 const PINK = "#FF3E8E";
 const FACES = [
-  '"Playfair Display", serif',
-  '"Anton", sans-serif',
-  '"Courier Prime", monospace',
-  '"Montserrat", sans-serif',
-  '"Arvo", serif',
-  '"Fraunces", serif',
+  '"Playfair Display", "Noto Color Emoji", serif',
+  '"Anton", "Noto Color Emoji", sans-serif',
+  '"Courier Prime", "Noto Color Emoji", monospace',
+  '"Montserrat", "Noto Color Emoji", sans-serif',
+  '"Arvo", "Noto Color Emoji", serif',
+  '"Fraunces", "Noto Color Emoji", serif',
 ];
-const TYPED = '"Courier Prime", monospace';
-const SCRAWL = '"Kalam", cursive';
+const TYPED = '"Courier Prime", "Noto Color Emoji", monospace';
+const SCRAWL = '"Kalam", "Noto Color Emoji", cursive';
 
 function make(ctx: any, t0: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

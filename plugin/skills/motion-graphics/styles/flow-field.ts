@@ -27,7 +27,7 @@ const TONE: Record<Tone, string> = {
   bad: "#F38C6E",
   muted: "#9089A6",
 };
-const MONO = '"Space Mono", monospace';
+const MONO = '"Space Mono", "Noto Color Emoji", monospace';
 
 /** The field's direction at (x, y), both 0-1: a gentle rightward drift full of slow eddies. */
 const angle = (x: number, y: number) =>

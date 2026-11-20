@@ -661,11 +661,13 @@ against 199 s in software.
   `Space Grotesk`, `Montserrat`, `Bangers`, `Nunito`, `Cormorant Garamond`,
   `Fraunces`, `Caveat`, `Kalam`, `VT323`, `Space Mono`, `Silkscreen`,
   `Courier Prime`, `Comic Neue`, `Arvo`), in CSS or a canvas's `font` (the
-  full names), and each loads the first time text needs it. Captions use
-  their style's font, then the Noto family for the script. Han characters
-  are drawn in Japanese, Chinese or Korean shapes by the captions first: any
-  kana makes them Japanese, any Hangul Korean. Han alone goes by
-  `MOCKINGBIRD_LANGUAGE` when it's `ja`, `zh` or `ko`, and Chinese otherwise.
+  full names), and each loads the first time text needs it. `Noto Color
+  Emoji` (the COLRv1 build, 5 MB) is last in every stack, so an emoji draws
+  the same everywhere. Captions use their style's font, then the Noto family
+  for the script, then the emoji. Han characters are drawn in Japanese,
+  Chinese or Korean shapes by the captions first: any kana makes them
+  Japanese, any Hangul Korean. Han alone goes by `MOCKINGBIRD_LANGUAGE` when
+  it's `ja`, `zh` or `ko`, and Chinese otherwise.
 - **A font the page doesn't have is a warning** (#276): the first family of
   every canvas `font` and of every element with text that's drawn should be
   one of those, or one the page loads with `@font-face`. A generic family

@@ -35,7 +35,7 @@ const SKY = [
   "#B44A8E",
   "#D86A84",
 ];
-const FONT = '"Inter", sans-serif';
+const FONT = '"Inter", "Noto Color Emoji", sans-serif';
 
 /** Snap a 0-1 entrance to whole steps, the way sprites move. */
 const step = (p: number, n: number) => Math.floor(clamp(p) * n) / n;

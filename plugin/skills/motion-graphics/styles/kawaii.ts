@@ -32,7 +32,7 @@ const DEEP: Record<Tone, string> = {
   bad: "#E8506E",
   muted: "#9C86D6",
 };
-const ROUND = '"Nunito", sans-serif';
+const ROUND = '"Nunito", "Noto Color Emoji", sans-serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

@@ -44,7 +44,12 @@ export type Theme = {
 };
 
 // Pinned fonts (#276): `models pull chrome` downloads them, so every machine draws the same.
-const FACES = { display: "Inter", serif: '"Charis SIL"', mono: '"JetBrains Mono"' };
+// Then colour emoji, for an emoji in a title or a label (#276).
+const FACES = {
+  display: 'Inter, "Noto Color Emoji"',
+  serif: '"Charis SIL", "Noto Color Emoji"',
+  mono: '"JetBrains Mono", "Noto Color Emoji"',
+};
 
 export const THEMES: Record<string, Theme> = {
   // Linear / Vercel launch film: near black, violet and blue light, glassy.
@@ -2206,7 +2211,7 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
         ctx.translate(W / 2, cy);
         ctx.scale(s, s);
         // A variable font's contours overlap, which an outline shows; Archivo Black is static.
-        ctx.font = `400 ${Math.round(big)}px "Archivo Black"`;
+        ctx.font = `400 ${Math.round(big)}px "Archivo Black", "Noto Color Emoji"`;
         ctx.lineJoin = "round";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";

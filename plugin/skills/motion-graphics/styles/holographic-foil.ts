@@ -20,7 +20,7 @@ import {
 
 const NAVY = "#1A1C33";
 const TINT: Record<Tone, number> = { ink: 200, accent: 280, good: 140, bad: 350, muted: 230 };
-const HEAVY = '"Montserrat", sans-serif';
+const HEAVY = '"Montserrat", "Noto Color Emoji", sans-serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

@@ -698,13 +698,31 @@ const FONTS = [
   },
 ] as const;
 
-/** The pinned fonts as downloads: about 52 MB, most of it Chinese, Japanese and Korean. */
-export const FONT_FILES: ModelFile[] = FONTS.map((f) => ({
-  name: f.family,
-  file: f.file,
-  url: `https://raw.githubusercontent.com/google/fonts/${FONTS_COMMIT}/ofl/${f.dir}/${encodeURIComponent(f.file)}`,
-  sha256: f.sha256,
-}));
+/**
+ * Colour emoji, last in every stack (#276): Noto's COLRv1 build (5 MB, OFL),
+ * from googlefonts/noto-emoji since google/fonts only has the 25 MB one with
+ * bitmaps too. Vector, so it stays sharp at hook sizes.
+ */
+export const EMOJI_COMMIT = "99701e07d3d1fe1bdbcdb14964547f0fd592966f";
+const EMOJI = {
+  file: "Noto-COLRv1.ttf",
+  family: "Noto Color Emoji",
+  weight: "1 1000",
+  style: "normal",
+  sha256: "b8e25ea68db82f9e4d0aee921f4420be2be39887bd5c893a2ad98710531f9d0c",
+  url: `https://raw.githubusercontent.com/googlefonts/noto-emoji/${EMOJI_COMMIT}/2D/fonts/Noto-COLRv1.ttf`,
+} as const;
+
+/** The pinned fonts as downloads: about 57 MB, most of it Chinese, Japanese and Korean. */
+export const FONT_FILES: ModelFile[] = [
+  ...FONTS.map((f) => ({
+    name: f.family,
+    file: f.file,
+    url: `https://raw.githubusercontent.com/google/fonts/${FONTS_COMMIT}/ofl/${f.dir}/${encodeURIComponent(f.file)}`,
+    sha256: f.sha256,
+  })),
+  { name: EMOJI.family, file: EMOJI.file, url: EMOJI.url, sha256: EMOJI.sha256 },
+];
 
 export type FontFaceFile = { family: string; url: string; weight: string; style: string };
 
@@ -716,12 +734,14 @@ export function missingFonts(home = mockingbirdHome()): string[] {
 /** The pinned fonts that are downloaded, as file URLs for pages to load. */
 export function fontFaces(home = mockingbirdHome()): FontFaceFile[] {
   const dir = join(home, "fonts");
-  return FONTS.filter((f) => existsSync(join(dir, f.file))).map((f) => ({
-    family: f.family,
-    url: pathToFileURL(join(dir, f.file)).href,
-    weight: f.weight,
-    style: f.style,
-  }));
+  return [...FONTS, EMOJI]
+    .filter((f) => existsSync(join(dir, f.file)))
+    .map((f) => ({
+      family: f.family,
+      url: pathToFileURL(join(dir, f.file)).href,
+      weight: f.weight,
+      style: f.style,
+    }));
 }
 
 /** The Chrome to render in: MOCKINGBIRD_CHROME, or the pinned one once it's pulled. */

@@ -33,7 +33,7 @@ const TEXT: Record<Tone, string> = {
   bad: "#E25A3C",
   muted: "#7C76A8",
 };
-const FACE = '"Nunito", sans-serif';
+const FACE = '"Nunito", "Noto Color Emoji", sans-serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);
