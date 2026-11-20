@@ -1,7 +1,7 @@
 {
   "name": "mockingbird",
   "version": "0.2.0",
-  "description": "Edit your videos into shorts for Shorts, Reels and TikTok and long-form edits for YouTube: hooks, tight cuts, word-by-word captions, chapters, b-roll and sound, rendered on your Mac by mockingbird.",
+  "description": "Edit product demos from screen recordings, shorts for Shorts, Reels and TikTok, and long-form videos for YouTube. Plan the story, cut, frame, caption and mix sound locally with mockingbird.",
   "author": {
     "name": "Nirjhar Bhattacharjee",
     "url": "https://github.com/NirjharBhattacharjee"
