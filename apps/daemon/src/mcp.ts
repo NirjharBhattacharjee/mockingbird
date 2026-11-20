@@ -79,6 +79,7 @@ import {
   WHISPER_LANGUAGES,
 } from "./runtime.ts";
 import { scopes } from "./scopes.ts";
+import { screenTools } from "./screen-inspect.ts";
 import { subjectMask } from "./subject.ts";
 import { sync } from "./sync.ts";
 import { along, type Point, track } from "./track.ts";
@@ -4743,6 +4744,8 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
       },
       run: async (a) => addEntries(String(a.entry)),
     },
+    // Last, so agents read the general tools first.
+    ...screenTools(),
   ];
 }
 

@@ -21,6 +21,7 @@
         "@mockingbird/store": "workspace:*",
         "@mockingbird/timeline": "workspace:*",
         "@mockingbird/vad": "workspace:*",
+        "@mockingbird/video": "workspace:*",
       },
     },
     "packages/asr": {
@@ -63,6 +64,9 @@
         "onnxruntime-node": "1.30.0",
       },
     },
+    "packages/video": {
+      "name": "@mockingbird/video",
+    },
   },
   "packages": {
     "@biomejs/biome": ["@biomejs/biome@2.5.14", "", { "optionalDependencies": { "@biomejs/cli-darwin-arm64": "2.5.14", "@biomejs/cli-darwin-x64": "2.5.14", "@biomejs/cli-linux-arm64": "2.5.14", "@biomejs/cli-linux-arm64-musl": "2.5.14", "@biomejs/cli-linux-x64": "2.5.14", "@biomejs/cli-linux-x64-musl": "2.5.14", "@biomejs/cli-win32-arm64": "2.5.14", "@biomejs/cli-win32-x64": "2.5.14" }, "bin": { "biome": "bin/biome" } }, "sha512-0FabLIjd4M/dm8VFI86RMaLLdgepzbdfiAL2R8cr7V81OYYrP1w7Z73KfAwPK5h9SrEBXTzNG2y+mBwPo9xRnw=="],
@@ -100,6 +104,8 @@
     "@mockingbird/timeline": ["@mockingbird/timeline@workspace:packages/timeline"],
 
     "@mockingbird/vad": ["@mockingbird/vad@workspace:packages/vad"],
+
+    "@mockingbird/video": ["@mockingbird/video@workspace:packages/video"],
 
     "@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
 

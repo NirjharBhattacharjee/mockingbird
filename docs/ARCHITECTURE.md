@@ -31,6 +31,7 @@ injection, the cleanup model, the launchd agent) is in git:
 | 2026-11-15 | Effects catalog, phase 2 (#198): chromakey, stabilize (ffmpeg's `deshake`: Homebrew's ffmpeg 9 has no vidstab), crop, freeze, reverse; a `mask` on any picture effect (rect, ellipse or polygon, feathered, moving), drawn per frame by `geq` and merged as alpha; inserts with a box, a blend mode, effects and moves; adjustment layers between the inserts and the text; `export` to FCPXML 1.10 and OpenTimelineIO (`packages/timeline/src/export.ts`). |
 | 2026-11-14 | The speech is raised to −14 LUFS before music and effects are mixed under it (#212). On a −31 LUFS recording with a bed at volume 0.15, the music sat 2.2 dB under the speech and ducked 0.6 dB; now 16.6 dB under, ducking 12.9 dB. |
 | 2026-11-14 | Chrome for every user (#250): `install.sh` and `install.ps1` download the pinned Chrome and its fonts after the models, warning instead of failing when they can't; `setup` offers it when it's missing; `doctor` checks it instead of the Core Text and Core Graphics lines left from before #155 and #169. |
+| 2026-11-12 | Screen inspection shares source metadata, exact frame timing and decoding through `packages/video`. It rejects incompatible or unknown pixel geometry and reports the input coordinate space. |
 | 2026-11-06 | `motion` swaps a page's `from "KIT"` for the kit's file URL in a copy beside the page (#213), so agents leave the templates' import alone: replacing it by hand hit a comment first, and a Windows path isn't a URL. |
 | 2026-11-06 | Windows (#202): the plugin starts there (`launch.cmd`, `launch.ps1`); filter graphs go to ffmpeg in a file, since one for 100 clips is longer than a Windows command line; off Apple Silicon the default Whisper model is `small` Q5_1, as `large-v3` took 2.6x real time on a 2-core CPU (MODELS.md §6). |
 | 2026-11-06 | Segment cache (#165): a project renders from segments of about 10 s kept in `~/.mockingbird/cache/segments/`, each keyed by its clips, what's drawn over it, the look and the engine, so an edit renders again only the segments it touches. On the v2 edit with four texts, changing one text took 16.4 s instead of 72.8 to 78.2 s. |
@@ -451,6 +452,7 @@ mockingbird/
 │   ├── motion/              HTML pages and Web Audio music in headless Chrome,
 │   │                        to MP4 and WAV
 │   ├── timeline/            project files: format, checks, edit ops, outline
+│   ├── video/               source metadata, frame timing and decoding
 │   └── store/               data.db, the dictionary's parsing and name matching
 ├── plugin/                  the Claude Code plugin: skills, the reviewer agent,
 │                            the motion kit, templates, sound effects, research
