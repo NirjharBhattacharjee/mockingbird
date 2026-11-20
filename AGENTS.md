@@ -140,8 +140,9 @@ most of that buys nothing.
   the background, never a polling loop. Rerun only jobs that failed before
   any test ran (runner or apt outages), and only with the user's OK.
 - **Report once per PR:** done (with the URL and head SHA) or blocked (with
-  the reason). Don't send corrections or progress chatter, and run
-  integration tests only when engine code changed.
+  the reason). If a blocked PR is later resolved, send one follow-up report
+  with the URL and head SHA. Don't send other corrections or progress
+  chatter, and run integration tests only when engine code changed.
 - **Start a fresh session per task.** A long coordinator session costs more
   on every turn as its context grows.
 
