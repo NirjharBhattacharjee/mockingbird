@@ -1,6 +1,6 @@
 ---
 name: style-match
-description: Measure a video that already did well (its cuts per minute, seconds per shot, loudness, speaking pace, caption style) and set an edit to match it. Use when the user gives a reference video or says "make it like this", or to compare a render against a target.
+description: Measure a video that already did well (its cuts per minute, seconds per shot, loudness, speaking pace, caption style, colour) and set an edit to match it. Use when the user gives a reference video or says "make it like this", or to compare a render against a target.
 ---
 
 # Style match
@@ -32,6 +32,9 @@ Then with mockingbird:
   Note words per caption, case, colour of the spoken word, caption height,
   title use, how often b-roll appears, whether there's music.
 - **Hook**: what happens in its first 3 s (short) or 30 s (long-form).
+- **Colour**: `scopes` on it, over the whole video and over two or three
+  shots. Note mean luma, the 5th to 95th percentile spread (its contrast),
+  saturation and where skin sits.
 
 ## Match
 
@@ -42,6 +45,7 @@ Then with mockingbird:
 | Caption height | `captionsY` |
 | B-roll every N seconds | `inserts` spacing (only where the speech supports it) |
 | Loudness | nothing: mockingbird renders at −14 LUFS regardless |
+| Luma, spread, saturation | the grade's targets in **color-grade**: correct to land within about 0.05 of its mean luma and spread and 0.03 of its saturation, then pick the look nearest it (a low spread and saturation is `faded`, a high one `punchy`) |
 
-Render, run `measure` and `scenes` on your render, and compare. Within about 20% on
+Render, run `measure`, `scenes` and `scopes` on your render, and compare. Within about 20% on
 seconds per shot is close enough; the content decides the rest.

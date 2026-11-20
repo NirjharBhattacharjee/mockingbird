@@ -63,6 +63,8 @@ edit only once they approve it.
    screen recording, zoom in (`focus` on the area, `zoom` 1.5–2) when the
    speaker talks about something too small to read; the edX data says cutting
    between the face and the screen beats the screen alone.
+   Grade each clip per **color-grade**: its `color` correction and the
+   look go in the clip's `effects`.
 7. **Captions file.** `captions` with the clips, `perCue: 8, lit: false`. Fix
    misheard names, then write it as `<name>.srt` beside the render for the
    user to upload to YouTube; uploaded captions beat YouTube's automatic ones

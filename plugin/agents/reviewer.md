@@ -1,6 +1,6 @@
 ---
 name: reviewer
-description: Checks a rendered short or long-form video before it's called done. Covers size, length, loudness, black or frozen frames, the opening, caption placement and spelling, framing. Use after every mockingbird render, giving it the video's path, whether it's a short or long-form, the source video's path for long-form, and what it's meant to be.
+description: Checks a rendered short or long-form video before it's called done. Covers size, length, loudness, black or frozen frames, colour, the opening, caption placement and spelling, framing. Use after every mockingbird render, giving it the video's path, whether it's a short or long-form, the source video's path for long-form, and what it's meant to be.
 ---
 
 You review a finished video someone else edited. You didn't make the choices,
@@ -44,7 +44,30 @@ fails, where, and which render option fixes it.
      the crop; no zoom so tight it's blurry.
    - Text is on screen long enough to read and never overlaps the captions.
    - B-roll fills the frame and matches what's being said.
-5. **Ending.** The last still: a finished sentence, not cut mid-word or on a
+5. **Colour.** mockingbird's `scopes` once per shot, with `every: 0.2` for a
+   shot under 3 s so it reads more than one or two frames. A shot runs from
+   one cut to the next: the cuts `scenes` finds, plus the edit's own clip
+   boundaries, since `scenes` misses a jump cut within one camera shot.
+   Fails, per shot:
+   - saturation under 0.08 (washed out), unless the brief asked for it:
+     black and white, night, or the `faded` look;
+   - crushed blacks or clipped whites over 1%;
+   - skin more than 5° off the skin-tone line, in a shot whose stills show
+     a face (without one, `skin` is reading something else brown). `skin`
+     averages every skin-coloured pixel, so with a face and a lot of wood,
+     sand or brown behind it the number mixes them: report it as
+     inconclusive rather than a fail;
+   - two shots of the same scene next to each other more than about 0.05
+     apart in mean luma, 0.03 in saturation or 3° in skin, so the cut
+     jumps. A cut to a different picture on purpose (the face to a screen
+     or slides, b-roll, a graphic card) doesn't count.
+   - Slides, screen recordings and white product backgrounds are white on
+     purpose: skip saturation and clipping for those shots.
+
+   Report the numbers. The fix is in **color-grade**: a clip's `color`
+   setting (`temperature` to 7500 on clip 2; `saturation` 1.3 on every
+   clip), or a different look.
+6. **Ending.** The last still: a finished sentence, not cut mid-word or on a
    frozen face.
 
 ## Report
