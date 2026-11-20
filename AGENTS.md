@@ -18,8 +18,8 @@
    live in `.worktrees/` (already gitignored), branch prefix `agent/`.
 2. **Build — `/code-structure`.** Maps onto this repo's existing split
    ([ARCHITECTURE.md §10](./docs/ARCHITECTURE.md#10-repository-layout)):
-   `packages/*` (`asr`, `vad`, `audio`, `captions`, `motion`, `store`, `timeline`)
-   **is** the service layer — reusable mechanics, explicit inputs,
+   `packages/*` (`asr`, `vad`, `audio`, `captions`, `motion`, `store`,
+   `timeline`) **is** the service layer — reusable mechanics, explicit inputs,
    structured returns. `apps/daemon` (the engine: the MCP server, its tools
    and the commands) **is** the orchestration layer — it owns *which* clips,
    *which* model, *what* filter graph. Don't let platform-specific logic
@@ -119,32 +119,23 @@ coderabbit-loop have something to check a "fix" against.
 
 ## Pacing and cost
 
-Usage is shared across every session on the account, so waste in one
-session takes work away from the others. Parallel sessions that keep
-rebasing, polling CI and relaying status can use up a plan in a day, and
-most of that buys nothing.
+Usage is shared across every session, so waste in one session takes work
+from the others. The general rules (one engineer per project, model
+choice, merge pacing, CI waiting, reporting) are in `~/.claude/CLAUDE.md`.
+This repo tightens them in these ways:
 
-- **One active engineer at a time** per project, plus the coordinator. Run
-  mechanical work (rebases, CI checks, small fixes) on a cheaper model, and
-  keep the strongest model for design and hard reviews.
-- **Fix the merge order before work starts, and rebase only the PR that's
-  next.** Every squash merge makes the other open PRs conflict, so don't
-  rebase PRs that aren't next in line.
-- **Keep PRs small and flat:** under 100 changed files (CodeRabbit skips
-  bigger ones), and stacked at most one level deep. Count files with
-  `gh pr view <n> --json changedFiles`, because `--json files` stops at 100.
-- **One review layer per round.** CodeRabbit is the reviewer. Run
-  `/code-review` locally only when CodeRabbit is rate-limited, and don't
-  push just to set off a review. Batch every fix into one push.
-- **Wait for CI with `gh pr checks <n> --watch --required`**, run once in
-  the background, never a polling loop. Rerun only jobs that failed before
-  any test ran (runner or apt outages), and only with the user's OK.
-- **Report once per PR:** done (with the URL and head SHA) or blocked (with
-  the reason). If a blocked PR is later resolved, send one follow-up report
-  with the URL and head SHA. Don't send other corrections or progress
-  chatter, and run integration tests only when engine code changed.
-- **Start a fresh session per task.** A long coordinator session costs more
-  on every turn as its context grows.
+- **Parallel sessions only on separate files**, each in its own worktree
+  (see [Multi-agent rules](#multi-agent-rules)).
+- **Keep PRs under 100 changed files** and stacked at most one level deep.
+  Count with `gh pr view <n> --json changedFiles`, because `--json files`
+  stops at 100.
+- **CodeRabbit is the reviewer.** Run `/code-review` locally only when
+  CodeRabbit can't review (rate-limited, down, or it skipped the PR). Make
+  one push per review round, with every fix from that round in it, and
+  don't push just to set off a review.
+- **Run integration tests** only for a change to
+  `packages/{audio,vad,asr,captions,motion}` or a tool, as in
+  [§Commands & checks](#commands--checks).
 
 ## Completing a task
 
@@ -153,10 +144,10 @@ most of that buys nothing.
 3. Assemble evidence into a before/after pair (measured numbers, or stills
    from a render).
 4. Commit with a clear message, signed off (`git commit -s`, the `dco` CI
-   job checks it; run the message through `/unslop`), rebase onto
-   latest `origin/main`, rerun the checks.
-5. Push (`git push -u origin <branch>`; after rebasing an already-pushed
-   branch, `--force-with-lease`).
+   job checks it; run the message through `/unslop`). If this PR is next
+   to merge, rebase onto latest `origin/main` and rerun the checks.
+5. Push (`git push -u origin <branch>`; after a rebase of an
+   already-pushed branch, `--force-with-lease`).
 6. Open the PR — body explains what changed, how it was tested, before/after
    proof, and risks/follow-up. Run title and body through `/unslop`.
 7. Run `/coderabbit-loop` until CodeRabbit's latest review has zero
