@@ -184,3 +184,29 @@ test("a caption style refuses what it doesn't know", () => {
   expect(() => captionStyle({ shadow: "false" })).toThrow(/shadow is true or false/);
   expect(captionStyle({ fill: "hsl(50 100% 50%)" }).fill).toBe("hsl(50 100% 50%)");
 });
+
+test("keywords and marks inside a word (#276)", () => {
+  expect(pieces("a **big** deal")[0]).toEqual([
+    { text: "a", lit: false },
+    { text: "big", lit: false, key: true },
+    { text: "deal", lit: false },
+  ]);
+  // Chinese has no spaces: the mark splits the word, and the pieces join with none.
+  expect(pieces("这是*一*个")[0]).toEqual([
+    { text: "这是", lit: false },
+    { text: "一", lit: true, glue: true },
+    { text: "个", lit: false, glue: true },
+  ]);
+});
+
+test("pop, keyword and look are checked (#276)", () => {
+  expect(captionStyle({ preset: "classic", pop: 1.2, keyword: "#00FF88" })).toMatchObject({
+    pop: 1.2,
+    keyword: "#00FF88",
+  });
+  expect(() => captionStyle({ pop: 2 })).toThrow(/pop is a number from 1 to 1.4/);
+  expect(() => captionStyle({ look: "Art Deco!" })).toThrow(/look is a motion style's id/);
+  // Restrained by default: classic and subtitle don't pop.
+  expect(CAPTION_PRESETS.classic).not.toHaveProperty("pop");
+  expect(CAPTION_PRESETS.subtitle).not.toHaveProperty("pop");
+});

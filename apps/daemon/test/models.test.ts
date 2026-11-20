@@ -558,6 +558,32 @@ describe("Chrome", () => {
     expect(existsSync(pin.program)).toBe(true);
   });
 
+  test("a licence that won't download is said, and the pull still succeeds (#276)", async () => {
+    const home = tempDir();
+    const pin = pinnedChrome(home);
+    if (!pin) return;
+    mkdirSync(join(pin.program, ".."), { recursive: true });
+    writeFileSync(pin.program, "");
+    const said: string[] = [];
+    const get = (async () => new Response("gone", { status: 404 })) as unknown as typeof fetch;
+    const licence = {
+      name: "x licence",
+      file: "x.txt",
+      url: "https://example.invalid/x",
+      sha256: "0".repeat(64),
+    };
+    expect(
+      await pullChrome({
+        home,
+        fetch: get,
+        log: (m) => said.push(m),
+        fonts: [],
+        licences: [licence],
+      }),
+    ).toBe(0);
+    expect(said.join("\n")).toContain("licences didn't download");
+  });
+
   test("one pull at a time; a lock left by a pull that died is taken over", async () => {
     const home = tempDir();
     const pin = pinnedChrome(home);

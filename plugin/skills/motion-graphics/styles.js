@@ -27861,6 +27861,1127 @@ var y2k_chrome_default = {
   category: "Retro UI & Neon",
   make: make86
 };
+// plugin/skills/motion-graphics/styles/roles.json
+var roles_default = {
+  "art-deco": {
+    title: {
+      family: "Montserrat",
+      weight: 700
+    },
+    body: {
+      family: "Montserrat",
+      weight: 500
+    },
+    ink: "#cda85c",
+    accent: "#e9c979",
+    background: "#2c2318"
+  },
+  "ascii-render": {
+    title: {
+      family: "JetBrains Mono",
+      weight: 400
+    },
+    body: {
+      family: "JetBrains Mono",
+      weight: 700
+    },
+    ink: "#4fe3ff",
+    accent: "#07040c",
+    background: "#0d0819"
+  },
+  "ballpoint-notebook": {
+    title: {
+      family: "Comic Neue",
+      weight: 700
+    },
+    body: {
+      family: "Caveat",
+      weight: 600
+    },
+    ink: "#27348b",
+    accent: "#2f45b5",
+    background: "#f3f2ed"
+  },
+  bauhaus: {
+    title: {
+      family: "Montserrat",
+      weight: 700
+    },
+    body: {
+      family: "Montserrat",
+      weight: 600
+    },
+    ink: "#ece3d0",
+    accent: "#ece3d0",
+    background: "#ece3d0"
+  },
+  blueprint: {
+    title: {
+      family: "Courier Prime",
+      weight: 700
+    },
+    body: {
+      family: "Courier Prime",
+      weight: 700
+    },
+    ink: "#f2f7ff",
+    accent: "#d4e8ff",
+    background: "#204c96"
+  },
+  "botanical-plate": {
+    title: {
+      family: "Charis SIL",
+      weight: 500
+    },
+    body: {
+      family: "Charis SIL",
+      weight: 500
+    },
+    ink: "#2b241c",
+    accent: "#6e2f36",
+    background: "#e6dbc0"
+  },
+  chalkboard: {
+    title: {
+      family: "Comic Neue",
+      weight: 700
+    },
+    body: {
+      family: "Comic Neue",
+      weight: 700
+    },
+    ink: "#000000",
+    accent: "#000000",
+    background: "#2b5241"
+  },
+  claymation: {
+    title: {
+      family: "Nunito",
+      weight: 700
+    },
+    body: {
+      family: "Nunito",
+      weight: 700
+    },
+    ink: "#f7f2e8",
+    accent: "#f07fa8",
+    background: "#447c82"
+  },
+  "collage-zine": {
+    title: {
+      family: "Fraunces",
+      weight: 700
+    },
+    body: {
+      family: "Courier Prime",
+      weight: 400
+    },
+    ink: "#141414",
+    accent: "#ff3e8e",
+    background: "#efece4"
+  },
+  comic: {
+    title: {
+      family: "Bangers",
+      weight: 400
+    },
+    body: {
+      family: "Bangers",
+      weight: 400
+    },
+    ink: "#141414",
+    accent: "#141414",
+    background: "#80a2db"
+  },
+  constructivist: {
+    title: {
+      family: "Anton",
+      weight: 400
+    },
+    body: {
+      family: "Anton",
+      weight: 400
+    },
+    ink: "#eadfc6",
+    accent: "#eadfc6",
+    background: "#eadfc6"
+  },
+  cosmic: {
+    title: {
+      family: "Montserrat",
+      weight: 700
+    },
+    body: {
+      family: "Cormorant Garamond",
+      weight: 600
+    },
+    ink: "#ddbf7a",
+    accent: "#a8dde6",
+    background: "#2a213d"
+  },
+  "cross-stitch": {
+    title: {
+      family: "Inter",
+      weight: 400
+    },
+    body: {
+      family: "Inter",
+      weight: 400
+    },
+    ink: "#000000",
+    accent: "#000000",
+    background: "#e9e1cf"
+  },
+  "crt-terminal": {
+    title: {
+      family: "VT323",
+      weight: 400
+    },
+    body: {
+      family: "VT323",
+      weight: 400
+    },
+    ink: "#4dff7a",
+    accent: "#9cffb4",
+    background: "#031207"
+  },
+  "cut-paper": {
+    title: {
+      family: "Nunito",
+      weight: 800
+    },
+    body: {
+      family: "Nunito",
+      weight: 800
+    },
+    ink: "#3a3466",
+    accent: "#e9a62a",
+    background: "#524c83"
+  },
+  "deep-sea": {
+    title: {
+      family: "Charis SIL",
+      weight: 600
+    },
+    body: {
+      family: "Charis SIL",
+      weight: 600
+    },
+    ink: "#efffff",
+    accent: "#efffff",
+    background: "#041421"
+  },
+  "editorial-chart": {
+    title: {
+      family: "Charis SIL",
+      weight: 400
+    },
+    body: {
+      family: "Inter",
+      weight: 500
+    },
+    ink: "#807973",
+    accent: "#990f3d",
+    background: "#fdefe3"
+  },
+  "editorial-collage": {
+    title: {
+      family: "Anton",
+      weight: 400
+    },
+    body: {
+      family: "Anton",
+      weight: 400
+    },
+    ink: "#f7f2e6",
+    accent: "#f7f2e6",
+    background: "#efe5d2"
+  },
+  "etch-sketch": {
+    title: {
+      family: "Inter",
+      weight: 400
+    },
+    body: {
+      family: "Inter",
+      weight: 400
+    },
+    ink: "#000000",
+    accent: "#000000",
+    background: "#c6c7c2"
+  },
+  "felt-quilt": {
+    title: {
+      family: "Nunito",
+      weight: 800
+    },
+    body: {
+      family: "Nunito",
+      weight: 700
+    },
+    ink: "#3c4a6e",
+    accent: "#c84a62",
+    background: "#a09086"
+  },
+  "film-noir": {
+    title: {
+      family: "Oswald",
+      weight: 400
+    },
+    body: {
+      family: "Oswald",
+      weight: 400
+    },
+    ink: "#ededed",
+    accent: "#ffffff",
+    background: "#3d3d3d"
+  },
+  "flat-space": {
+    title: {
+      family: "Nunito",
+      weight: 900
+    },
+    body: {
+      family: "Nunito",
+      weight: 800
+    },
+    ink: "#1b1550",
+    accent: "#ffffff",
+    background: "#4a2988"
+  },
+  "flow-field": {
+    title: {
+      family: "Space Mono",
+      weight: 700
+    },
+    body: {
+      family: "Space Mono",
+      weight: 400
+    },
+    ink: "#ece6f2",
+    accent: "#7fdcd3",
+    background: "#322c41"
+  },
+  gameboy: {
+    title: {
+      family: "Inter",
+      weight: 400
+    },
+    body: {
+      family: "Inter",
+      weight: 400
+    },
+    ink: "#000000",
+    accent: "#000000",
+    background: "#000000"
+  },
+  glassmorphism: {
+    title: {
+      family: "Inter",
+      weight: 700
+    },
+    body: {
+      family: "Inter",
+      weight: 600
+    },
+    ink: "#ffffff",
+    accent: "#ffffff",
+    background: "#774bd7"
+  },
+  "gouache-poster": {
+    title: {
+      family: "Bebas Neue",
+      weight: 400
+    },
+    body: {
+      family: "Bebas Neue",
+      weight: 400
+    },
+    ink: "#1f3446",
+    accent: "#e8623a",
+    background: "#89b6b0"
+  },
+  "holographic-foil": {
+    title: {
+      family: "Montserrat",
+      weight: 800
+    },
+    body: {
+      family: "Montserrat",
+      weight: 800
+    },
+    ink: "#15162a",
+    accent: "#15162a",
+    background: "#27272d"
+  },
+  illuminated: {
+    title: {
+      family: "Charis SIL",
+      weight: 700
+    },
+    body: {
+      family: "Cormorant Garamond",
+      weight: 700
+    },
+    ink: "#3b2414",
+    accent: "#b8321f",
+    background: "#eadab4"
+  },
+  "impasto-oil": {
+    title: {
+      family: "Fraunces",
+      weight: 900
+    },
+    body: {
+      family: "Fraunces",
+      weight: 900
+    },
+    ink: "#2a2e44",
+    accent: "#6b4a0e",
+    background: "#4a69a2"
+  },
+  isometric: {
+    title: {
+      family: "Inter",
+      weight: 800
+    },
+    body: {
+      family: "Inter",
+      weight: 600
+    },
+    ink: "#33365e",
+    accent: "#33365e",
+    background: "#f2f2fb"
+  },
+  isotype: {
+    title: {
+      family: "Montserrat",
+      weight: 700
+    },
+    body: {
+      family: "Montserrat",
+      weight: 700
+    },
+    ink: "#2a2522",
+    accent: "#2f5375",
+    background: "#eee7d6"
+  },
+  kawaii: {
+    title: {
+      family: "Nunito",
+      weight: 800
+    },
+    body: {
+      family: "Nunito",
+      weight: 800
+    },
+    ink: "#6e4467",
+    accent: "#f06a9c",
+    background: "#ffe6ef"
+  },
+  "kinetic-type": {
+    title: {
+      family: "Anton",
+      weight: 400
+    },
+    body: {
+      family: "JetBrains Mono",
+      weight: 700
+    },
+    ink: "#0b0b0b",
+    accent: "#0b0b0b",
+    background: "#0b0b0b"
+  },
+  letterpress: {
+    title: {
+      family: "Anton",
+      weight: 400
+    },
+    body: {
+      family: "Anton",
+      weight: 400
+    },
+    ink: "#1e1b18",
+    accent: "#c3352b",
+    background: "#f3e9d2"
+  },
+  "light-painting": {
+    title: {
+      family: "Caveat",
+      weight: 700
+    },
+    body: {
+      family: "Caveat",
+      weight: 700
+    },
+    ink: "rgba(255, 255, 255, 0.55)",
+    accent: "rgba(255, 255, 255, 0.55)",
+    background: "#080c1f"
+  },
+  linocut: {
+    title: {
+      family: "Arvo",
+      weight: 900
+    },
+    body: {
+      family: "Arvo",
+      weight: 900
+    },
+    ink: "#efe5cc",
+    accent: "#d2483a",
+    background: "#1d1a18"
+  },
+  "low-poly": {
+    title: {
+      family: "Space Grotesk",
+      weight: 600
+    },
+    body: {
+      family: "Space Grotesk",
+      weight: 600
+    },
+    ink: "#ffffff",
+    accent: "#ffffff",
+    background: "#928aae"
+  },
+  "mac-1bit": {
+    title: {
+      family: "Inter",
+      weight: 400
+    },
+    body: {
+      family: "Inter",
+      weight: 400
+    },
+    ink: "#000000",
+    accent: "#000000",
+    background: "#000000"
+  },
+  "manga-panel": {
+    title: {
+      family: "Bangers",
+      weight: 700
+    },
+    body: {
+      family: "Bangers",
+      weight: 700
+    },
+    ink: "#111111",
+    accent: "#111111",
+    background: "#f4f1e9"
+  },
+  "math-anim": {
+    title: {
+      family: "Charis SIL",
+      weight: 400
+    },
+    body: {
+      family: "Charis SIL",
+      weight: 400
+    },
+    ink: "#ffffff",
+    accent: "#58c4dd",
+    background: "#000000"
+  },
+  memphis: {
+    title: {
+      family: "Nunito",
+      weight: 900
+    },
+    body: {
+      family: "Nunito",
+      weight: 900
+    },
+    ink: "#1b1b1f",
+    accent: "#fff8ea",
+    background: "#cad7d4"
+  },
+  mosaic: {
+    title: {
+      family: "Playfair Display",
+      weight: 700
+    },
+    body: {
+      family: "Playfair Display",
+      weight: 700
+    },
+    ink: "#7e1f1a",
+    accent: "#7e1f1a",
+    background: "#a68a47"
+  },
+  "ms-paint": {
+    title: {
+      family: "Comic Neue",
+      weight: 400
+    },
+    body: {
+      family: "Comic Neue",
+      weight: 400
+    },
+    ink: "#000000",
+    accent: "#000000",
+    background: "#000000"
+  },
+  "napkin-sketch": {
+    title: {
+      family: "Kalam",
+      weight: 800
+    },
+    body: {
+      family: "Kalam",
+      weight: 800
+    },
+    ink: "#151515",
+    accent: "#151515",
+    background: "#f7f5f0"
+  },
+  "neon-sign": {
+    title: {
+      family: "Nunito",
+      weight: 700
+    },
+    body: {
+      family: "Nunito",
+      weight: 700
+    },
+    ink: "rgba(255, 255, 255, 0.65)",
+    accent: "rgba(255, 255, 255, 0.65)",
+    background: "#240d0d"
+  },
+  newsprint: {
+    title: {
+      family: "Oswald",
+      weight: 700
+    },
+    body: {
+      family: "Oswald",
+      weight: 600
+    },
+    ink: "#1f1c18",
+    accent: "#1f1c18",
+    background: "#e8dcbe"
+  },
+  "op-art": {
+    title: {
+      family: "Archivo Black",
+      weight: 900
+    },
+    body: {
+      family: "Archivo Black",
+      weight: 900
+    },
+    ink: "#f1ecdf",
+    accent: "#f1ecdf",
+    background: "#8e8079"
+  },
+  origami: {
+    title: {
+      family: "Montserrat",
+      weight: 700
+    },
+    body: {
+      family: "Montserrat",
+      weight: 700
+    },
+    ink: "#26262b",
+    accent: "#d2533e",
+    background: "#ebece8"
+  },
+  oscilloscope: {
+    title: {
+      family: "JetBrains Mono",
+      weight: 500
+    },
+    body: {
+      family: "JetBrains Mono",
+      weight: 500
+    },
+    ink: "#8cffa8",
+    accent: "#8cffa8",
+    background: "#0c160f"
+  },
+  "paper-marbling": {
+    title: {
+      family: "Charis SIL",
+      weight: 500
+    },
+    body: {
+      family: "Charis SIL",
+      weight: 500
+    },
+    ink: "#2a2219",
+    accent: "#2a2219",
+    background: "#e2dac7"
+  },
+  papercraft: {
+    title: {
+      family: "Nunito",
+      weight: 800
+    },
+    body: {
+      family: "Nunito",
+      weight: 800
+    },
+    ink: "#2a2622",
+    accent: "#2c5a9e",
+    background: "#48835a"
+  },
+  "patent-drawing": {
+    title: {
+      family: "Charis SIL",
+      weight: 500
+    },
+    body: {
+      family: "Charis SIL",
+      weight: 400
+    },
+    ink: "#1d1a16",
+    accent: "#1d1a16",
+    background: "#eee4cb"
+  },
+  "pixel-16bit": {
+    title: {
+      family: "Inter",
+      weight: 400
+    },
+    body: {
+      family: "Inter",
+      weight: 400
+    },
+    ink: "#000000",
+    accent: "#000000",
+    background: "#000000"
+  },
+  pointillism: {
+    title: {
+      family: "Playfair Display",
+      weight: 700
+    },
+    body: {
+      family: "Playfair Display",
+      weight: 700
+    },
+    ink: "#2b2f7a",
+    accent: "#e3a02a",
+    background: "#aab6a3"
+  },
+  "product-launch": {
+    title: {
+      family: "Montserrat",
+      weight: 700
+    },
+    body: {
+      family: "Montserrat",
+      weight: 600
+    },
+    ink: "#d7d7dd",
+    accent: "#b36bff",
+    background: "#18181f"
+  },
+  psychedelic: {
+    title: {
+      family: "Fraunces",
+      weight: 900
+    },
+    body: {
+      family: "Fraunces",
+      weight: 900
+    },
+    ink: "#2a0f3d",
+    accent: "#ff2e88",
+    background: "#b97b5d"
+  },
+  ridgeline: {
+    title: {
+      family: "Space Mono",
+      weight: 700
+    },
+    body: {
+      family: "Space Mono",
+      weight: 400
+    },
+    ink: "#f2f2ee",
+    accent: "#f2f2ee",
+    background: "#0d0d0d"
+  },
+  risograph: {
+    title: {
+      family: "Montserrat",
+      weight: 800
+    },
+    body: {
+      family: "Courier Prime",
+      weight: 700
+    },
+    ink: "#3b5ba9",
+    accent: "#3b5ba9",
+    background: "#f3eee3"
+  },
+  "screenprint-grid": {
+    title: {
+      family: "Anton",
+      weight: 400
+    },
+    body: {
+      family: "Anton",
+      weight: 400
+    },
+    ink: "#161412",
+    accent: "#161412",
+    background: "#22c1c8"
+  },
+  "shadow-puppet": {
+    title: {
+      family: "Charis SIL",
+      weight: 500
+    },
+    body: {
+      family: "Charis SIL",
+      weight: 500
+    },
+    ink: "#f2d9a2",
+    accent: "#e2683a",
+    background: "#e5b06e"
+  },
+  "sketchbook-pencil": {
+    title: {
+      family: "Caveat",
+      weight: 600
+    },
+    body: {
+      family: "Caveat",
+      weight: 600
+    },
+    ink: "#000000",
+    accent: "#000000",
+    background: "#efe9d9"
+  },
+  "soft-3d": {
+    title: {
+      family: "Nunito",
+      weight: 800
+    },
+    body: {
+      family: "Nunito",
+      weight: 800
+    },
+    ink: "#ffffff",
+    accent: "#ffffff",
+    background: "#f2ebf2"
+  },
+  spirograph: {
+    title: {
+      family: "Playfair Display",
+      weight: 700
+    },
+    body: {
+      family: "Playfair Display",
+      weight: 700
+    },
+    ink: "#2f4f45",
+    accent: "#3e6a8a",
+    background: "#eae5d7"
+  },
+  "stained-glass": {
+    title: {
+      family: "Cormorant Garamond",
+      weight: 600
+    },
+    body: {
+      family: "Cormorant Garamond",
+      weight: 600
+    },
+    ink: "#2a1e14",
+    accent: "#2a1e14",
+    background: "#283798"
+  },
+  "sticky-notes": {
+    title: {
+      family: "Kalam",
+      weight: 700
+    },
+    body: {
+      family: "Kalam",
+      weight: 700
+    },
+    ink: "#1e1e24",
+    accent: "#1e1e24",
+    background: "#c0945e"
+  },
+  "string-art": {
+    title: {
+      family: "Caveat",
+      weight: 700
+    },
+    body: {
+      family: "Caveat",
+      weight: 700
+    },
+    ink: "#2b160b",
+    accent: "#2b160b",
+    background: "#6a3f24"
+  },
+  "sumi-e": {
+    title: {
+      family: "Cormorant Garamond",
+      weight: 500
+    },
+    body: {
+      family: "Cormorant Garamond",
+      weight: 500
+    },
+    ink: "#1c1b19",
+    accent: "#2c3a4e",
+    background: "#ece4d1"
+  },
+  "swiss-grid": {
+    title: {
+      family: "Inter",
+      weight: 700
+    },
+    body: {
+      family: "Inter",
+      weight: 600
+    },
+    ink: "#111111",
+    accent: "#111111",
+    background: "#efeeea"
+  },
+  synthwave: {
+    title: {
+      family: "Montserrat",
+      weight: 800
+    },
+    body: {
+      family: "Montserrat",
+      weight: 700
+    },
+    ink: "#3fe8ff",
+    accent: "#ff3fd0",
+    background: "#6e394c"
+  },
+  "tarot-card": {
+    title: {
+      family: "Cormorant Garamond",
+      weight: 600
+    },
+    body: {
+      family: "Cormorant Garamond",
+      weight: 600
+    },
+    ink: "#d8b867",
+    accent: "#d8b867",
+    background: "#57142e"
+  },
+  "tech-glow": {
+    title: {
+      family: "Montserrat",
+      weight: 700
+    },
+    body: {
+      family: "Montserrat",
+      weight: 600
+    },
+    ink: "#e8ecff",
+    accent: "#e8ecff",
+    background: "#1c1974"
+  },
+  teletext: {
+    title: {
+      family: "Courier Prime",
+      weight: 400
+    },
+    body: {
+      family: "Courier Prime",
+      weight: 400
+    },
+    ink: "#000000",
+    accent: "#000000",
+    background: "#000000"
+  },
+  "thermal-camera": {
+    title: {
+      family: "Inter",
+      weight: 700
+    },
+    body: {
+      family: "Inter",
+      weight: 700
+    },
+    ink: "#ffffff",
+    accent: "#ffffff",
+    background: "#660c89"
+  },
+  topographic: {
+    title: {
+      family: "Charis SIL",
+      weight: 600
+    },
+    body: {
+      family: "Charis SIL",
+      weight: 600
+    },
+    ink: "#2e2a24",
+    accent: "#3e7db0",
+    background: "#d7d3ba"
+  },
+  "transit-map": {
+    title: {
+      family: "Montserrat",
+      weight: 700
+    },
+    body: {
+      family: "Montserrat",
+      weight: 700
+    },
+    ink: "#1c2340",
+    accent: "#1f6fd1",
+    background: "#f4f2ec"
+  },
+  truchet: {
+    title: {
+      family: "Archivo Black",
+      weight: 400
+    },
+    body: {
+      family: "Archivo Black",
+      weight: 400
+    },
+    ink: "#efe7d6",
+    accent: "#efe7d6",
+    background: "#efe7d6"
+  },
+  "ukiyo-e": {
+    title: {
+      family: "Charis SIL",
+      weight: 600
+    },
+    body: {
+      family: "Charis SIL",
+      weight: 600
+    },
+    ink: "#2a2420",
+    accent: "#1f4c7a",
+    background: "#e9dec2"
+  },
+  vaporwave: {
+    title: {
+      family: "Playfair Display",
+      weight: 700
+    },
+    body: {
+      family: "Courier Prime",
+      weight: 700
+    },
+    ink: "#f4ecff",
+    accent: "#7df9ff",
+    background: "#b66d93"
+  },
+  "vector-arcade": {
+    title: {
+      family: "JetBrains Mono",
+      weight: 400
+    },
+    body: {
+      family: "JetBrains Mono",
+      weight: 400
+    },
+    ink: "#000000",
+    accent: "#000000",
+    background: "#030604"
+  },
+  voxel: {
+    title: {
+      family: "Silkscreen",
+      weight: 700
+    },
+    body: {
+      family: "Silkscreen",
+      weight: 700
+    },
+    ink: "#000000",
+    accent: "#000000",
+    background: "#95d059"
+  },
+  watercolor: {
+    title: {
+      family: "Caveat",
+      weight: 700
+    },
+    body: {
+      family: "Caveat",
+      weight: 700
+    },
+    ink: "rgba(46, 58, 110, 0.9)",
+    accent: "rgba(46, 58, 110, 0.9)",
+    background: "#e0ded0"
+  },
+  whiteboard: {
+    title: {
+      family: "Kalam",
+      weight: 700
+    },
+    body: {
+      family: "Kalam",
+      weight: 700
+    },
+    ink: "#22262b",
+    accent: "#2f5bd3",
+    background: "#f5f6f6"
+  },
+  win95: {
+    title: {
+      family: "Inter",
+      weight: 400
+    },
+    body: {
+      family: "Inter",
+      weight: 400
+    },
+    ink: "#000000",
+    accent: "#000000",
+    background: "#000000"
+  },
+  "wireframe-terrain": {
+    title: {
+      family: "JetBrains Mono",
+      weight: 700
+    },
+    body: {
+      family: "JetBrains Mono",
+      weight: 600
+    },
+    ink: "#e8fbff",
+    accent: "#ffc247",
+    background: "#0d1a3c"
+  },
+  "x-ray": {
+    title: {
+      family: "Caveat",
+      weight: 700
+    },
+    body: {
+      family: "Caveat",
+      weight: 700
+    },
+    ink: "#f3d46a",
+    accent: "#f3d46a",
+    background: "#0f1a28"
+  },
+  "y2k-chrome": {
+    title: {
+      family: "Nunito",
+      weight: 700
+    },
+    body: {
+      family: "Nunito",
+      weight: 700
+    },
+    ink: "#3a3f7a",
+    accent: "#7a6cff",
+    background: "#d5d4fa"
+  }
+};
 
 // plugin/skills/motion-graphics/styles/index.ts
 var STYLES = {
@@ -27958,6 +29079,7 @@ function style(id, ctx, t, m) {
   return s.make(ctx, t, m);
 }
 export {
+  roles_default as ROLES,
   STYLES,
   along,
   alpha,

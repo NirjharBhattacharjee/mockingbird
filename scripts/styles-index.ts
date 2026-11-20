@@ -22,6 +22,13 @@ ${ids.map((id) => `import ${name(id)} from "./${id}.ts";`).join("\n")}
 export type { Look, Style };
 // The shared helpers, so a look written for one video (guide("look")) can import them from "STYLES".
 export * from "./look.ts";
+/**
+ * Each style's typography roles (#276): its title and body fonts, its ink,
+ * accent and background, read from what it draws by
+ * \`bun scripts/style-roles.ts\`. A look's titles, lower thirds and captions
+ * take them together.
+ */
+export { default as ROLES } from "./roles.json";
 export const STYLES: Record<string, Style> = {
 ${ids.map((id) => `  "${id}": ${name(id)},`).join("\n")}
 };

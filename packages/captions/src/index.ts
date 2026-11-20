@@ -99,6 +99,10 @@ export type CaptionStyle = {
   active: string;
   pill?: string;
   maxChars?: number;
+  /** How much bigger the spoken word is drawn, 1 to 1.4: a pop as each cue lights the next word. */
+  pop?: number;
+  /** A `**keyword**`'s colour; it's drawn 15% bigger too. */
+  keyword?: string;
 };
 
 /**
@@ -142,6 +146,8 @@ export const CAPTION_PRESETS = {
     outline: 0.28,
     shadow: true,
     active: "#FFD600",
+    pop: 1.15,
+    keyword: "#FF4D6D",
   },
   pill: {
     font: "Montserrat",
@@ -154,6 +160,8 @@ export const CAPTION_PRESETS = {
     shadow: false,
     active: "#111111",
     pill: "#FFD600",
+    pop: 1.08,
+    keyword: "#FFD600",
   },
 } satisfies Record<string, CaptionStyle>;
 
@@ -194,6 +202,9 @@ export function captionStyle(v: unknown, what = "captionStyle"): CaptionStyle {
     "active",
     "pill",
     "maxChars",
+    "pop",
+    "keyword",
+    "look",
   ];
   const unknown = Object.keys(o).filter((k) => !fields.includes(k));
   if (unknown.length)
@@ -230,7 +241,12 @@ export function captionStyle(v: unknown, what = "captionStyle"): CaptionStyle {
   if (o.outline !== undefined) out.outline = num("outline", 0, 0.5);
   if (o.maxChars !== undefined) out.maxChars = Math.round(num("maxChars", 8, 80));
   if (o.shadow !== undefined) out.shadow = flag("shadow");
-  for (const k of ["fill", "stroke", "active", "pill"] as const) {
+  if (o.pop !== undefined) out.pop = num("pop", 1, 1.4);
+  // A motion style's id; the engine fills in its font and colours before this (lookCaptions).
+  if (o.look !== undefined && !/^[a-z0-9-]+$/.test(String(o.look))) {
+    throw new Error(`${what}.look is a motion style's id, like "art-deco"`);
+  }
+  for (const k of ["fill", "stroke", "active", "pill", "keyword"] as const) {
     if (o[k] !== undefined) out[k] = colour(k);
   }
   return out;
@@ -251,18 +267,31 @@ const families = (font: string, han: string[]) =>
   ].join(",");
 
 /** A word, and whether it's highlighted. */
-type Piece = { text: string; lit: boolean };
+type Piece = { text: string; lit: boolean; key?: boolean; glue?: boolean };
 
-/** A caption's paragraphs, each its words, `*marked*` ones lit. */
+/**
+ * A caption's paragraphs, each its words: `*marked*` ones lit (the spoken
+ * word), `**marked**` ones keywords. A mark inside a word, as in Chinese or
+ * Japanese with no spaces (`这是*一*个`), splits it into pieces drawn with no
+ * space between (`glue`).
+ */
 export function pieces(text: string): Piece[][] {
   return text.split("\n").map((paragraph) =>
     paragraph
       .split(/\s+/)
       .filter(Boolean)
-      .map((word) => {
-        const lit = /^\*[^*]+\*$/.test(word);
-        return { text: lit ? word.slice(1, -1) : word, lit };
-      }),
+      .flatMap((word) =>
+        word
+          .split(/(\*\*[^*]+\*\*|\*[^*]+\*)/)
+          .filter(Boolean)
+          .map((part, i) => {
+            const glue = i > 0 ? { glue: true } : {};
+            if (/^\*\*[^*]+\*\*$/.test(part))
+              return { text: part.slice(2, -2), lit: false, key: true, ...glue };
+            const lit = /^\*[^*]+\*$/.test(part);
+            return { text: lit ? part.slice(1, -1) : part, lit, ...glue };
+          }),
+      ),
   );
 }
 
@@ -359,10 +388,14 @@ export async function drawCaptions(
       ...(style.upper ? ["text-transform:uppercase"] : []),
       ...(style.tracking ? [`letter-spacing:${style.tracking}em`] : []),
       ...(style.shadow ? [`text-shadow:0 ${size * 0.05}px ${size * 0.2}px rgba(0,0,0,0.6)`] : []),
+      // Arabic and Hebrew read right to left, each paragraph by its own first letter (#276).
+      "unicode-bidi:plaintext",
     ].join(";");
+    const key = `color:${style.keyword ?? style.active};font-size:1.15em`;
     // The spoken word: its colour, on a pill without the outline if there's one.
     const lit = [
       `color:${style.active}`,
+      ...(style.pop && style.pop !== 1 ? [`font-size:${style.pop}em`] : []),
       ...(style.pill
         ? [
             `background:${style.pill}`,
@@ -389,10 +422,11 @@ export async function drawCaptions(
           ${JSON.stringify(pieces(text))}.forEach((words, p) => {
             if (p) box.append(document.createElement("br"));
             words.forEach((word, w) => {
-              if (w) box.append(" ");
+              if (w && !word.glue) box.append(" ");
               const span = document.createElement("span");
               span.textContent = word.text;
               if (word.lit) span.style.cssText = ${JSON.stringify(lit)};
+              if (word.key) span.style.cssText = ${JSON.stringify(key)};
               box.append(span);
             });
           });

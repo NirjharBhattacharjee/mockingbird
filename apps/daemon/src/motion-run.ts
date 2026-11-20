@@ -1,6 +1,6 @@
 /**
  * Renders one HTML page and prints, as one JSON line, how many frames it
- * drew and the sounds it asks for. `mockingbird mcp` starts this in its own
+ * drew, the sounds it asks for and the fonts its text was drawn in. `mockingbird mcp` starts this in its own
  * process under macOS's sandbox with the network denied, so the page, and
  * the Chrome it renders in, can't break mockingbird's one-download rule
  * (ARCHITECTURE.md §9) or take the server down with it. Arguments are one
@@ -33,6 +33,7 @@ try {
   }
   let sounds: unknown[] = [];
   const warnings: string[] = [];
+  let fonts: string[] = [];
   const frames = await renderHtml(script, {
     ...options,
     chrome,
@@ -41,8 +42,11 @@ try {
       sounds = soundsOf(audio, `${script}'s \`mockingbird.audio\``);
     },
     onWarning: (w) => warnings.push(w),
+    onFonts: (used) => {
+      fonts = used;
+    },
   });
-  console.log(JSON.stringify({ frames, sounds, warnings }));
+  console.log(JSON.stringify({ frames, sounds, fonts, warnings }));
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);

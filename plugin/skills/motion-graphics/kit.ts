@@ -497,6 +497,19 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
   const font = (size: number, weight = 700, family = T.display, italic = false) =>
     `${italic ? "italic " : ""}${weight} ${Math.round(size * u)}px ${family}`;
 
+  /**
+   * The largest size, up to `size` units, at which `text` fits `width`
+   * pixels, measured on the canvas in the font it'll be drawn in (#276).
+   * Text widens in step with its size, so one measurement says.
+   */
+  const fit = (text: string, width: number, size: number, weight = 700, family = T.display) => {
+    ctx.save();
+    ctx.font = font(size, weight, family);
+    const w = ctx.measureText(text).width;
+    ctx.restore();
+    return w <= width ? size : Math.max(1, (size * width) / w);
+  };
+
   /** The alpha each open layer started with, so a fade inside one is a fraction of its parent's. */
   const alphas: number[] = [];
   /** Wrap a drawing so its state doesn't leak. */
@@ -2544,6 +2557,7 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
     m,
     theme: T,
     font,
+    fit,
     layer,
     fade,
     backdrop,

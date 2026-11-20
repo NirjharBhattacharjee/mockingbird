@@ -2,10 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { drawCaptions } from "@mockingbird/captions";
 import { renderHtml } from "@mockingbird/motion";
-import { findChrome, fontFaces } from "../src/models.ts";
+import { findChrome, fontFaces, userFonts } from "../src/models.ts";
 
 /**
  * Bengali and CJK drawn with the fonts mockingbird ships (#156). A glyph a
@@ -130,6 +130,37 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("shipped fonts (integratio
     expect(warned).toEqual([]);
     expect(await render("default", "<p>seen in the default font</p>")).toBe(1);
     expect(warned.join("\n")).toMatch(/isn't loaded/);
+  }, 60_000);
+
+  // A font of the user's own, by its file name, and the render says what it drew in (#276).
+  test("a user's font renders by its file name, and the render lists the fonts it used", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "fonts-user-"));
+    const user = join(dir, "user");
+    mkdirSync(user);
+    const kalam = fonts.find((f) => f.family === "Kalam");
+    copyFileSync(fileURLToPath(kalam?.url ?? ""), join(user, "Brand Sans.ttf"));
+    const page = join(dir, "brand.html");
+    writeFileSync(
+      page,
+      `<!doctype html><body style="margin:0"><canvas id=c width=640 height=200></canvas><script>
+        const ctx = c.getContext("2d");
+        mockingbird.draw = () => { ctx.fillStyle = "#fff"; ctx.font = '80px "Brand Sans"'; ctx.fillText("Brand", 20, 120); ctx.font = "40px Inter"; ctx.fillText("and Inter", 300, 120); };
+      </script></body>`,
+    );
+    let used: string[] = [];
+    await renderHtml(page, {
+      chrome: chrome as string,
+      out: join(dir, "brand.mp4"),
+      width: 640,
+      height: 200,
+      fps: 10,
+      duration: 0.3,
+      fonts: [...fonts, ...userFonts(user)],
+      onFonts: (f) => {
+        used = f;
+      },
+    });
+    expect(used).toEqual(["Brand Sans", "Inter"]);
   }, 60_000);
 
   // Every style's whole explainer, one style a frame, drawn through the page's

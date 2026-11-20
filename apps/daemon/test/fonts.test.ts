@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CAPTION_FONTS, CAPTION_PRESETS } from "@mockingbird/captions";
-import { FONT_FILES } from "../src/models.ts";
+import { FONT_FILES, FONT_LICENCES, userFonts } from "../src/models.ts";
 
 /**
  * Every family the motion kit, its styles and the caption presets name is
@@ -72,4 +73,30 @@ test("colour emoji are pinned, and in every stack (#276)", () => {
     }
   }
   expect(without).toEqual([]);
+});
+
+test("a user's fonts are named after their files, as many as there are (#276)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "user-fonts-"));
+  for (const f of ["Brand Sans.ttf", "Brand Sans Italic.otf", "Logo.woff2", "notes.txt"])
+    writeFileSync(join(dir, f), "");
+  expect(userFonts(dir).map((f) => [f.family, f.style])).toEqual([
+    ["Brand Sans", "italic"],
+    ["Brand Sans", "normal"],
+    ["Logo", "normal"],
+  ]);
+  expect(userFonts(join(dir, "none"))).toEqual([]);
+});
+
+test("every pinned font family has its licence, and emoji are pinned (#276)", () => {
+  expect(FONT_FILES.map((f) => f.name)).toContain("Noto Color Emoji");
+  const files = FONT_LICENCES.map((l) => l.file);
+  expect(new Set(files).size).toBe(files.length);
+  for (const l of FONT_LICENCES) expect(l.sha256).toMatch(/^[0-9a-f]{64}$/);
+  // One per family directory in google/fonts, plus the emoji's.
+  const dirs = new Set(
+    FONT_FILES.filter((f) => f.url.includes("google/fonts")).map(
+      (f) => f.url.split("/ofl/")[1]?.split("/")[0],
+    ),
+  );
+  expect(FONT_LICENCES.length).toBe(dirs.size + 1);
 });

@@ -181,7 +181,8 @@ export function pageClock(scene: PageScene, epoch: number, fonts: PageFont[] = [
       await new Promise((r) => setTimeout(r, 0));
       checkFonts(true);
       this.check();
-      return [...fontWarnings];
+      // The fonts its text was drawn in, and those it asked for and lacked (#276).
+      return { fonts: [...fontsSeen].sort(), warnings: [...fontWarnings] };
     },
   } });
 })();`;
@@ -219,6 +220,7 @@ export async function renderHtml(
     tabs: tabCount = TABS,
     onLoad = () => {},
     onWarning = () => {},
+    onFonts = () => {},
     alpha = false,
     videoFilters = "",
     gpu = false,
@@ -239,6 +241,8 @@ export async function renderHtml(
     onLoad?: (page: { audio: unknown }) => void;
     /** Each warning the page left, after the last frame: a font it asked for and didn't have (#276). */
     onWarning?: (message: string) => void;
+    /** The font families the page's text was drawn in, once the last frame is done. */
+    onFonts?: (families: string[]) => void;
     /** Keep the page's transparency: ProRes 4444 in a .mov, to lay over a video later (#163). */
     alpha?: boolean;
     /** Filters every frame of `video` goes through first, e.g. the engine's HDR-to-SDR conversion. */
@@ -371,12 +375,18 @@ export async function renderHtml(
       );
     }
     // And once more for anything that failed while ffmpeg finished.
-    // Each font the page asked for and didn't have, once (#276).
+    // The fonts each tab's text was drawn in, and each one it lacked, once (#276).
+    const used = new Set<string>();
     const warned = new Set<string>();
     for (const tab of tabs) {
-      const said = await onClock(browser, tab, "done()", total - 1, fps);
-      for (const w of Array.isArray(said) ? said : []) warned.add(String(w));
+      const said = (await onClock(browser, tab, "done()", total - 1, fps)) as {
+        fonts?: unknown[];
+        warnings?: unknown[];
+      } | null;
+      for (const f of said?.fonts ?? []) used.add(String(f));
+      for (const w of said?.warnings ?? []) warned.add(String(w));
     }
+    onFonts([...used].sort());
     for (const w of warned) onWarning(w);
     return drawn;
   } catch (error) {
@@ -456,7 +466,13 @@ async function openTab(chrome: Chrome, page: string, scene: PageScene, clock: st
 }
 
 /** Runs `call` on the page's clock in `tab`, naming `frame` if the page fails. */
-async function onClock(chrome: Chrome, tab: Tab, call: string, frame: number, fps: number) {
+async function onClock(
+  chrome: Chrome,
+  tab: Tab,
+  call: string,
+  frame: number,
+  fps: number,
+): Promise<unknown> {
   try {
     return await evaluate(chrome, tab.session, `__mockingbird.${call}`);
   } catch (error) {

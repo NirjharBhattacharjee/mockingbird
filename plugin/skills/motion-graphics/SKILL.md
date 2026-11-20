@@ -160,9 +160,18 @@ Anton, Bebas Neue, Oswald, Archivo Black, Playfair Display, Space Grotesk,
 Montserrat, Bangers, Nunito, Cormorant Garamond, Fraunces, Caveat, Kalam,
 VT323, Space Mono, Silkscreen, Courier Prime, Comic Neue, Arvo, the Noto
 families for other scripts, and Noto Color Emoji (last in every stack, for
-emoji). Any other font, or a generic like `sans-serif` first, draws a
+emoji), plus any font the user put in `~/.mockingbird/fonts/user/`, by its
+file name. Any other font, or a generic like `sans-serif` first, draws a
 different system font on every machine: the render finishes, and `motion`'s
 result ends with a warning naming it. Fix the page when you see one.
+`k.fit(text, width, size)` gives the largest size up to `size` at which a
+line fits.
+
+**A style's typography**: `import { ROLES } from "STYLES"`; `ROLES[id]` is
+the style's `title` and `body` fonts (`{ family, weight }`) and its `ink`,
+`accent` and `background`, read from what it draws. Use them for anything
+you add to a look, and pass `captionStyle: { look: id }` to render so the
+captions match.
 
 **Sounds**: `sfx("whoosh" | "pop" | "tick" | "impact" | "riser" |
 "shimmer" | "click")`, made for the kit, free to use. Return them from the

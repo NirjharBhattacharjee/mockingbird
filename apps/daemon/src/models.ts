@@ -211,6 +211,8 @@ export type PullDeps = PullFileDeps & {
   files?: ModelFile[];
   /** The fonts `models pull chrome` downloads; injected in tests. */
   fonts?: ModelFile[];
+  /** Their licence files; injected in tests. */
+  licences?: ModelFile[];
   modelsDir?: string;
   /** Gets the line from progressLine, at most every quarter second. */
   progress?: (line: string) => void;
@@ -724,6 +726,59 @@ export const FONT_FILES: ModelFile[] = [
   { name: EMOJI.family, file: EMOJI.file, url: EMOJI.url, sha256: EMOJI.sha256 },
 ];
 
+/**
+ * Each family's licence, which names its copyright holders: OFL 1.1 asks
+ * for the copyright notice and the licence text with every copy (OFL FAQ
+ * 1.20). `models pull chrome` puts them in `fonts/licences/`, one per family.
+ */
+const LICENCE_SHA256: Record<string, string> = {
+  anton: "ee67e6ee22790b7929f1a3769ca2801d565c64b5a9096942c1adf5596de9c9e4",
+  archivoblack: "3173acd82f8c6159b5b1037b539fcbd4edff68e65c2ea8b9412b5a5ca97b08ff",
+  arvo: "359671bf16c00cae69cb66d041296b2adc7a4becd73a463cb8c5e101d97c7986",
+  bangers: "630dd5a307c0657b094d324e069b390edf90182fe5003639e06c02a0e5769af7",
+  bebasneue: "72082f6cb4d04be2ecf7cc7d9e1e7d73787f0af8a5a278a47cade70c16b78341",
+  caveat: "1f9d81d094273d82f3898a1ee8b598a717d050ecbf5ff7bede105b704880157b",
+  charissil: "0acda775b4dedaf980821f590206a692779ee495170018ee2b9caf1c50fc136a",
+  comicneue: "7c38a22e5878e60fe423360553e63dd7be23d29f1f60336034935dbfc96e8320",
+  cormorantgaramond: "60700d351cac4650c51f3f9db318d2a420f8b45052dba2715eb5fec41f0f6956",
+  courierprime: "9a755af092b494944c99f471be6fddd19b006a448fefdc4717e4ee0aa09a97b0",
+  fraunces: "bdf4c22802eaf804f998195871c6b8938aac2ac14b2d78a8bd66a6f1eced833b",
+  inter: "5b9321a4298cfeb6b34354164a1c3afc3db114569984c502b9b35d988fd58c57",
+  jetbrainsmono: "b2fe5e8987594e9ffd1d2ca52a2f5d73eb8335243893c5d6254b5ad69269591d",
+  kalam: "f62ef357d3a1c3d27edd35a6e1ba350e8a8d13499797964eeadefbf0b3b15d1f",
+  montserrat: "8b7141c03fa4f8d44e6345d5d4931709290f0f67875e452e95ac1fd3a027802e",
+  notosansarabic: "07fc70bfeb985cc1a87a8587d0a0c80bab11c86c9dc3fd95b6f0cb332f983e96",
+  notosansbengali: "754f0e221aa7d5a915489f3bf1f20fe53ddc35ab2834a4d91656d78f9622de70",
+  notosansdevanagari: "a216f6f8d85c7228093e0ee5e258d9d377e6671f68acb4db1930b29583d0f331",
+  notosanshebrew: "9b9fe028b5ba74d231659a1bbaf0ed09b11e759d1ca6a070999e16d151616b47",
+  notosansjp: "1c05c68c34f9708415aada51f17e1b0092d2cea709bf4a94cd38114f9e73d7d9",
+  notosanskr: "1c05c68c34f9708415aada51f17e1b0092d2cea709bf4a94cd38114f9e73d7d9",
+  notosanssc: "1c05c68c34f9708415aada51f17e1b0092d2cea709bf4a94cd38114f9e73d7d9",
+  notosanstamil: "f8ff8ce7d0a81bf8d5e121c635ef027250c531f2fd37d5988b8dd6e45f19d7f1",
+  notosansthai: "2e98fd23a52d253db8612cd5942c8f2ff4111b21d2367050fdca91d8ccc374a0",
+  nunito: "580df76c95a1ec5ab878ceb25bb3d85c6a076804e9c970c8c6972aea775fdf65",
+  oswald: "0fd731a904b729a4e02eaf5e8ebd06783edd9abe400e8882760160230675b652",
+  playfairdisplay: "566be814f8e96e93dfa16101331557eb6b5467e9e03f627c0910fe93ca12300e",
+  silkscreen: "86c5e9c9382cdcc5948704fdfe60f2aa164a719746931219a42736ecd9cefbd3",
+  spacegrotesk: "564ce565c371c5e5bbf286006565a7c9aa55a9f56e7ca58d56e05d649dd61a72",
+  spacemono: "8e4ee42b2553e1e01504e61cb0d46d148cd8c9e5eacaa3622a7df2d4f2955b9f",
+  vt323: "27d9af34210253e7ca1251fbace86c6f65b40031d6ce1a75493a1b2093631298",
+};
+export const FONT_LICENCES: ModelFile[] = [
+  ...Object.entries(LICENCE_SHA256).map(([dir, sha256]) => ({
+    name: `${dir} licence`,
+    file: `${dir}.txt`,
+    url: `https://raw.githubusercontent.com/google/fonts/${FONTS_COMMIT}/ofl/${dir}/OFL.txt`,
+    sha256,
+  })),
+  {
+    name: "Noto Color Emoji licence",
+    file: "notocoloremoji.txt",
+    url: `https://raw.githubusercontent.com/googlefonts/noto-emoji/${EMOJI_COMMIT}/2D/fonts/LICENSE`,
+    sha256: "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2",
+  },
+];
+
 export type FontFaceFile = { family: string; url: string; weight: string; style: string };
 
 /** The pinned fonts that aren't downloaded yet, by family. */
@@ -731,10 +786,15 @@ export function missingFonts(home = mockingbirdHome()): string[] {
   return FONT_FILES.filter((f) => !existsSync(join(home, "fonts", f.file))).map((f) => f.name);
 }
 
-/** The pinned fonts that are downloaded, as file URLs for pages to load. */
+/**
+ * The pinned fonts that are downloaded, and the user's own, as file URLs for
+ * pages to load. A user font is any font file in `fonts/user/`, used by its
+ * file name: `Brand Sans.ttf` is the family "Brand Sans", `Brand Sans
+ * Italic.otf` its italic (#276). As many as you like, free.
+ */
 export function fontFaces(home = mockingbirdHome()): FontFaceFile[] {
   const dir = join(home, "fonts");
-  return [...FONTS, EMOJI]
+  const pinned = [...FONTS, EMOJI]
     .filter((f) => existsSync(join(dir, f.file)))
     .map((f) => ({
       family: f.family,
@@ -742,6 +802,25 @@ export function fontFaces(home = mockingbirdHome()): FontFaceFile[] {
       weight: f.weight,
       style: f.style,
     }));
+  return [...pinned, ...userFonts(join(dir, "user"))];
+}
+
+/** The font files in `dir`, each a family named after its file. */
+export function userFonts(dir: string): FontFaceFile[] {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((f) => /\.(ttf|otf|woff2?)$/i.test(f))
+    .sort()
+    .map((f) => {
+      const name = f.replace(/\.[^.]+$/, "");
+      const italic = / italic$/i.test(name);
+      return {
+        family: italic ? name.replace(/ italic$/i, "") : name,
+        url: pathToFileURL(join(dir, f)).href,
+        weight: "1 1000",
+        style: italic ? "italic" : "normal",
+      };
+    });
 }
 
 /** The Chrome to render in: MOCKINGBIRD_CHROME, or the pinned one once it's pulled. */
@@ -773,6 +852,17 @@ export async function pullChrome(deps: PullDeps = {}): Promise<number> {
     if (pin) await installChrome(pin, bin, deps);
     // The fonts even with no pin, for a MOCKINGBIRD_CHROME to use.
     await pullFiles(deps.fonts ?? FONT_FILES, join(home, "fonts"), deps);
+    // Their licences beside them; not when a test passes its own fonts. A
+    // licence that won't download is said, not a failed pull: the fonts work.
+    await pullFiles(
+      deps.licences ?? (deps.fonts ? [] : FONT_LICENCES),
+      join(home, "fonts", "licences"),
+      deps,
+    ).catch((error) => {
+      (deps.log ?? console.error)(
+        `The fonts' licences didn't download (${error instanceof Error ? error.message : error}); run \`mockingbird models pull chrome\` again for them.`,
+      );
+    });
   } finally {
     rmSync(lock, { force: true });
   }
