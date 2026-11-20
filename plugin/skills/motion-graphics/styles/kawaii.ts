@@ -32,8 +32,7 @@ const DEEP: Record<Tone, string> = {
   bad: "#E8506E",
   muted: "#9C86D6",
 };
-const ROUND =
-  '"Hiragino Maru Gothic ProN", "Arial Rounded MT Bold", "Nunito", "Varela Round", sans-serif';
+const ROUND = '"Nunito", sans-serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

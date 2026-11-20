@@ -7,6 +7,7 @@ import {
   findChrome,
   MODNET_FILE,
   type ModelFile,
+  missingFonts,
   modelsCommand,
   pullChrome,
   pullModels,
@@ -180,7 +181,8 @@ export async function engineStatus(
     whisperServer: found && serverError === null,
     /** Why the whisper-server found won't start, if it won't. */
     whisperServerError: serverError,
-    chrome: findChrome(env, home) !== undefined,
+    // Chrome and every pinned font: without one, a style draws in a fallback (#276).
+    chrome: findChrome(env, home) !== undefined && missingFonts(home).length === 0,
     dictionaryWords: words,
     /** The mockingbird-studio plugin from before v0.4.2 is installed: tell the user to switch (#256). */
     oldPlugin: oldPlugin(env) ? OLD_PLUGIN_FIX : null,

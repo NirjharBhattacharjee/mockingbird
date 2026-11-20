@@ -28,7 +28,7 @@ const FACET: Record<Tone, string[]> = {
   muted: ["#8E86B0", "#776E9E", "#625A8A", "#4E4775"],
 };
 const PLUM = "#3B2E52";
-const SANS = '"Space Grotesk", "Avenir Next", "Helvetica Neue", Arial, sans-serif';
+const SANS = '"Space Grotesk", sans-serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

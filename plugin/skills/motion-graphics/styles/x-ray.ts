@@ -32,8 +32,8 @@ const PENCIL: Record<Tone, string> = {
   bad: "#EE4436",
   muted: "#B9B3A0",
 };
-const HAND = '"Bradley Hand", "Marker Felt", "Chalkboard SE", "Comic Sans MS", cursive';
-const MONO = '"Courier New", Courier, monospace';
+const HAND = '"Caveat", cursive';
+const MONO = '"Courier Prime", monospace';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

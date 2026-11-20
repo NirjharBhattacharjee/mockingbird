@@ -1,6 +1,6 @@
 // plugin/skills/motion-graphics/kit.ts
 var DIR = decodeURIComponent(new URL(".", import.meta.url).pathname).replace(/^\/([A-Za-z]:)/, "$1").replace(/\/$/, "");
-var FACES = { display: "system-ui", serif: "Charter", mono: "Menlo" };
+var FACES = { display: "Inter", serif: '"Charis SIL"', mono: '"JetBrains Mono"' };
 var THEMES = {
   night: {
     bg: ["#05060B", "#0C0E1A"],
@@ -217,7 +217,7 @@ var TONE = {
   bad: "#D0645A",
   muted: "#7A6640"
 };
-var DECO = '"Futura", "Avenir Next", "Gill Sans", "Century Gothic", sans-serif';
+var DECO = '"Montserrat", sans-serif';
 function make(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const font = (size, w = 500) => `${w} ${Math.round(size * u)}px ${DECO}`;
@@ -579,7 +579,7 @@ var TONE2 = {
   bad: "#FF3B5C",
   muted: "#7A5CC8"
 };
-var MONO = 'Menlo, Monaco, Consolas, "Courier New", monospace';
+var MONO = '"JetBrains Mono", monospace';
 var RAMP = " .:-=+*#%@";
 function make2(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
@@ -621,7 +621,7 @@ function make2(ctx, t, m) {
         st.bits.clear();
       const px = 9;
       const probe = new OffscreenCanvas(4, 4).getContext("2d");
-      probe.font = `bold ${px}px Verdana, Arial, sans-serif`;
+      probe.font = `bold ${px}px "Inter", sans-serif`;
       const w = Math.ceil(probe.measureText(s).width) + 2;
       const h = 11;
       const cv = new OffscreenCanvas(w, h);
@@ -872,8 +872,8 @@ var INK = {
   bad: "#C8283A",
   muted: "#6E7BB5"
 };
-var HAND = '"Bradley Hand", "Segoe Print", "Noteworthy", "Comic Sans MS", cursive';
-var BUBBLE = '"Chalkboard SE", "Arial Rounded MT Bold", "Comic Sans MS", sans-serif';
+var HAND = '"Caveat", cursive';
+var BUBBLE = '"Comic Neue", sans-serif';
 function make3(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const g = globalThis;
@@ -1225,7 +1225,7 @@ var TONE3 = {
   muted: "#9C9384"
 };
 var PRIMARY = [RED, YELLOW, BLUE];
-var GEO = '"Futura", "Avenir Next", "Century Gothic", "Helvetica Neue", sans-serif';
+var GEO = '"Montserrat", sans-serif';
 function make4(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const font = (size, w = 600) => `${w} ${Math.round(size * u)}px ${GEO}`;
@@ -1489,7 +1489,7 @@ var LINE = {
   bad: "#FFC9BE",
   muted: "#93B4DD"
 };
-var MONO2 = '"Courier New", "Menlo", "Consolas", monospace';
+var MONO2 = '"Courier Prime", monospace';
 function make5(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const g = globalThis;
@@ -1844,7 +1844,7 @@ var TEXT = {
   bad: "#A3302A",
   muted: "#7A6E60"
 };
-var SERIF = '"Iowan Old Style", "Palatino", "Book Antiqua", "Georgia", serif';
+var SERIF = '"Charis SIL", serif';
 function make6(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const g = globalThis;
@@ -2212,7 +2212,7 @@ var CHALK = {
   bad: "#F4A3BF",
   muted: "#AFC2B6"
 };
-var HAND2 = '"Chalkboard SE", "Chalkboard", "Marker Felt", "Comic Sans MS", cursive';
+var HAND2 = '"Comic Neue", cursive';
 function make7(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const g = globalThis;
@@ -2498,7 +2498,7 @@ var LETTER = {
   bad: "#E8503E",
   muted: "#9AD0DE"
 };
-var ROUND = '"Arial Rounded MT Bold", "Nunito", "Varela Round", "Avenir Next", "Helvetica Neue", sans-serif';
+var ROUND = '"Nunito", sans-serif';
 function make8(ctx, t0, m) {
   const { W, H, u, X, Y } = frame(m);
   const t = Math.floor(t0 * 12) / 12;
@@ -2845,15 +2845,15 @@ var TONER = "#141414";
 var SHEET = "#F1EEE6";
 var PINK = "#FF3E8E";
 var FACES2 = [
-  '"Didot", "Bodoni 72", Georgia, serif',
-  '"Impact", "Haettenschweiler", "Arial Narrow", sans-serif',
-  '"Courier New", Courier, monospace',
-  '"Futura", "Avenir Next", "Helvetica Neue", Arial, sans-serif',
-  '"American Typewriter", "Rockwell", Georgia, serif',
-  '"Cooper Black", "Bookman Old Style", Georgia, serif'
+  '"Playfair Display", serif',
+  '"Anton", sans-serif',
+  '"Courier Prime", monospace',
+  '"Montserrat", sans-serif',
+  '"Arvo", serif',
+  '"Fraunces", serif'
 ];
-var TYPED = '"American Typewriter", "Courier New", Courier, monospace';
-var SCRAWL = '"Marker Felt", "Chalkboard SE", "Comic Sans MS", cursive';
+var TYPED = '"Courier Prime", monospace';
+var SCRAWL = '"Kalam", cursive';
 function make9(ctx, t0, m) {
   const { W, H, u, X, Y } = frame(m);
   const t = Math.floor(t0 * 8) / 8;
@@ -3228,7 +3228,7 @@ var FILL = {
   bad: "#E63946",
   muted: "#E9DFC6"
 };
-var LETTER2 = '"Bangers", "Impact", "Haettenschweiler", "Arial Narrow", sans-serif';
+var LETTER2 = '"Bangers", sans-serif';
 function make10(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const letter = (size) => `italic 400 ${Math.round(size * u)}px ${LETTER2}`;
@@ -3443,7 +3443,7 @@ var TONE4 = {
   bad: RED2,
   muted: "#8A7F6C"
 };
-var HEAVY = '"Anton", "Impact", "Haettenschweiler", "Arial Narrow", "Helvetica Neue", sans-serif';
+var HEAVY = '"Anton", sans-serif';
 var SLANT = -0.09;
 function make11(ctx, t0, m) {
   const { W, H, u, X, Y } = frame(m);
@@ -3731,8 +3731,8 @@ var BODY = {
   bad: ["#F6B39A", "#6A2320"],
   muted: ["#C9C3E0", "#34304F"]
 };
-var SANS = '"Avenir Next", "Futura", "Century Gothic", "Helvetica Neue", sans-serif';
-var SERIF2 = '"Cormorant Garamond", "Iowan Old Style", "Palatino", Georgia, serif';
+var SANS = '"Montserrat", sans-serif';
+var SERIF2 = '"Cormorant Garamond", serif';
 function make12(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const sans = (size) => `700 ${Math.round(size * u)}px ${SANS}`;
@@ -4497,7 +4497,7 @@ var GLOW = {
   muted: "#1F9A44"
 };
 var BG = "#031207";
-var MONO3 = '"VT323", "Menlo", "Consolas", "Courier New", monospace';
+var MONO3 = '"VT323", monospace';
 function make14(ctx, t, m) {
   const full = frame(m);
   const gx = full.W * 0.045;
@@ -4788,7 +4788,7 @@ var TEXT2 = {
   bad: "#E25A3C",
   muted: "#7C76A8"
 };
-var FACE = '"Arial Rounded MT Bold", "Nunito", "Avenir Next", "Helvetica Neue", Arial, sans-serif';
+var FACE = '"Nunito", sans-serif';
 function make15(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const g = globalThis;
@@ -5124,8 +5124,8 @@ var GLOW2 = {
   bad: "#FF5FCB",
   muted: "#3E7F9C"
 };
-var SERIF3 = '"Iowan Old Style", "Palatino", "Book Antiqua", Georgia, serif';
-var MONO4 = '"SF Mono", Menlo, Consolas, monospace';
+var SERIF3 = '"Charis SIL", serif';
+var MONO4 = '"JetBrains Mono", monospace';
 function make16(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   function lit(at = 0, dur = 0.5, k = 0) {
@@ -5443,9 +5443,9 @@ var TONE6 = {
   bad: "#C8102E",
   muted: "#807973"
 };
-var SERIF4 = '"Georgia", "Iowan Old Style", "Times New Roman", serif';
-var SANS2 = '"Helvetica Neue", "Avenir Next", Arial, sans-serif';
-var HAND3 = '"Bradley Hand", "Segoe Print", "Marker Felt", "Comic Sans MS", cursive';
+var SERIF4 = '"Charis SIL", serif';
+var SANS2 = '"Inter", sans-serif';
+var HAND3 = '"Caveat", cursive';
 function make17(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const fade = (at = 0, dur = 0.4) => expo(progress(t, at, dur));
@@ -5666,8 +5666,8 @@ var PAPER4 = "#EFE6D3";
 var BLACK3 = "#151413";
 var RED3 = "#D23B2E";
 var HILITE = "rgba(255,214,0,0.78)";
-var COND = '"Anton", "Bebas Neue", "Oswald", Impact, "Arial Narrow", sans-serif';
-var SERIF5 = '"Georgia", "Times New Roman", serif';
+var COND = '"Anton", sans-serif';
+var SERIF5 = '"Charis SIL", serif';
 function make18(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const tq = Math.floor(t * 12) / 12;
@@ -6310,7 +6310,7 @@ var THREAD = {
   bad: "#B8322A",
   muted: "#5A8A86"
 };
-var ROUND2 = '"Arial Rounded MT Bold", "Nunito", "Varela Round", "Avenir Next", Arial, sans-serif';
+var ROUND2 = '"Nunito", sans-serif';
 var PRINTS = [
   "#C9786A",
   "#D9B95E",
@@ -6724,8 +6724,8 @@ var GREY2 = {
   bad: "#D8D8D8",
   muted: "#8A8A8A"
 };
-var BOLD = '"Futura Condensed ExtraBold", "Impact", "Haettenschweiler", "Arial Narrow", sans-serif';
-var BLACK4 = '"Didot", "Bodoni 72", "Times New Roman", serif';
+var BOLD = '"Oswald", sans-serif';
+var BLACK4 = '"Playfair Display", serif';
 function make21(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const g = globalThis;
@@ -7075,7 +7075,7 @@ var BODY2 = {
   bad: ["#FFB3C2", "#FF5C7A", "#B8244A"],
   muted: ["#D6D2EE", "#9590C0", "#5B5690"]
 };
-var ROUND3 = '"Nunito", "Avenir Next Rounded", "Arial Rounded MT Bold", "Avenir Next", "Helvetica Neue", sans-serif';
+var ROUND3 = '"Nunito", sans-serif';
 function make22(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const font = (size, weight = 800) => `${weight} ${Math.round(size * u)}px ${ROUND3}`;
@@ -7459,7 +7459,7 @@ var TONE7 = {
   bad: "#F38C6E",
   muted: "#9089A6"
 };
-var MONO5 = '"Space Mono", "SF Mono", Menlo, Consolas, monospace';
+var MONO5 = '"Space Mono", monospace';
 var angle = (x, y) => Math.sin(x * 5.1 + Math.cos(y * 4.3) * 1.7) * 0.9 + Math.cos(y * 7.3 - x * 2.2) * 0.55 + Math.sin((x + y) * 11) * 0.18;
 function make23(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
@@ -7744,7 +7744,7 @@ var SHADE = ["#0F380F", "#306230", "#8BAC0F", "#9BBC0F"];
 var [D0, D1, D2, D3] = SHADE;
 var RGB = SHADE.map((h) => [1, 3, 5].map((i) => Number.parseInt(h.slice(i, i + 2), 16)));
 var TONE8 = { ink: D0, accent: D0, good: D0, bad: D1, muted: D1 };
-var FONT = 'Verdana, "DejaVu Sans", Tahoma, Arial, sans-serif';
+var FONT = '"Inter", sans-serif';
 var step = (p, n) => Math.floor(clamp(p) * n) / n;
 function make24(ctx, t, m) {
   const full = frame(m);
@@ -8035,7 +8035,7 @@ var TONE9 = {
   bad: "#FF5A6E",
   muted: "#C9B8FF"
 };
-var SANS3 = '"Inter", "SF Pro Display", "Helvetica Neue", Arial, sans-serif';
+var SANS3 = '"Inter", sans-serif';
 var BLOBS = [
   [0.2, 0.3, 0.38, "#E03BE0"],
   [0.75, 0.25, 0.32, "#7B3BFF"],
@@ -8333,7 +8333,7 @@ var FILL2 = {
   bad: "#D9705E",
   muted: "#8FB9B4"
 };
-var BLOCK = '"Bebas Neue", "Oswald", "League Gothic", "Impact", "Arial Narrow", sans-serif';
+var BLOCK = '"Bebas Neue", sans-serif';
 function make26(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const g = globalThis;
@@ -8641,7 +8641,7 @@ var gouache_poster_default = {
 // plugin/skills/motion-graphics/styles/holographic-foil.ts
 var NAVY3 = "#1A1C33";
 var TINT = { ink: 200, accent: 280, good: 140, bad: 350, muted: 230 };
-var HEAVY2 = '"Avenir Next", "Futura", "Helvetica Neue", Arial, sans-serif';
+var HEAVY2 = '"Montserrat", sans-serif';
 function make27(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const g = globalThis;
@@ -9003,8 +9003,8 @@ var INK4 = {
 var LAPIS = "#24448F";
 var ROSE = "#B0526E";
 var VELLUM = "#EADBB4";
-var BOOK = '"Luminari", "Palatino", "Book Antiqua", "Georgia", serif';
-var INITIAL = '"Palatino", "Book Antiqua", "Georgia", serif';
+var BOOK = '"Cormorant Garamond", serif';
+var INITIAL = '"Charis SIL", serif';
 function make28(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const g = globalThis;
@@ -9416,7 +9416,7 @@ var PAINT = {
   bad: ["#5A140E", "#E0432B", "#FFB08E"],
   muted: ["#232B4A", "#8FA3C8", "#D5E0F2"]
 };
-var FACE2 = '"Cooper Black", "Rockwell Extra Bold", "Bookman Old Style", Georgia, serif';
+var FACE2 = '"Fraunces", serif';
 function make29(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const g = globalThis;
@@ -9737,7 +9737,7 @@ var LINE4 = {
   bad: "#F2665A",
   muted: "#B4B2CC"
 };
-var SANS4 = '"Inter", "Avenir Next", "Helvetica Neue", Arial, sans-serif';
+var SANS4 = '"Inter", sans-serif';
 var C = Math.cos(Math.PI / 6);
 var S = 0.5;
 function make30(ctx, t, m) {
@@ -10040,7 +10040,7 @@ var TONE10 = {
   bad: "#C8402F",
   muted: "#D7A23B"
 };
-var SANS5 = '"Futura", "Gill Sans", "Avenir Next", "Century Gothic", sans-serif';
+var SANS5 = '"Montserrat", sans-serif';
 function make31(ctx, t0, m) {
   const { W, H, u, X, Y } = frame(m);
   const t = Math.floor(t0 * 12) / 12;
@@ -10285,7 +10285,7 @@ var DEEP = {
   bad: "#E8506E",
   muted: "#9C86D6"
 };
-var ROUND4 = '"Hiragino Maru Gothic ProN", "Arial Rounded MT Bold", "Nunito", "Varela Round", sans-serif';
+var ROUND4 = '"Nunito", sans-serif';
 function make32(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const tq = Math.floor(t * 12) / 12;
@@ -10608,8 +10608,8 @@ var kawaii_default = {
 // plugin/skills/motion-graphics/styles/kinetic-type.ts
 var BLACK5 = "#0B0B0B";
 var ACID = "#E2FF3D";
-var BLOCK2 = '"Anton", "Bebas Neue", "Impact", "Haettenschweiler", "Arial Narrow", sans-serif';
-var MONO6 = '"JetBrains Mono", "SF Mono", Menlo, Consolas, monospace';
+var BLOCK2 = '"Anton", sans-serif';
+var MONO6 = '"JetBrains Mono", monospace';
 function make33(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const g = globalThis;
@@ -10884,8 +10884,8 @@ var INK6 = {
   bad: RED4,
   muted: "#7B7265"
 };
-var WOOD = '"Impact", "Haettenschweiler", "Oswald", "Arial Narrow", sans-serif';
-var SLAB = '"Rockwell", "Clarendon", "Georgia", serif';
+var WOOD = '"Anton", sans-serif';
+var SLAB = '"Arvo", serif';
 function make34(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const g = globalThis;
@@ -11165,7 +11165,7 @@ var LIGHT = {
   bad: "#FF4A5C",
   muted: "#8F8CFF"
 };
-var HAND4 = '"Bradley Hand", "Snell Roundhand", "Segoe Script", "Comic Sans MS", cursive';
+var HAND4 = '"Caveat", cursive';
 var LED = {
   "0": [14, 17, 19, 21, 25, 17, 14],
   "1": [4, 12, 4, 4, 4, 4, 14],
@@ -11482,8 +11482,8 @@ var BLOCK3 = "#1D1A18";
 var CUT = "#EFE5CC";
 var RED5 = "#D2483A";
 var COL = { ink: CUT, accent: RED5, good: CUT, bad: RED5, muted: "#9C9384" };
-var CAPS = '"Rockwell", "Futura", "Avenir Next Condensed", "Arial Black", sans-serif';
-var PENCIL = '"Bradley Hand", "Segoe Print", "Comic Sans MS", cursive';
+var CAPS = '"Arvo", serif';
+var PENCIL = '"Caveat", cursive';
 function make36(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const tq = Math.floor(t * 12) / 12;
@@ -11782,7 +11782,7 @@ var FACET = {
   muted: ["#8E86B0", "#776E9E", "#625A8A", "#4E4775"]
 };
 var PLUM2 = "#3B2E52";
-var SANS6 = '"Space Grotesk", "Avenir Next", "Helvetica Neue", Arial, sans-serif';
+var SANS6 = '"Space Grotesk", sans-serif';
 function make37(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const g = globalThis;
@@ -12182,7 +12182,7 @@ var low_poly_default = {
 };
 
 // plugin/skills/motion-graphics/styles/mac-1bit.ts
-var FONT2 = '"Geneva", "Chicago", "Helvetica Neue", Arial, sans-serif';
+var FONT2 = '"Inter", sans-serif';
 var PAT = {
   grey: [170, 85, 170, 85, 170, 85, 170, 85],
   light: [136, 0, 34, 0, 136, 0, 34, 0],
@@ -12504,9 +12504,9 @@ var mac_1bit_default = {
 // plugin/skills/motion-graphics/styles/manga-panel.ts
 var INK7 = "#111111";
 var PAPER7 = "#F4F1E9";
-var LETTER3 = '"Anime Ace", "Comic Sans MS", "Chalkboard SE", "Marker Felt", sans-serif';
-var BOLD2 = '"Helvetica Neue", "Arial Black", Arial, sans-serif';
-var SFX = '"Hiragino Kaku Gothic StdN", "Hiragino Sans", "Yu Gothic", "Noto Sans JP", sans-serif';
+var LETTER3 = '"Bangers", sans-serif';
+var BOLD2 = '"Inter", sans-serif';
+var SFX = '"Noto Sans JP", sans-serif';
 function make39(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const g = globalThis;
@@ -12877,7 +12877,7 @@ var COL2 = {
   muted: "#888888"
 };
 var YELLOW2 = "#FFFF00";
-var SERIF6 = '"CMU Serif", "Latin Modern Roman", "Times New Roman", Times, Georgia, serif';
+var SERIF6 = '"Charis SIL", serif';
 var smooth = (p) => {
   const x = clamp(p);
   return x * x * (3 - 2 * x);
@@ -13095,7 +13095,7 @@ var FILL5 = {
   muted: "#FFD23F"
 };
 var POP = ["#FF4F9A", "#FFD23F", "#2D6BFF", "#14B8A6", "#B9A6F2"];
-var ROUND5 = '"Arial Rounded MT Bold", "Avenir Next", "Futura", "Helvetica Neue", sans-serif';
+var ROUND5 = '"Nunito", sans-serif';
 function make41(ctx, t0, m) {
   const { W, H, u, X, Y } = frame(m);
   const t = Math.floor(t0 * 12) / 12;
@@ -13462,7 +13462,7 @@ var TILE = {
   bad: ["#A8322C", "#C2463A", "#8A241F"],
   muted: ["#9C9488", "#8A8276", "#B0A99C"]
 };
-var SERIF7 = '"Hoefler Text", "Baskerville", "Palatino", Georgia, serif';
+var SERIF7 = '"Playfair Display", serif';
 function make42(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const S = 13 * u;
@@ -13791,8 +13791,8 @@ var FILL6 = {
   bad: "#FF8040",
   muted: "#C0C0C0"
 };
-var HAND5 = '"Comic Sans MS", "Chalkboard SE", "Marker Felt", cursive';
-var UI = "Tahoma, Verdana, Arial, sans-serif";
+var HAND5 = '"Comic Neue", cursive';
+var UI = "'Inter', sans-serif";
 var SWATCH = [
   "#000000",
   "#808080",
@@ -14159,7 +14159,7 @@ var INK10 = {
   bad: "#D3202A",
   muted: "#6B6B6B"
 };
-var HAND6 = '"Permanent Marker", "Marker Felt", "Chalkboard SE", "Comic Sans MS", cursive';
+var HAND6 = '"Kalam", cursive';
 function make44(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const g = globalThis;
@@ -14443,7 +14443,7 @@ var TUBE = {
   bad: "#FF3A3A",
   muted: "#9C8CFF"
 };
-var ROUND6 = '"Arial Rounded MT Bold", "Avenir Next", "Helvetica Neue", Arial, sans-serif';
+var ROUND6 = '"Nunito", sans-serif';
 function make45(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const g = globalThis;
@@ -14735,8 +14735,8 @@ var neon_sign_default = {
 var PULP = "#E9DDBF";
 var INK11 = "#1F1C18";
 var GREASE = "#C8392E";
-var COND2 = '"Oswald", "Bebas Neue", "Impact", "Arial Narrow", sans-serif';
-var SERIF8 = '"Georgia", "Times New Roman", serif';
+var COND2 = '"Oswald", sans-serif';
+var SERIF8 = '"Charis SIL", serif';
 var TONE11 = {
   ink: INK11,
   accent: INK11,
@@ -15036,7 +15036,7 @@ var SLAB2 = {
   bad: RED6,
   muted: "#6B6B6B"
 };
-var HEAVY3 = '"Archivo Black", "Arial Black", "Helvetica Neue", Helvetica, Arial, sans-serif';
+var HEAVY3 = '"Archivo Black", sans-serif';
 function make47(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const lens = { x: W * 0.34, y: H * 0.42, r: H * 0.3 * spring(t, { stiffness: 70, damping: 9 }) };
@@ -15275,7 +15275,7 @@ var TEXT3 = {
   bad: "#C8372E",
   muted: "#9C7A2A"
 };
-var FACE3 = '"Avenir Next", "Futura", "Helvetica Neue", Arial, sans-serif';
+var FACE3 = '"Montserrat", sans-serif';
 var LIGHT2 = [-0.6, -0.8];
 function make48(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
@@ -15691,7 +15691,7 @@ var BEAM = {
   bad: AMBER,
   muted: "#4E9A62"
 };
-var MONO7 = '"Menlo", "DIN Alternate", "Consolas", "Courier New", monospace';
+var MONO7 = '"JetBrains Mono", monospace';
 function make49(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const heads = [];
@@ -15980,7 +15980,7 @@ var TONE12 = {
   muted: "#8DA9C8"
 };
 var PIGMENTS = ["#1F2A5C", "#C9962E", "#8DA9C8", "#C8B28A", "#2E6F73"];
-var SERIF9 = '"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif';
+var SERIF9 = '"Charis SIL", serif';
 function make50(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const g = globalThis;
@@ -16284,7 +16284,7 @@ var STRIP = {
 };
 var CARD = "#FBF8F0";
 var INK14 = "#2A2622";
-var ROUND7 = '"Arial Rounded MT Bold", "Nunito", "Varela Round", "Helvetica Neue", Arial, sans-serif';
+var ROUND7 = '"Nunito", sans-serif';
 function make51(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const tq = Math.floor(t * 12) / 12;
@@ -16599,8 +16599,8 @@ var COLOR = {
   bad: RED7,
   muted: "#6E665A"
 };
-var SERIF10 = '"Century Schoolbook", "Baskerville", "Times New Roman", Georgia, serif';
-var MONO8 = '"Courier New", Courier, monospace';
+var SERIF10 = '"Charis SIL", serif';
+var MONO8 = '"Courier Prime", monospace';
 function make52(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const g = globalThis;
@@ -16919,7 +16919,7 @@ var SKY = [
   "#B44A8E",
   "#D86A84"
 ];
-var FONT3 = 'Verdana, "DejaVu Sans", Tahoma, Arial, sans-serif';
+var FONT3 = '"Inter", sans-serif';
 var step2 = (p, n) => Math.floor(clamp(p) * n) / n;
 function make53(ctx, t, m) {
   const full = frame(m);
@@ -17278,7 +17278,7 @@ var HUES = {
   grass: ["#4E9A3E", "#7AB848", "#3A7A4E", "#A8C850", "#E0B24A", "#2E5E8A"],
   path: ["#E8C8A8", "#F2D8C0", "#D8A890", "#C8B8D8", "#F0E0B0"]
 };
-var FACE5 = '"Didot", "Bodoni 72", "Playfair Display", "Iowan Old Style", Georgia, serif';
+var FACE5 = '"Playfair Display", serif';
 function make54(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const g = globalThis;
@@ -17587,7 +17587,7 @@ var pointillism_default = {
 };
 
 // plugin/skills/motion-graphics/styles/product-launch.ts
-var SANS7 = '"SF Pro Display", "Helvetica Neue", "Inter", Arial, sans-serif';
+var SANS7 = '"Montserrat", sans-serif';
 var GRAD = {
   ink: ["#F5F5F7", "#B9B9C2"],
   accent: ["#B36BFF", "#FF7A45"],
@@ -17882,7 +17882,7 @@ var BANDS = [
   [123, 44, 191],
   [255, 210, 63]
 ];
-var BULB = '"Cooper Black", "Shrikhand", "Bookman Old Style", "Georgia", serif';
+var BULB = '"Fraunces", serif';
 function make56(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const font = (size) => `italic 900 ${Math.round(size * u)}px ${BULB}`;
@@ -18205,7 +18205,7 @@ var LINE5 = {
   bad: "#BDBDB8",
   muted: "#8A8A86"
 };
-var MONO9 = '"Space Mono", "SF Mono", Menlo, Consolas, "Courier New", monospace';
+var MONO9 = '"Space Mono", monospace';
 function make57(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   let pen = null;
@@ -18424,8 +18424,8 @@ var STOCK2 = "#F3EEE3";
 var YEL = "#FFE33B";
 var PINK3 = "#FF4FA0";
 var BLUE2 = "#3B5BA9";
-var SANS8 = '"Futura", "Avenir Next", "Helvetica Neue", Arial, sans-serif';
-var MONO10 = '"Courier New", "Menlo", "Courier", monospace';
+var SANS8 = '"Montserrat", sans-serif';
+var MONO10 = '"Courier Prime", monospace';
 var LINE6 = { ink: BLUE2, accent: BLUE2, good: BLUE2, bad: PINK3, muted: BLUE2 };
 var SOLID = { ink: YEL, accent: YEL, good: YEL, bad: PINK3, muted: YEL };
 function make58(ctx, t, m) {
@@ -18734,7 +18734,7 @@ var PANELS = [
   [0.205, 0.2, 0.555, 0.66, "#22C1C8"],
   [0.77, 0.2, 0.205, 0.66, "#FF8A1F"]
 ];
-var STENCIL = '"Impact", "Haettenschweiler", "Bebas Neue", "Arial Narrow", sans-serif';
+var STENCIL = '"Anton", sans-serif';
 function make59(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const g = globalThis;
@@ -19033,7 +19033,7 @@ var GEL = {
   bad: "#D8382A",
   muted: "#9C7A4E"
 };
-var SERIF11 = '"Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif';
+var SERIF11 = '"Charis SIL", serif';
 function make60(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const g = globalThis;
@@ -19415,7 +19415,7 @@ var LEAD = {
   bad: "#C2362F",
   muted: "#8E8A82"
 };
-var HAND7 = '"Noteworthy", "Bradley Hand", "Segoe Print", "Comic Sans MS", cursive';
+var HAND7 = '"Caveat", cursive';
 function make61(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const g = globalThis;
@@ -19734,7 +19734,7 @@ var CLAY2 = {
   muted: ["#E5DEFA", "#CFC5F2", "#B1A5E0"]
 };
 var BUTTER = ["#FFE7A0", "#FFD25E", "#E6AE2E"];
-var SANS9 = '"Nunito", "Avenir Next Rounded", "Arial Rounded MT Bold", "Avenir Next", "Helvetica Neue", sans-serif';
+var SANS9 = '"Nunito", sans-serif';
 function make62(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   function drop(at = 0) {
@@ -20018,8 +20018,8 @@ var INK17 = {
   muted: "#8A9A8E"
 };
 var IRIS = ["#3F8A64", "#4568B0", "#C05A6C", "#C08F38", "#6A52A8"];
-var SERIF12 = '"Didot", "Bodoni 72", "Georgia", "Times New Roman", serif';
-var NUMBERING = '"Courier New", "Menlo", monospace';
+var SERIF12 = '"Playfair Display", serif';
+var NUMBERING = '"Courier Prime", monospace';
 function lathe(cx, cy, R, loops, depth, phase, n = 360) {
   const r = R / loops;
   const big = R - r;
@@ -20410,7 +20410,7 @@ var GLASS = {
   muted: "#8CA0C8"
 };
 var PAINT2 = "#2A1E14";
-var SERIF13 = '"Luminari", "Palatino", "Book Antiqua", Georgia, serif';
+var SERIF13 = '"Cormorant Garamond", serif';
 function make64(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const g = globalThis;
@@ -20800,7 +20800,7 @@ var PEN = {
   muted: "#5A5A66"
 };
 var PIN = ["#D62828", "#2B6CD6", "#2EA44F", "#F2B705"];
-var HAND8 = '"Marker Felt", "Chalkboard SE", "Comic Sans MS", cursive';
+var HAND8 = '"Kalam", cursive';
 function make65(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const g = globalThis;
@@ -21120,7 +21120,7 @@ var THREAD2 = {
 };
 var BURN = "#2B160B";
 var KRAFT = "#D9B886";
-var HAND9 = '"Bradley Hand", "Segoe Print", "Comic Sans MS", "Marker Felt", cursive';
+var HAND9 = '"Caveat", cursive';
 var SEGMENTS = {
   "0": "abcdef",
   "1": "bc",
@@ -21554,7 +21554,7 @@ var INK18 = {
   bad: SEAL,
   muted: "#8A857B"
 };
-var SERIF14 = '"Cormorant Garamond", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif';
+var SERIF14 = '"Cormorant Garamond", serif';
 function make67(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const g = globalThis;
@@ -21941,7 +21941,7 @@ var TONE15 = {
   bad: RED8,
   muted: "#8C8C88"
 };
-var GROTESK = '"Helvetica Neue", "Neue Haas Grotesk Display Pro", Helvetica, Arial, sans-serif';
+var GROTESK = '"Inter", sans-serif';
 function make68(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const font = (size, w = 700) => `${w} ${Math.round(size * u)}px ${GROTESK}`;
@@ -22153,7 +22153,7 @@ var NEON = {
   bad: "#FF3B5C",
   muted: "#B38CFF"
 };
-var SANS10 = '"Avenir Next", "Futura", "Helvetica Neue", Arial, sans-serif';
+var SANS10 = '"Montserrat", sans-serif';
 function make69(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const HZ = H * 0.6;
@@ -22510,7 +22510,7 @@ var LINE7 = {
   bad: "#E0714F",
   muted: "#9C8A5A"
 };
-var SERIF15 = '"Cormorant Garamond", "Didot", "Palatino", "Georgia", serif';
+var SERIF15 = '"Cormorant Garamond", serif';
 function make70(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const g = globalThis;
@@ -22883,7 +22883,7 @@ var GLOW3 = {
   bad: ["#FF5C9A", "#FF3D6E"],
   muted: ["#6E7BB0", "#4A5490"]
 };
-var SANS11 = '"SF Pro Display", "Inter", "Helvetica Neue", Arial, sans-serif';
+var SANS11 = '"Montserrat", sans-serif';
 function make71(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const pop = (at = 0) => spring(t, { start: at, stiffness: 220, damping: 15 });
@@ -23238,7 +23238,7 @@ var TONE16 = {
   bad: COL3.red,
   muted: COL3.cyan
 };
-var MONO11 = '"Courier New", Menlo, Consolas, monospace';
+var MONO11 = '"Courier Prime", monospace';
 var COLS = 40;
 function make72(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
@@ -23486,7 +23486,7 @@ function iron(v, a = 1) {
   return `rgba(255,250,225,${a})`;
 }
 var HEAT = { ink: 0.7, accent: 0.88, good: 0.95, bad: 0, muted: 0.45 };
-var HUD = '"Helvetica Neue", "Arial", sans-serif';
+var HUD = '"Inter", sans-serif';
 function make73(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const g = globalThis;
@@ -23762,7 +23762,7 @@ var TONE17 = {
   bad: "#C2352B",
   muted: "#8C8070"
 };
-var SERIF16 = '"Iowan Old Style", "Baskerville", "Palatino", Georgia, serif';
+var SERIF16 = '"Charis SIL", serif';
 var LEVELS = 16;
 function height(x, y) {
   let h = 0.35 + 0.08 * Math.sin(x * 5.1 + 1) * Math.cos(y * 4.3);
@@ -24128,8 +24128,8 @@ var LINE8 = {
   muted: "#A3A3A3"
 };
 var AMBER2 = "#FFC21A";
-var SANS12 = '"Gill Sans", "Helvetica Neue", "Avenir Next", Arial, sans-serif';
-var MONO12 = '"Menlo", "SF Mono", "Courier New", monospace';
+var SANS12 = '"Montserrat", sans-serif';
+var MONO12 = '"JetBrains Mono", monospace';
 function route(a, b, bend) {
   const dx = b[0] - a[0];
   const dy = b[1] - a[1];
@@ -24439,7 +24439,7 @@ var TILE2 = {
   bad: ORANGE,
   muted: GREY3
 };
-var HEAVY4 = '"Archivo Black", "Arial Black", "Helvetica Neue", Arial, sans-serif';
+var HEAVY4 = '"Archivo Black", sans-serif';
 function make76(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const g = globalThis;
@@ -24712,7 +24712,7 @@ var BLOCK4 = {
   bad: "#C2412D",
   muted: "#9A8B70"
 };
-var SERIF17 = '"Hiragino Mincho ProN", "Yu Mincho", "Iowan Old Style", "Palatino", Georgia, serif';
+var SERIF17 = '"Charis SIL", serif';
 function make77(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const font = (size, w = 600) => `${w} ${Math.round(size * u)}px ${SERIF17}`;
@@ -25068,8 +25068,8 @@ var DEEP3 = {
   bad: "#D62E7A",
   muted: "#6A5A9A"
 };
-var SERIF18 = '"Didot", "Bodoni 72", "Times New Roman", Georgia, serif';
-var MONO13 = '"Courier New", Menlo, monospace';
+var SERIF18 = '"Playfair Display", serif';
+var MONO13 = '"Courier Prime", monospace';
 function make78(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const HZ = H * 0.62;
@@ -25505,7 +25505,7 @@ function make79(ctx, t, m) {
     beam(lines, color, Math.max(1.2, size / 28));
     if (plain.length) {
       ctx.save();
-      ctx.font = `600 ${Math.round(7 * k)}px ui-monospace, Menlo, monospace`;
+      ctx.font = `600 ${Math.round(7 * k)}px "JetBrains Mono", monospace`;
       ctx.fillStyle = color;
       ctx.shadowColor = color;
       ctx.shadowBlur = 8 * u;
@@ -25756,7 +25756,7 @@ var BROWN2 = "#6B3F2A";
 var CREAM9 = "#FFF6E6";
 var GRASS = ["#97D158", "#6FAE3C", "#55902C"];
 var DIRT = ["#A9714A", "#8A5636", "#6C4028"];
-var MONO14 = '"Silkscreen", "Press Start 2P", Menlo, "Courier New", monospace';
+var MONO14 = '"Silkscreen", monospace';
 function make80(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const g = globalThis;
@@ -26058,7 +26058,7 @@ var PAINT3 = {
   bad: "#B5303B",
   muted: "#C99A58"
 };
-var BRUSH = '"Noteworthy", "Bradley Hand", "Segoe Print", "Comic Sans MS", cursive';
+var BRUSH = '"Caveat", cursive';
 function make81(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const g = globalThis;
@@ -26338,7 +26338,7 @@ var INK20 = {
   bad: "#D9343F",
   muted: "#7A8088"
 };
-var HAND10 = '"Marker Felt", "Chalkboard SE", "Comic Sans MS", cursive';
+var HAND10 = '"Kalam", cursive';
 function make82(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   let tip = null;
@@ -26589,7 +26589,7 @@ var TONE19 = {
   bad: "#C00000",
   muted: "#808080"
 };
-var FONT4 = 'Tahoma, "MS Sans Serif", Verdana, Arial, sans-serif';
+var FONT4 = '"Inter", sans-serif';
 function make83(ctx, t, m) {
   const full = frame(m);
   const h = 360;
@@ -26871,7 +26871,7 @@ var TONE20 = {
   bad: "#FF5470",
   muted: "#4F6A9A"
 };
-var MONO15 = '"JetBrains Mono", "SF Mono", Menlo, Consolas, monospace';
+var MONO15 = '"JetBrains Mono", monospace';
 function make84(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   function glow(color, width, blur = 8) {
@@ -27195,8 +27195,8 @@ var PENCIL2 = {
   bad: "#EE4436",
   muted: "#B9B3A0"
 };
-var HAND11 = '"Bradley Hand", "Marker Felt", "Chalkboard SE", "Comic Sans MS", cursive';
-var MONO16 = '"Courier New", Courier, monospace';
+var HAND11 = '"Caveat", cursive';
+var MONO16 = '"Courier Prime", monospace';
 function make85(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const film = { x0: W * 0.025, y0: H * 0.04, x1: W * 0.975, y1: H * 0.93 };
@@ -27512,7 +27512,7 @@ var TONE21 = {
   bad: "#FF4D7D",
   muted: "#9A95C8"
 };
-var ROUND8 = '"Arial Rounded MT Bold", "Nunito", "Avenir Next", "Helvetica Neue", Arial, sans-serif';
+var ROUND8 = '"Nunito", sans-serif';
 function make86(ctx, t, m) {
   const { W, H, u, X, Y } = frame(m);
   const pop = (at) => spring(t, { start: at, stiffness: 180, damping: 11 });

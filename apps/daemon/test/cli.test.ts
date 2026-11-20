@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { engineStatus, main } from "../src/cli.ts";
+import { FONT_FILES } from "../src/models.ts";
 import { wontStart } from "../src/runtime.ts";
 
 /** Runs the router with stdout captured, so help text doesn't pollute the run. */
@@ -75,9 +76,12 @@ test("engineStatus says what's installed", async () => {
     dictionaryWords: 0,
     oldPlugin: null,
   });
-  expect(
-    (await engineStatus(home, () => null, { MOCKINGBIRD_CHROME: process.execPath })).chrome,
-  ).toBe(true);
+  // Chrome alone isn't enough: a render needs every pinned font (#276).
+  const chrome = { MOCKINGBIRD_CHROME: process.execPath };
+  expect((await engineStatus(home, () => null, chrome)).chrome).toBe(false);
+  mkdirSync(join(home, "fonts"));
+  for (const f of FONT_FILES) writeFileSync(join(home, "fonts", f.file), "");
+  expect((await engineStatus(home, () => null, chrome)).chrome).toBe(true);
   expect((await engineStatus(home, () => null, { MOCKINGBIRD_CHROME: "/no/chrome" })).chrome).toBe(
     false,
   );

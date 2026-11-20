@@ -21,6 +21,11 @@ bundling and redistributing a font with any software. Each family's
 | JetBrains Mono | `JetBrainsMono[wght].ttf` | a monospace for pages |
 | Noto Sans Bengali, Devanagari, Arabic, Hebrew, Thai, Tamil | `NotoSans<Script>[wdth,wght].ttf` | text in those scripts |
 | Noto Sans SC, JP, KR | `NotoSans<SC/JP/KR>[wght].ttf` | Chinese, Japanese, Korean |
+| Anton, Bebas Neue, Oswald, Archivo Black, Bangers | one file each (Oswald variable) | display type in the motion styles (#276) |
+| Montserrat, Space Grotesk, Nunito | variable | geometric and rounded sans in the styles |
+| Playfair Display, Cormorant Garamond, Fraunces | variable, roman and italic | display serifs in the styles |
+| Caveat, Kalam (Bold), Comic Neue | Caveat variable; Comic Neue Regular, Bold | handwriting and marker in the styles |
+| Courier Prime, Space Mono, VT323, Silkscreen, Arvo | Regular and Bold where there are two | typewriter, terminal, pixel and slab faces in the styles |
 
 ## Programs and models
 

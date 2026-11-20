@@ -30,7 +30,7 @@ const TILE: Record<Tone, string> = {
   bad: ORANGE,
   muted: GREY,
 };
-const HEAVY = '"Archivo Black", "Arial Black", "Helvetica Neue", Arial, sans-serif';
+const HEAVY = '"Archivo Black", sans-serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

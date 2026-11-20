@@ -1,6 +1,6 @@
 const DIR = decodeURIComponent(new URL(".", import.meta.url).pathname).replace(/^\/([A-Za-z]:)/, "$1").replace(/\/$/, "");
 export const sfx = (name) => `${DIR}/assets/sfx/${name}.wav`;
-const FACES = { display: "system-ui", serif: "Charter", mono: "Menlo" };
+const FACES = { display: "Inter", serif: '"Charis SIL"', mono: '"JetBrains Mono"' };
 export const THEMES = {
   night: {
     bg: ["#05060B", "#0C0E1A"],
@@ -1594,7 +1594,7 @@ export function kit(ctx, t, m, theme = THEMES.night) {
         const s = 1 + 0.06 * clamp((t - at) / (out - at));
         ctx.translate(W / 2, cy);
         ctx.scale(s, s);
-        ctx.font = `700 ${Math.round(big)}px Helvetica Neue`;
+        ctx.font = `400 ${Math.round(big)}px "Archivo Black"`;
         ctx.lineJoin = "round";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";

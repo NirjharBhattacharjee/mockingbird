@@ -35,8 +35,7 @@ const STRIP: Record<Tone, string> = {
 };
 const CARD = "#FBF8F0";
 const INK = "#2A2622";
-const ROUND =
-  '"Arial Rounded MT Bold", "Nunito", "Varela Round", "Helvetica Neue", Arial, sans-serif';
+const ROUND = '"Nunito", sans-serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

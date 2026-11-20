@@ -22,8 +22,8 @@ const STOCK = "#F3EEE3";
 const YEL = "#FFE33B";
 const PINK = "#FF4FA0";
 const BLUE = "#3B5BA9";
-const SANS = '"Futura", "Avenir Next", "Helvetica Neue", Arial, sans-serif';
-const MONO = '"Courier New", "Menlo", "Courier", monospace';
+const SANS = '"Montserrat", sans-serif';
+const MONO = '"Courier Prime", monospace';
 const LINE: Record<Tone, string> = { ink: BLUE, accent: BLUE, good: BLUE, bad: PINK, muted: BLUE };
 const SOLID: Record<Tone, string> = { ink: YEL, accent: YEL, good: YEL, bad: PINK, muted: YEL };
 

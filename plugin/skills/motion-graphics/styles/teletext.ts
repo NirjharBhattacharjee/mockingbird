@@ -30,7 +30,7 @@ const TONE: Record<Tone, string> = {
   bad: COL.red,
   muted: COL.cyan,
 };
-const MONO = '"Courier New", Menlo, Consolas, monospace';
+const MONO = '"Courier Prime", monospace';
 const COLS = 40;
 
 function make(ctx: any, t: number, m: any): Look {

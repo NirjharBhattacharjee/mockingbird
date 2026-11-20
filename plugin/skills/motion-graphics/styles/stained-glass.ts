@@ -28,7 +28,7 @@ const GLASS: Record<Tone, string> = {
   muted: "#8CA0C8",
 };
 const PAINT = "#2A1E14";
-const SERIF = '"Luminari", "Palatino", "Book Antiqua", Georgia, serif';
+const SERIF = '"Cormorant Garamond", serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

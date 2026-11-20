@@ -25,8 +25,8 @@ const BLOCK = "#1D1A18";
 const CUT = "#EFE5CC";
 const RED = "#D2483A";
 const COL: Record<Tone, string> = { ink: CUT, accent: RED, good: CUT, bad: RED, muted: "#9C9384" };
-const CAPS = '"Rockwell", "Futura", "Avenir Next Condensed", "Arial Black", sans-serif';
-const PENCIL = '"Bradley Hand", "Segoe Print", "Comic Sans MS", cursive';
+const CAPS = '"Arvo", serif';
+const PENCIL = '"Caveat", cursive';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

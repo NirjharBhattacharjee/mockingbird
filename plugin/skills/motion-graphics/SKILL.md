@@ -154,11 +154,13 @@ A title's `lines` are runs, so one line can mix faces:
 **Themes**: `night` (a launch film: near black, violet and blue light),
 `punch` (shorts: black and yellow), `studio` (Apple-style soft grey),
 `neon` (Kurzgesagt purples), `paper` (warm map paper, red ink). Each has a
-display face (SF Pro, as `system-ui`), an italic serif (Charter) and a mono
-(Menlo). Chrome quietly uses the next family for a font that isn't
-installed, so check a still and give a fallback (`"Didot, serif"`).
-Charter, Iowan Old Style, Didot, Georgia, Avenir Next and Helvetica Neue
-are on every Mac.
+display face (Inter), an italic serif (Charis SIL) and a mono (JetBrains
+Mono). Name only fonts mockingbird ships: Inter, Charis SIL, JetBrains Mono,
+Anton, Bebas Neue, Oswald, Archivo Black, Playfair Display, Space Grotesk,
+Montserrat, Bangers, Nunito, Cormorant Garamond, Fraunces, Caveat, Kalam,
+VT323, Space Mono, Silkscreen, Courier Prime, Comic Neue, Arvo, and the Noto
+families for other scripts. Chrome quietly draws any other font, or a
+generic like `sans-serif`, as whatever system font the machine has.
 
 **Sounds**: `sfx("whoosh" | "pop" | "tick" | "impact" | "riser" |
 "shimmer" | "click")`, made for the kit, free to use. Return them from the

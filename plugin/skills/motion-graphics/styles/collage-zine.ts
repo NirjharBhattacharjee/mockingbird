@@ -19,15 +19,15 @@ const TONER = "#141414";
 const SHEET = "#F1EEE6";
 const PINK = "#FF3E8E";
 const FACES = [
-  '"Didot", "Bodoni 72", Georgia, serif',
-  '"Impact", "Haettenschweiler", "Arial Narrow", sans-serif',
-  '"Courier New", Courier, monospace',
-  '"Futura", "Avenir Next", "Helvetica Neue", Arial, sans-serif',
-  '"American Typewriter", "Rockwell", Georgia, serif',
-  '"Cooper Black", "Bookman Old Style", Georgia, serif',
+  '"Playfair Display", serif',
+  '"Anton", sans-serif',
+  '"Courier Prime", monospace',
+  '"Montserrat", sans-serif',
+  '"Arvo", serif',
+  '"Fraunces", serif',
 ];
-const TYPED = '"American Typewriter", "Courier New", Courier, monospace';
-const SCRAWL = '"Marker Felt", "Chalkboard SE", "Comic Sans MS", cursive';
+const TYPED = '"Courier Prime", monospace';
+const SCRAWL = '"Kalam", cursive';
 
 function make(ctx: any, t0: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

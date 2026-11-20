@@ -43,8 +43,8 @@ export type Theme = {
   light?: number;
 };
 
-// Installed on every Mac; system-ui is SF Pro there.
-const FACES = { display: "system-ui", serif: "Charter", mono: "Menlo" };
+// Pinned fonts (#276): `models pull chrome` downloads them, so every machine draws the same.
+const FACES = { display: "Inter", serif: '"Charis SIL"', mono: '"JetBrains Mono"' };
 
 export const THEMES: Record<string, Theme> = {
   // Linear / Vercel launch film: near black, violet and blue light, glassy.
@@ -2205,8 +2205,8 @@ export function kit(ctx: any, t: number, m: any, theme: Theme = THEMES.night as 
         const s = 1 + 0.06 * clamp((t - at) / (out - at));
         ctx.translate(W / 2, cy);
         ctx.scale(s, s);
-        // SF Pro's contours overlap, which an outline shows; Helvetica Neue's don't.
-        ctx.font = `700 ${Math.round(big)}px Helvetica Neue`;
+        // A variable font's contours overlap, which an outline shows; Archivo Black is static.
+        ctx.font = `400 ${Math.round(big)}px "Archivo Black"`;
         ctx.lineJoin = "round";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";

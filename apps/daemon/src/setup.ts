@@ -9,7 +9,7 @@ import { basename, join } from "node:path";
 import { type Agent, agents } from "./agents.ts";
 import { readDictionary } from "./dictionary.ts";
 import { playbooks } from "./guide.ts";
-import { findChrome, MODEL_FILES, pinnedChrome } from "./models.ts";
+import { findChrome, MODEL_FILES, missingFonts, pinnedChrome } from "./models.ts";
 import {
   ASR_MODEL_SETTING,
   FFMPEG_NEEDS,
@@ -295,6 +295,15 @@ export function checks(deps: SetupDeps = {}): Check[] {
       ? "point MOCKINGBIRD_CHROME at a Chrome that runs, or unset it"
       : "`mockingbird models pull chrome`",
   });
+  // The styles' fonts come with Chrome; an install from before #276 lacks the newer ones.
+  const fonts = missingFonts(mb);
+  list.push({
+    name: "fonts",
+    needed: false,
+    ok: fonts.length === 0,
+    detail: fonts.length ? `missing ${fonts.join(", ")}: styles draw in a fallback` : "all pinned",
+    fix: "`mockingbird models pull chrome`",
+  });
   const books = playbooks().length;
   list.push({
     name: "playbooks",
@@ -419,7 +428,10 @@ export async function setup(args: string[], deps: SetupDeps = {}): Promise<numbe
     log(
       `MOCKINGBIRD_CHROME is ${override}, which isn't a program that can run: point it at a Chrome that runs, or unset it.`,
     );
-  } else if (!findChrome(deps.env ?? process.env, mb) && pinnedChrome(mb)) {
+  } else if (
+    (!findChrome(deps.env ?? process.env, mb) || missingFonts(mb).length) &&
+    pinnedChrome(mb)
+  ) {
     if (
       ask(
         "Download the headless Chrome that captions and motion graphics draw in, and its fonts (about 150 MB), from storage.googleapis.com and raw.githubusercontent.com? [Y/n]",

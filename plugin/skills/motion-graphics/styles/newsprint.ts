@@ -23,8 +23,8 @@ import {
 const PULP = "#E9DDBF";
 const INK = "#1F1C18";
 const GREASE = "#C8392E";
-const COND = '"Oswald", "Bebas Neue", "Impact", "Arial Narrow", sans-serif';
-const SERIF = '"Georgia", "Times New Roman", serif';
+const COND = '"Oswald", sans-serif';
+const SERIF = '"Charis SIL", serif';
 const TONE: Record<Tone, string> = {
   ink: INK,
   accent: INK,

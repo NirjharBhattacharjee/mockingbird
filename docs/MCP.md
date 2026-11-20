@@ -649,20 +649,24 @@ against 199 s in software.
   (about 100 MB) into `~/.mockingbird/bin/` and checks its sha256;
   `MOCKINGBIRD_CHROME=/path` uses another build instead. Without either,
   `motion` says so and does nothing.
-- **Fonts** come with Chrome (about 43 MB, [NOTICE.md](../NOTICE.md)), so
+- **Fonts** come with Chrome (about 52 MB, [NOTICE.md](../NOTICE.md)), so
   text looks the same on every machine: a page can name `Inter`,
   `Charis SIL`, `JetBrains Mono`, `Noto Sans Bengali`, `Noto Sans
   Devanagari`, `Noto Sans Arabic`, `Noto Sans Hebrew`, `Noto Sans Thai`,
-  `Noto Sans Tamil`, `Noto Sans SC`, `Noto Sans JP` and `Noto Sans KR` in
-  CSS (the full names), and
-  each loads the first time text needs it. Captions use Inter, then the Noto
-  family for the script. Han characters are drawn in Japanese, Chinese or
-  Korean shapes by the captions first: any kana makes them Japanese, any
-  Hangul Korean. Han alone goes by `MOCKINGBIRD_LANGUAGE` when it's `ja`,
-  `zh` or `ko`, and Chinese otherwise.
+  `Noto Sans Tamil`, `Noto Sans SC`, `Noto Sans JP` and `Noto Sans KR`, and
+  the display, hand and typewriter faces the styles use (`Anton`,
+  `Bebas Neue`, `Oswald`, `Archivo Black`, `Playfair Display`,
+  `Space Grotesk`, `Montserrat`, `Bangers`, `Nunito`, `Cormorant Garamond`,
+  `Fraunces`, `Caveat`, `Kalam`, `VT323`, `Space Mono`, `Silkscreen`,
+  `Courier Prime`, `Comic Neue`, `Arvo`), in CSS or a canvas's `font` (the
+  full names), and each loads the first time text needs it. Captions use
+  Inter, then the Noto family for the script. Han characters are drawn in
+  Japanese, Chinese or Korean shapes by the captions first: any kana makes
+  them Japanese, any Hangul Korean. Han alone goes by `MOCKINGBIRD_LANGUAGE`
+  when it's `ja`, `zh` or `ko`, and Chinese otherwise.
 - **The page** is the size of the video, with a transparent background.
   Anything Chrome draws works: CSS, SVG, gradients, blend modes, filters,
-  fonts installed on the Mac or loaded with `@font-face`, images by relative
+  the fonts above or ones loaded with `@font-face`, images by relative
   path. Without `path`, a transparent page comes out over black; with
   `path`, it's laid over each frame of that video, whose sound is kept.
 - **Time.** For the frame at `t` seconds, mockingbird sets every CSS

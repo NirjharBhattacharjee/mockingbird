@@ -22,7 +22,7 @@ const TONE: Record<Tone, string> = {
   bad: "#FF3B5C",
   muted: "#7A5CC8",
 };
-const MONO = 'Menlo, Monaco, Consolas, "Courier New", monospace';
+const MONO = '"JetBrains Mono", monospace';
 const RAMP = " .:-=+*#%@";
 
 function make(ctx: any, t: number, m: any): Look {
@@ -72,7 +72,7 @@ function make(ctx: any, t: number, m: any): Look {
       if (st.bits.size > 400) st.bits.clear();
       const px = 9;
       const probe = new OffscreenCanvas(4, 4).getContext("2d");
-      probe.font = `bold ${px}px Verdana, Arial, sans-serif`;
+      probe.font = `bold ${px}px "Inter", sans-serif`;
       const w = Math.ceil(probe.measureText(s).width) + 2;
       const h = 11;
       const cv = new OffscreenCanvas(w, h);

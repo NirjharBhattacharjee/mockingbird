@@ -26,7 +26,7 @@ const GEL: Record<Tone, string> = {
   bad: "#D8382A",
   muted: "#9C7A4E",
 };
-const SERIF = '"Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif';
+const SERIF = '"Charis SIL", serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

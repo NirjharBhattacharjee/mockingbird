@@ -27,7 +27,7 @@ const LIGHT: Record<Tone, string> = {
   bad: "#FF4A5C",
   muted: "#8F8CFF",
 };
-const HAND = '"Bradley Hand", "Snell Roundhand", "Segoe Script", "Comic Sans MS", cursive';
+const HAND = '"Caveat", cursive';
 // A 5x7 LED font: each row a 5-bit mask, top to bottom.
 const LED: Record<string, number[]> = {
   "0": [14, 17, 19, 21, 25, 17, 14],

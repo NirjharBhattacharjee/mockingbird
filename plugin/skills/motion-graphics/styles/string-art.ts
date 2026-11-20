@@ -26,7 +26,7 @@ const THREAD: Record<Tone, string> = {
 };
 const BURN = "#2B160B";
 const KRAFT = "#D9B886";
-const HAND = '"Bradley Hand", "Segoe Print", "Comic Sans MS", "Marker Felt", cursive';
+const HAND = '"Caveat", cursive';
 
 /** Seven-segment layout: which segments (a-g) each digit lights. */
 const SEGMENTS: Record<string, string> = {

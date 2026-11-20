@@ -25,7 +25,7 @@ const TONE: Record<Tone, string> = {
   bad: "#C00000",
   muted: "#808080",
 };
-const FONT = 'Tahoma, "MS Sans Serif", Verdana, Arial, sans-serif';
+const FONT = '"Inter", sans-serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const full = frame(m);

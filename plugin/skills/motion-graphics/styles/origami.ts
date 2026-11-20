@@ -33,7 +33,7 @@ const TEXT: Record<Tone, string> = {
   bad: "#C8372E",
   muted: "#9C7A2A",
 };
-const FACE = '"Avenir Next", "Futura", "Helvetica Neue", Arial, sans-serif';
+const FACE = '"Montserrat", sans-serif';
 // Light from the upper left.
 const LIGHT: Pt = [-0.6, -0.8];
 

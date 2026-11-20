@@ -26,7 +26,7 @@ const TONE: Record<Tone, string> = {
   bad: "#FF5A6E",
   muted: "#C9B8FF",
 };
-const SANS = '"Inter", "SF Pro Display", "Helvetica Neue", Arial, sans-serif';
+const SANS = '"Inter", sans-serif';
 const BLOBS: [number, number, number, string][] = [
   [0.2, 0.3, 0.38, "#E03BE0"],
   [0.75, 0.25, 0.32, "#7B3BFF"],

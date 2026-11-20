@@ -19,7 +19,7 @@ const SHADE = ["#0F380F", "#306230", "#8BAC0F", "#9BBC0F"];
 const [D0, D1, D2, D3] = SHADE as [string, string, string, string];
 const RGB = SHADE.map((h) => [1, 3, 5].map((i) => Number.parseInt(h.slice(i, i + 2), 16)));
 const TONE: Record<Tone, string> = { ink: D0, accent: D0, good: D0, bad: D1, muted: D1 };
-const FONT = 'Verdana, "DejaVu Sans", Tahoma, Arial, sans-serif';
+const FONT = '"Inter", sans-serif';
 const step = (p: number, n: number) => Math.floor(clamp(p) * n) / n;
 
 function make(ctx: any, t: number, m: any): Look {

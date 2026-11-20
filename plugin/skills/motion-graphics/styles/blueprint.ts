@@ -25,7 +25,7 @@ const LINE: Record<Tone, string> = {
   bad: "#FFC9BE",
   muted: "#93B4DD",
 };
-const MONO = '"Courier New", "Menlo", "Consolas", monospace';
+const MONO = '"Courier Prime", monospace';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

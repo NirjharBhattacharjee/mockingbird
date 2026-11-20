@@ -26,7 +26,7 @@ const TUBE: Record<Tone, string> = {
   bad: "#FF3A3A",
   muted: "#9C8CFF",
 };
-const ROUND = '"Arial Rounded MT Bold", "Avenir Next", "Helvetica Neue", Arial, sans-serif';
+const ROUND = '"Nunito", sans-serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);

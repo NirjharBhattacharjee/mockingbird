@@ -35,7 +35,7 @@ const BANDS: [number, number, number][] = [
   [123, 44, 191],
   [255, 210, 63],
 ];
-const BULB = '"Cooper Black", "Shrikhand", "Bookman Old Style", "Georgia", serif';
+const BULB = '"Fraunces", serif';
 
 function make(ctx: any, t: number, m: any): Look {
   const { W, H, u, X, Y } = frame(m);
