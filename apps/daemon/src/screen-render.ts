@@ -5,9 +5,7 @@ import { screenOptions, screenPage } from "@mockingbird/motion";
 import { MAX_SIDE, normalizeScreen } from "@mockingbird/video";
 
 export function screenNormalizeTool(
-  probe: (
-    path: string,
-  ) => Promise<{ audio: boolean; seconds: number; video: boolean }>,
+  probe: (path: string) => Promise<{ audio: boolean; seconds: number; video: boolean }>,
 ) {
   return {
     name: "screen_normalize",

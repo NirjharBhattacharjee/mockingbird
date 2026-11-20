@@ -7,13 +7,21 @@ frame timeline before trimming. Optional `from` and `to` are source seconds;
 and speed. Decoding from the beginning costs more than a keyframe seek but
 retains screen states held across the requested start. The output cannot exceed
 7,200 seconds, including slow motion. Keep the original.
-Normalization produces square pixels with rotation applied. Inspect and mark
+Normalization produces square pixels with rotation applied, one frame size
+throughout, and no side over 4,096 pixels. Inspect and mark
 that normalized file. `screen_render` rejects rotated or non-square-pixel
 sources so an inspection rectangle cannot silently target different pixels.
 
 `screen_render` uses the existing local HTML motion renderer. It requires
 `path` and a new `out` filename. `fps` defaults to 30; `duration` optionally
-limits the source interval. The output keeps the source size and sound.
+limits the source interval. The output keeps the source size and sound. A
+source over 4,096 pixels a side, or one whose frame size changes partway, is
+refused: normalize it first. Text is drawn in Inter, which
+`mockingbird models pull chrome` downloads.
+
+Every frame is drawn in Chrome, so this is slower than `render`, with no
+segment cache. With a mask, a box, text and a camera move, 1080p30 took 10.7 s
+for 20 s and about 4.5 minutes for 10 minutes on an Apple Silicon Mac.
 
 `camera` is an ordered list of `{at, x, y, zoom}` keyframes. Times are seconds;
 x and y are source pixels at the centre of the view. Zoom 1 fits the source.
