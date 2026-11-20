@@ -16,7 +16,8 @@ export async function decodePngFrames(
   dir: string,
   deadline: number,
 ): Promise<Map<number, string>> {
-  if (source.width * source.height * samples.length > MAX_SOURCE_PIXELS)
+  // A held frame sampled many times is decoded once, so count each frame once.
+  if (source.width * source.height * new Set(samples.map((s) => s.index)).size > MAX_SOURCE_PIXELS)
     throw new Error("Too many full-resolution pixels; request fewer samples at once.");
   const { indices, filter } = selection(samples);
   await runBoundedProcess(

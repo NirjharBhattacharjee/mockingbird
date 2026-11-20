@@ -6,11 +6,16 @@ import type { Readable, Writable } from "node:stream";
 
 /** A headless Chrome, driven over the DevTools protocol. */
 export type Chrome = {
-  /** One DevTools command; `session` sends it to a tab. `T` is the reply's shape. */
+  /**
+   * One DevTools command; `session` sends it to a tab. `T` is the reply's
+   * shape. `timeout` (ms) is how long to wait for the answer, for a command
+   * whose work grows with its input, like generating minutes of music.
+   */
   send: <T = Record<string, unknown>>(
     method: string,
     params?: object,
     session?: string,
+    timeout?: number,
   ) => Promise<T>;
   close: () => Promise<void>;
 };
@@ -26,7 +31,9 @@ const COMMAND_TIMEOUT_MS = 60_000;
  * (`--remote-debugging-pipe`: fd 3 in, fd 4 out, each message ending in a
  * NUL), so it opens no port. Chrome's own sandbox is off, since it can't
  * start inside another one: run this under an OS sandbox, as
- * `apps/daemon/src/motion-run.ts` does with `sandbox-exec`.
+ * `apps/daemon/src/motion-run.ts` does with `sandbox-exec`, or start Chrome
+ * in one with `wrap`, a command Chrome's own is appended to. `flags` are
+ * more switches for Chrome.
  *
  * It can't reach the network on any OS (#157), whatever page or script any
  * tab runs: no host name resolves; everything else, an IP address or
@@ -34,13 +41,10 @@ const COMMAND_TIMEOUT_MS = 60_000;
  * answers; WebRTC may send UDP only through that proxy; and every request
  * any tab makes stops at the browser for `gate`, which lets through only a
  * file on this computer.
- *
- * To start Chrome inside an OS sandbox, pass `wrap`, a command Chrome's own
- * is appended to.
  */
 export async function launchChrome(
   path: string,
-  { wrap = [] }: { wrap?: string[] } = {},
+  { wrap = [], gpu = false, flags = [] }: { wrap?: string[]; gpu?: boolean; flags?: string[] } = {},
 ): Promise<Chrome> {
   const profile = mkdtempSync(join(tmpdir(), "mockingbird-chrome-"));
   const [program = path, ...before] = [...wrap, path];
@@ -56,6 +60,20 @@ export async function launchChrome(
       "--mute-audio",
       // Colours as the page wrote them, not as this Mac's display would show them.
       "--force-color-profile=srgb",
+      // WebGL on the Mac's GPU through Metal, for 3D pages (#270): headless Chrome
+      // otherwise draws WebGL in software (SwiftShader), about 6x slower. Only
+      // when asked, so 2D pages keep their exact pixels. If the GPU can't start,
+      // Chrome gives a page no WebGL at all unless SwiftShader is allowed, so it
+      // is: the page draws in software instead of blank. Pages are local and
+      // offline, which is what "unsafe" there warns about.
+      ...(gpu && process.platform === "darwin"
+        ? [
+            "--use-angle=metal",
+            "--enable-gpu",
+            "--ignore-gpu-blocklist",
+            "--enable-unsafe-swiftshader",
+          ]
+        : []),
       "--allow-file-access-from-files",
       "--disable-background-timer-throttling",
       "--disable-renderer-backgrounding",
@@ -67,6 +85,7 @@ export async function launchChrome(
       // WebRTC's UDP doesn't go through a proxy, so without this a page could
       // reach a STUN server by its IP address.
       "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+      ...flags,
       "about:blank",
     ],
     { stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"] },
@@ -115,14 +134,19 @@ export async function launchChrome(
   // Writing to a Chrome that has just died is reported by `exit`.
   input.on("error", () => {});
 
-  const send: Chrome["send"] = <T>(method: string, params = {}, session?: string) => {
+  const send: Chrome["send"] = <T>(
+    method: string,
+    params = {},
+    session?: string,
+    timeout = COMMAND_TIMEOUT_MS,
+  ) => {
     if (gone) return Promise.reject(gone);
     const n = ++id;
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         waiting.delete(n);
-        reject(new Error(`Chrome didn't answer ${method} in ${COMMAND_TIMEOUT_MS / 1000} s`));
-      }, COMMAND_TIMEOUT_MS);
+        reject(new Error(`Chrome didn't answer ${method} in ${Math.round(timeout / 1000)} s`));
+      }, timeout);
       waiting.set(n, {
         resolve: (v) => {
           clearTimeout(timer);

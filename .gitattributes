@@ -1,6 +1,8 @@
 # LF everywhere, Windows included: Biome and gofmt check for it, and a shell
-# script (install.sh, the plugin's launch.sh) won't run with CRLF.
+# script (install.sh, the plugin's launch) won't run with CRLF. A batch file
+# is the other way round: cmd misreads some lines without CRLF.
 * text=auto eol=lf
+*.cmd text eol=crlf
 *.wav binary
 *.png binary
 *.jpg binary

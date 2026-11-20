@@ -1,4 +1,12 @@
-import { constants, copyFileSync, mkdirSync, mkdtempSync, rmdirSync, rmSync } from "node:fs";
+import {
+  constants,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmdirSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -25,6 +33,8 @@ export async function screenFrames(a: Record<string, unknown>): Promise<string> 
   fields(a, ["path", "times", "outDir"]);
   const path = pathArg(a.path, "path");
   const outDir = pathArg(a.outDir, "outDir");
+  // Before decoding anything: mkdirSync would refuse it only after the work.
+  if (existsSync(outDir)) throw new Error(`outDir already exists: ${outDir}`);
   if (!Array.isArray(a.times) || !a.times.length || a.times.length > MAX_SAMPLES)
     throw new Error(`times must have 1 to ${MAX_SAMPLES} entries.`);
   const times = a.times.map((t, i) => numberArg(t, `times[${i}]`, 0, MAX_SECONDS));

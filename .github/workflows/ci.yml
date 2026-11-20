@@ -79,6 +79,85 @@ jobs:
             time MOCKINGBIRD_ASR_MODEL=ggml-base.en.bin bun apps/daemon/src/cli.ts transcribe bench/fixtures/hello.wav > /dev/null
           done
 
+  # The editing tools on Windows (#202): render, captions, frames and the
+  # rest of the engine's integration tests, with ffmpeg from Chocolatey
+  # (Gyan's build, as winget installs on a PC).
+  edit-windows:
+    runs-on: windows-latest
+    continue-on-error: true
+    defaults:
+      run:
+        shell: bash
+    env:
+      MOCKINGBIRD_HOME: ${{ github.workspace }}/.mb-home
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: choco install ffmpeg -y --no-progress
+      - run: bun apps/daemon/src/cli.ts models pull whisper-server
+      - run: bun apps/daemon/src/cli.ts models pull chrome
+      - name: Models (base.en and the VAD, as the integration tests use)
+        run: |
+          mkdir -p "$MOCKINGBIRD_HOME/models" && cd "$MOCKINGBIRD_HOME/models"
+          curl -fsSLo ggml-base.en.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base.en.bin
+          curl -fsSLo silero_vad.onnx https://github.com/snakers4/silero-vad/raw/v6.2.2/src/silero_vad/data/silero_vad.onnx
+      - name: Put the pulled whisper-server on the PATH
+        run: dirname "$(find "$MOCKINGBIRD_HOME/bin" -name 'whisper-server*' -type f | head -1)" >> "$GITHUB_PATH"
+      - run: bun apps/daemon/src/cli.ts status || true
+      - run: MOCKINGBIRD_INTEGRATION=1 bun test apps/daemon/test/mcp.test.ts
+      # A whole short, tool after tool, as an agent would make it.
+      - run: MOCKINGBIRD_ASR_MODEL=ggml-base.en.bin bun bench/edit.ts edit-out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: edit-windows
+          path: edit-out/*.png
+          if-no-files-found: ignore
+
+  # The plugin's MCP server starts on Windows (#202), checked with Claude Code
+  # itself. Git Bash's sh is taken off the PATH, as on a PC where Git is
+  # installed with its defaults.
+  plugin-windows:
+    runs-on: windows-latest
+    continue-on-error: true
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      CLAUDE_CONFIG_DIR: ${{ github.workspace }}/.claude-config
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: npm install -g @anthropic-ai/claude-code
+      - name: No sh on the PATH
+        run: |
+          $keep = ($env:PATH -split ';') | Where-Object { $_ -notmatch 'Git\\(usr\\)?bin|msys|cygwin' }
+          "PATH=$($keep -join ';')" | Out-File -Append $env:GITHUB_ENV
+      - name: Not installed, the launcher answers with install_mockingbird
+        run: |
+          $out = claude --plugin-dir plugin mcp list 2>&1 | Out-String
+          Write-Host $out
+          if ($out -notmatch 'mockingbird.*Connected') { exit 1 }
+      - name: Installed, it's mockingbird's own server
+        run: |
+          New-Item -ItemType Directory -Force "$env:USERPROFILE\.mockingbird\bin" | Out-Null
+          Set-Content -Encoding ASCII "$env:USERPROFILE\.mockingbird\bin\mockingbird.cmd" "@echo off`r`nbun `"$pwd\apps\daemon\src\cli.ts`" %*"
+          $out = claude --plugin-dir plugin mcp list 2>&1 | Out-String
+          Write-Host $out
+          if ($out -notmatch 'mockingbird.*Connected') { exit 1 }
+          # The engine's tools, not the launcher's one.
+          $init = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}'
+          $list = '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+          $tools = "$init`n$list`n" | cmd /c plugin\launch.cmd | Out-String
+          if ($tools -notmatch '"render"') { Write-Host $tools; exit 1 }
+          Write-Host "tools/list has render"
+
   cli-other:
     strategy:
       fail-fast: false

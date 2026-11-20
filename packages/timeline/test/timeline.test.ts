@@ -8,6 +8,7 @@ import {
   compile,
   edit,
   framing,
+  lookGate,
   outline,
   type Project,
   transcript,
@@ -110,6 +111,29 @@ describe("apply", () => {
     expect(notes).toEqual(["removed t1: what they were on was cut"]);
   });
 
+  test("a trim into a tracked insert takes the start of its path too (#200)", () => {
+    const box = {
+      x: 0,
+      y: 0,
+      w: 0.2,
+      h: 0.2,
+      path: [
+        { at: 0, x: 0, y: 0.5 },
+        { at: 4, x: 0.8, y: 0.5 },
+      ],
+    };
+    const { project } = apply(base(), [
+      { op: "add", type: "insert", path: "t.png", clip: "c1", from: 0, to: 4, box },
+      { op: "trim", id: "c1", from: 12 },
+    ]);
+    const moved = project.inserts.find((i) => i.path === "t.png");
+    expect(moved).toMatchObject({ from: 0, to: 2 });
+    expect(moved?.box?.path).toEqual([
+      { at: 0, x: 0.4, y: 0.5 },
+      { at: 2, x: 0.8, y: 0.5 },
+    ]);
+  });
+
   test("a trim off a clip's end drops what was on the part cut away", () => {
     const { project, notes } = apply(base(), [{ op: "trim", id: "c1", to: 13 }]);
     // t2 was 4 s into c1, which is now 3 s long; t1 (0-2 s) stays.
@@ -154,6 +178,15 @@ describe("apply", () => {
     expect(() => apply(before, [{ op: "set", id: "c1", zoom: 9 }])).toThrow("clips[0].zoom");
     expect(() => apply(before, [{ op: "fly" }])).toThrow("op must be one of");
   });
+
+  test("the captions' style is checked and kept as written", () => {
+    const style = { preset: "creator", active: "#39E508" };
+    const { project } = apply(base(), [{ op: "set", captions: { style } }]);
+    expect(project.captions).toEqual({ style });
+    expect(() => apply(base(), [{ op: "set", captions: { style: "loud" } }])).toThrow(
+      'captions.style: no preset "loud"',
+    );
+  });
 });
 
 describe("compile and outline", () => {
@@ -185,6 +218,87 @@ describe("compile and outline", () => {
         "a1  0:00.00  audio music.m4a volume 0.15 loop duck",
       ].join("\n"),
     );
+  });
+});
+
+describe("overlays (#163)", () => {
+  test("an overlay is an insert whose picture is a page, and stays on its clip through split and remove", () => {
+    const { project: p } = apply(base(), [
+      { op: "add", type: "overlay", page: "cards/lower.html", clip: "c2", from: 1, to: 3 },
+      { op: "split", id: "c2", at: 4 },
+      { op: "remove", id: "c1" },
+    ]);
+    expect(p.inserts.find((i) => i.path === "cards/lower.html")?.clip).toBe("c3");
+    expect(outline(p, "/proj/edit.json")).toContain("overlay lower.html");
+    expect(compile(p, "/proj").inserts).toContainEqual({
+      path: native("/proj/cards/lower.html"),
+      from: 1,
+      to: 3,
+    });
+    expect(() =>
+      apply(base(), [{ op: "add", type: "overlay", page: "x.png", from: 0, to: 1 }]),
+    ).toThrow("needs page");
+  });
+});
+
+describe("generated music (#170)", () => {
+  test("a sound takes a generator in place of a path, timed and resolved like a file", () => {
+    const { project: p } = apply(base(), [
+      {
+        op: "add",
+        type: "audio",
+        generator: {
+          generator: "beds/lofi.js",
+          tempo: 80,
+          energy: [
+            [0, 0.2],
+            [6, 0.8],
+          ],
+        },
+        clip: "c2",
+        at: 1,
+        volume: 0.12,
+        duck: true,
+      },
+    ]);
+    const c = compile(p, "/proj");
+    expect(c.length).toBe(10);
+    expect(c.sounds.at(-1)).toEqual({
+      generator: {
+        generator: native("/proj/beds/lofi.js"),
+        tempo: 80,
+        energy: [
+          [0, 0.2],
+          [6, 0.8],
+        ],
+      },
+      at: 7,
+      volume: 0.12,
+      loop: false,
+      duck: true,
+    });
+    expect(outline(p, "/proj/edit.json")).toContain("a2  0:07.00  music lofi.js volume 0.12 duck");
+  });
+
+  test("a sound needs a path or a generator, and a generator's arguments are checked", () => {
+    const sound = (s: object) =>
+      check({ version: 1, clips: [], texts: [], inserts: [], audio: [{ id: "a1", at: 0, ...s }] });
+    expect(() => sound({})).toThrow("needs a path or a generator");
+    expect(() => sound({ path: "m.wav", generator: { generator: "g.js" } })).toThrow("not both");
+    expect(() => sound({ generator: { generator: "g.wav" } })).toThrow("must be a .js module");
+    expect(() => sound({ generator: { generator: "g.js", tempo: 500 } })).toThrow("tempo");
+    expect(() =>
+      sound({
+        generator: {
+          generator: "g.js",
+          energy: [
+            [2, 0.5],
+            [1, 0.5],
+          ],
+        },
+      }),
+    ).toThrow("time order");
+    expect(() => sound({ generator: { generator: "g.js", mood: "sad" } })).toThrow("mood");
   });
 });
 
@@ -318,6 +432,47 @@ describe("cut_words", () => {
     expect(() => apply(talk(), [{ op: "cut_words", text: "um" }])).toThrow("only the engine has");
   });
 
+  test("all: true in one clip follows it when a cut splits it (#235)", () => {
+    const { project, notes } = apply(
+      talk(),
+      [{ op: "cut_words", text: "you", clip: "c1", all: true }],
+      words,
+    );
+    // The second "you" is in the clip the first cut split off.
+    expect(project.clips).toHaveLength(3);
+    expect(notes).toHaveLength(2);
+  });
+
+  test("a dictionary correction of one word into two can be quoted (#235)", () => {
+    const fixed = () => [
+      { word: " try", start: 1, end: 1.2 },
+      { word: " Gemini Pro", start: 1.3, end: 1.8 },
+      { word: " today", start: 3, end: 3.3 },
+    ];
+    const p = check({ version: 1, clips: [{ id: "c1", path: "a.mp4", from: 0, to: 10 }] });
+    expect(spans(apply(p, [{ op: "cut_words", text: "gemini pro" }], fixed).project)).toEqual([
+      ["c1", 0, 1.3],
+      ["c2", 2.8, 10],
+    ]);
+    // Half of it isn't a word of the cut.
+    expect(() => apply(p, [{ op: "cut_words", text: "gemini" }], fixed)).toThrow("isn't said");
+  });
+
+  test("two edges in one long silence keep Whisper's times, not a stretch of the silence (#235)", () => {
+    const heard = () => [
+      { word: " a", start: 1.0, end: 1.2 },
+      { word: " um", start: 1.3, end: 1.5 },
+      { word: " b", start: 2.5, end: 2.7 },
+    ];
+    const gaps = () => [{ from: 1.2, to: 2.4 }];
+    const p = check({ version: 1, clips: [{ id: "c1", path: "a.mp4", from: 0, to: 10 }] });
+    // Snapped, both edges would land in the silence, at 1.4 and 2.2: past the word.
+    expect(spans(apply(p, [{ op: "cut_words", text: "um" }], heard, gaps).project)).toEqual([
+      ["c1", 0, 1.3],
+      ["c2", 2.3, 10],
+    ]);
+  });
+
   test("cutting a whole clip's words removes it with what's on it", () => {
     const p = check({
       version: 1,
@@ -366,6 +521,89 @@ test("transcript shows each clip's words at their time in the finished video", (
       ["c.mp4", [{ from: 1, to: 2 }]],
     ]),
   );
+});
+
+test("splitting a sped-up clip by a 1 ms text keeps the text (#235)", () => {
+  const p = check({
+    version: 1,
+    clips: [{ id: "c1", path: "a.mp4", from: 0, to: 10, speed: 1.5 }],
+    texts: [{ id: "t1", text: "x", clip: "c1", from: 1, to: 1.001 }],
+  });
+  const { project } = apply(p, [{ op: "split", id: "c1", at: 1.49925 }]);
+  expect(project.texts[0]).toMatchObject({ clip: "c2", from: 0, to: 0.001 });
+});
+
+test("a split just before a move on a sped-up clip leaves the move on the second half (#235)", () => {
+  const p = check({
+    version: 1,
+    clips: [
+      {
+        id: "c1",
+        path: "a.mp4",
+        from: 0,
+        to: 6,
+        speed: 1.5,
+        moves: [{ at: 1, zoom: 1.5 }],
+      },
+    ],
+  });
+  // The first half is 0.9996 s long: the move at 1 s isn't on it.
+  const { project } = apply(p, [{ op: "split", id: "c1", at: 1.4994 }]);
+  expect(project.clips[0]?.moves).toBeUndefined();
+  // 0.0004 s into the second half, kept to the millisecond.
+  expect(project.clips[1]?.moves?.[0]?.at).toBe(0);
+});
+
+test("with words heard, wanted follows a trim of a clip cut_words split off (#235)", () => {
+  const p = check({ version: 1, clips: [{ id: "c1", path: "a.mp4", from: 0, to: 4 }] });
+  const ops = [
+    { op: "cut_words", text: "um" },
+    { op: "trim", id: "c2", to: 8 },
+    { op: "cut_words", text: "go on" },
+  ];
+  // Before any words, c2 doesn't exist yet: only c1's stretch is asked for.
+  expect(wanted(p, ops).get("a.mp4")).toEqual([{ from: 0, to: 4 }]);
+  // With them, the first cut splits c1 and the trim reaches to 8 s, where "go on" is.
+  const spans = wanted(p, ops, words).get("a.mp4") ?? [];
+  expect(spans.some((s) => s.to === 8)).toBe(true);
+});
+
+test("transcription is a model's file name and a language code (#235)", () => {
+  const base = { version: 1, clips: [], texts: [], inserts: [], audio: [] };
+  expect(
+    check({ ...base, transcription: { model: "ggml-base.en.bin", language: "en" } }).transcription,
+  ).toEqual({
+    model: "ggml-base.en.bin",
+    language: "en",
+  });
+  expect(() => check({ ...base, transcription: { model: "../data.db" } })).toThrow(
+    "transcription.model",
+  );
+  expect(() => check({ ...base, transcription: { language: "english" } })).toThrow(
+    "transcription.language",
+  );
+});
+
+test("wanted goes on past an op on a clip only cut_words makes (#235)", () => {
+  const p = check({ version: 1, clips: [{ id: "c1", path: "a.mp4", from: 0, to: 4 }] });
+  const ops = [
+    { op: "cut_words", text: "um" },
+    { op: "trim", id: "c2", from: 3 },
+    { op: "add", type: "clip", path: "new.mov", from: 1, to: 2 },
+  ];
+  expect(wanted(p, ops).get("new.mov")).toEqual([{ from: 1, to: 2 }]);
+});
+
+test("wanted counts a trim earlier in the batch than cut_words (#235)", () => {
+  const p = check({ version: 1, clips: [{ id: "c1", path: "a.mp4", from: 2, to: 4 }] });
+  const ops = [
+    { op: "trim", id: "c1", to: 8 },
+    { op: "cut_words", text: "go on" },
+  ];
+  expect(wanted(p, ops).get("a.mp4")).toEqual([
+    { from: 2, to: 4 },
+    { from: 2, to: 8 },
+  ]);
 });
 
 describe("speed, moves and transitions", () => {
@@ -508,5 +746,228 @@ describe("J and L cuts", () => {
       "a transition and a lead",
     );
     expect(two(2.5)).toThrow("more than c2 or the clip before it lasts");
+  });
+});
+
+describe("adjustment layers and insert looks (#198)", () => {
+  test("an adjust stays on its clip through a split, and compiles to finished-video times", () => {
+    const { project } = apply(base(), [
+      {
+        op: "add",
+        type: "adjust",
+        clip: "c1",
+        from: 4.5,
+        to: 5.5,
+        effects: [{ name: "color", saturation: 0 }],
+      },
+      {
+        op: "add",
+        type: "insert",
+        path: "green.mp4",
+        clip: "c1",
+        from: 1,
+        to: 2,
+        box: { x: 0.5, y: 0, w: 0.5, h: 0.5 },
+        effects: [{ name: "chromakey" }],
+      },
+      { op: "split", id: "c1", at: 14 },
+    ]);
+    expect(project.adjust).toEqual([
+      { id: "j1", clip: "c3", from: 0.5, to: 1.5, effects: [{ name: "color", saturation: 0 }] },
+    ]);
+    const cut = compile(project, "/p");
+    expect(cut.adjust).toEqual([
+      { from: 4.5, to: 5.5, effects: [{ name: "color", saturation: 0 }] },
+    ]);
+    expect(cut.inserts.find((i) => i.box)).toMatchObject({
+      from: 1,
+      to: 2,
+      box: { x: 0.5, y: 0, w: 0.5, h: 0.5 },
+      effects: [{ name: "chromakey" }],
+    });
+    expect(outline(project, "p.json")).toContain("adjust effects color");
+    // Removing its clip takes it too.
+    expect(apply(project, [{ op: "remove", id: "c3" }]).project.adjust).toEqual([]);
+  });
+
+  test("an insert's box takes the path track gives (#200)", () => {
+    const box = {
+      x: 0,
+      y: 0,
+      w: 0.2,
+      h: 0.1,
+      path: [
+        { at: 0, x: 0.1, y: 0.2 },
+        { at: 1, x: 0.3, y: 0.2 },
+      ],
+    };
+    const { project } = apply(base(), [
+      { op: "add", type: "insert", path: "t.png", from: 0, to: 1, box },
+    ]);
+    expect(project.inserts.find((i) => i.path === "t.png")?.box).toEqual(box);
+    const bad = {
+      ...box,
+      path: [
+        { at: 1, x: 0, y: 0 },
+        { at: 0, x: 0, y: 0 },
+      ],
+    };
+    expect(() =>
+      apply(base(), [{ op: "add", type: "insert", path: "t.png", from: 0, to: 1, box: bad }]),
+    ).toThrow("rising");
+  });
+
+  test("an adjust needs effects", () => {
+    expect(() => apply(base(), [{ op: "add", type: "adjust", from: 0, to: 1 }])).toThrow(
+      "needs effects",
+    );
+  });
+});
+
+test("a generated sound can say how long its bed is (#266)", () => {
+  const p = check({
+    version: 1,
+    clips: [],
+    texts: [],
+    inserts: [],
+    audio: [{ id: "m", at: 0, generator: { generator: "/g/lofi.js", length: 74.4 } }],
+  });
+  expect(p.audio[0]?.generator?.length).toBe(74.4);
+  expect(() =>
+    check({
+      version: 1,
+      clips: [],
+      texts: [],
+      inserts: [],
+      audio: [{ id: "m", at: 0, generator: { generator: "/g/lofi.js", length: 0 } }],
+    }),
+  ).toThrow("length must be a number from 1 to 7200");
+});
+
+test("level is true or { target }, and the outline says so (#265)", () => {
+  const base = { version: 1, clips: [], texts: [], inserts: [], audio: [] };
+  expect(check({ ...base, level: true }).level).toEqual({ target: -16 });
+  expect(check({ ...base, level: { target: -18 } }).level).toEqual({ target: -18 });
+  expect(check({ ...base, level: false }).level).toBeUndefined();
+  expect(() => check({ ...base, level: { target: -2 } })).toThrow("level.target");
+  expect(outline(check({ ...base, level: true }), "p.json")).toContain(
+    "sources levelled to -16 LUFS",
+  );
+});
+
+test("a split or trim keeps a clip's mask on the picture it was on (#257)", () => {
+  const mask = {
+    shape: "rect",
+    x: 0,
+    y: 0,
+    w: 0.2,
+    h: 0.2,
+    end: { x: 0.8, y: 0, w: 0.2, h: 0.2 },
+  };
+  const tracked = {
+    shape: "rect",
+    w: 0.1,
+    h: 0.1,
+    path: [
+      { at: 0, x: 0, y: 0 },
+      { at: 10, x: 1, y: 0 },
+    ],
+  };
+  const p = check({
+    version: 1,
+    clips: [
+      {
+        id: "c1",
+        path: "a.mp4",
+        from: 0,
+        to: 10,
+        effects: [
+          { name: "blur", mask },
+          { name: "blur", mask: tracked },
+        ],
+      },
+    ],
+  });
+  const halves = apply(p, [{ op: "split", id: "c1", at: 5 }]).project.clips;
+  const masks = (i: number) =>
+    (halves[i]?.effects ?? []).map(
+      (e) => (e as Record<string, unknown>).mask as Record<string, unknown>,
+    );
+  // The box was halfway at the split: the first half ends there, the second starts there.
+  expect(masks(0)[0]).toMatchObject({ x: 0, end: { x: 0.4 } });
+  expect(masks(1)[0]).toMatchObject({ x: 0.4, end: { x: 0.8 } });
+  // The second half's path starts where the subject was at 5 s.
+  expect(masks(1)[1]?.path).toEqual([
+    { at: 0, x: 0.5, y: 0 },
+    { at: 5, x: 1, y: 0 },
+  ]);
+  const trimmed = apply(p, [{ op: "trim", id: "c1", from: 2 }]).project.clips[0];
+  const t = (trimmed?.effects ?? []).map(
+    (e) => (e as Record<string, unknown>).mask as Record<string, unknown>,
+  );
+  expect(t[0]).toMatchObject({ x: 0.16, end: { x: 0.8 } });
+  expect((t[1]?.path as { at: number; x: number; y: number }[] | undefined)?.[0]).toEqual({
+    at: 0,
+    x: 0.2,
+    y: 0,
+  });
+});
+
+describe("look (#262)", () => {
+  const empty: Project = { version: 1, clips: [], texts: [], inserts: [], audio: [] };
+
+  test("set keeps the look, and the outline says whether it's approved", () => {
+    const { project } = apply(empty, [{ op: "set", look: { file: "/p/dusk.ts", mood: "calm" } }]);
+    expect(project.look).toEqual({ file: "/p/dusk.ts", mood: "calm" });
+    expect(outline(project, "p.json")).toContain("look dusk.ts (calm), not approved yet");
+    const approved = apply(project, [
+      { op: "set", look: { file: "/p/dusk.ts", mood: "calm", approved: true } },
+    ]).project;
+    expect(outline(approved, "p.json")).toContain("look dusk.ts (calm), approved");
+    expect(apply(approved, [{ op: "set", look: null }]).project.look).toBeUndefined();
+  });
+
+  test("a misspelt look field is an error", () => {
+    expect(() => check({ ...empty, look: { file: "/p/a.ts", aproved: true } })).toThrow(
+      "look has no aproved",
+    );
+    expect(() => check({ ...empty, look: { mood: "calm" } })).toThrow("look.file");
+  });
+});
+
+describe("the look gate (#264)", () => {
+  const base: Project = { version: 1, clips: [], texts: [], inserts: [], audio: [] };
+  const text = { id: "t1", text: "Hi", from: 0, to: 1 };
+
+  test("a plain cut with no graphics renders without a look", () => {
+    expect(lookGate(base)).toBeUndefined();
+    expect(
+      lookGate({ ...base, inserts: [{ id: "b", path: "/p/broll.mp4", from: 0, to: 1 }] }),
+    ).toBeUndefined();
+  });
+
+  test("graphics without an approved look are refused, with what to ask", () => {
+    const why = lookGate({ ...base, texts: [text] }) ?? "";
+    expect(why).toContain("What vibe should this video have?");
+    expect(why).toContain("Should I edit with this look, or what should change?");
+    expect(
+      lookGate({ ...base, inserts: [{ id: "o", path: "/p/title.html", from: 0, to: 1 }] }),
+    ).toBeDefined();
+    expect(
+      lookGate({ ...base, texts: [text], look: { file: "/p/l.ts", approved: false } }),
+    ).toBeDefined();
+  });
+
+  test("an approved look, or the user's word to skip, lets it render", () => {
+    expect(
+      lookGate({ ...base, texts: [text], look: { file: "/p/l.ts", approved: true } }),
+    ).toBeUndefined();
+    expect(lookGate({ ...base, texts: [text], look: { skipped: true } })).toBeUndefined();
+  });
+
+  test("a skipped look needs no file, and the outline says it was skipped", () => {
+    const p = check({ ...base, look: { skipped: true } });
+    expect(outline(p, "p.json")).toContain("look skipped by the user");
+    expect(() => check({ ...base, look: { mood: "calm" } })).toThrow("look.file");
   });
 });

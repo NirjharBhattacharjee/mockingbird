@@ -75,7 +75,8 @@ without a cut. A `transition` is for a change of place or time, a
 
 ## Check
 
-Render, then count its cuts with `scenes` (cuts per minute)
-and watch the result's first and last seconds and two cuts in the middle via
+Render, then count its cuts from your own clips: clips minus one, over the
+render's length in minutes. `scenes` misses most jump cuts inside one
+talking-head shot, so it undercounts an edit like this. Watch the result's first and last seconds and two cuts in the middle via
 `frames`. If it feels breathless, put the 0.1 s back or keep a pause before
 the key line.

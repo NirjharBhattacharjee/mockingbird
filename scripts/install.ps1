@@ -11,7 +11,8 @@
 # MOCKINGBIRD_DIR      where to clone the code (default ~\mockingbird; ignored
 #                      when run from inside a clone)
 # MOCKINGBIRD_HOME     where models\ goes (default ~\.mockingbird)
-# MOCKINGBIRD_CHANNEL  "beta" to also install prereleases
+# MOCKINGBIRD_CHANNEL  "beta" to also install prereleases, "staging" for the
+#                      head of the staging branch
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue" # Invoke-WebRequest is many times slower drawing its bar.
@@ -100,7 +101,11 @@ if ($contributor) {
     Where-Object { ($env:MOCKINGBIRD_CHANNEL -eq "beta" -or $_ -notmatch "-") } |
     Where-Object { git -C $dir merge-base --is-ancestor "$_^{commit}" origin/main; $LASTEXITCODE -eq 0 } |
     Select-Object -First 1
-  if ($tag) {
+  # On the staging channel, the head of the staging branch instead.
+  if ($env:MOCKINGBIRD_CHANNEL -eq "staging") {
+    Run git -C $dir fetch --quiet origin staging
+    Run git -C $dir -c advice.detachedHead=false checkout --quiet FETCH_HEAD
+  } elseif ($tag) {
     Run git -C $dir -c advice.detachedHead=false checkout --quiet $tag
   } else {
     Run git -C $dir checkout --quiet main
@@ -116,6 +121,13 @@ try {
   # The models, and whisper-server: pinned and sha256-checked (apps/daemon/src/models.ts).
   Run $bun apps/daemon/src/cli.ts models pull
   Done "models and whisper-server"
+  # The headless Chrome that captions and motion graphics draw in, and its
+  # fonts. Optional, so a failed download warns instead of stopping the install.
+  # A terminating error counts as a failed download too, not the end of the install.
+  try { & $bun apps/daemon/src/cli.ts models pull chrome; $chromeOk = $LASTEXITCODE -eq 0 }
+  catch { Write-Host "    ! Chrome: $_" -ForegroundColor Yellow; $chromeOk = $false }
+  if ($chromeOk) { Done "Chrome" }
+  else { Write-Host "    ! Chrome: not downloaded; captions are plain subtitles until 'mockingbird models pull chrome' works" -ForegroundColor Yellow }
 } finally {
   Pop-Location
 }
@@ -155,13 +167,20 @@ if (-not (Test-Path $cli) -and (Get-Command go -ErrorAction SilentlyContinue)) {
 # the PATH and runs the command, or the TypeScript CLI without one.
 $binDir = Join-Path $mbHome "bin"
 $run = if (Test-Path $cli) { "`"$cli`" %*" } else { "`"$bun`" `"$dir\apps\daemon\src\cli.ts`" %*" }
-Set-Content -Encoding ASCII (Join-Path $binDir "mockingbird.cmd") @"
+# cmd.exe reads a batch file in the console's code page, so a letter outside
+# it (a user name in another script) breaks a path written out, and a chcp
+# inside the file makes cmd misread the lines after it. So paths are written
+# as variables cmd expands whole: the shim's own folder as %~dp0 (the home is
+# its parent, Bun is in it) and the user's folder as %USERPROFILE%\.
+# ponytail: a clone outside the user's folder with such a letter isn't covered.
+$shim = @"
 @echo off
 rem Written by scripts\install.ps1. Run it again after moving the clone.
-if not defined MOCKINGBIRD_HOME set "MOCKINGBIRD_HOME=$mbHome"
+if not defined MOCKINGBIRD_HOME for %%i in ("%~dp0..") do set "MOCKINGBIRD_HOME=%%~fi"
 set "PATH=$(Split-Path -Parent $bun);%PATH%"
 $run
-"@
+"@.Replace("$binDir\", "%~dp0").Replace("$HOME\", "%USERPROFILE%\")
+[IO.File]::WriteAllText((Join-Path $binDir "mockingbird.cmd"), $shim, (New-Object Text.UTF8Encoding $false))
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if (-not (($userPath -split ";") -contains $binDir)) {
   [Environment]::SetEnvironmentVariable("Path", "$binDir;$userPath", "User")

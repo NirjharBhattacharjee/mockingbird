@@ -229,8 +229,8 @@ CLI ones on Linux and Windows, with base.en. With every check green, macOS runs 
 Windows 182 (229 in all).
 
 The repo keeps LF line endings on every OS (`.gitattributes`): Biome and
-gofmt check for them, and `install.sh` and the plugin's `launch.sh` won't run
-with CRLF.
+gofmt check for them, and `install.sh` and the plugin's `launch` won't run
+with CRLF. Batch files (`*.cmd`) are the exception and keep CRLF.
 
 Run whichever of these apply to your change locally before opening a PR.
 A PR that only "probably passes CI" is not ready for review — run it first.

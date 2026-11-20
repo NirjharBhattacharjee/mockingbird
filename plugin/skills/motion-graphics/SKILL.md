@@ -8,23 +8,25 @@ description: Animate a mockingbird edit with code so it looks professionally edi
 Motion graphics here are code. A page's `draw(ctx, t, m)` draws one frame
 on a canvas with the Canvas 2D API, mockingbird's `motion` tool renders the
 page in a headless Chrome for every frame of the cut and saves an MP4, and
-**the kit** (`kit.js`, beside this file) does the design: what to draw, how
-it moves, how it sounds. The defaults
+**the kit** (`kit.js`, beside this file) supplies drawing helpers, motion
+and sound. You choose the design. Its defaults
 come from studying twenty professional videos frame by frame
 ([docs/STYLE-STUDY.md](../../docs/STYLE-STUDY.md)). They're meant to look
-finished with no further prompting, so start from a template and change its
-settings, not from a blank file.
+useful as starting points. Choose a template when it fits the brief; use
+plain HTML, CSS, SVG or canvas when it does not. For a product demo, load
+**product-demo** first and follow its audience and style choices.
 
 ## The workflow
 
 1. **Cut first.** `render` makes the cut: clips, framing (`split` for a
    screen and a face), b-roll `inserts`, music. Leave out its `captions` and
    `texts`; the kit draws them.
-2. **Caption it.** `captions` with the same clips and `perCue: 3` gives SRT
+2. **Caption speech when needed.** `captions` with the same clips and `perCue: 3` gives SRT
    timed to the cut with the spoken word `*marked*`. It's `motion`'s
-   `captions`, and the pages read it as `m.cues`.
-3. **Copy a template** next to the video and replace `"KIT"` in its import
-   with this skill's absolute path plus `/kit.js`:
+   `captions`, and the pages read it as `m.cues`. Silent product footage
+   uses the shot ledger and brief instead.
+3. **Copy a template** next to the video. Leave its `from "KIT"` import as it
+   is: `motion` swaps in this skill's `kit.js`.
    - [templates/short.html](./templates/short.html) for 9:16. A slammed hook
      with an italic sub-line; a new framing every ~2.2 s on word starts so
      one take reads as an edit; punch-ins and a pop on your `KEYWORDS`; two
@@ -34,7 +36,22 @@ settings, not from a blank file.
      anything that explains. Its `SCENES` list is the whole edit: `intro`,
      `chapter`, `name`, `look` (the camera glides to a point, optionally
      ringing it and labelling it), `photo`, `quote`, `checklist`.
-4. **Fill in the settings from the transcript.** Times are seconds into the
+   - [templates/product-demo.html](./templates/product-demo.html) for measured
+     screen targets. Its `STYLE` sets the box and label independently. Its
+     `CALLOUTS` hold target rectangles, timing, camera zoom and label position.
+     It starts with a plain outline, no drift, no music and no decorative card.
+     Supplied speech captions draw near the bottom throughout the cut. Adjust
+     that `k.captions` call to suit the brief and keep controls readable.
+   - [templates/styles.html](./templates/styles.html) for an explainer
+     drawn from scratch in one of the [styles](#explainer-styles): set
+     `STYLE` and write `SCENE`.
+   - [templates/editor-reel.html](./templates/editor-reel.html) for a vlog
+     or creator clip in the editor-reel look, 9:16 or 16:9: the footage in a
+     torn-paper window on a paper board, a hook whose letters scatter in (a
+     heavy sans against an italic serif), a new shot every ~1.2 s with a
+     glitch, zoom blur or flash on each cut, stickers, marker scribbles and
+     captions.
+4. **Fill in the settings from the transcript or shot ledger.** Times are seconds into the
    cut. Pick the hook, the keywords, the callouts or the scenes. That's the
    creative work; the template does the rest.
 5. **Check stills before the whole thing.** `motion` with `duration` set to
@@ -53,6 +70,47 @@ Without a video, `motion` with `size` and `duration` makes graphics on their
 own: run the explainer template with no footage to make a title sequence or
 a chapter card to `inserts` into a `render`.
 
+## Explainer styles
+
+For an explanation drawn from scratch rather than over footage (a diagram
+that builds, a process, a number that matters), `styles/` holds dozens of
+complete looks: whiteboard marker, comic halftone, chalkboard, blueprint,
+watercolour, neon sign, pixel art, a CRT terminal, risograph, stained
+glass and the rest. `STYLES` lists them by id, each with a name and a
+family.
+
+These are references. For a real edit, the **look** playbook (`guide("look")`)
+has you invent a look for the video from them and get the user's approval
+first. Use a named style as it is only when the user asks for it.
+
+Every style draws the same pieces, so a scene written once renders in any
+of them:
+
+| | |
+|---|---|
+| `surface()` | the world: a board, paper, space, a screen |
+| `title(text)` | the heading |
+| `label(text, x, y)` | a short label |
+| `node(x, y, r)` | a thing or a point |
+| `box(x, y, w, h)` | a container |
+| `link(x1, y1, x2, y2, { bend, head })` | a connection or an arrow |
+| `store(x, y, w, h)` | where data lives |
+| `stat(text, x, y, { count, sub })` | a big number, counting up |
+| `mark("check" \| "cross", x, y)` | a tick or a cross |
+| `finish()` | the last layer: grain, scanlines, the pen |
+
+Each takes `{ at, dur, tone }`: when it arrives, how long its entrance
+takes, and its tone (`ink`, `accent`, `good`, `bad`, `muted`), which the
+style turns into its own colours. Positions are 0 to 1 of the frame.
+
+Start from [templates/styles.html](./templates/styles.html): it imports
+`page` from `"KIT"` and `style` from `"STYLES"` (motion fills both in),
+draws one scene, and needs only `STYLE` and `SCENE` changed. Pick the
+style from the subject and the audience, not at random: a whiteboard or
+napkin sketch for a process, a blueprint or patent drawing for how a thing
+is built, an editorial chart for numbers, a CRT terminal for code. Render
+it with `size` and `duration` and `inserts` it into the edit.
+
 ## The kit
 
 `const k = kit(ctx, t, m, THEMES.night)` at the top of `draw`, then call
@@ -63,11 +121,40 @@ takes `at` and usually `out` (seconds) and animates itself in and out.
 | Layer | Calls |
 |---|---|
 | Atmosphere | `backdrop({ grid })` drifting gradient lights · `bokeh()` · `leak(at)` light leak · `flash(at)` · `scrim({ y })` dark band behind text · `vignette()` · `grain()` |
-| Footage | `camera({ area, focus, cuts, framings, punches, shakes, moves })` returns `{ zoom, project(x, y) }` · `pip({ src, x, y, w, h })` webcam bubble |
+| Footage | `camera({ area, focus, cuts, framings, punches, shakes, moves, presets })` returns `{ zoom, project(x, y) }` · `pip({ src, x, y, w, h })` webcam bubble |
+| Scene camera | `view({ moves, shakes, focus, aperture })` returns `cam`; draw each layer with `cam.layer(depth, () => …)` · `cam.project(x, y, depth)` |
+| Light | `drop(distance)` a shadow away from the theme's `light` · `rim(x, y, w, h)` lit edge · `sweep(at)` a band of light crossing the frame |
+| Editor reel | `tornFrame({ x, y, w, h, at })` paper with a torn window · `tape(x, y)` · `sticker({ text \| path, x, y, at })` · `scribble({ points, at, loop })` marker line or circle · `kinetic({ text, mode: "scatter" \| "type" \| "glitch", at })` · `glitch(at)` and `zoomBlur(at)` over everything drawn so far, for a cut · `paper()` the texture |
 | Type | `title({ lines, style: "rise" \| "slam" \| "blur", glow, gradient })` · `kicker()` · `counter()` · `typewriter()` · `captions({ y, size })` · `quote()` |
 | Marks | `ring()` · `arrow()` · `highlight()` · `stroke(path, length, p)` · `reticle()` · `spotlight()` |
 | Cards and structure | `glass({ inner })` · `lowerThird()` · `chapter()` · `checklist()` · `progress()` · `photo()` · `bars()` · `wipe(at)` |
 | Helpers | `words(cues)` · `cutPoints(cues, every)` · `presence(t, at, out)` · `expo` · `hash(n)` · `sfx(name)` |
+
+**The camera** (`view`, and `camera`'s `presets` over footage) moves on
+named presets, each `{ preset, at, dur, strength }`: `push-in` (a slow
+dolly in), `dolly` (a sideways track), `crash-zoom` (fast, lands with a
+bounce), `whip-pan`, `orbit`, `handheld` (drift for as long as `dur`, all
+of it if not given) and `dolly-zoom` (the subject holds its size while the
+background stretches away). Pick one or two a scene; don't write moves by
+hand. Layers have a depth: 0 is the subject, 1 is far behind and moves half
+as much, -0.3 is in front. That difference is the parallax. Draw the
+backdrop at 1 or more, the subject at 0, a title or particles in front.
+`aperture: 4` to 8 softens layers away from `focus`. `shakes: [{ at,
+amount }]` are noise that dies away, for a hit. All of it is a function of
+`t`, so frames repeat exactly.
+
+```js
+const cam = k.view({ moves: [{ preset: "push-in", at: 0, dur: 3 }, { preset: "handheld", at: 0, strength: 0.5 }], shakes: [{ at: 2.0 }], aperture: 6 });
+cam.layer(1.5, () => k.backdrop({ grid: true }));
+cam.layer(0, () => drawDiagram(k));
+cam.layer(-0.25, () => k.title({ lines, at: 0.1 }));
+```
+
+**Motion blur**: `page(draw, { blur: true })` draws each frame four times
+over half a frame and averages them, so moves, shakes and whip pans smear
+as a camera's would. It costs about 4x the drawing: a 4 s explainer at 720p
+went from 6 s to 30 s, a 6 s 9:16 short from 6 s to 30 s. Turn it on for
+the final render, off while iterating.
 
 A title's `lines` are runs, so one line can mix faces:
 `[[{ text: "Read the " }, { text: "docs", italic: true, family: T.serif, color: T.accent }]]`.
@@ -75,11 +162,24 @@ A title's `lines` are runs, so one line can mix faces:
 **Themes**: `night` (a launch film: near black, violet and blue light),
 `punch` (shorts: black and yellow), `studio` (Apple-style soft grey),
 `neon` (Kurzgesagt purples), `paper` (warm map paper, red ink). Each has a
-display face (SF Pro, as `system-ui`), an italic serif (Charter) and a mono
-(Menlo). Chrome quietly uses the next family for a font that isn't
-installed, so check a still and give a fallback (`"Didot, serif"`).
-Charter, Iowan Old Style, Didot, Georgia, Avenir Next and Helvetica Neue
-are on every Mac.
+display face (Inter), an italic serif (Charis SIL) and a mono (JetBrains
+Mono). Name only fonts mockingbird ships: Inter, Charis SIL, JetBrains Mono,
+Anton, Bebas Neue, Oswald, Archivo Black, Playfair Display, Space Grotesk,
+Montserrat, Bangers, Nunito, Cormorant Garamond, Fraunces, Caveat, Kalam,
+VT323, Space Mono, Silkscreen, Courier Prime, Comic Neue, Arvo, the Noto
+families for other scripts, and Noto Color Emoji (last in every stack, for
+emoji), plus any font the user put in `~/.mockingbird/fonts/user/`, by its
+file name. Any other font, or a generic like `sans-serif` first, draws a
+different system font on every machine: the render finishes, and `motion`'s
+result ends with a warning naming it. Fix the page when you see one.
+`k.fit(text, width, size)` gives the largest size up to `size` at which a
+line fits.
+
+**A style's typography**: `import { ROLES } from "STYLES"`; `ROLES[id]` is
+the style's `title` and `body` fonts (`{ family, weight }`) and its `ink`,
+`accent` and `background`, read from what it draws. Use them for anything
+you add to a look, and pass `captionStyle: { look: id }` to render so the
+captions match.
 
 **Sounds**: `sfx("whoosh" | "pop" | "tick" | "impact" | "riser" |
 "shimmer" | "click")`, made for the kit, free to use. Return them from the
@@ -88,15 +188,17 @@ lands on.
 
 ## What makes it look professional
 
-These come from the style study; the templates already follow them.
+These are options from the style study, not requirements for every film.
+The brief takes precedence. A product screen can stay still while the viewer
+reads it, and a plain label can work better than a card.
 
 - **Change the picture every 1.2 to 2.5 s in a short.** Cuts, a new
   framing, b-roll, a callout: something. `cutPoints` places framings on
   word starts; alternate framings 1.0 / 1.16 / 1.06 / 1.24 hide jump cuts.
-- **Nothing flat.** Text sits on a scrim, a glass card or a backdrop, never
-  bare on busy footage. Light comes from gradients; grain and a vignette
-  finish every frame.
-- **The camera never stops.** Every shot drifts in a few per cent. On a
+- **Keep text legible.** Use a plain fill, scrim or card when footage needs
+  contrast. Choose border, radius, padding, shadow and opacity from the
+  brief. Gradients, glass, grain and vignettes are optional.
+- **Move the camera with a purpose.** Hold still for reading. On a
   screen recording, `look` scenes (`camera`'s `moves`) glide to what's
   being described and back, and `pip` keeps the webcam in frame.
 - **Reveal in a stagger.** Words about 60 ms apart; a list item at a time;
@@ -118,6 +220,34 @@ These come from the style study; the templates already follow them.
 
 ## Writing your own pieces
 
+### Place highlights on the actual target
+
+Measure the target on a frame from the exact video passed to `motion`,
+after any earlier crop, resize or letterboxing. Record the frame size and
+target rectangle. Normalize x and width by frame width, y and height by
+frame height. Divide by the still's own size. A scaled still is fine; a
+different crop, aspect ratio or letterbox is not.
+
+When `camera` reframes the footage, project both corners through its
+`project(x, y)` each frame. Draw the box from those projected corners.
+Keep label placement separate so a larger label cannot shift the target.
+In the product-demo template, `target` uses fractions of the motion input;
+`labelAt` uses fractions of the output frame and stays fixed on screen.
+Override `style` on a callout to change its appearance without changing either.
+Padding and stroke width are design choices in output pixels.
+
+Projection follows the camera, not interface changes inside the footage.
+Split callouts at cuts, scrolls and moving controls; remeasure each interval
+or supply measured positions over time. Hide a target when it leaves the
+frame. Do not imply that a static rectangle is automatic tracking.
+
+Render entry, midpoint, exit and every movement boundary at the final size.
+Check the box against the control itself, including its edges, and watch the
+interval when playback is available. Recheck after changing the crop, timing
+or zoom. A box that looks right on one still can drift on the next.
+
+### Custom drawing
+
 - One page: a `<script type="module">` that imports kit.js by absolute path
   and ends with `page(draw, { audio })`. `page()` makes the canvas, draws the
   video's frame under each frame and calls `draw`. The page is loaded fresh
@@ -132,10 +262,45 @@ These come from the style study; the templates already follow them.
   leak. `k.ctx` and `k.m` are there for pieces you draw yourself, so a
   helper function only needs `k`; a `glass` card's `inner` draws in the
   card's own coordinates.
-- `ctx.filter = "blur(…)"` blurs the whole frame and is slow; for soft text
-  the kit draws a shadow instead.
+- `ctx.filter = "blur(…)"` blurs the whole frame and is slow (with motion
+  blur, about 10x the whole render); for soft text the kit draws a shadow
+  instead, and `view`'s `aperture` shrinks and enlarges the layer.
+- No Tailwind or any other CSS framework in a motion page: canvas and
+  hand-written CSS only. A framework from a CDN can't load anyway, since
+  motion's Chrome has no network.
 - The video is drawn under each frame. To zoom or pan, `camera` redraws it;
   for anything custom, `ctx.drawImage(m.video, sx, sy, sw, sh, dx, dy, dw, dh)`.
+
+## 3D with three.js
+
+For real depth (a camera flying through a scene, footage on a plane that
+tilts in space, lit and shadowed objects, extruded shapes), a page can
+import three.js `from "THREE"`. `motion` fills it in with the copy shipped
+in `vendor/` (0.187.0), since pages have no network, and draws the page on
+the Mac's GPU. Start from [templates/three.html](./templates/three.html).
+
+- **Draw in `mockingbird.draw(t)` and work everything out from `t`.** Don't
+  use three's `Clock`, `requestAnimationFrame` loops or `setTimeout`.
+  Create the renderer with `preserveDrawingBuffer: true`.
+- **Footage as a texture:** set `mockingbird.drawVideo = true`, then each
+  frame put `m.video` on a `THREE.Texture` with `needsUpdate = true`. An
+  ImageBitmap ignores `flipY`, so flip it with `repeat.set(1, -1)` and
+  `offset.set(0, 1)`.
+- **Light it like a film, as the template does.** `from "THREE_ADDONS"`
+  gives `RoomEnvironment` (soft light from every side), `EffectComposer`,
+  `RenderPass`, `UnrealBloomPass`, `BokehPass` (depth of field) and
+  `OutputPass`. Use AgX tone mapping, one key light, and bloom on HDR values
+  before `OutputPass` tone-maps them. Only something brighter than white
+  should glow; footage on a screen goes on as an emissive map just under
+  white. Other add-ons (text geometry, loaders) aren't shipped: build shapes
+  from core geometry, or draw text on a canvas and use it as a texture.
+- **Move the camera with the kit's presets**: `import { cameraAt } from
+  "KIT"` and turn `cameraAt(t, { moves, shakes })` into a position, a field
+  of view and a roll, as the template's `place(t)` does.
+- **Speed:** on an M3, 10 s of a lit, shadowed 1080p scene with footage took
+  33.4 s. The template's environment, bloom and depth of field took 4 s of
+  720p from 5.9 s to 10.0 s. 3D costs about five times what a 2D page does, so use it for the
+  moments that need depth.
 
 ## When it fails
 

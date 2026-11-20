@@ -1,13 +1,33 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { captionStyle } from "@mockingbird/captions";
 import {
   align,
+  boardFrom,
+  buildLook,
   CLIPS_PER_PASS,
+  captionFontWarning,
   chunks,
   fineClock,
   handle,
+  KIT_URL,
+  LOOK_BOARD,
+  levelGains,
+  lookCaptions,
   mcpTools,
   mixGraph,
   moving,
@@ -15,16 +35,26 @@ import {
   parseScenes,
   pieces,
   renderGraph,
+  STYLES_URL,
   seekClips,
+  segments,
+  soundOf,
+  sourceWords,
   spans,
+  THREE_ADDONS_URL,
+  THREE_URL,
   tempo,
   timedLines,
   timedWords,
   timeline,
+  transcriptionAt,
   uncovered,
   union,
+  withKit,
   wordCaptions,
 } from "../src/mcp.ts";
+import { findChrome } from "../src/models.ts";
+import { mockingbirdHome } from "../src/runtime.ts";
 
 const echo = {
   name: "echo",
@@ -272,6 +302,34 @@ test("a project's clips from different sources are framed to one size and rate, 
   ]);
 });
 
+test("an HDR clip is brought to SDR before anything else, HDR b-roll too (#252)", () => {
+  const graph = renderGraph(
+    [
+      { from: 0, to: 2, path: "/iphone.mov", sdr: "lut3d=file=/hlg.cube" },
+      { from: 0, to: 2, path: "/screen.mp4" },
+    ],
+    {
+      audio: false,
+      size: "1920x1080",
+      fps: 30,
+      inserts: [
+        { start: 0.5, end: 1.5, sdr: "lut3d=file=/hlg.cube" },
+        { start: 2.5, end: 3 },
+      ],
+    },
+  );
+  expect(graph).toStartWith("[0:v]lut3d=file=/hlg.cube,setpts=PTS-STARTPTS,");
+  expect(graph).toContain("[1:v]setpts=PTS-STARTPTS,");
+  // HDR b-roll is converted before it's trimmed and scaled; a plain insert isn't.
+  expect(graph).toContain("[2:v]lut3d=file=/hlg.cube,trim=duration=1,");
+  expect(graph).toContain("[3:v]trim=duration=0.5,");
+});
+
+test("renderGraph adds no colour label of its own (#252)", () => {
+  const graph = renderGraph([{ from: 0, to: 2 }], { audio: false, size: "1920x1080", fps: 30 });
+  expect(graph).not.toContain("setparams");
+});
+
 test("scdet's log reads as cuts, timed from the seek", () => {
   const log = [
     "[Parsed_scdet_1 @ 0x9590] lavfi.scd.score: 29.301, lavfi.scd.time: 2",
@@ -280,7 +338,7 @@ test("scdet's log reads as cuts, timed from the seek", () => {
   ].join("\n");
   expect(parseScenes(log, 60)).toEqual([
     { at: 62, score: 29.301 },
-    { at: 64.0333, score: 20.581 },
+    { at: 64.033, score: 20.581 },
   ]);
   expect(parseScenes("nothing here")).toEqual([]);
   expect(parseScenes("lavfi.scd.score: 0.000, lavfi.scd.time: 1")).toEqual([]);
@@ -561,6 +619,43 @@ describe("wordCaptions", () => {
       return `${time.replace(/00:00:/g, "")} ${text}`;
     });
 
+  test("Chinese and Japanese join without spaces, about four characters a word of perCue (#276)", () => {
+    const words = [..."今日は新しいカメラを試しました"].map((c, i) => w(c, i * 0.1, i * 0.1 + 0.1));
+    const lines = wordCaptions([{ from: 0, to: 2 }], [words], { lit: false })
+      .split("\n\n")
+      .map((b) => b.split("\n")[2]);
+    expect(lines).toEqual(["今日は新しいカメラを試し", "ました"]);
+    // The spoken character is marked inside the line, which render draws without spaces.
+    const lit = wordCaptions([{ from: 0, to: 2 }], [words.slice(0, 3)])
+      .split("\n\n")[1]
+      ?.split("\n")[2];
+    expect(lit).toBe("今*日*は");
+  });
+
+  test("CJK punctuation joins without a space and ends a cue (#276)", () => {
+    const words = ["試しました", "。", "次"].map((c, i) => w(c, i * 0.3, i * 0.3 + 0.3));
+    const lines = wordCaptions([{ from: 0, to: 2 }], [words], { lit: false })
+      .split("\n\n")
+      .map((b) => b.split("\n")[2]);
+    expect(lines).toEqual(["試しました。", "次"]);
+  });
+
+  test("a cue never shows more than 20 characters a second (#276)", () => {
+    // Three long words said in 0.6 s: 30 characters would be 50 a second.
+    const srt = wordCaptions(
+      [{ from: 0, to: 2 }],
+      [
+        [
+          w("extraordinarily", 0, 0.2),
+          w("uncharacteristic", 0.2, 0.4),
+          w("misunderstanding", 0.4, 0.6),
+        ],
+      ],
+      { lit: false },
+    );
+    expect(cues(srt).length).toBe(3);
+  });
+
   test("lights each word in turn, a few words a cue, timed to the finished video", () => {
     const srt = wordCaptions(
       [
@@ -643,6 +738,19 @@ test("a motion script's sounds mix over the video's own, from input 1, cut to it
     "[s0][key0]sidechaincompress=threshold=0.04:ratio=8:attack=100:release=500[m0]",
     "[voice][m0]amix=inputs=2:duration=longest:normalize=0,atrim=duration=4[a]",
   ]);
+  // A quiet recording is raised before the duck keys on it (#212).
+  expect(
+    mixGraph([{ at: 0, volume: 0.15, loop: true, duck: true }], {
+      speech: true,
+      length: 4,
+      first: 1,
+      gain: 17.2,
+    }).slice(0, 2),
+  ).toEqual(["[speech]volume=17.20dB[lifted]", "[lifted]asplit=2[voice][key0]"]);
+  // Nothing mixed under it: the speech is left for `level`.
+  expect(mixGraph([], { speech: true, length: 4, first: 1, gain: 17.2 })).toEqual([
+    "[speech]atrim=duration=4[a]",
+  ]);
   // No sound at all: nothing to mix.
   expect(mixGraph([], { speech: false, length: 4, first: 1 })).toEqual([]);
 });
@@ -675,6 +783,43 @@ describe("pieces", () => {
   });
 });
 
+describe("segments", () => {
+  // Twelve 4 s clips: a segment may end once it's 10 s long, so every third clip.
+  const clips = Array.from({ length: 12 }, (_, i) => ({ from: i * 4, to: i * 4 + 4 }));
+
+  test("ends a segment at the first clip edge 10 s in", () => {
+    expect(segments(clips, [])).toEqual([
+      [0, 3],
+      [3, 6],
+      [6, 9],
+      [9, 12],
+    ]);
+  });
+
+  test("never where a transition joins two clips or an insert plays across", () => {
+    const faded = clips.map((c, i) =>
+      i === 3 ? { ...c, transition: { type: "fade", duration: 0.5 } } : c,
+    );
+    expect(segments(faded, [])[0]).toEqual([0, 4]);
+    expect(segments(clips, [{ from: 11, to: 13 }])[0]).toEqual([0, 4]);
+    // A J cut on clip 3 (its sound starts 0.5 s early) keeps that edge in one segment.
+    const jcut = clips.map((c, i) =>
+      i === 3 ? { ...c, sound: { from: c.from - 0.5, to: c.to } } : c,
+    );
+    expect(segments(jcut, [])[0]).toEqual([0, 4]);
+    // An insert that ends on the edge doesn't cross it.
+    expect(segments(clips, [{ from: 10, to: 12 }])[0]).toEqual([0, 3]);
+  });
+
+  test("a segment holds at most CLIPS_PER_PASS clips", () => {
+    const short = Array.from({ length: CLIPS_PER_PASS + 5 }, (_, i) => ({
+      from: i * 0.05,
+      to: i * 0.05 + 0.05,
+    }));
+    expect(segments(short, [])[0]).toEqual([0, CLIPS_PER_PASS]);
+  });
+});
+
 describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", () => {
   const run = (args: Record<string, unknown>) => {
     const tool = mcpTools(
@@ -691,6 +836,199 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
         ...["-of", "csv=p=0", file],
       ]).stdout.toString(),
     );
+
+  // Needs MODNet: `mockingbird models pull modnet`.
+  const modnet = join(mockingbirdHome(), "models", "modnet.onnx");
+  test.skipIf(!existsSync(modnet))(
+    "a subject mask is made once and reused by the next render (#260)",
+    async () => {
+      const dir = mkdtempSync(join(tmpdir(), "mb-subject-"));
+      const home = process.env.MOCKINGBIRD_HOME;
+      try {
+        // A home of its own, so nothing lands in the real cache; the model comes over by a link.
+        process.env.MOCKINGBIRD_HOME = join(dir, "home");
+        mkdirSync(join(dir, "home", "models"), { recursive: true });
+        symlinkSync(modnet, join(dir, "home", "models", "modnet.onnx"));
+        const src = join(dir, "talk.mp4");
+        Bun.spawnSync([
+          ...["ffmpeg", "-nostdin", "-loglevel", "error", "-f", "lavfi"],
+          ...["-i", "testsrc2=size=320x180:rate=10:duration=2", src],
+        ]);
+        const blur = { name: "blur", radius: 8, mask: { shape: "subject", invert: true } };
+        const masks = () => readdirSync(join(dir, "home", "cache", "masks"));
+        // Only a clip's effects take one, and that's said before any mask is made.
+        await expect(
+          run({
+            path: src,
+            clips: [{ from: 0, to: 1 }],
+            adjust: [{ from: 0, to: 1, effects: [blur] }],
+          }),
+        ).rejects.toThrow("goes on a clip's effects");
+        expect(existsSync(join(dir, "home", "cache", "masks"))).toBe(false);
+        await run({ path: src, clips: [{ from: 0.5, to: 1.7, effects: [blur] }] });
+        expect(seconds(join(dir, "talk-short-1.mp4"))).toBeCloseTo(1.2, 1);
+        expect(masks()).toHaveLength(1);
+        const made = statSync(join(dir, "home", "cache", "masks", masks()[0] as string)).mtimeMs;
+        await run({ path: src, clips: [{ from: 0.5, to: 1.7, effects: [blur] }] });
+        expect(masks()).toHaveLength(1);
+        expect(statSync(join(dir, "home", "cache", "masks", masks()[0] as string)).mtimeMs).toBe(
+          made,
+        );
+      } finally {
+        if (home === undefined) delete process.env.MOCKINGBIRD_HOME;
+        else process.env.MOCKINGBIRD_HOME = home;
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+    120_000,
+  );
+
+  // Needs the pinned Chrome (or MOCKINGBIRD_CHROME), which generates the bed.
+  test.skipIf(!findChrome())(
+    "a project's generated bed is made once and kept, and its sound renders alone (#170)",
+    async () => {
+      const dir = mkdtempSync(join(tmpdir(), "mb-bed-"));
+      const home = process.env.MOCKINGBIRD_HOME;
+      const chrome = process.env.MOCKINGBIRD_CHROME;
+      try {
+        // The Chrome found in the real home, which the empty one below doesn't have.
+        process.env.MOCKINGBIRD_CHROME = findChrome();
+        process.env.MOCKINGBIRD_HOME = join(dir, "home");
+        const talk = join(dir, "talk.mp4");
+        Bun.spawnSync([
+          ...[
+            "ffmpeg",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=320x240:rate=30:d=4",
+          ],
+          ...["-f", "lavfi", "-i", "sine=frequency=220:duration=4", "-pix_fmt", "yuv420p", talk],
+        ]);
+        const project = join(dir, "edit.json");
+        const generator = join(import.meta.dir, "../../../plugin/skills/music/generators/lofi.js");
+        const edit = mcpTools(
+          async () => ({}),
+          () => {},
+        ).find((t) => t.name === "edit");
+        await edit?.run({
+          project,
+          ops: [
+            { op: "add", type: "clip", path: talk, from: 0, to: 4 },
+            { op: "add", type: "audio", generator: { generator, tempo: 90 }, volume: 0.2 },
+          ],
+        });
+        const sound = String(await run({ project, sound: true }));
+        expect(sound).toContain("edit-sound-1.m4a");
+        const streams = Bun.spawnSync([
+          ...["ffprobe", "-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0"],
+          join(dir, "edit-sound-1.m4a"),
+        ]).stdout.toString();
+        expect(streams.trim()).toBe("audio");
+        const beds = join(dir, "home", "cache", "music");
+        expect(readdirSync(beds)).toHaveLength(1);
+        await run({ project });
+        expect(readdirSync(beds)).toHaveLength(1);
+        expect(seconds(join(dir, "edit-render-1.mp4"))).toBeCloseTo(4, 1);
+      } finally {
+        if (home === undefined) delete process.env.MOCKINGBIRD_HOME;
+        else process.env.MOCKINGBIRD_HOME = home;
+        if (chrome === undefined) delete process.env.MOCKINGBIRD_CHROME;
+        else process.env.MOCKINGBIRD_CHROME = chrome;
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+    120_000,
+  );
+
+  test.skipIf(!findChrome())(
+    "an overlay page is laid over its clip with its transparency (#163)",
+    async () => {
+      const dir = mkdtempSync(join(tmpdir(), "mb-overlay-"));
+      const home = process.env.MOCKINGBIRD_HOME;
+      const chrome = process.env.MOCKINGBIRD_CHROME;
+      try {
+        // The Chrome found in the real home, which the empty one below doesn't have.
+        process.env.MOCKINGBIRD_CHROME = findChrome();
+        process.env.MOCKINGBIRD_HOME = join(dir, "home");
+        const talk = join(dir, "talk.mp4");
+        // Solid blue under a page that paints only its top half red.
+        Bun.spawnSync([
+          ...[
+            "ffmpeg",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=blue:s=320x240:r=30:d=3",
+          ],
+          ...["-pix_fmt", "yuv420p", talk],
+        ]);
+        const page = join(dir, "card.html");
+        writeFileSync(
+          page,
+          // Imports the kit the way the templates do: render fills in "KIT", as motion does.
+          '<body style="margin:0"><div id="card" style="position:fixed;left:0;top:0;width:100%;height:50%"></div><script type="module">import { THEMES } from "KIT"; if (THEMES) document.getElementById("card").style.background = "red";</script></body>',
+        );
+        const project = join(dir, "edit.json");
+        await mcpTools(
+          async () => ({}),
+          () => {},
+        )
+          .find((t) => t.name === "edit")
+          ?.run({
+            project,
+            ops: [
+              { op: "add", type: "clip", path: talk, from: 0, to: 3 },
+              { op: "add", type: "overlay", page, clip: "c1", from: 1, to: 2 },
+              // A project with graphics renders once the look is settled (#264).
+              { op: "set", look: { skipped: true } },
+            ],
+          });
+        await run({ project });
+        const pixel = (t: number, y: number) => [
+          ...Bun.spawnSync([
+            ...[
+              "ffmpeg",
+              "-loglevel",
+              "error",
+              "-ss",
+              String(t),
+              "-i",
+              join(dir, "edit-render-1.mp4"),
+            ],
+            ...[
+              "-frames:v",
+              "1",
+              "-vf",
+              `format=rgb24,crop=1:1:160:${y}`,
+              "-f",
+              "rawvideo",
+              "-pix_fmt",
+              "rgb24",
+              "-",
+            ],
+          ]).stdout,
+        ];
+        const red = (rgb: number[]) => (rgb[0] ?? 0) > 200 && (rgb[2] ?? 255) < 60;
+        const blue = (rgb: number[]) => (rgb[2] ?? 0) > 200 && (rgb[0] ?? 255) < 60;
+        expect(red(pixel(1.5, 40))).toBe(true);
+        expect(blue(pixel(1.5, 200))).toBe(true);
+        expect(blue(pixel(0.5, 40))).toBe(true);
+        expect(blue(pixel(2.5, 40))).toBe(true);
+      } finally {
+        if (home === undefined) delete process.env.MOCKINGBIRD_HOME;
+        else process.env.MOCKINGBIRD_HOME = home;
+        if (chrome === undefined) delete process.env.MOCKINGBIRD_CHROME;
+        else process.env.MOCKINGBIRD_CHROME = chrome;
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+    120_000,
+  );
 
   test("a quiet recording comes out at -14 LUFS, its peaks under -1.5 dBTP", async () => {
     const dir = mkdtempSync(join(tmpdir(), "mb-render-"));
@@ -839,6 +1177,7 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
           { op: "add", type: "clip", path: "wide.mp4", from: 0.5, to: 2.5 },
           { op: "add", type: "clip", path: "tall.mp4", from: 1, to: 3 },
           { op: "add", type: "text", text: "on the *tall* one", clip: "c2", from: 0, to: 1 },
+          { op: "set", look: { skipped: true } },
         ],
       });
       expect(outline).toContain("c2  0:02.00-0:04.00  tall.mp4 1-3");
@@ -863,44 +1202,13 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
     }
   }, 120_000);
 
-  test("scenes finds each cut to within a frame, timed in the file even after a seek", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "mb-scenes-"));
-    try {
-      const file = join(dir, "cuts.mp4");
-      // Three shots of 2 s at 30 fps: cuts at 2 s and 4 s.
-      Bun.spawnSync([
-        ...[
-          "ffmpeg",
-          "-loglevel",
-          "error",
-          "-f",
-          "lavfi",
-          "-i",
-          "testsrc2=size=320x240:rate=30:d=2",
-        ],
-        ...["-f", "lavfi", "-i", "smptebars=size=320x240:rate=30:d=2"],
-        ...["-f", "lavfi", "-i", "color=c=red:size=320x240:rate=30:d=2"],
-        ...["-filter_complex", "[0][1][2]concat=n=3:v=1:a=0", "-pix_fmt", "yuv420p", file],
-      ]);
-      const tool = mcpTools(
-        async () => ({}),
-        () => {},
-      ).find((t) => t.name === "scenes");
-      const all = (await tool?.run({ path: file })) ?? "";
-      expect(all).toContain(": 2 cuts from 00:00.00 to 00:06.00, 20.0 a minute, 2.0 s a shot");
-      expect(all).toMatch(/\[00:02\.0\d\] \d/);
-      expect(all).toMatch(/\[00:04\.0\d\] \d/);
-      const later = (await tool?.run({ path: file, from: 3 })) ?? "";
-      expect(later).toContain(": 1 cut from 00:03.00 to 00:06.00");
-      expect(later).toMatch(/\[00:04\.0\d\]/);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  }, 60_000);
-
   test("text-based editing: a project's transcript, then cut_words, with the words heard once", async () => {
     const dir = mkdtempSync(join(tmpdir(), "mb-words-"));
-    const saved = { home: process.env.MOCKINGBIRD_HOME, model: process.env.MOCKINGBIRD_ASR_MODEL };
+    const saved = {
+      home: process.env.MOCKINGBIRD_HOME,
+      model: process.env.MOCKINGBIRD_ASR_MODEL,
+      server: process.env.MOCKINGBIRD_WHISPER_SERVER,
+    };
     try {
       // The real models in a home of its own, so the user's data.db and cache are never touched.
       const home = join(dir, "home");
@@ -932,11 +1240,9 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
       const said = await tool("transcribe").run({ project });
       expect(said.toLowerCase()).toContain("hello world");
       expect(readdirSync(join(home, "cache", "words"))).toHaveLength(1);
-      // Heard already: with a model by the same name that can't load, a call that
-      // started whisper-server would fail, so this passes only from the cache.
-      mkdirSync(join(dir, "fake"));
-      writeFileSync(join(dir, "fake", "ggml-base.en.bin"), "");
-      process.env.MOCKINGBIRD_ASR_MODEL = join(dir, "fake", "ggml-base.en.bin");
+      // Heard already: with no whisper-server that can start, a call that heard
+      // the source again would fail, so this passes only from the cache.
+      process.env.MOCKINGBIRD_WHISPER_SERVER = join(dir, "no-whisper-server");
       const outline = await tool("edit").run({
         project,
         ops: [{ op: "cut_words", text: "hello world" }],
@@ -945,6 +1251,66 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
       expect((await tool("transcribe").run({ project })).toLowerCase()).not.toContain(
         "hello world",
       );
+    } finally {
+      process.env.MOCKINGBIRD_HOME = saved.home;
+      process.env.MOCKINGBIRD_ASR_MODEL = saved.model;
+      if (saved.home === undefined) delete process.env.MOCKINGBIRD_HOME;
+      if (saved.model === undefined) delete process.env.MOCKINGBIRD_ASR_MODEL;
+      if (saved.server === undefined) delete process.env.MOCKINGBIRD_WHISPER_SERVER;
+      else process.env.MOCKINGBIRD_WHISPER_SERVER = saved.server;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 180_000);
+
+  test("two calls filling one word cache keep both, and transcribe keeps a project's model (#235)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mb-words-"));
+    const saved = { home: process.env.MOCKINGBIRD_HOME, model: process.env.MOCKINGBIRD_ASR_MODEL };
+    try {
+      const home = join(dir, "home");
+      mkdirSync(home);
+      symlinkSync(
+        join(saved.home ?? join(homedir(), ".mockingbird"), "models"),
+        join(home, "models"),
+      );
+      process.env.MOCKINGBIRD_HOME = home;
+      process.env.MOCKINGBIRD_ASR_MODEL = "ggml-base.en.bin";
+      const hello = join(dir, "hello.wav");
+      copyFileSync(join(import.meta.dir, "../../../bench/fixtures/hello.wav"), hello);
+      // Two stretches of one source at once: the second waits, then hears only its own.
+      const ask = (from: number, to: number) =>
+        sourceWords(new Map([[hello, [{ from, to }]]]), () => {});
+      await Promise.all([ask(0, 1.5), ask(3, 4.5)]);
+      const [cached] = readdirSync(join(home, "cache", "words"));
+      const heard = JSON.parse(readFileSync(join(home, "cache", "words", String(cached)), "utf8"));
+      expect(heard.covered).toEqual([
+        { from: 0, to: 1.5 },
+        { from: 3, to: 4.5 },
+      ]);
+
+      const tool = (name: string) =>
+        mcpTools(
+          async () => ({}),
+          () => {},
+        ).find((t) => t.name === name) as { run: (a: Record<string, unknown>) => Promise<string> };
+      const project = join(dir, "edit.json");
+      await tool("edit").run({
+        project,
+        ops: [{ op: "add", type: "clip", path: "hello.wav", from: 0, to: 4.5 }],
+      });
+      await expect(tool("transcribe").run({ project, model: "../data.db" })).rejects.toThrow(
+        "model takes a file name",
+      );
+      expect(JSON.parse(readFileSync(project, "utf8"))).not.toHaveProperty("transcription");
+      const said = await tool("transcribe").run({
+        project,
+        model: "ggml-base.en.bin",
+        language: "en",
+      });
+      expect(said.toLowerCase()).toContain("hello world");
+      expect(JSON.parse(readFileSync(project, "utf8")).transcription).toEqual({
+        model: "ggml-base.en.bin",
+        language: "en",
+      });
     } finally {
       process.env.MOCKINGBIRD_HOME = saved.home;
       process.env.MOCKINGBIRD_ASR_MODEL = saved.model;
@@ -1127,6 +1493,8 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
       expect(readdirSync(proxies)).toHaveLength(1);
       await tool("render").run({ project, draft: true });
       expect(readdirSync(proxies)).toHaveLength(1);
+      // The sound alone, asked for as a draft too: there's no picture to make smaller.
+      expect(await tool("render").run({ project, draft: true, sound: true })).toContain(".m4a");
     } finally {
       if (saved === undefined) delete process.env.MOCKINGBIRD_HOME;
       else process.env.MOCKINGBIRD_HOME = saved;
@@ -1183,6 +1551,64 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (integration)", ()
       rmSync(dir, { recursive: true, force: true });
     }
   }, 180_000);
+
+  test("scenes finds each cut to within a frame, timed in the file even after a seek", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mb-scenes-"));
+    try {
+      const file = join(dir, "cuts.mp4");
+      // Three shots of 2 s at 30 fps: cuts at 2 s and 4 s.
+      Bun.spawnSync([
+        ...[
+          "ffmpeg",
+          "-loglevel",
+          "error",
+          "-f",
+          "lavfi",
+          "-i",
+          "testsrc2=size=320x240:rate=30:d=2",
+        ],
+        ...["-f", "lavfi", "-i", "smptebars=size=320x240:rate=30:d=2"],
+        ...["-f", "lavfi", "-i", "color=c=red:size=320x240:rate=30:d=2"],
+        ...["-filter_complex", "[0][1][2]concat=n=3:v=1:a=0", "-pix_fmt", "yuv420p", file],
+      ]);
+      const tool = mcpTools(
+        async () => ({}),
+        () => {},
+      ).find((t) => t.name === "scenes");
+      const all = (await tool?.run({ path: file })) ?? "";
+      expect(all).toContain(": 2 cuts from 00:00.00 to 00:06.00, 20.0 a minute, 2.0 s a shot");
+      expect(all).toMatch(/\[00:02\.0\d\] \d/);
+      expect(all).toMatch(/\[00:04\.0\d\] \d/);
+      const later = (await tool?.run({ path: file, from: 3 })) ?? "";
+      expect(later).toContain(": 1 cut from 00:03.00 to 00:06.00");
+      expect(later).toMatch(/\[00:04\.0\d\]/);
+      // A cut on the first frame looked at counts (#226).
+      const onCut = (await tool?.run({ path: file, from: 2, to: 3 })) ?? "";
+      expect(onCut).toContain(": 1 cut from 00:02.00 to 00:03.00");
+      // A file whose length ffprobe can't tell is scanned over the range asked for.
+      // Matroska written to a pipe has no duration.
+      const raw = join(dir, "cuts.mkv");
+      const piped = Bun.spawnSync([
+        "ffmpeg",
+        "-loglevel",
+        "error",
+        "-i",
+        file,
+        "-c",
+        "copy",
+        "-f",
+        "matroska",
+        "-",
+      ]);
+      writeFileSync(raw, piped.stdout);
+      const unknown = (await tool?.run({ path: raw, from: 1, to: 5 })) ?? "";
+      expect(unknown).toContain(": 2 cuts from 00:01.00 to 00:05.00");
+      const toEnd = (await tool?.run({ path: raw })) ?? "";
+      expect(toEnd).toContain(": 2 cuts from 00:00.00 to the end (its length is unknown)");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
 });
 
 test("motion takes only an HTML page, and says where canvas scripts went", async () => {
@@ -1195,6 +1621,54 @@ test("motion takes only an HTML page, and says where canvas scripts went", async
     "motion renders an HTML page",
   );
 });
+
+test.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)(
+  'a three.js page imports "THREE" and draws a lit 3D scene (#270)',
+  async () => {
+    const motion = mcpTools(
+      async () => ({}),
+      () => {},
+    ).find((t) => t.name === "motion");
+    if (!motion) throw new Error("no motion tool");
+    const dir = mkdtempSync(join(tmpdir(), "mb-three-"));
+    try {
+      const template = join(
+        import.meta.dir,
+        "../../../plugin/skills/motion-graphics/templates/three.html",
+      );
+      const out = join(dir, "three.mp4");
+      expect(await motion.run({ script: template, size: "320x180", duration: 1, out })).toContain(
+        "(00:01, 320x180, 30 fps)",
+      );
+      // The floor and the plane are lit: the last frame isn't just the background colour.
+      const frame = Bun.spawnSync(
+        [
+          "ffmpeg",
+          "-nostdin",
+          "-loglevel",
+          "error",
+          "-sseof",
+          "-0.1",
+          "-i",
+          out,
+          "-frames:v",
+          "1",
+          "-f",
+          "rawvideo",
+          "-pix_fmt",
+          "gray",
+          "-",
+        ],
+        { stdout: "pipe" },
+      ).stdout;
+      const levels = new Set(frame);
+      expect(levels.size).toBeGreaterThan(8);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+  120_000,
+);
 
 describe("music", () => {
   const music = mcpTools(
@@ -1268,4 +1742,298 @@ describe("music", () => {
     },
     120_000,
   );
+});
+
+test("motion fills in a page's `from \"KIT\"` with the kit's file URL, beside the page (#213)", () => {
+  expect(existsSync(fileURLToPath(KIT_URL))).toBe(true);
+  const dir = mkdtempSync(join(tmpdir(), "mb-kit-"));
+  try {
+    const page = join(dir, "short.html");
+    // The comment comes first, as in the templates: it stays as written.
+    writeFileSync(
+      page,
+      '<script type="module">\n// replace "KIT"? no\nimport { kit } from "KIT";\n</script>',
+    );
+    const copy = withKit(page);
+    expect(dirname(copy)).toBe(dir);
+    expect(readFileSync(copy, "utf8")).toBe(
+      `<script type="module">\n// replace "KIT"? no\nimport { kit } from ${JSON.stringify(KIT_URL)};\n</script>`,
+    );
+    const plain = join(dir, "plain.html");
+    writeFileSync(plain, '<script type="module">import { kit } from "./kit.js";</script>');
+    expect(withKit(plain)).toBe(plain);
+    // The explainer styles come in the same way.
+    expect(existsSync(fileURLToPath(STYLES_URL))).toBe(true);
+    const styled = join(dir, "styled.html");
+    writeFileSync(styled, '<script type="module">import { style } from "STYLES";</script>');
+    expect(readFileSync(withKit(styled), "utf8")).toBe(
+      `<script type="module">import { style } from ${JSON.stringify(STYLES_URL)};</script>`,
+    );
+    // And three.js, shipped with the plugin (#270).
+    expect(existsSync(fileURLToPath(THREE_URL))).toBe(true);
+    const three = join(dir, "three.html");
+    writeFileSync(three, '<script type="module">import * as THREE from "THREE";</script>');
+    expect(readFileSync(withKit(three), "utf8")).toBe(
+      `<script type="module">import * as THREE from ${JSON.stringify(THREE_URL)};</script>`,
+    );
+    // Its add-ons beside it, importing the same copy of three.js (#275).
+    const addons = readFileSync(fileURLToPath(THREE_ADDONS_URL), "utf8");
+    expect(addons).toContain('from"./three.module.min.js"');
+    expect(addons).not.toContain('from"three"');
+    const lit = join(dir, "lit.html");
+    writeFileSync(
+      lit,
+      '<script type="module">import * as THREE from "THREE"; import { OutputPass } from "THREE_ADDONS";</script>',
+    );
+    expect(readFileSync(withKit(lit), "utf8")).toBe(
+      `<script type="module">import * as THREE from ${JSON.stringify(THREE_URL)}; import { OutputPass } from ${JSON.stringify(THREE_ADDONS_URL)};</script>`,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("an insert or adjustment layer refuses an effect that would do nothing there (#257)", async () => {
+  const render = mcpTools(
+    async () => ({}),
+    () => {},
+  ).find((t) => t.name === "render") as { run: (a: Record<string, unknown>) => Promise<string> };
+  const clips = [{ from: 0, to: 2 }];
+  // The source only has to be there: the effects are refused before it's read.
+  const dir = mkdtempSync(join(tmpdir(), "mb-fx-"));
+  const path = join(dir, "a.mp4");
+  writeFileSync(path, "");
+  await expect(
+    render.run({
+      path,
+      clips,
+      inserts: [{ path: "/b.mp4", from: 0, to: 1, effects: [{ name: "gain", db: 6 }] }],
+    }),
+  ).rejects.toThrow("inserts[0].effects[0]: gain works on a clip");
+  await expect(
+    render.run({
+      path,
+      clips,
+      adjust: [{ from: 0, to: 1, effects: [{ name: "interpolate" }] }],
+    }),
+  ).rejects.toThrow("adjust[0].effects[0]: interpolate works on a clip");
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("the speech is measured as the render hears it, gain and J cut included (#257)", () => {
+  const clip = {
+    path: "/a.mp4",
+    from: 2,
+    to: 4,
+    speed: 2,
+    effects: [{ name: "gain", db: 15 }],
+    sound: { from: 1.5, to: 4 },
+  };
+  // A project's level puts a gain on each clip: measuring without it would lift the speech twice.
+  expect(soundOf(clip, 0, { width: 1, height: 1, fps: 30, length: 1 })).toBe(
+    "[0:a]atrim=start=0:duration=2.5,asetpts=PTS-STARTPTS,atempo=2,volume=15dB",
+  );
+});
+
+test("a draft with graphics waits for the look too, and an approved look has to be there (#264)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mb-gate-"));
+  try {
+    const tool = (name: string) =>
+      mcpTools(
+        async () => ({}),
+        () => {},
+      ).find((t) => t.name === name) as { run: (a: Record<string, unknown>) => Promise<string> };
+    const project = join(dir, "edit.json");
+    await tool("edit").run({
+      project,
+      ops: [
+        { op: "add", type: "clip", path: "talk.mp4", from: 0, to: 3 },
+        { op: "add", type: "text", text: "Hi", clip: "c1", from: 0, to: 1 },
+      ],
+    });
+    await expect(tool("render").run({ project, draft: true })).rejects.toThrow(
+      "hasn't approved a look",
+    );
+    await tool("edit").run({
+      project,
+      ops: [{ op: "set", look: { file: "gone.ts", approved: true } }],
+    });
+    await expect(tool("render").run({ project })).rejects.toThrow("isn't there");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("cut_words hears with the transcription the batch set before it (#235)", () => {
+  const p = { version: 1, clips: [], texts: [], inserts: [], audio: [] } as unknown as Parameters<
+    typeof transcriptionAt
+  >[0];
+  const set = { op: "set", transcription: { model: "ggml-base.en.bin", language: "en" } };
+  const cut = { op: "cut_words", text: "um" };
+  expect(transcriptionAt(p, [set, cut])).toEqual({ model: "ggml-base.en.bin", language: "en" });
+  // Set after the cut: the cut is made on the words heard before it.
+  expect(transcriptionAt(p, [cut, set])).toBeUndefined();
+});
+
+test("level brings each source to the target once, within 30 dB (#265)", async () => {
+  const loud: Record<string, number> = {
+    "/a.mp4": -39.7,
+    "/b.mp4": -14.2,
+    "/c.mp4": -55,
+    "/mute.mp4": -Infinity,
+    "/card.mp4": -70,
+  };
+  const seen: string[] = [];
+  const paths = ["/a.mp4", "/b.mp4", "/a.mp4", "/c.mp4", "/mute.mp4", "/card.mp4"];
+  const gains = await levelGains(paths, -16, async (p) => {
+    seen.push(p);
+    return loud[p] ?? -Infinity;
+  });
+  // Each source measured once.
+  expect(seen).toEqual(["/a.mp4", "/b.mp4", "/c.mp4", "/mute.mp4", "/card.mp4"]);
+  expect(gains.get("/a.mp4")).toEqual({ measured: -39.7, db: 23.7 });
+  expect(gains.get("/b.mp4")?.db).toBe(-1.8);
+  expect(gains.get("/c.mp4")?.db).toBe(30);
+  // Silence, or a card with no sound, is left alone.
+  expect(gains.has("/mute.mp4")).toBe(false);
+  expect(gains.has("/card.mp4")).toBe(false);
+});
+
+describe("look (#262)", () => {
+  test("a look builds into one module that imports STYLES and THREE by their files", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mb-look-"));
+    try {
+      const file = join(dir, "warm.ts");
+      writeFileSync(
+        file,
+        'import { frame } from "STYLES";\nimport * as THREE from "THREE";\nexport const v = new THREE.Vector3();\nexport default { id: "warm", name: "Warm", category: "Test", make: (ctx: any, t: number, m: any) => frame(m) };\n',
+      );
+      const built = await buildLook(file);
+      expect(built).toBe(join(dir, "warm.look.js"));
+      const code = readFileSync(built, "utf8");
+      expect(code).not.toContain('from "STYLES"');
+      // One copy of the styles: the page's, not one bundled into each look.
+      expect(code).toContain(STYLES_URL);
+      expect(code).not.toContain("function frame");
+      expect(code).toContain(THREE_URL);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a look outside the plugin finds the kit's sounds in the plugin (#263)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mb-look-"));
+    try {
+      const file = join(dir, "loud.ts");
+      writeFileSync(
+        file,
+        'import { sfx } from "KIT";\nimport { frame } from "STYLES";\nexport const whoosh = sfx("whoosh");\nexport default { id: "loud", name: "Loud", category: "Test", make: (ctx: any, t: number, m: any) => frame(m) };\n',
+      );
+      const code = readFileSync(await buildLook(file), "utf8");
+      // The kit isn't bundled: the page imports the plugin's kit.js, whose sounds sit beside it.
+      expect(code).toContain(KIT_URL);
+      expect(code).not.toContain("assets/sfx/");
+      expect(existsSync(join(dirname(fileURLToPath(KIT_URL)), "assets", "sfx", "whoosh.wav"))).toBe(
+        true,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a mistake in a look comes back with where it is", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mb-look-"));
+    try {
+      const file = join(dir, "broken.ts");
+      writeFileSync(file, "export default {\n  make(ctx) { return ctx.\n};\n");
+      await expect(buildLook(file)).rejects.toThrow(/doesn't build[\s\S]*broken\.ts/);
+      await expect(buildLook(join(dir, "look.css"))).rejects.toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("board words are checked before anything renders", () => {
+    expect(
+      boardFrom({ title: "Sleep", points: ["a", "b"], stat: { value: 40, unit: "%" } }),
+    ).toEqual({
+      title: "Sleep",
+      points: ["a", "b"],
+      stat: { value: 40, unit: "%", label: undefined },
+    });
+    expect(boardFrom(undefined).title).toBe("Your video");
+    // null is no stat; a label padded past the limit fits once trimmed.
+    expect(boardFrom({ stat: null }).stat).toBeUndefined();
+    expect(boardFrom({ points: [`  ${"x".repeat(24)}  `] }).points).toEqual(["x".repeat(24)]);
+    expect(() => boardFrom({ stat: 5 })).toThrow("board.stat must be");
+    // A drop is a stat too.
+    expect(boardFrom({ stat: { value: -40, unit: "%" } }).stat?.value).toBe(-40);
+    expect(() => boardFrom({ points: ["a", "b", "c", "d"] })).toThrow("up to three");
+    expect(() => boardFrom({ title: "x".repeat(61) })).toThrow("keep it to 60");
+  });
+
+  test("the board page has the places look fills in", () => {
+    const html = readFileSync(LOOK_BOARD, "utf8");
+    expect(html).toContain('from "LOOK"');
+    expect(html).toContain('const BOARD = "BOARD";');
+    expect(html).toContain('from "KIT"');
+  });
+});
+
+test("a look can be built to a path of its own (#262 review)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mb-look-"));
+  try {
+    const file = join(dir, "warm.ts");
+    writeFileSync(
+      file,
+      'export default { id: "w", name: "W", category: "T", make: () => ({}) };\n',
+    );
+    const mine = join(dir, ".warm.ts.123.look.js");
+    expect(await buildLook(file, mine)).toBe(mine);
+    expect(existsSync(mine)).toBe(true);
+    expect(existsSync(join(dir, "warm.look.js"))).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("captions in a font that isn't downloaded are drawn anyway, with a warning (#276)", () => {
+  const saved = { home: process.env.MOCKINGBIRD_HOME, chrome: process.env.MOCKINGBIRD_CHROME };
+  process.env.MOCKINGBIRD_HOME = mkdtempSync(join(tmpdir(), "no-fonts-"));
+  process.env.MOCKINGBIRD_CHROME = process.execPath;
+  try {
+    const style = captionStyle("creator");
+    expect(captionFontWarning("1\n00:00:00,000 --> 00:00:01,000\nhi", style)).toMatch(
+      /Montserrat, isn't downloaded.*models pull chrome/,
+    );
+    expect(captionFontWarning(undefined, style)).toBe("");
+  } finally {
+    for (const [k, v] of [
+      ["MOCKINGBIRD_HOME", saved.home],
+      ["MOCKINGBIRD_CHROME", saved.chrome],
+    ] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+});
+
+test("a caption style with a look takes that style's font and accent (#276)", () => {
+  // art-deco's title is Montserrat, a caption font; its accent is gold.
+  expect(lookCaptions({ look: "art-deco", preset: "creator" })).toMatchObject({
+    preset: "creator",
+    font: "Montserrat",
+    active: expect.stringMatching(/^#[0-9a-f]{6}$/),
+  });
+  // A field given still wins.
+  expect(lookCaptions({ look: "art-deco", font: "Anton" })).toMatchObject({ font: "Anton" });
+  expect(() => lookCaptions({ look: "no-such-style" })).toThrow('no style "no-such-style"');
+  // comic's accent is near black, which would vanish on the outline: the preset's stays.
+  expect(lookCaptions({ look: "comic", preset: "creator" })).not.toHaveProperty("active");
+  expect(lookCaptions("creator")).toBe("creator");
+  // pill keeps its dark word and takes the accent behind it; subtitle lights nothing.
+  const pill = lookCaptions({ look: "art-deco", preset: "pill" });
+  expect(pill).toMatchObject({ pill: expect.stringMatching(/^#[0-9a-f]{6}$/) });
+  expect(pill).not.toHaveProperty("active");
+  expect(lookCaptions({ look: "art-deco", preset: "subtitle" })).not.toHaveProperty("active");
 });

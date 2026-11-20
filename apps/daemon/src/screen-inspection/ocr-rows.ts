@@ -42,7 +42,7 @@ export function privacyRows(tsv: string, names: string[], width: number, height:
     const types = [];
     if (/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(row.text)) types.push("email");
     if (
-      /(?:^|[\s:(])(?:\/(?:[^\s/]+\/)*[^\s/]+|~\/\S+|\.{1,2}\/\S+|[A-Z]:[\\/]\S+|\\\\\S+\\\S+)/i.test(
+      /(?:^|[\s:(])(?:\/(?:[^\s/]+\/)*[^\s/]+|~\/\S+|\.{1,2}[\\/]\S+|[A-Z]:[\\/]\S+|\\\\\S+\\\S+)/i.test(
         row.text,
       )
     )

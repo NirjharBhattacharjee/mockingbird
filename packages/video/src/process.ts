@@ -1,4 +1,5 @@
 const PROCESS_MS = 90_000;
+const KILL_MS = 2_000;
 
 export async function runBoundedProcess(
   argv: string[],
@@ -15,10 +16,18 @@ export async function runBoundedProcess(
       throw new Error(`${argv[0]} is unavailable. Install it locally and try again.`);
     }
   })();
+  // SIGTERM, then SIGKILL if the child ignores it, so a stuck ffmpeg or
+  // tesseract can't hold the call open.
+  let killer: ReturnType<typeof setTimeout> | undefined;
+  const stop = () => {
+    proc.kill();
+    killer ??= setTimeout(() => proc.kill("SIGKILL"), KILL_MS);
+  };
+  proc.exited.finally(() => clearTimeout(killer));
   let timedOut = false;
   const timer = setTimeout(() => {
     timedOut = true;
-    proc.kill();
+    stop();
   }, left);
   const read = async (stream: ReadableStream<Uint8Array>, limit: number) => {
     const reader = stream.getReader();
@@ -29,7 +38,7 @@ export async function runBoundedProcess(
       if (done) break;
       size += value.length;
       if (size > limit) {
-        proc.kill();
+        stop();
         throw new Error(`${argv[0]} output exceeded the inspection limit.`);
       }
       parts.push(Buffer.from(value));
@@ -47,7 +56,7 @@ export async function runBoundedProcess(
       );
     return stderrOutput ? err : out;
   } catch (error) {
-    proc.kill();
+    stop();
     await Promise.allSettled([outPromise, errPromise, proc.exited]);
     throw error;
   } finally {

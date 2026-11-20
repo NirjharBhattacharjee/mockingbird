@@ -73,5 +73,13 @@ describe("privacy OCR row classification", () => {
     ]);
     expect(JSON.stringify(findings)).not.toContain("alice@example.com");
     expect(JSON.stringify(findings)).not.toContain("Morgan");
+    // A Windows relative path is a path too.
+    const windows = privacyRows(
+      [tsv.split("\n")[0], row(1, 2, 4, 60, 8, ".\\private\\report.txt")].join("\n"),
+      [],
+      100,
+      80,
+    );
+    expect(windows.map((f) => f.types)).toEqual([["file_path"]]);
   });
 });

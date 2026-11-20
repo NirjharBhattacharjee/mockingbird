@@ -2,7 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { drawCaptions, parseSrt, pieces } from "../src/index.ts";
+import {
+  CAPTION_PRESETS,
+  captionStyle,
+  drawCaptions,
+  hanOrder,
+  parseSrt,
+  pieces,
+} from "../src/index.ts";
 
 describe("parseSrt", () => {
   test("reads each cue's times and text", () => {
@@ -55,6 +62,18 @@ test("splits a caption into paragraphs of words, *marked* ones lit", () => {
     ],
     [{ text: "now", lit: false }],
   ]);
+});
+
+test("Han characters take the shapes of the caption's language (#224)", () => {
+  expect(hanOrder("ja", ["直"])).toEqual(["JP", "SC", "KR"]);
+  // Kana in the captions outweigh a zh setting: the captions are Japanese.
+  expect(hanOrder("zh", ["です"])).toEqual(["JP", "SC", "KR"]);
+  expect(hanOrder("zh", ["骨"])).toEqual(["SC", "JP", "KR"]);
+  expect(hanOrder("ko", [])).toEqual(["KR", "JP", "SC"]);
+  // Not one of the three: the captions decide.
+  expect(hanOrder("auto", ["骨", "です"])).toEqual(["JP", "SC", "KR"]);
+  expect(hanOrder("en", ["한국어"])).toEqual(["KR", "JP", "SC"]);
+  expect(hanOrder(undefined, ["你好"])).toEqual(["SC", "JP", "KR"]);
 });
 
 test("draws nothing without a Chrome", async () => {
@@ -140,4 +159,54 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("drawCaptions (integration
   test("gives up instead of throwing when it can't draw", async () => {
     expect(await draw(["hi"], "/nonexistent/folder", 1080)).toBeUndefined();
   });
+});
+
+test("a caption style is a preset, or fields laid over one", () => {
+  expect(captionStyle(undefined)).toEqual(CAPTION_PRESETS.classic);
+  expect(captionStyle("creator")).toEqual(CAPTION_PRESETS.creator);
+  const s = captionStyle({ preset: "subtitle", font: "Anton", active: "#39E508", upper: true });
+  expect(s).toMatchObject({ font: "Anton", active: "#39E508", upper: true, maxChars: 42 });
+  // Capitals get tracking unless it's given.
+  expect(s.tracking).toBe(0.06);
+  expect(captionStyle({ upper: true, tracking: 0 }).tracking).toBe(0);
+});
+
+test("a caption style refuses what it doesn't know", () => {
+  expect(() => captionStyle("loud")).toThrow(/no preset "loud"/);
+  expect(() => captionStyle({ font: "Futura" })).toThrow(/font is one of Inter/);
+  expect(() => captionStyle({ fill: "red;background:url(x)" })).toThrow(/fill is a colour/);
+  expect(() => captionStyle({ outline: 2 })).toThrow(/outline is a number from 0 to 0.5/);
+  expect(() => captionStyle({ colour: "red" })).toThrow(/no field colour/);
+  // A null or a string isn't quietly made a number, a colour or a switch.
+  expect(() => captionStyle({ fill: null })).toThrow(/fill is a colour/);
+  expect(() => captionStyle({ tracking: null })).toThrow(/tracking is a number/);
+  expect(() => captionStyle({ weight: "900" })).toThrow(/weight is a number/);
+  expect(() => captionStyle({ shadow: "false" })).toThrow(/shadow is true or false/);
+  expect(captionStyle({ fill: "hsl(50 100% 50%)" }).fill).toBe("hsl(50 100% 50%)");
+});
+
+test("keywords and marks inside a word (#276)", () => {
+  expect(pieces("a **big** deal")[0]).toEqual([
+    { text: "a", lit: false },
+    { text: "big", lit: false, key: true },
+    { text: "deal", lit: false },
+  ]);
+  // Chinese has no spaces: the mark splits the word, and the pieces join with none.
+  expect(pieces("这是*一*个")[0]).toEqual([
+    { text: "这是", lit: false },
+    { text: "一", lit: true, glue: true },
+    { text: "个", lit: false, glue: true },
+  ]);
+});
+
+test("pop, keyword and look are checked (#276)", () => {
+  expect(captionStyle({ preset: "classic", pop: 1.2, keyword: "#00FF88" })).toMatchObject({
+    pop: 1.2,
+    keyword: "#00FF88",
+  });
+  expect(() => captionStyle({ pop: 2 })).toThrow(/pop is a number from 1 to 1.4/);
+  expect(() => captionStyle({ look: "Art Deco!" })).toThrow(/look is a motion style's id/);
+  // Restrained by default: classic and subtitle don't pop.
+  expect(CAPTION_PRESETS.classic).not.toHaveProperty("pop");
+  expect(CAPTION_PRESETS.subtitle).not.toHaveProperty("pop");
 });

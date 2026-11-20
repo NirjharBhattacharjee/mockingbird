@@ -15,22 +15,26 @@ import {
   writeFileSync,
   writeSync,
 } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 import { withStore } from "./dictionary.ts";
 import {
   ASR_MODEL_SETTING,
+  CPU_ASR_MODEL,
   DEFAULT_ASR_MODEL,
   englishOnly,
   findAsrModel,
+  findWhisperServer,
   isWhisperFile,
   languageModels,
+  MAC_ASR_MODEL,
   mockingbirdHome,
   pinnedWhisper,
   savedModelFor,
   spokenLanguage,
   WHISPER_BUILD,
   WHISPER_LANGUAGES,
+  wontStart,
 } from "./runtime.ts";
 
 /** `name` is what the progress line calls it; `bytes` is its size, shown before a download. */
@@ -41,14 +45,25 @@ export type ModelFile = { name: string; file: string; url: string; sha256: strin
  * version and checked against its sha256, so a changed, truncated or corrupt
  * file is downloaded again rather than loaded.
  */
-export const MODEL_FILES: ModelFile[] = [
+const WHISPER_PINS: ModelFile[] = [
   {
     name: "Whisper",
-    file: DEFAULT_ASR_MODEL,
+    file: MAC_ASR_MODEL,
     url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-large-v3-q5_0.bin",
     sha256: "d75795ecff3f83b5faa89d1900604ad8c780abd5739fae406de19f23ecd98ad1",
     bytes: 1_081_140_203,
   },
+  {
+    name: "Whisper",
+    file: CPU_ASR_MODEL,
+    url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-small-q5_1.bin",
+    sha256: "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb",
+    bytes: 190_085_487,
+  },
+];
+
+export const MODEL_FILES: ModelFile[] = [
+  WHISPER_PINS.find((m) => m.file === DEFAULT_ASR_MODEL) as ModelFile,
   {
     name: "VAD",
     file: "silero_vad.onnx",
@@ -57,6 +72,19 @@ export const MODEL_FILES: ModelFile[] = [
     bytes: 2_327_524,
   },
 ];
+
+/**
+ * MODNet (Apache-2.0), the portrait matting model subject masks run (#260):
+ * `models pull modnet` fetches it, never a plain pull, since only a subject
+ * mask needs it. The fp32 export from Xenova/modnet, at a pinned commit.
+ */
+export const MODNET_FILE: ModelFile = {
+  name: "MODNet",
+  file: "modnet.onnx",
+  url: "https://huggingface.co/Xenova/modnet/resolve/fa2fa546052fba4c08921230a26cc69a333fca12/onnx/model.onnx",
+  sha256: "07c308cf0fc7e6e8b2065a12ed7fc07e1de8febb7dc7839d7b7f15dd66584df9",
+  bytes: 25_888_640,
+};
 
 export async function sha256Of(path: string): Promise<string> {
   const hasher = new Bun.CryptoHasher("sha256");
@@ -69,22 +97,47 @@ export type PullFileDeps = {
   log?: (message: string) => void;
   /** Bytes written so far, and the size the server gave (0 if it gave none). */
   onProgress?: (done: number, total: number) => void;
+  /** How a retry waits; Bun.sleep, injected in tests. */
+  wait?: (ms: number) => Promise<void>;
 };
+
+/** A failed download that trying again won't fix: a 4xx, or the wrong bytes. */
+class FinalError extends Error {}
+
+const TRIES = 3;
 
 /**
  * Downloads one model into `dir`, unless a file with the right checksum is
- * already there. Returns whether it downloaded anything.
+ * already there. Returns whether it downloaded anything. A 5xx, a 429, a
+ * timeout or a dropped connection is tried again (#214), continuing from what
+ * arrived; a 404 or a checksum mismatch isn't.
  */
 export async function pullFile(
   model: ModelFile,
   dir: string,
-  { fetch: get = fetch, log = () => {}, onProgress = () => {} }: PullFileDeps = {},
+  deps: PullFileDeps = {},
+): Promise<boolean> {
+  const { log = () => {}, wait = Bun.sleep } = deps;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await pullOnce(model, dir, deps);
+    } catch (error) {
+      if (error instanceof FinalError || attempt === TRIES) throw error;
+      const seconds = 2 * attempt;
+      log(
+        `${error instanceof Error ? error.message : String(error)}; trying again in ${seconds} s`,
+      );
+      await wait(seconds * 1000);
+    }
+  }
+}
+
+async function pullOnce(
+  model: ModelFile,
+  dir: string,
+  { fetch: get = fetch, log = () => {}, onProgress = () => {} }: PullFileDeps,
 ): Promise<boolean> {
   const path = join(dir, model.file);
-  if (existsSync(path) && (await sha256Of(path)) === model.sha256) {
-    log(`${model.file} is downloaded`);
-    return false;
-  }
   mkdirSync(dir, { recursive: true });
   // A temporary name first, so an interrupted download isn't mistaken for a
   // model. What an interrupted one left behind is kept and continued: on a slow
@@ -92,6 +145,21 @@ export async function pullFile(
   // Named for the checksum it's heading for, so a partial of another
   // version of the file is never continued into this one.
   const part = `${path}.${model.sha256.slice(0, 12)}.part`;
+  // A partial an older pull left, named without a checksum or for another
+  // version, can't be continued into this one: it's 1 GB of nothing kept.
+  // Cleared even when the model is already here.
+  for (const old of readdirSync(dir)) {
+    const stale =
+      old === `${model.file}.part` || /^[0-9a-f]{12}\.part$/.test(old.slice(model.file.length + 1));
+    if (old.startsWith(`${model.file}.`) && stale && join(dir, old) !== part) {
+      rmSync(join(dir, old), { force: true });
+      log(`removed ${old}, a partial download of another version`);
+    }
+  }
+  if (existsSync(path) && (await sha256Of(path)) === model.sha256) {
+    log(`${model.file} is downloaded`);
+    return false;
+  }
   const have = existsSync(part) ? statSync(part).size : 0;
   if (have > 0 && (await sha256Of(part)) === model.sha256) {
     renameSync(part, path);
@@ -108,7 +176,10 @@ export async function pullFile(
     response = await get(model.url, {});
   }
   if (!response.ok || !response.body) {
-    throw new Error(`couldn't download ${model.file}: HTTP ${response.status}`);
+    const message = `couldn't download ${model.file}: HTTP ${response.status}`;
+    // A 5xx, 429 (too many requests) or 408 (timed out) can pass; another 4xx won't.
+    const passing = response.status >= 500 || response.status === 429 || response.status === 408;
+    throw passing ? new Error(message) : new FinalError(message);
   }
   // 206 is the rest of the file; a server that ignores the range sends all of it.
   const from = response.status === 206 ? have : 0;
@@ -126,7 +197,7 @@ export async function pullFile(
   }
   if ((await sha256Of(part)) !== model.sha256) {
     rmSync(part, { force: true });
-    throw new Error(
+    throw new FinalError(
       `${model.file} didn't match its expected checksum. Run this again; if it keeps happening, please open an issue.`,
     );
   }
@@ -140,6 +211,8 @@ export type PullDeps = PullFileDeps & {
   files?: ModelFile[];
   /** The fonts `models pull chrome` downloads; injected in tests. */
   fonts?: ModelFile[];
+  /** Their licence files; injected in tests. */
+  licences?: ModelFile[];
   modelsDir?: string;
   /** Gets the line from progressLine, at most every quarter second. */
   progress?: (line: string) => void;
@@ -194,7 +267,12 @@ async function pullFiles(files: ModelFile[], dir: string, deps: PullDeps) {
       deps.progress?.(progressLine([{ name: model.name, done, total }]));
     };
     try {
-      await pullFile(model, dir, { fetch: deps.fetch, log, onProgress: progress });
+      await pullFile(model, dir, {
+        fetch: deps.fetch,
+        log,
+        onProgress: progress,
+        wait: deps.wait,
+      });
     } finally {
       // A pull that has ended leaves the line straight away, so the last
       // thing shown is never a stale byte count.
@@ -266,7 +344,8 @@ function runnable(path: string): boolean {
 /**
  * The fonts every page the engine renders can use, so a render looks the
  * same on every machine (#156): Inter, Charis SIL and JetBrains Mono for the
- * motion kit, and Noto for scripts the system may not have. All SIL Open
+ * motion kit, Noto for scripts the system may not have, and the faces the
+ * motion styles and caption presets name (#276). All SIL Open
  * Font License 1.1 (NOTICE.md), from google/fonts at one commit, checked
  * against their sha256. `models pull chrome` downloads them with Chrome.
  */
@@ -400,27 +479,348 @@ const FONTS = [
     style: "normal",
     sha256: "194018e6b2b293a7964f037b25c0249ce1418bc9ab3c971060a03aa57861e252",
   },
+  // The display, hand and typewriter faces the motion styles name (#276).
+  // Each covers every weight, or two files split it, so Chrome never fakes a
+  // bold: a style asking for Anton at 900 gets Anton's one weight.
+  {
+    dir: "anton",
+    file: "Anton-Regular.ttf",
+    family: "Anton",
+    weight: "1 1000",
+    style: "normal",
+    sha256: "a4ba3a92350ebb031da0cb47630ac49eb265082ca1bc0450442f4a83ab947cab",
+  },
+  {
+    dir: "bebasneue",
+    file: "BebasNeue-Regular.ttf",
+    family: "Bebas Neue",
+    weight: "1 1000",
+    style: "normal",
+    sha256: "08e4623805102d819f58601e46e345648846075e363b2ceb23313c2d1c83ec73",
+  },
+  {
+    dir: "oswald",
+    file: "Oswald[wght].ttf",
+    family: "Oswald",
+    weight: "1 1000",
+    style: "normal",
+    sha256: "5b38c246e255a12f5712d640d56bcced0472466fc68983d2d0410ec0457c2817",
+  },
+  {
+    dir: "archivoblack",
+    file: "ArchivoBlack-Regular.ttf",
+    family: "Archivo Black",
+    weight: "1 1000",
+    style: "normal",
+    sha256: "dd9a89a019b4849f66ab75455fe7bdf931311042cbb0f0f97acc061539703180",
+  },
+  {
+    dir: "playfairdisplay",
+    file: "PlayfairDisplay[wght].ttf",
+    family: "Playfair Display",
+    weight: "1 1000",
+    style: "normal",
+    sha256: "c40f2293766a503bc70cce9e512ef844a4ccb7cbcde792fe2ea31d191917d8d6",
+  },
+  {
+    dir: "playfairdisplay",
+    file: "PlayfairDisplay-Italic[wght].ttf",
+    family: "Playfair Display",
+    weight: "1 1000",
+    style: "italic",
+    sha256: "a5e26dc5e2e77fb2803a0bf02fd4f81ee136ec8dea863ccdb0c59a263b21378b",
+  },
+  {
+    dir: "spacegrotesk",
+    file: "SpaceGrotesk[wght].ttf",
+    family: "Space Grotesk",
+    weight: "1 1000",
+    style: "normal",
+    sha256: "acad6de1fc93436f5c0f1f4137751ef04f1aea3063e7036535970ffcfbd79f72",
+  },
+  {
+    dir: "montserrat",
+    file: "Montserrat[wght].ttf",
+    family: "Montserrat",
+    weight: "1 1000",
+    style: "normal",
+    sha256: "0f7b311b2f3279e4eef9b2f968bcdbab6e28f4daeb1f049f4f278a902bcd82f7",
+  },
+  {
+    dir: "bangers",
+    file: "Bangers-Regular.ttf",
+    family: "Bangers",
+    weight: "1 1000",
+    style: "normal",
+    sha256: "4160a7311de9342674cce9160cde9fcbb30f48190397d86ff1b70b455af65824",
+  },
+  {
+    dir: "nunito",
+    file: "Nunito[wght].ttf",
+    family: "Nunito",
+    weight: "1 1000",
+    style: "normal",
+    sha256: "bb55a5ca5c2042335b3991af27c4d0705d0ef41cac6164ac737fd8f2a1e85207",
+  },
+  {
+    dir: "cormorantgaramond",
+    file: "CormorantGaramond[wght].ttf",
+    family: "Cormorant Garamond",
+    weight: "1 1000",
+    style: "normal",
+    sha256: "b20b7d9626dd956b2c5e558692ad328b1f19e3275e2782db4fa07670d83f35e0",
+  },
+  {
+    dir: "cormorantgaramond",
+    file: "CormorantGaramond-Italic[wght].ttf",
+    family: "Cormorant Garamond",
+    weight: "1 1000",
+    style: "italic",
+    sha256: "0f48ea6abb2084537854f7174c470991a463b13036309e3b50a81511611c530d",
+  },
+  {
+    dir: "fraunces",
+    file: "Fraunces[SOFT,WONK,opsz,wght].ttf",
+    family: "Fraunces",
+    weight: "1 1000",
+    style: "normal",
+    sha256: "177ff6c0f14e5550a3c624247cd1189611d4eb65d000b14944c63d967958abbb",
+  },
+  {
+    dir: "fraunces",
+    file: "Fraunces-Italic[SOFT,WONK,opsz,wght].ttf",
+    family: "Fraunces",
+    weight: "1 1000",
+    style: "italic",
+    sha256: "b24448c43702fac4ee856781d461a0dfba8d8e594b6e8e190234b75fed2c0e01",
+  },
+  {
+    dir: "caveat",
+    file: "Caveat[wght].ttf",
+    family: "Caveat",
+    weight: "1 1000",
+    style: "normal",
+    sha256: "0bdb6b660482d31531b3945849fba5916b3ef8695da7024a9e6b9ee3c4157988",
+  },
+  {
+    dir: "kalam",
+    file: "Kalam-Bold.ttf",
+    family: "Kalam",
+    weight: "1 1000",
+    style: "normal",
+    sha256: "2f6576601db015d4f6c08678120277fc8510b98c06e932ce7a6a9cbff4cbdded",
+  },
+  {
+    dir: "vt323",
+    file: "VT323-Regular.ttf",
+    family: "VT323",
+    weight: "1 1000",
+    style: "normal",
+    sha256: "cf4de751ada78ceac033dbe16a687742939995b77bc2a052ae17a4957958594d",
+  },
+  {
+    dir: "spacemono",
+    file: "SpaceMono-Regular.ttf",
+    family: "Space Mono",
+    weight: "1 599",
+    style: "normal",
+    sha256: "95837e182baeeada83368f7748db28357f0a1b75c6b84ff7065b5edf933c8e18",
+  },
+  {
+    dir: "spacemono",
+    file: "SpaceMono-Bold.ttf",
+    family: "Space Mono",
+    weight: "600 1000",
+    style: "normal",
+    sha256: "405e73d41afb7e5906efce206a326af5c956f38e255f35421c260e861e599c59",
+  },
+  {
+    dir: "silkscreen",
+    file: "Silkscreen-Regular.ttf",
+    family: "Silkscreen",
+    weight: "1 599",
+    style: "normal",
+    sha256: "c845473330b94c2079ce9af01c51ac8ba2d99c24f4d14c039843bbb8e642ebd8",
+  },
+  {
+    dir: "silkscreen",
+    file: "Silkscreen-Bold.ttf",
+    family: "Silkscreen",
+    weight: "600 1000",
+    style: "normal",
+    sha256: "768476aa712d4f5c3e18d3bce80f980a8bd3f72b7094d22ec5e768df3acfed61",
+  },
+  {
+    dir: "courierprime",
+    file: "CourierPrime-Regular.ttf",
+    family: "Courier Prime",
+    weight: "1 599",
+    style: "normal",
+    sha256: "72f793376f8e2841656bf21d77a5de010f2929bd6956a22ee848ad0c7eb978af",
+  },
+  {
+    dir: "courierprime",
+    file: "CourierPrime-Bold.ttf",
+    family: "Courier Prime",
+    weight: "600 1000",
+    style: "normal",
+    sha256: "ff1f38786c849d1c41fa8e447960abdb2bd75fdfb0cfcdeb524fad65a5af3638",
+  },
+  {
+    dir: "comicneue",
+    file: "ComicNeue-Regular.ttf",
+    family: "Comic Neue",
+    weight: "1 599",
+    style: "normal",
+    sha256: "a0ee5a37c8b27c4db0700137d928598b1e23b0089e1546a8961909176b779360",
+  },
+  {
+    dir: "comicneue",
+    file: "ComicNeue-Bold.ttf",
+    family: "Comic Neue",
+    weight: "600 1000",
+    style: "normal",
+    sha256: "3e7e5fccfd7e0788f317b43312151c1bd5cf058c9697a8d83eac3939050bd61e",
+  },
+  {
+    dir: "arvo",
+    file: "Arvo-Regular.ttf",
+    family: "Arvo",
+    weight: "1 599",
+    style: "normal",
+    sha256: "f41bd41471ec2db7140351bdde614da5341524503598ff7fe79f3c89c13b605e",
+  },
+  {
+    dir: "arvo",
+    file: "Arvo-Bold.ttf",
+    family: "Arvo",
+    weight: "600 1000",
+    style: "normal",
+    sha256: "6239b2edee762db0ab99343137c9ba15ae81fc843da2e76a0a395781748cc21f",
+  },
 ] as const;
 
-/** The pinned fonts as downloads: about 45 MB, most of it Chinese, Japanese and Korean. */
-export const FONT_FILES: ModelFile[] = FONTS.map((f) => ({
-  name: f.family,
-  file: f.file,
-  url: `https://raw.githubusercontent.com/google/fonts/${FONTS_COMMIT}/ofl/${f.dir}/${encodeURIComponent(f.file)}`,
-  sha256: f.sha256,
-}));
+/**
+ * Colour emoji, last in every stack (#276): Noto's COLRv1 build (5 MB, OFL),
+ * from googlefonts/noto-emoji since google/fonts only has the 25 MB one with
+ * bitmaps too. Vector, so it stays sharp at hook sizes.
+ */
+export const EMOJI_COMMIT = "99701e07d3d1fe1bdbcdb14964547f0fd592966f";
+const EMOJI = {
+  file: "Noto-COLRv1.ttf",
+  family: "Noto Color Emoji",
+  weight: "1 1000",
+  style: "normal",
+  sha256: "b8e25ea68db82f9e4d0aee921f4420be2be39887bd5c893a2ad98710531f9d0c",
+  url: `https://raw.githubusercontent.com/googlefonts/noto-emoji/${EMOJI_COMMIT}/2D/fonts/Noto-COLRv1.ttf`,
+} as const;
+
+/** The pinned fonts as downloads: about 57 MB, most of it Chinese, Japanese and Korean. */
+export const FONT_FILES: ModelFile[] = [
+  ...FONTS.map((f) => ({
+    name: f.family,
+    file: f.file,
+    url: `https://raw.githubusercontent.com/google/fonts/${FONTS_COMMIT}/ofl/${f.dir}/${encodeURIComponent(f.file)}`,
+    sha256: f.sha256,
+  })),
+  { name: EMOJI.family, file: EMOJI.file, url: EMOJI.url, sha256: EMOJI.sha256 },
+];
+
+/**
+ * Each family's licence, which names its copyright holders: OFL 1.1 asks
+ * for the copyright notice and the licence text with every copy (OFL FAQ
+ * 1.20). `models pull chrome` puts them in `fonts/licences/`, one per family.
+ */
+const LICENCE_SHA256: Record<string, string> = {
+  anton: "ee67e6ee22790b7929f1a3769ca2801d565c64b5a9096942c1adf5596de9c9e4",
+  archivoblack: "3173acd82f8c6159b5b1037b539fcbd4edff68e65c2ea8b9412b5a5ca97b08ff",
+  arvo: "359671bf16c00cae69cb66d041296b2adc7a4becd73a463cb8c5e101d97c7986",
+  bangers: "630dd5a307c0657b094d324e069b390edf90182fe5003639e06c02a0e5769af7",
+  bebasneue: "72082f6cb4d04be2ecf7cc7d9e1e7d73787f0af8a5a278a47cade70c16b78341",
+  caveat: "1f9d81d094273d82f3898a1ee8b598a717d050ecbf5ff7bede105b704880157b",
+  charissil: "0acda775b4dedaf980821f590206a692779ee495170018ee2b9caf1c50fc136a",
+  comicneue: "7c38a22e5878e60fe423360553e63dd7be23d29f1f60336034935dbfc96e8320",
+  cormorantgaramond: "60700d351cac4650c51f3f9db318d2a420f8b45052dba2715eb5fec41f0f6956",
+  courierprime: "9a755af092b494944c99f471be6fddd19b006a448fefdc4717e4ee0aa09a97b0",
+  fraunces: "bdf4c22802eaf804f998195871c6b8938aac2ac14b2d78a8bd66a6f1eced833b",
+  inter: "5b9321a4298cfeb6b34354164a1c3afc3db114569984c502b9b35d988fd58c57",
+  jetbrainsmono: "b2fe5e8987594e9ffd1d2ca52a2f5d73eb8335243893c5d6254b5ad69269591d",
+  kalam: "f62ef357d3a1c3d27edd35a6e1ba350e8a8d13499797964eeadefbf0b3b15d1f",
+  montserrat: "8b7141c03fa4f8d44e6345d5d4931709290f0f67875e452e95ac1fd3a027802e",
+  notosansarabic: "07fc70bfeb985cc1a87a8587d0a0c80bab11c86c9dc3fd95b6f0cb332f983e96",
+  notosansbengali: "754f0e221aa7d5a915489f3bf1f20fe53ddc35ab2834a4d91656d78f9622de70",
+  notosansdevanagari: "a216f6f8d85c7228093e0ee5e258d9d377e6671f68acb4db1930b29583d0f331",
+  notosanshebrew: "9b9fe028b5ba74d231659a1bbaf0ed09b11e759d1ca6a070999e16d151616b47",
+  notosansjp: "1c05c68c34f9708415aada51f17e1b0092d2cea709bf4a94cd38114f9e73d7d9",
+  notosanskr: "1c05c68c34f9708415aada51f17e1b0092d2cea709bf4a94cd38114f9e73d7d9",
+  notosanssc: "1c05c68c34f9708415aada51f17e1b0092d2cea709bf4a94cd38114f9e73d7d9",
+  notosanstamil: "f8ff8ce7d0a81bf8d5e121c635ef027250c531f2fd37d5988b8dd6e45f19d7f1",
+  notosansthai: "2e98fd23a52d253db8612cd5942c8f2ff4111b21d2367050fdca91d8ccc374a0",
+  nunito: "580df76c95a1ec5ab878ceb25bb3d85c6a076804e9c970c8c6972aea775fdf65",
+  oswald: "0fd731a904b729a4e02eaf5e8ebd06783edd9abe400e8882760160230675b652",
+  playfairdisplay: "566be814f8e96e93dfa16101331557eb6b5467e9e03f627c0910fe93ca12300e",
+  silkscreen: "86c5e9c9382cdcc5948704fdfe60f2aa164a719746931219a42736ecd9cefbd3",
+  spacegrotesk: "564ce565c371c5e5bbf286006565a7c9aa55a9f56e7ca58d56e05d649dd61a72",
+  spacemono: "8e4ee42b2553e1e01504e61cb0d46d148cd8c9e5eacaa3622a7df2d4f2955b9f",
+  vt323: "27d9af34210253e7ca1251fbace86c6f65b40031d6ce1a75493a1b2093631298",
+};
+export const FONT_LICENCES: ModelFile[] = [
+  ...Object.entries(LICENCE_SHA256).map(([dir, sha256]) => ({
+    name: `${dir} licence`,
+    file: `${dir}.txt`,
+    url: `https://raw.githubusercontent.com/google/fonts/${FONTS_COMMIT}/ofl/${dir}/OFL.txt`,
+    sha256,
+  })),
+  {
+    name: "Noto Color Emoji licence",
+    file: "notocoloremoji.txt",
+    url: `https://raw.githubusercontent.com/googlefonts/noto-emoji/${EMOJI_COMMIT}/2D/fonts/LICENSE`,
+    sha256: "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2",
+  },
+];
 
 export type FontFaceFile = { family: string; url: string; weight: string; style: string };
 
-/** The pinned fonts that are downloaded, as file URLs for pages to load. */
+/** The pinned fonts that aren't downloaded yet, by family. */
+export function missingFonts(home = mockingbirdHome()): string[] {
+  return FONT_FILES.filter((f) => !existsSync(join(home, "fonts", f.file))).map((f) => f.name);
+}
+
+/**
+ * The pinned fonts that are downloaded, and the user's own, as file URLs for
+ * pages to load. A user font is any font file in `fonts/user/`, used by its
+ * file name: `Brand Sans.ttf` is the family "Brand Sans", `Brand Sans
+ * Italic.otf` its italic (#276). As many as you like, free.
+ */
 export function fontFaces(home = mockingbirdHome()): FontFaceFile[] {
   const dir = join(home, "fonts");
-  return FONTS.filter((f) => existsSync(join(dir, f.file))).map((f) => ({
-    family: f.family,
-    url: pathToFileURL(join(dir, f.file)).href,
-    weight: f.weight,
-    style: f.style,
-  }));
+  const pinned = [...FONTS, EMOJI]
+    .filter((f) => existsSync(join(dir, f.file)))
+    .map((f) => ({
+      family: f.family,
+      url: pathToFileURL(join(dir, f.file)).href,
+      weight: f.weight,
+      style: f.style,
+    }));
+  return [...pinned, ...userFonts(join(dir, "user"))];
+}
+
+/** The font files in `dir`, each a family named after its file. */
+export function userFonts(dir: string): FontFaceFile[] {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((f) => /\.(ttf|otf|woff2?)$/i.test(f))
+    .sort()
+    .map((f) => {
+      const name = f.replace(/\.[^.]+$/, "");
+      const italic = / italic$/i.test(name);
+      return {
+        family: italic ? name.replace(/ italic$/i, "") : name,
+        url: pathToFileURL(join(dir, f)).href,
+        weight: "1 1000",
+        style: italic ? "italic" : "normal",
+      };
+    });
 }
 
 /** The Chrome to render in: MOCKINGBIRD_CHROME, or the pinned one once it's pulled. */
@@ -452,6 +852,17 @@ export async function pullChrome(deps: PullDeps = {}): Promise<number> {
     if (pin) await installChrome(pin, bin, deps);
     // The fonts even with no pin, for a MOCKINGBIRD_CHROME to use.
     await pullFiles(deps.fonts ?? FONT_FILES, join(home, "fonts"), deps);
+    // Their licences beside them; not when a test passes its own fonts. A
+    // licence that won't download is said, not a failed pull: the fonts work.
+    await pullFiles(
+      deps.licences ?? (deps.fonts ? [] : FONT_LICENCES),
+      join(home, "fonts", "licences"),
+      deps,
+    ).catch((error) => {
+      (deps.log ?? console.error)(
+        `The fonts' licences didn't download (${error instanceof Error ? error.message : error}); run \`mockingbird models pull chrome\` again for them.`,
+      );
+    });
   } finally {
     rmSync(lock, { force: true });
   }
@@ -521,24 +932,8 @@ async function installChrome(
     // Unpacked beside the target and renamed into place, so a half-unpacked Chrome is never found.
     const unpacking = `${pin.dir}.part`;
     rmSync(unpacking, { recursive: true, force: true });
-    // Windows has no unzip; its own tar.exe reads zips (not Git Bash's GNU tar, which can't).
     mkdirSync(unpacking, { recursive: true });
-    const unzip = Bun.spawnSync(
-      process.platform === "win32"
-        ? [
-            join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe"),
-            "-xf",
-            zip,
-            "-C",
-            unpacking,
-          ]
-        : ["unzip", "-q", zip, "-d", unpacking],
-      { stderr: "pipe" },
-    );
-    if (unzip.exitCode !== 0) {
-      rmSync(unpacking, { recursive: true, force: true });
-      throw new Error(`couldn't unpack ${zip}: ${unzip.stderr.toString().trim()}`);
-    }
+    unpack(zip, unpacking);
     rmSync(pin.dir, { recursive: true, force: true });
     renameSync(unpacking, pin.dir);
     rmSync(zip, { force: true });
@@ -551,11 +946,37 @@ async function installChrome(
 }
 
 /**
+ * Unpacks `archive` (a .zip, or a .tar.gz) into `into`, which is beside it and
+ * exists. Windows has no unzip, and its own tar.exe reads zips, but not Git
+ * Bash's GNU tar, often first on the PATH, which takes "D:" for a remote host.
+ * tar.exe also can't open a path with non-ASCII letters in it, as a user
+ * folder can have, so it runs in the folder with names that are ASCII.
+ */
+function unpack(archive: string, into: string) {
+  const win = process.platform === "win32";
+  const argv = win
+    ? [
+        join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe"),
+        ...["-xf", basename(archive), "-C", basename(into)],
+      ]
+    : archive.endsWith(".zip")
+      ? ["unzip", "-q", archive, "-d", into]
+      : ["tar", "-xf", archive, "-C", into];
+  const r = Bun.spawnSync(argv, { stderr: "pipe", cwd: win ? dirname(archive) : undefined });
+  if (r.exitCode !== 0) {
+    rmSync(into, { recursive: true, force: true });
+    throw new Error(`couldn't unpack ${archive}: ${r.stderr.toString().trim()}`);
+  }
+}
+
+/**
  * `mockingbird models pull` on Linux and Windows also downloads whisper-server
  * and unpacks it into `~/.mockingbird/bin`. Returns 0 where there's no pin
  * (macOS: Homebrew's).
  */
-export async function pullWhisper(deps: PullDeps & { force?: boolean } = {}): Promise<number> {
+export async function pullWhisper(
+  deps: PullDeps & { force?: boolean; starts?: typeof wontStart } = {},
+): Promise<number> {
   const log = deps.log ?? ((m: string) => console.error(m));
   const home = deps.home ?? mockingbirdHome();
   const pin = pinnedWhisper(home);
@@ -564,6 +985,13 @@ export async function pullWhisper(deps: PullDeps & { force?: boolean } = {}): Pr
   // unpacks it again, to repair a damaged one.
   if (existsSync(pin.program) && !deps.force) {
     log(`whisper-server ${WHISPER_BUILD} is downloaded`);
+    return 0;
+  }
+  // The override always wins, so the pin would never run: where whisper.cpp's
+  // build can't (glibc 2.28-2.33), every pull would fetch it again for nothing.
+  const override = process.env.MOCKINGBIRD_WHISPER_SERVER;
+  if (override && !deps.force) {
+    log(`whisper-server: using ${override} (MOCKINGBIRD_WHISPER_SERVER), not downloading one`);
     return 0;
   }
   const bin = join(home, "bin");
@@ -579,20 +1007,33 @@ export async function pullWhisper(deps: PullDeps & { force?: boolean } = {}): Pr
     await pullFiles([pin.archive], bin, deps);
     const archive = join(bin, pin.archive.file);
     // Unpacked beside the target and renamed into place, so a half-unpacked one
-    // is never found. tar reads .zip too on Windows (bsdtar, since Windows 10).
+    // is never found.
     const unpacking = `${pin.dir}.part`;
     rmSync(unpacking, { recursive: true, force: true });
     mkdirSync(unpacking, { recursive: true });
-    // Windows' own tar.exe: Git Bash's GNU tar, often first on the PATH, takes
-    // "D:" for a remote host.
-    const tarExe =
-      process.platform === "win32"
-        ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
-        : "tar";
-    const tar = Bun.spawnSync([tarExe, "-xf", archive, "-C", unpacking], { stderr: "pipe" });
-    if (tar.exitCode !== 0) {
+    unpack(archive, unpacking);
+    rmSync(archive, { force: true });
+    // whisper.cpp's Ubuntu build needs a newer glibc than Bun does: on glibc
+    // 2.28-2.33 it unpacks but can't load (#223). It's tried where it was
+    // unpacked, so one that can't run is never where transcribe looks, and a
+    // working one there before (or on the PATH) stays the one used.
+    const starts = deps.starts ?? wontStart;
+    const why = await starts(join(unpacking, relative(pin.dir, pin.program)));
+    if (why) {
       rmSync(unpacking, { recursive: true, force: true });
-      throw new Error(`couldn't unpack ${archive}: ${tar.stderr.toString().trim()}`);
+      const other = findWhisperServer(process.env, home);
+      if (other && !(await starts(other))) {
+        log(
+          `whisper.cpp's whisper-server ${WHISPER_BUILD} doesn't run here (${why}); using ${other}.`,
+        );
+        return 0;
+      }
+      log(
+        `whisper.cpp's whisper-server ${WHISPER_BUILD} doesn't run on this computer: ${why}\n` +
+          "Install one built for it (`brew install whisper-cpp`, or build whisper.cpp from source) " +
+          "and put it on your PATH, or set MOCKINGBIRD_WHISPER_SERVER to it, then run this again.",
+      );
+      return 1;
     }
     // The one there stays until the new one is in place.
     const old = `${pin.dir}.old`;
@@ -605,7 +1046,6 @@ export async function pullWhisper(deps: PullDeps & { force?: boolean } = {}): Pr
       throw error;
     }
     rmSync(old, { recursive: true, force: true });
-    rmSync(archive, { force: true });
   } finally {
     rmSync(lock, { force: true });
   }
@@ -657,7 +1097,7 @@ export function listModels(deps: ModelsDeps = {}): SpeechModel[] {
   }
   let inUse: string | undefined;
   try {
-    const saved = savedModelFor(spokenLanguage(env), home);
+    const saved = savedModelFor(spokenLanguage(env), home, dir);
     inUse = basename(findAsrModel(dir, env.MOCKINGBIRD_ASR_MODEL, () => {}, saved));
   } catch {
     // None installed: nothing is in use.
@@ -688,7 +1128,7 @@ export function listModels(deps: ModelsDeps = {}): SpeechModel[] {
 
 const USAGE =
   "usage: mockingbird models | models use <file> [--language <code>] | models use --default [--language <code>]\n" +
-  "       models pull [<name or URL> [--sha256 <hex>] [--as <ggml-name.bin>]]";
+  "       models pull [<name or URL> [--sha256 <hex>] [--as <ggml-name.bin>]] | models pull chrome | models pull modnet";
 
 /** Where `models pull <name>` finds an official model: whisper.cpp's own Hugging Face repo. */
 const OFFICIAL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/";

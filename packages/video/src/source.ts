@@ -58,7 +58,7 @@ export async function probeVideoMetadata(path: string, deadline: number): Promis
           "-protocol_whitelist",
           "file,pipe",
           "-show_entries",
-          "stream=codec_type,width,height,sample_aspect_ratio,start_time,start_pts,time_base,duration:stream_tags=rotate:stream_side_data=side_data_type,rotation,displaymatrix:format=start_time,duration,format_name",
+          "stream=codec_type,width,height,sample_aspect_ratio,start_time,start_pts,time_base,duration:stream_disposition=attached_pic:stream_tags=rotate:stream_side_data=side_data_type,rotation,displaymatrix:format=start_time,duration,format_name",
           "-of",
           "json",
           path,
@@ -78,6 +78,7 @@ export async function probeVideoMetadata(path: string, deadline: number): Promis
       start_pts?: number;
       time_base?: string;
       duration?: string;
+      disposition?: { attached_pic?: number };
     }[];
     format?: { start_time?: string; duration?: string; format_name?: string };
   };
@@ -86,8 +87,13 @@ export async function probeVideoMetadata(path: string, deadline: number): Promis
     throw new Error(
       "Playlist and manifest inputs are not supported; supply a direct local media file.",
     );
-  const video = info.streams?.find((s) => s.codec_type === "video");
+  // The probe and the decoders all read the first video stream (`v:0`).
+  // Cover art is a video stream too, so that one has to be the picture.
+  const videos = (info.streams ?? []).filter((s) => s.codec_type === "video");
+  const video = videos[0];
   if (!video?.width || !video.height) throw new Error("The file has no video stream.");
+  if (video.disposition?.attached_pic)
+    throw new Error("The file's first video stream is cover art; export the picture alone.");
   const geometry: VideoGeometry = {
     encoded: { width: video.width, height: video.height },
     sampleAspectRatio: video.sample_aspect_ratio ?? null,

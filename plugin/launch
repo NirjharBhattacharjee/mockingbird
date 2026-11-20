@@ -1,9 +1,9 @@
 #!/bin/sh
-# The plugin's MCP server (#141). With mockingbird installed, this becomes
-# `mockingbird mcp`. Without it, it answers MCP itself with one tool,
-# `install_mockingbird`, that says how to install it, so the agent can help
-# instead of seeing a server that failed to start. POSIX sh and sed only:
-# nothing else may be installed yet.
+# The plugin's MCP server (#141) on macOS and Linux; Windows runs launch.cmd
+# (#202). With mockingbird installed, this becomes `mockingbird mcp`. Without
+# it, it answers MCP itself with one tool, `install_mockingbird`, that says
+# how to install it, so the agent can help instead of seeing a server that
+# failed to start. POSIX sh and sed only: nothing else may be installed yet.
 for mb in "$(command -v mockingbird 2>/dev/null)" "$HOME/.local/bin/mockingbird" \
   /opt/homebrew/bin/mockingbird /usr/local/bin/mockingbird; do
   if [ -n "$mb" ] && [ -x "$mb" ]; then exec "$mb" mcp; fi

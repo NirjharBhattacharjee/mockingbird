@@ -46,30 +46,38 @@ export async function screenPrivacy(a: Record<string, unknown>): Promise<string>
   const dir = mkdtempSync(join(tmpdir(), "mockingbird-ocr-"));
   try {
     const paths = await decodePngFrames(source, samples, dir, deadline);
-    const cache = new Map<number, ReturnType<typeof privacyRows>>();
+    // One frame held across samples is read once, and its findings are listed
+    // once with every time it was sampled, so it can't fill all 1,000 slots.
+    const seen = new Map<number, { alsoAt: number[] }[]>();
     const findings: object[] = [];
     let total = 0;
     for (const sample of samples) {
-      let rows = cache.get(sample.index);
-      if (!rows) {
-        const tsv = await runBoundedProcess(
-          [tesseract, requireFrameData(paths.get(sample.index)), "stdout", "tsv"],
-          deadline,
-          4 * 1024 * 1024,
-        );
-        rows = privacyRows(tsv.toString(), names as string[], source.width, source.height);
-        cache.set(sample.index, rows);
+      const earlier = seen.get(sample.index);
+      if (earlier) {
+        for (const f of earlier) f.alsoAt.push(sample.requested);
+        continue;
       }
+      const tsv = await runBoundedProcess(
+        [tesseract, requireFrameData(paths.get(sample.index)), "stdout", "tsv"],
+        deadline,
+        4 * 1024 * 1024,
+      );
+      const rows = privacyRows(tsv.toString(), names as string[], source.width, source.height);
+      const listed: { alsoAt: number[] }[] = [];
+      seen.set(sample.index, listed);
       total += rows.length;
-      if (findings.length < 1000)
-        for (const row of rows.slice(0, 1000 - findings.length))
-          findings.push({
-            requested: sample.requested,
-            selected: sample.selected,
-            pts: sample.pts,
-            ptsTicks: sample.ptsTicks,
-            ...row,
-          });
+      for (const row of rows.slice(0, Math.max(0, 1000 - findings.length))) {
+        const f = {
+          requested: sample.requested,
+          selected: sample.selected,
+          pts: sample.pts,
+          ptsTicks: sample.ptsTicks,
+          alsoAt: [] as number[],
+          ...row,
+        };
+        listed.push(f);
+        findings.push(f);
+      }
     }
     return JSON.stringify({
       path,

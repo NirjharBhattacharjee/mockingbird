@@ -54,6 +54,40 @@ describe("parseVerboseJson", () => {
   test("empty response yields empty text and zero confidence", () => {
     expect(parseVerboseJson({})).toEqual({ text: "", confidence: 0, words: [] });
   });
+
+  test("a word whisper-server starts after it ends starts where it was heard (#253)", () => {
+    const w = (word: string, start: number, end: number, t_dtw?: number) => ({
+      word,
+      start,
+      end,
+      probability: 0.9,
+      ...(t_dtw !== undefined && { t_dtw }),
+    });
+    const { words } = parseVerboseJson({
+      segments: [
+        { text: " Hi.", words: [w(" Hi.", 3.1, 3.6)] },
+        {
+          text: " What is it called?",
+          words: [
+            w(" What", 8.88, 6.03),
+            w(" is", 8.88, 6.65, 610),
+            w(" it", 8.88, 7.27),
+            w(" called", 8.88, 10.06),
+            w("?", 10.06, 10.06),
+          ],
+        },
+      ],
+    });
+    expect(words.map((x) => [x.startMs, x.endMs])).toEqual([
+      [3100, 3600],
+      [3600, 6030],
+      [6100, 6650],
+      [6650, 7270],
+      // A start before its end is kept.
+      [8880, 10060],
+      [10060, 10060],
+    ]);
+  });
 });
 
 describe("stripNonSpeech", () => {

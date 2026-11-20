@@ -31,7 +31,18 @@ The SRT is text; edit it before passing it on.
 - **Marks**: with `lit`, the word being said is `*marked*`. You can move the
   mark to the word that matters most in each cue instead. Keep each cue's
   marks paired.
+- **Keywords**: write a word `**like this**` and render draws it in the
+  style's `keyword` colour, 15% bigger. One or two a short, not every line.
 - Only change the text lines, never the numbers or the `-->` times.
+
+## Style them
+
+`render`'s `captionStyle` picks the look: `classic` (the default), `subtitle`
+for long-form (restrained, about 42 characters a line), `creator` (heavy
+capitals, the spoken word popping) or `pill`. Fields go on top of a preset,
+and `{ look: "<style id>" }` takes an approved motion look's font and accent.
+Chinese and Japanese captions come out a dozen characters a cue with no
+spaces; Arabic and Hebrew read right to left.
 
 ## Place them
 

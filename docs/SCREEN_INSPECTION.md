@@ -71,6 +71,8 @@ time, candidate types, and a rectangle enclosing the recognized text row.
 Rectangles use the pixels in `coordinateSpace`: `x` and `y` start at the top
 left, with width `w` and height `h`. OCR text itself is not returned. At most
 1,000 findings are returned; `omittedFindings` reports additional matches.
+A frame held across several samples is read once: its findings are listed
+once, with the other sampled times in `alsoAt`.
 
 This is a sampled search for candidates, not a privacy clearance. OCR can
 miss visible text, file paths may not match these patterns, and arbitrary
@@ -104,9 +106,10 @@ watched or listened to the edit.
 
 Inputs must be local files accessible to the process. The video must be at
 most 7,200 seconds, 40 megapixels, and 1,000,000 timestamped frames. The
+first video stream is the one inspected, and it can't be cover art. The
 change tool accepts at most 120 samples; the other tools accept at most 48.
 Full-resolution extraction and OCR also accept at most 320 million source
-pixels per call, counted across the requested samples.
+pixels per call, counting each distinct frame once.
 Increase `every` or choose a shorter range when a sample limit is reached.
 One call has a five-minute deadline, and each subprocess has a 90-second
 limit. Long or complex footage can reach those limits. The tools return an

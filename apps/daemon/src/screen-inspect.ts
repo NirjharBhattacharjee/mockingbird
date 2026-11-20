@@ -27,7 +27,7 @@ export function screenTools(): Tool[] {
     {
       name: "screen_frames",
       description:
-        "Extract full-resolution frames displayed at requested playback times, including long-held variable-rate frames. Creates a new directory. Returns requested time, selected playback time and source presentation timestamp (PTS). Requires square pixels and no rotation.",
+        "Extract full-resolution frames displayed at requested playback times, including long-held variable-rate frames. Decodes from the start on every call, so for a still every few seconds of a long file `frames` is faster. Creates a new directory. Returns requested time, selected playback time and source presentation timestamp (PTS). Requires square pixels and no rotation.",
       inputSchema: {
         type: "object",
         properties: {
@@ -48,7 +48,7 @@ export function screenTools(): Tool[] {
     {
       name: "screen_changes",
       description:
-        "Compare sampled screen pixels and report changes with timestamps and scores, not clicks. Changes between samples may be missed. Requires square pixels and no rotation.",
+        "Compare sampled screen pixels and report changes with timestamps and scores, not clicks. For cuts between shots use `scenes`. Changes between samples may be missed. Requires square pixels and no rotation.",
       inputSchema: {
         type: "object",
         properties: {
@@ -89,7 +89,7 @@ export function screenTools(): Tool[] {
     {
       name: "screen_watch",
       description:
-        "Create a new timestamped PNG contact sheet and measure integrated loudness for each section. Sampled stills and measured sound do not replace watching or listening. Requires square pixels and no rotation.",
+        "Create a new timestamped PNG contact sheet and measure integrated loudness for each section. For the full sound measurements use `audio_stats`. Sampled stills and measured sound do not replace watching or listening. Requires square pixels and no rotation.",
       inputSchema: {
         type: "object",
         properties: {
