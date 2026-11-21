@@ -34,7 +34,7 @@
       /**
        * The 3D scenes, in seconds of the video. Keep them short (3-9 s) and few:
        * the study found one or two a video, most of them in the hook.
-       * - wall: `rows`, `cols` (default 9 x 17).
+       * - wall: `rows`, `cols` (default 15 x 25: 375 tiles; 9 x 17 draws about 2.5x faster).
        * - cards: `title`, `items` (one short line each, up to 12), `focus`
        *   ({ at, card }: card `card`, from 0, comes forward at `at`).
        * - stage: `label` (small, above) and `count` (a number that rolls up,
@@ -207,7 +207,7 @@
             over.position.z = 0.004;
             group.add(border, new THREE.Mesh(plane, pic), over);
             scene.add(group);
-            tiles.push({ group, home, mats: [pic, rim, fill], out: s.out - 0.7 + Math.random() * 0.35 });
+            tiles.push({ group, home, mats: [pic, rim, fill], out: s.out - 0.82 + Math.random() * 0.35 });
           }
         const composer = new EffectComposer(renderer);
         composer.addPass(new RenderPass(scene, camera));
@@ -221,6 +221,7 @@
           { from: s.at + 0.55 * dur, z: 0.8, fov: 60, roll: 0, pan: [0, 0, 0, 0] },
         ];
         return {
+          scene,
           composer,
           update(t) {
             const shot = shots.findLast((sh) => t >= sh.from);
@@ -316,6 +317,7 @@
         composer.addPass(bokeh);
         composer.addPass(new OutputPass());
         return {
+          scene,
           composer,
           update(t) {
             if (shown === null) for (const card of list) card.paint();
@@ -385,6 +387,7 @@
         composer.addPass(new RenderPass(scene, camera));
         composer.addPass(new OutputPass());
         return {
+          scene,
           composer,
           update(t) {
             const up = expo((t - s.at) / 1.4);
@@ -421,7 +424,29 @@
       }
 
       const BUILD = { wall, cards, stage };
-      const built = SCENES.map((s) => ({ s, ...BUILD[s.type](s) }));
+      // One scene is built at a time, when its first frame comes, and freed when
+      // another starts: every scene's render targets at once would run the GPU out of memory.
+      let live = null;
+      function free(l) {
+        if (!l) return;
+        l.scene.traverse((o) => {
+          o.geometry?.dispose();
+          for (const mat of [o.material].flat()) {
+            if (!mat) continue;
+            for (const v of Object.values(mat)) if (v?.isTexture && v !== footage) v.dispose();
+            mat.dispose();
+          }
+        });
+        for (const p of l.composer.passes) p.dispose?.();
+        l.composer.dispose();
+      }
+      function scene(s) {
+        if (live?.s !== s) {
+          free(live);
+          live = { s, ...BUILD[s.type](s) };
+        }
+        return live;
+      }
       const fonts = Promise.all([`700 40px ${SANS}`, `800 40px ${SANS}`, `italic 500 40px ${SERIF}`, `700 40px ${SERIF}`].map((f) => document.fonts.load(f)));
 
       m.audio = SCENES.flatMap((s) =>
@@ -439,8 +464,9 @@
           footage.image = m.video;
           footage.needsUpdate = true;
         }
-        const on = built.find(({ s }) => t >= s.at && t < s.out);
-        if (!on) return renderer.render(plain, flat);
+        const s = SCENES.find((x) => t >= x.at && t < x.out);
+        if (!s) return renderer.render(plain, flat);
+        const on = scene(s);
         on.update(t);
         on.composer.render();
       };

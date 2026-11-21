@@ -85,9 +85,12 @@ No two templates may have a scene at the same moment.
 Each pass draws over the last one's output and leaves the picture alone
 outside its own scenes:
 
-1. `render` the cut, graded, with the captions file.
-2. `motion` with tutorial.html (`path`: the render). It draws the framings,
-   so it goes first.
+1. `render` the cut, graded, and write the captions file (`.srt`). Don't
+   burn captions into the picture: tutorial.html's tight framing would crop
+   them, and the scenes cover them. The keywords stand in for captions.
+2. `motion` with tutorial.html (`path`: the render, `captions`: the `.srt`,
+   so the framing cuts land on sentence ends). It draws the framings, so it
+   goes first.
 3. `motion` with depth.html (`path`: pass 2's output).
 4. `motion` with neon.html (`path`: pass 3's output).
 

@@ -196,22 +196,11 @@
         rim.position.z = -0.045;
         card.add(face, rim);
         scene.add(card);
-        // Faint scanlines over the whole picture, carried by the camera.
-        const lines = canvas(2 * A, 2, 4);
-        lines.c.height = 540;
-        for (let y = 0; y < 540; y += 3) {
-          lines.ctx.fillStyle = "rgba(0,0,0,0.5)";
-          lines.ctx.fillRect(0, y, 4, 1);
-        }
-        lines.tex.needsUpdate = true;
-        const scan = new THREE.Mesh(new THREE.PlaneGeometry(2 * A * 0.06, 0.12), new THREE.MeshBasicMaterial({ map: lines.tex, transparent: true, opacity: 0.18, depthTest: false }));
-        scan.position.z = -1;
-        camera.add(scan);
-        scene.add(camera);
         const { composer, bokeh } = passes(scene, camera, { dof: true, bloom: 0.7 });
         const spot = new THREE.Vector3();
         const normal = new THREE.Vector3();
         return {
+          scene,
           composer,
           update(t) {
             const p = expo((t - s.at) / 0.75);
@@ -298,6 +287,7 @@
         const { composer, bokeh } = passes(scene, camera, { dof: true, bloom: 0.6 });
         const ats = s.items.map((it) => it.at);
         return {
+          scene,
           composer,
           update(t) {
             let x = 0;
@@ -337,7 +327,7 @@
         const pts = dust(scene, 380, 2.2);
         const n = s.items.length;
         const W = 2 * A * 0.78;
-        const nodes = s.items.map((_, i) => new THREE.Vector3(-W / 2 + (W * i) / (n - 1), i % 2 ? -0.28 : 0.22, 0));
+        const nodes = s.items.map((_, i) => new THREE.Vector3(n > 1 ? -W / 2 + (W * i) / (n - 1) : 0, i % 2 ? -0.28 : 0.22, 0));
         // Right angles between nodes: across half way, then up or down, then across.
         const curve = new THREE.CurvePath();
         const marks = [0];
@@ -393,6 +383,7 @@
         });
         const { composer, bokeh } = passes(scene, camera, { dof: true, bloom: 0.75 });
         return {
+          scene,
           composer,
           update(t) {
             // The line reaches node i as item i is said, drawing the last 0.3 s before it.
@@ -485,6 +476,7 @@
           return p;
         };
         return {
+          scene,
           composer,
           update(t) {
             if (!built) build();
@@ -519,6 +511,7 @@
         let shown = null;
         const { composer } = passes(scene, flat, { bloom: 1.1 });
         return {
+          scene,
           composer,
           update(t) {
             const k = t - s.at;
@@ -563,6 +556,7 @@
         let drawn = false;
         const { composer } = passes(scene, flat, { bloom: 0.5 });
         return {
+          scene,
           composer,
           update(t) {
             if (!drawn) {
@@ -585,11 +579,33 @@
       }
 
       const BUILD = { fly, chain, path, word, type, tint };
+      // One scene is built at a time, when its first frame comes, and freed when
+      // another starts: every scene's render targets at once would run the GPU out of memory.
+      let live = null;
+      function free(l) {
+        if (!l) return;
+        l.scene.traverse((o) => {
+          o.geometry?.dispose();
+          for (const mat of [o.material].flat()) {
+            if (!mat) continue;
+            for (const v of Object.values(mat)) if (v?.isTexture && v !== footage) v.dispose();
+            mat.dispose();
+          }
+        });
+        for (const p of l.composer.passes) p.dispose?.();
+        l.composer.dispose();
+      }
+      function scene(s) {
+        if (live?.s !== s) {
+          free(live);
+          live = { s, ...BUILD[s.type](s) };
+        }
+        return live;
+      }
       const fonts = Promise.all([`700 40px ${SANS}`, `800 40px ${SANS}`, `900 40px ${SANS}`, `italic 800 40px ${SANS}`, `italic 700 40px ${SANS}`, `italic 500 40px ${SERIF}`].map((f) => document.fonts.load(f)));
-      let built = null;
 
       m.audio = SCENES.flatMap((s) => {
-        const at = (path, t, volume = 0.35) => ({ path: sfx(path), at: t, volume });
+        const at = (path, t, volume = 0.35) => ({ path: sfx(path), at: Math.max(0, t), volume });
         if (s.type === "path") return s.items.map((it) => at("pop", it.at, 0.4));
         if (s.type === "chain") return s.items.flatMap((it, i) => [at("pop", it.at - 0.2, 0.3), ...(i ? [at("whoosh", it.at - 0.35, 0.22)] : [])]);
         if (s.type === "fly") return [at("whoosh", s.at, 0.4), ...(s.push ? [at("whoosh", s.push.at, 0.25)] : []), at("whoosh", s.out - 0.25, 0.3)];
@@ -600,14 +616,14 @@
 
       m.draw = async (t) => {
         await fonts;
-        // Built after the fonts load, so every canvas draws in the right face.
-        built ??= SCENES.map((s) => ({ s, ...BUILD[s.type](s) }));
         if (m.video) {
           footage.image = m.video;
           footage.needsUpdate = true;
         }
-        const on = built.find(({ s }) => t >= s.at && t < s.out);
-        if (!on) return renderer.render(plain, flat);
+        const s = SCENES.find((x) => t >= x.at && t < x.out);
+        if (!s) return renderer.render(plain, flat);
+        // Built after the fonts load, so every canvas draws in the right face.
+        const on = scene(s);
         on.update(t);
         on.composer.render();
       };
