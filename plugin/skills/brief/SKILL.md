@@ -79,6 +79,8 @@ The edit itself follows **viral-short** or **long-form**; a long talking-head
 tutorial that should look edited, not just tightened, adds **talking-tutorial**;
 a tutorial or explainer that walks through tools and screens, or a talking
 head that needs more going on, adds **faceless-tutorial** (its 3D scenes).
+When the user wants it "more interesting" or several styles at once,
+**cocktail** picks the best scene from all of them for each moment.
 The row below sets what they leave open. Pace numbers come from
 [STYLE-STUDY.md](../../docs/STYLE-STUDY.md).
 

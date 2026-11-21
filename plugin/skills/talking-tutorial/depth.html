@@ -25,6 +25,8 @@
       /** The cream world: background gradient, ink, accent (the wall's glow, the cards' marks), accent2 (numbers). */
       const BG = ["#F7F2EA", "#EFE5D6"];
       const INK = "#2B2118";
+      /** Text on the backdrop (the title, the stage's words); INK stays on the white cards. Set it light for a dark world. */
+      const TEXT = INK;
       const ACCENT = "#F2A33A";
       const ACCENT2 = "#EE6C5A";
       const SANS = "Inter";
@@ -322,7 +324,7 @@
               shown = words;
               const { c, ctx, tex } = title;
               ctx.clearRect(0, 0, c.width, c.height);
-              ctx.fillStyle = INK;
+              ctx.fillStyle = TEXT;
               ctx.textAlign = "center";
               ctx.textBaseline = "middle";
               ctx.font = `italic 500 ${Math.round(c.height * 0.62)}px ${SERIF}`;
@@ -406,7 +408,7 @@
               ctx.clearRect(0, 0, c.width, c.height);
               ctx.textAlign = "center";
               ctx.textBaseline = "alphabetic";
-              ctx.fillStyle = INK;
+              ctx.fillStyle = TEXT;
               ctx.font = `500 ${Math.round(c.height * 0.16)}px ${SANS}`;
               ctx.fillText(s.label ?? "", c.width / 2, c.height * 0.3);
               ctx.fillStyle = ACCENT2;

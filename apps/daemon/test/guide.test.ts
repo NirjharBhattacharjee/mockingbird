@@ -7,6 +7,7 @@ test("every skill in plugin/ and the reviewer are playbooks", () => {
   expect(playbooks().map((p) => p.topic)).toEqual([
     "brief",
     "captions",
+    "cocktail",
     "color-grade",
     "faceless-tutorial",
     "hooks",
@@ -33,7 +34,7 @@ test("a playbook comes with its folder, without its front matter", () => {
 
 test("an unknown topic names the ones there are", () => {
   expect(() => guide("color")).toThrow(
-    'No playbook "color". Topics: brief, captions, color-grade, faceless-tutorial, hooks,',
+    'No playbook "color". Topics: brief, captions, cocktail, color-grade, faceless-tutorial, hooks,',
   );
 });
 
