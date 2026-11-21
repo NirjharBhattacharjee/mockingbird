@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en">
+  <body style="margin: 0">
+    <script type="module">
+      // The talking-tutorial's 3D moments (#296), in three.js, over a cut from
+      // `render` or from tutorial.html. Between scenes the video plays as it is.
+      // Copy it next to the video and change the settings block; leave the
+      // imports alone, motion fills them in.
+      //
+      // Three scenes from the depth study in SKILL.md, each a real 3D scene with
+      // a perspective camera, shadows and depth of field:
+      // - "wall": the video as a wall of hundreds of glowing tiles on the inside
+      //   of a sphere, the camera pushing through it, then the tiles turning to
+      //   the accent and falling away into the cream world.
+      // - "cards": cards flip up from edge-on one after another in the cream
+      //   world, each at a small tilt, casting a soft shadow; then one comes
+      //   forward to about 2.2x while the rest step back out of focus.
+      // - "stage": the video on a card that swings up off the floor, lays back
+      //   20 degrees, and a number (or a word) stands up on its far edge.
+      import { clamp, easeIn, expo, lerp, sfx } from "KIT";
+      import * as THREE from "THREE";
+      import { BokehPass, EffectComposer, OutputPass, RenderPass, RoomEnvironment, UnrealBloomPass } from "THREE_ADDONS";
+
+      // ---- settings --------------------------------------------------------
+      /** The cream world: background gradient, ink, accent (the wall's glow, the cards' marks), accent2 (numbers). */
+      const BG = ["#F7F2EA", "#EFE5D6"];
+      const INK = "#2B2118";
+      const ACCENT = "#F2A33A";
+      const ACCENT2 = "#EE6C5A";
+      const SANS = "Inter";
+      const SERIF = '"Charis SIL"';
+      /**
+       * The 3D scenes, in seconds of the video. Keep them short (3-9 s) and few:
+       * the study found one or two a video, most of them in the hook.
+       * - wall: `rows`, `cols` (default 9 x 17).
+       * - cards: `title`, `items` (one short line each, up to 12), `focus`
+       *   ({ at, card }: card `card`, from 0, comes forward at `at`).
+       * - stage: `label` (small, above) and `count` (a number that rolls up,
+       *   with `prefix`/`suffix`) or `text` (typed on).
+       */
+      const SCENES = [
+        { type: "wall", at: 0, out: 5.6 },
+        {
+          type: "cards",
+          at: 8,
+          out: 16,
+          title: "The questions I get",
+          items: ["How did you grow so fast?", "What do you edit with?", "Where do ideas come from?", "Is it worth it?"],
+          focus: [{ at: 11, card: 0 }, { at: 13.5, card: 2 }],
+        },
+        { type: "stage", at: 20, out: 25, label: "Views", count: 1000000 },
+      ];
+      /** How long a card takes to flip up, and how far apart they come. */
+      const FLIP = 0.24;
+      const STAGGER = 0.14;
+      /** Typing speed of titles and words, in characters a second. */
+      const CPS = 40;
+
+      // ---- the renderer, the footage and the plain shot -------------------------
+      const m = mockingbird;
+      m.drawVideo = true;
+      const A = m.width / m.height;
+      const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+      renderer.setSize(m.width, m.height);
+      renderer.shadowMap.enabled = true;
+      // VSM, so the shadows blur as soft as a cloudy window's.
+      renderer.shadowMap.type = THREE.VSMShadowMap;
+      // Neutral keeps whites and the footage's colours as they are, unlike AgX.
+      renderer.toneMapping = THREE.NeutralToneMapping;
+      document.body.append(renderer.domElement);
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      const room = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+      // The video as a texture. An ImageBitmap ignores flipY, so the UVs flip it.
+      const footage = new THREE.Texture();
+      footage.colorSpace = THREE.SRGBColorSpace;
+      footage.flipY = false;
+      footage.repeat.set(1, -1);
+      footage.offset.set(0, 1);
+
+      // Outside the scenes, the video fills the frame on a flat quad.
+      const plain = new THREE.Scene();
+      plain.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ map: footage, toneMapped: false })));
+      const flat = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 2);
+      flat.position.z = 1;
+
+      // A 30° lens at this distance shows 2 units of height at z = 0, 2A of width.
+      const FOV = 30;
+      const CAM_Z = 1 / Math.tan(THREE.MathUtils.degToRad(FOV / 2));
+      const lens = () => new THREE.PerspectiveCamera(FOV, A, 0.05, 80);
+
+      // ---- shared pieces --------------------------------------------------------
+      /** A rounded slab w x h, d thick, its front face at z = 0, UVs 0-1 over the front. */
+      function slab(w, h, r, d) {
+        const [x, y] = [-w / 2, -h / 2];
+        const s = new THREE.Shape();
+        s.moveTo(x + r, y);
+        s.lineTo(x + w - r, y);
+        s.quadraticCurveTo(x + w, y, x + w, y + r);
+        s.lineTo(x + w, y + h - r);
+        s.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+        s.lineTo(x + r, y + h);
+        s.quadraticCurveTo(x, y + h, x, y + h - r);
+        s.lineTo(x, y + r);
+        s.quadraticCurveTo(x, y, x + r, y);
+        const g = new THREE.ExtrudeGeometry(s, { depth: d, bevelEnabled: false, curveSegments: 8 });
+        g.translate(0, 0, -d);
+        const [p, uv] = [g.attributes.position, g.attributes.uv];
+        for (let i = 0; i < p.count; i++) uv.setXY(i, (p.getX(i) - x) / w, (p.getY(i) - y) / h);
+        return g;
+      }
+      /** A canvas and its texture, `px` wide at the plane's shape. */
+      function canvas(w, h, px = 1024) {
+        const c = document.createElement("canvas");
+        c.width = px;
+        c.height = Math.round((px * h) / w);
+        const tex = new THREE.CanvasTexture(c);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = 8;
+        return { c, ctx: c.getContext("2d"), tex };
+      }
+      /** The cream world behind the cards: the gradient and two soft blobs, unlit so its colours stay exact. */
+      function world(scene) {
+        const [w, h] = [2 * A * 1.6, 3.4];
+        const { c, ctx, tex } = canvas(w, h, 1600);
+        const g = ctx.createLinearGradient(0, 0, c.width, c.height);
+        g.addColorStop(0, BG[0]);
+        g.addColorStop(1, BG[1]);
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, c.width, c.height);
+        for (const [bx, by, col] of [[0.2, 0.78, ACCENT], [0.82, 0.2, ACCENT2]]) {
+          const b = ctx.createRadialGradient(c.width * bx, c.height * by, 0, c.width * bx, c.height * by, c.width * 0.3);
+          b.addColorStop(0, `${col}55`);
+          b.addColorStop(1, `${col}00`);
+          ctx.fillStyle = b;
+          ctx.fillRect(0, 0, c.width, c.height);
+        }
+        const back = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tex }));
+        back.position.z = -0.2;
+        // The cards' shadows land on a clear sheet just in front of it.
+        const shade = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.ShadowMaterial({ opacity: 0.12 }));
+        shade.position.z = -0.199;
+        shade.receiveShadow = true;
+        scene.add(back, shade);
+      }
+      /** One key light, high and in front, so shadows fall down and back. */
+      function key(scene, x, y, z, size) {
+        const sun = new THREE.DirectionalLight(0xfff4e8, 1.4);
+        sun.position.set(x, y, z);
+        sun.castShadow = true;
+        sun.shadow.mapSize.set(2048, 2048);
+        sun.shadow.radius = 14;
+        sun.shadow.blurSamples = 24;
+        Object.assign(sun.shadow.camera, { left: -size, right: size, top: size, bottom: -size, near: 0.1, far: 30 });
+        scene.add(sun);
+        scene.environment = room;
+        scene.environmentIntensity = 0.9;
+      }
+      /** Text wrapped to `max` px on `ctx`, centred on (x, y). */
+      function wrapped(ctx, text, x, y, max, size, lh = 1.18) {
+        const lines = [];
+        for (const word of text.split(" ")) {
+          const last = lines.at(-1);
+          if (last && ctx.measureText(`${last} ${word}`).width <= max) lines[lines.length - 1] = `${last} ${word}`;
+          else lines.push(word);
+        }
+        for (const [i, l] of lines.entries()) ctx.fillText(l, x, y + (i - (lines.length - 1) / 2) * size * lh);
+      }
+      const typed = (text, t, at) => text.slice(0, Math.floor(clamp((t - at) * CPS, 0, text.length)));
+
+      // ---- wall: the video as hundreds of glowing tiles on the inside of a sphere
+      function wall(s) {
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(BG[0]);
+        const camera = lens();
+        const [rows, cols, R, tw, th, gap] = [s.rows ?? 15, s.cols ?? 25, 6, 0.64, 0.36, 0.07];
+        const glow = new THREE.Color(ACCENT).multiplyScalar(1.5);
+        const tiles = [];
+        for (let r = 0; r < rows; r++)
+          for (let c = 0; c < cols; c++) {
+            const yaw = ((c - (cols - 1) / 2) * (tw + gap)) / R;
+            const pitch = ((r - (rows - 1) / 2) * (th + gap)) / R;
+            const group = new THREE.Group();
+            const home = new THREE.Vector3(R * Math.sin(yaw) * Math.cos(pitch), R * Math.sin(pitch), -R * Math.cos(yaw) * Math.cos(pitch));
+            group.position.copy(home);
+            group.lookAt(0, 0, 0);
+            // Each tile shows its own crop of the frame, 1.6-3.2x in, some mirrored, at its own brightness.
+            const z = 1.6 + Math.random() * 1.6;
+            const [cw, ch] = [1 / z, 1 / z];
+            const [cx, cy] = [Math.random() * (1 - cw), Math.random() * (1 - ch) * 0.8];
+            const mirror = Math.random() < 0.3;
+            const plane = new THREE.PlaneGeometry(tw, th);
+            const uv = plane.attributes.uv;
+            for (let i = 0; i < uv.count; i++) {
+              const U = mirror ? 1 - uv.getX(i) : uv.getX(i);
+              uv.setXY(i, cx + U * cw, 1 - cy - (1 - uv.getY(i)) * ch);
+            }
+            const shade = 0.72 + Math.random() * 0.28;
+            const pic = new THREE.MeshBasicMaterial({ map: footage, color: new THREE.Color(shade, shade, shade), transparent: true });
+            const rim = new THREE.MeshBasicMaterial({ color: glow, transparent: true });
+            const fill = new THREE.MeshBasicMaterial({ color: ACCENT, transparent: true, opacity: 0 });
+            const border = new THREE.Mesh(new THREE.PlaneGeometry(tw + 0.022, th + 0.022), rim);
+            border.position.z = -0.004;
+            const over = new THREE.Mesh(new THREE.PlaneGeometry(tw + 0.022, th + 0.022), fill);
+            over.position.z = 0.004;
+            group.add(border, new THREE.Mesh(plane, pic), over);
+            scene.add(group);
+            tiles.push({ group, home, mats: [pic, rim, fill], out: s.out - 0.7 + Math.random() * 0.35 });
+          }
+        const composer = new EffectComposer(renderer);
+        composer.addPass(new RenderPass(scene, camera));
+        composer.addPass(new UnrealBloomPass(new THREE.Vector2(m.width, m.height), 0.35, 0.15, 1));
+        composer.addPass(new OutputPass());
+        // Three framings cut hard, close and rolled, then wider, then the whole bowl; a slow push all along.
+        const dur = s.out - s.at;
+        const shots = [
+          { from: s.at, z: -R + 2.4, fov: 30, roll: 0.07, pan: [0.7, 0.35, 0.25, 0.05] },
+          { from: s.at + 0.2 * dur, z: -1.2, fov: 46, roll: 0.035, pan: [0.15, 0.1, 0, 0] },
+          { from: s.at + 0.55 * dur, z: 0.8, fov: 60, roll: 0, pan: [0, 0, 0, 0] },
+        ];
+        return {
+          composer,
+          update(t) {
+            const shot = shots.findLast((sh) => t >= sh.from);
+            const next = shots[shots.indexOf(shot) + 1]?.from ?? s.out;
+            const p = clamp((t - shot.from) / (next - shot.from));
+            const [x0, y0, x1, y1] = shot.pan;
+            camera.position.set(lerp(x0, x1, p), lerp(y0, y1, p), shot.z);
+            camera.fov = shot.fov * (1 - 0.09 * (t - shot.from));
+            camera.updateProjectionMatrix();
+            camera.lookAt(camera.position.x, camera.position.y, -R);
+            camera.rotateZ(shot.roll);
+            // The exit: each tile turns to the accent in 3 frames, then falls back and fades.
+            for (const tile of tiles) {
+              const fill = clamp((t - tile.out) / 0.1);
+              const fall = easeIn((t - tile.out - 0.12) / 0.35);
+              tile.mats[2].opacity = fill * (1 - fall);
+              tile.mats[0].opacity = tile.mats[1].opacity = 1 - fall;
+              tile.group.position.copy(tile.home).multiplyScalar(1 + 1.4 * fall);
+            }
+          },
+        };
+      }
+
+      // ---- cards: a wall of cards flipping up, then one coming forward ----------
+      function cards(s) {
+        const scene = new THREE.Scene();
+        const camera = lens();
+        camera.position.set(0, 0, CAM_Z);
+        world(scene);
+        key(scene, 0.6, 3, 6, 4);
+        const n = s.items.length;
+        const rows = Math.ceil(n / 4);
+        const cols = Math.ceil(n / rows);
+        const gap = 0.14;
+        const cw = Math.min(1.1, (2 * A * 0.84 - gap * (cols - 1)) / cols);
+        const ch = cw * 0.6;
+        const top = -0.08 + ((rows - 1) * (ch + gap)) / 2;
+        const list = s.items.map((text, i) => {
+          const [r, c] = [Math.floor(i / cols), i % cols];
+          const inRow = Math.min(cols, n - r * cols);
+          const home = new THREE.Vector3((c - (inRow - 1) / 2) * (cw + gap), top - r * (ch + gap), 0);
+          const { c: cv, ctx, tex } = canvas(cw, ch, 768);
+          // Painted on the first frame, once the fonts have loaded.
+          const paint = () => {
+          ctx.fillStyle = "#FFFFFF";
+          ctx.fillRect(0, 0, cv.width, cv.height);
+          ctx.fillStyle = ACCENT;
+          ctx.font = `700 96px ${SERIF}`;
+          ctx.textAlign = "left";
+          ctx.fillText("“", cv.width * 0.07, cv.height * 0.36);
+          ctx.fillStyle = INK;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          const size = Math.round(cv.width / Math.max(7.5, Math.sqrt(text.length) * 2.3));
+          ctx.font = `700 ${size}px ${SANS}`;
+          wrapped(ctx, text, cv.width / 2, cv.height * 0.54, cv.width * 0.8, size);
+          tex.needsUpdate = true;
+          };
+          const mesh = new THREE.Mesh(slab(cw, ch, 0.045, 0.025), [
+            new THREE.MeshStandardMaterial({ map: tex, roughness: 0.6 }),
+            new THREE.MeshStandardMaterial({ color: 0xf3efe8, roughness: 0.6 }),
+          ]);
+          mesh.castShadow = true;
+          mesh.position.y = ch / 2;
+          // Flip about the bottom edge; the tilt (roll and a little yaw) sits outside it.
+          const flip = new THREE.Group();
+          flip.add(mesh);
+          const tilt = new THREE.Group();
+          tilt.add(flip);
+          const roll = (Math.random() - 0.5) * 0.1;
+          const yaw = (Math.random() - 0.5) * 0.12;
+          scene.add(tilt);
+          return { tilt, flip, mesh, paint, home, roll, yaw, at: s.at + 0.27 + i * STAGGER };
+        });
+        const title = canvas(2 * A * 0.9, 0.26, 2048);
+        const sign = new THREE.Mesh(new THREE.PlaneGeometry(2 * A * 0.9, 0.26), new THREE.MeshBasicMaterial({ map: title.tex, transparent: true }));
+        sign.position.set(0, 0.8, 0);
+        scene.add(sign);
+        let shown = null;
+        const focus = [...(s.focus ?? [])].sort((a, b) => a.at - b.at);
+        // How far forward each card is: up over 10 frames at its focus, back when the next one starts.
+        const forward = (i, t) =>
+          focus.reduce((sum, f, k) => {
+            if (f.card !== i) return sum;
+            const until = focus[k + 1]?.at ?? s.out;
+            return sum + expo((t - f.at) / 0.33) * (1 - expo((t - until) / 0.33));
+          }, 0);
+        const scale = Math.min(2.2, (2 * A * 0.5) / cw);
+        const zf = CAM_Z * (1 - 1 / scale);
+        const bokeh = new BokehPass(scene, camera, { focus: CAM_Z, aperture: 0, maxblur: 0.012 });
+        const composer = new EffectComposer(renderer);
+        composer.addPass(new RenderPass(scene, camera));
+        composer.addPass(bokeh);
+        composer.addPass(new OutputPass());
+        return {
+          composer,
+          update(t) {
+            if (shown === null) for (const card of list) card.paint();
+            const words = typed(s.title, t, s.at + 0.1);
+            if (words !== shown) {
+              shown = words;
+              const { c, ctx, tex } = title;
+              ctx.clearRect(0, 0, c.width, c.height);
+              ctx.fillStyle = INK;
+              ctx.textAlign = "center";
+              ctx.textBaseline = "middle";
+              ctx.font = `italic 500 ${Math.round(c.height * 0.62)}px ${SERIF}`;
+              ctx.fillText(words, c.width / 2, c.height / 2);
+              tex.needsUpdate = true;
+            }
+            const w = list.map((_, i) => forward(i, t));
+            const any = Math.max(0, ...w);
+            const lead = list[w.indexOf(any)];
+            for (const [i, card] of list.entries()) {
+              const p = expo((t - card.at) / FLIP);
+              card.tilt.visible = t >= card.at;
+              card.flip.rotation.x = lerp(-1.4, 0, p);
+              const f = w[i];
+              // The others step back and make room, away from the one in front.
+              const away = card.home.clone().sub(lead.home);
+              if (away.lengthSq()) away.normalize().multiplyScalar(0.16 * any * (1 - f));
+              card.tilt.position.set(
+                lerp(card.home.x, card.home.x * 0.3, f) + away.x,
+                lerp(card.home.y - ch / 2, -ch / 2 - 0.05, f) + away.y,
+                lerp(-0.12 * any, zf, f),
+              );
+              card.tilt.rotation.set(0, card.yaw * (1 - f), card.roll * (1 - f));
+              // Off the backdrop, its shadow would land far below as a grey box.
+              card.mesh.castShadow = f < 0.3;
+            }
+            bokeh.uniforms.focus.value = CAM_Z - zf * any;
+            bokeh.uniforms.aperture.value = 0.006 * any;
+          },
+        };
+      }
+
+      // ---- stage: the video on a card that swings up off the floor and lays back
+      function stage(s) {
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(BG[0]);
+        const camera = lens();
+        key(scene, -1.5, 5, 3, 3);
+        const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.ShadowMaterial({ opacity: 0.2 }));
+        floor.rotation.x = -Math.PI / 2;
+        floor.receiveShadow = true;
+        scene.add(floor);
+        const [w, h] = [1.6, 1.6 / A];
+        const card = new THREE.Mesh(slab(w, h, 0.05, 0.03), [
+          new THREE.MeshBasicMaterial({ map: footage }),
+          new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5 }),
+        ]);
+        card.castShadow = true;
+        card.position.y = h / 2;
+        const hinge = new THREE.Group();
+        hinge.add(card);
+        scene.add(hinge);
+        const words = canvas(2, 0.5, 2048);
+        const sign = new THREE.Mesh(new THREE.PlaneGeometry(2, 0.5), new THREE.MeshBasicMaterial({ map: words.tex, transparent: true }));
+        scene.add(sign);
+        let shown = null;
+        const composer = new EffectComposer(renderer);
+        composer.addPass(new RenderPass(scene, camera));
+        composer.addPass(new OutputPass());
+        return {
+          composer,
+          update(t) {
+            const up = expo((t - s.at) / 1.4);
+            const back = expo((t - s.at - 1.5) / 0.8);
+            hinge.rotation.x = lerp(-1.35, 0, up) - 0.35 * back;
+            const push = expo((t - s.at) / 1.5);
+            camera.position.set(0, lerp(0.75, 0.6, push), lerp(3.8, 2.75, push) - 0.05 * Math.max(0, t - s.at - 1.5));
+            camera.lookAt(0, 0.6, 0);
+            // The number stands upright on the card's far edge once it has laid back.
+            const rx = hinge.rotation.x;
+            const rise = expo((t - s.at - 1.6) / 0.4);
+            sign.position.set(0, h * Math.cos(rx) + 0.24 - 0.1 * (1 - rise), h * Math.sin(rx));
+            sign.material.opacity = rise;
+            const text =
+              s.count == null
+                ? typed(s.text ?? "", t, s.at + 1.7)
+                : `${s.prefix ?? ""}${Math.round(lerp(0, s.count, expo((t - s.at - 1.6) / 1.1))).toLocaleString("en-US")}${s.suffix ?? ""}`;
+            if (text !== shown) {
+              shown = text;
+              const { c, ctx, tex } = words;
+              ctx.clearRect(0, 0, c.width, c.height);
+              ctx.textAlign = "center";
+              ctx.textBaseline = "alphabetic";
+              ctx.fillStyle = INK;
+              ctx.font = `500 ${Math.round(c.height * 0.16)}px ${SANS}`;
+              ctx.fillText(s.label ?? "", c.width / 2, c.height * 0.3);
+              ctx.fillStyle = ACCENT2;
+              ctx.font = `800 ${Math.round(c.height * 0.5)}px ${SANS}`;
+              ctx.fillText(text, c.width / 2, c.height * 0.86, c.width * 0.96);
+              tex.needsUpdate = true;
+            }
+          },
+        };
+      }
+
+      const BUILD = { wall, cards, stage };
+      const built = SCENES.map((s) => ({ s, ...BUILD[s.type](s) }));
+      const fonts = Promise.all([`700 40px ${SANS}`, `800 40px ${SANS}`, `italic 500 40px ${SERIF}`, `700 40px ${SERIF}`].map((f) => document.fonts.load(f)));
+
+      m.audio = SCENES.flatMap((s) =>
+        s.type === "cards"
+          ? [
+              ...s.items.map((_, i) => ({ path: sfx("pop"), at: s.at + 0.27 + i * STAGGER, volume: 0.35 })),
+              ...(s.focus ?? []).map((f) => ({ path: sfx("whoosh"), at: f.at, volume: 0.3 })),
+            ]
+          : [{ path: sfx("whoosh"), at: s.type === "wall" ? s.out - 0.7 : s.at, volume: 0.3 }],
+      );
+
+      m.draw = async (t) => {
+        await fonts;
+        if (m.video) {
+          footage.image = m.video;
+          footage.needsUpdate = true;
+        }
+        const on = built.find(({ s }) => t >= s.at && t < s.out);
+        if (!on) return renderer.render(plain, flat);
+        on.update(t);
+        on.composer.render();
+      };
+    </script>
+  </body>
+</html>
