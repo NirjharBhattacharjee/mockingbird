@@ -53,7 +53,7 @@ first.
 | `cards` | after 8 empty frames, cards flip up from edge-on (about 80° to flat in 7 frames), a new one every 4 frames, each at its own roll of 2–4°. After a 1.2 s hold one card comes forward to about 2.2x in 10 frames, expo out, while the rest step back, spread out and go out of focus; it holds 1–2.5 s, then the next one comes forward. The end of the hook, "the questions I get" |
 | `stage` | the video on a card that swings up off the floor over 1.5 s while the camera pushes in, lays back about 20° over 0.8 s, and a number stands up on its far edge, rolling up over about 1.1 s, ease-out. The opening shot, or a step card |
 | Card tilt | every card in a scene held at a 3–5° roll and an 8–15° yaw, never animated. `cards` does it; for a 2D scene in tutorial.html keep the cards flat |
-| Blurred face | a prompt box or clip card sharp over the face blurred 12–20 px and darkened 10–20%, 20–40 times a video. Neither template draws it yet; in 2D it's the face drawn with `ctx.filter = "blur(16px) brightness(0.85)"` under the panel |
+| Blurred face | a prompt box or clip card sharp over the face blurred 12–20 px and darkened 10–20%, 20–40 times a video. Neither template draws it yet. In 2D, draw the face onto a scratch canvas at 1/8 size and back up at full size, then darken it 15% under the panel. A `ctx.filter` blur over the whole frame costs about 10x the render |
 
 Use one or two 3D scenes a video, timed to the words they show: the wall on
 a "most people" line, the card focus on each item as it's said. Render
@@ -81,7 +81,10 @@ between scenes the page only draws the video.
    face shots: 1–3 words for the big italic line and 1–3 words for the
    small line above it. Never while a card scene is on.
 6. **Screens.** Where the speaker shows a tool, `SHRINKS` puts the face in
-   the circle over the screen recording (its `path`) or over a card scene.
+   the circle over a still of the screen (its `path`, a PNG or JPEG from
+   `frames`) or over a card scene. A video file won't load as `path`; for a
+   moving screen recording, put it in the cut as b-roll with `render` and skip
+   the circle there.
 7. **Draw it.** Copy [tutorial.html](./tutorial.html) next to the cut,
    fill in its settings block, and run `motion` with `script`, `path` (the
    render), `captions` and `fps` matching the cut. For a long video, try a

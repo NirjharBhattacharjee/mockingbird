@@ -61,7 +61,7 @@
           items: [{ count: 12, suffix: " hours" }, { count: 480, prefix: "$" }],
         },
       ];
-      /** The face shrinks to a circle at the bottom right; behind it, a picture (`path`, loaded with picture()) or the cream world. */
+      /** The face shrinks to a circle at the bottom right; behind it, a still image (`path`: a PNG or JPEG, loaded with picture()) or the cream world. A video file won't load here: use a still from the screen recording (`frames`), or put the recording in the cut as b-roll with `render` and skip the circle there. */
       const SHRINKS = [{ at: 40, out: 48 }];
       /** The subscribe pill, clicked by a cursor. */
       const SUBSCRIBE = { at: 52, out: 56 };
@@ -69,9 +69,13 @@
       // Pictures load with the page, before the first frame.
       for (const s of SHRINKS) if (s.path) picture(s.path);
 
+      // Worked out on the first frame and kept: the cues don't change.
+      let planned = null;
       const plan = (m) => {
-        const cuts = CUTS.length ? CUTS : cutPoints(m.cues ?? [], EVERY);
+        if (planned) return planned;
+        const cuts = CUTS.length ? [...CUTS] : cutPoints(m.cues ?? [], EVERY);
         if (!cuts.length) for (let c = EVERY; c < m.duration - 0.3; c += EVERY) cuts.push(c);
+        planned = cuts;
         return cuts;
       };
       // Scene items pop in this far apart.
