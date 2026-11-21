@@ -16,6 +16,7 @@ test("every skill in plugin/ and the reviewer are playbooks", () => {
     "product-demo",
     "retention-editing",
     "style-match",
+    "talking-tutorial",
     "viral-short",
     "reviewer",
   ]);

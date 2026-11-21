@@ -75,8 +75,9 @@ Also read off:
 
 ## 4. Route to the playbooks
 
-The edit itself follows **viral-short** or **long-form**. The row below sets
-what they leave open. Pace numbers come from
+The edit itself follows **viral-short** or **long-form**; a long talking-head
+tutorial that should look edited, not just tightened, adds **talking-tutorial**.
+The row below sets what they leave open. Pace numbers come from
 [STYLE-STUDY.md](../../docs/STYLE-STUDY.md).
 
 | Format | Framing | Pace (seconds per shot) | Graphics and captions | Music (`music`) |

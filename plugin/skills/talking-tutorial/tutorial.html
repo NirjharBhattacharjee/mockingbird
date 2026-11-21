@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+  <body style="margin: 0">
+    <script type="module">
+      // The talking-tutorial look (#296), over a talking-head cut from
+      // `render`, 16:9. Copy it next to the video and change the settings
+      // block; leave the import alone, motion fills in the kit.
+      //
+      // What it does, from the study in SKILL.md: a hard cut between a wide
+      // and a tight framing every few seconds (no zoom ramp, no blur), a
+      // keyword typed on in the space opposite the face (a small white sans
+      // line over a big italic serif word in the accent), full-frame card
+      // scenes in a warm cream world (a serif title typed in, white cards that
+      // pop from 0.9 one after another, dotted lines drawing between them,
+      // numbers that roll), the face shrinking into a circle at the bottom
+      // right while a screen or card plays, and a subscribe pill that a cursor
+      // clicks near the end.
+      import { alpha, clamp, cutPoints, easeIn, expo, kit, lerp, page, picture, sfx, THEMES } from "KIT";
+
+      // ---- settings --------------------------------------------------------
+      const THEME = {
+        ...THEMES.paper,
+        bg: ["#F7F2EA", "#EFE5D6"],
+        ink: "#2B2118",
+        accent: "#F2A33A",
+        accent2: "#EE6C5A",
+        light: 120,
+      };
+      /** Where the face is, 0-1 of the frame: the tight framing centres on it, and keywords go opposite. */
+      const FACE = { x: 0.5, y: 0.38 };
+      /** The two "cameras": the wide as shot and a tight crop, switched by hard cut. */
+      const FRAMINGS = [1.0, 1.35];
+      /** Angle changes: listed here, or from the captions about every EVERY seconds. */
+      const EVERY = 6;
+      const CUTS = [];
+      /** Typing speed of every text, in characters a second (2 a frame at 30 fps). */
+      const CPS = 60;
+      /**
+       * Keywords over the face shots, about one every 20 s: `line` small, `key`
+       * big. They cut off at `out`. `x`/`y` (0-1) move one, as for the hello.
+       */
+      const KEYWORDS = [
+        { at: 1.2, out: 4.2, line: "Hey!", key: "I'm your host", x: 0.06, y: 0.78 },
+        { at: 22, out: 25, line: "something", key: "super important" },
+      ];
+      /**
+       * Card scenes, full frame in the cream world. Each item is a card: a
+       * word, or a number that rolls up (`count`, with `prefix`/`suffix`).
+       */
+      const SCENES = [
+        {
+          at: 8,
+          out: 14,
+          title: "Three simple steps",
+          items: [{ text: "Record" }, { text: "Cut" }, { text: "Publish" }],
+        },
+        {
+          at: 30,
+          out: 35,
+          title: "What it saved",
+          items: [{ count: 12, suffix: " hours" }, { count: 480, prefix: "$" }],
+        },
+      ];
+      /** The face shrinks to a circle at the bottom right; behind it, a picture (`path`, loaded with picture()) or the cream world. */
+      const SHRINKS = [{ at: 40, out: 48 }];
+      /** The subscribe pill, clicked by a cursor. */
+      const SUBSCRIBE = { at: 52, out: 56 };
+
+      // Pictures load with the page, before the first frame.
+      for (const s of SHRINKS) if (s.path) picture(s.path);
+
+      const plan = (m) => {
+        const cuts = CUTS.length ? CUTS : cutPoints(m.cues ?? [], EVERY);
+        if (!cuts.length) for (let c = EVERY; c < m.duration - 0.3; c += EVERY) cuts.push(c);
+        return cuts;
+      };
+      // Scene items pop in this far apart.
+      const STAGGER = 0.15;
+      const itemAt = (s, i) => s.at + 0.35 + i * STAGGER;
+
+      page(
+        (ctx, t, m) => {
+          const k = kit(ctx, t, m, THEME);
+          const { W, H, u } = k;
+          const typed = (text, at) => text.slice(0, Math.floor(clamp((t - at) * CPS, 0, text.length)));
+
+          // ---- the face, on its framing for this shot, with no blur on the cut
+          const cuts = plan(m);
+          let shot = 0;
+          while (shot < cuts.length && t >= cuts[shot]) shot++;
+          const zoom = FRAMINGS[shot % FRAMINGS.length];
+          const face = (x, y, w, h, r, z = zoom) => {
+            if (!m.video) return;
+            // The source: the frame shrunk by z around the face, at the destination's shape.
+            let sw = W / z;
+            let sh = sw * (h / w);
+            if (sh > H / z) [sh, sw] = [H / z, (H / z) * (w / h)];
+            const sx = clamp(W * FACE.x - sw / 2, 0, W - sw);
+            const sy = clamp(H * FACE.y - sh / 2, 0, H - sh);
+            k.layer(() => {
+              ctx.beginPath();
+              ctx.roundRect(x, y, w, h, r);
+              ctx.clip();
+              ctx.drawImage(m.video, sx, sy, sw, sh, x, y, w, h);
+            });
+          };
+          face(0, 0, W, H, 0);
+
+          // ---- the cream world: a warm gradient with two soft orange blobs drifting
+          const world = () =>
+            k.layer(() => {
+              const g = ctx.createLinearGradient(0, 0, W, H);
+              g.addColorStop(0, THEME.bg[0]);
+              g.addColorStop(1, THEME.bg[1]);
+              ctx.fillStyle = g;
+              ctx.fillRect(0, 0, W, H);
+              for (const [bx, by, c] of [
+                [0.18 + 0.03 * Math.sin(t * 0.3), 0.8, THEME.accent],
+                [0.85, 0.15 + 0.03 * Math.cos(t * 0.25), THEME.accent2],
+              ]) {
+                const b = ctx.createRadialGradient(W * bx, H * by, 0, W * bx, H * by, W * 0.35);
+                b.addColorStop(0, alpha(c, 0.28));
+                b.addColorStop(1, alpha(c, 0));
+                ctx.fillStyle = b;
+                ctx.fillRect(0, 0, W, H);
+              }
+            });
+
+          // ---- a white card that pops from 0.9, soft shadow, a word or a rolling number
+          const card = (x, y, w, h, at, item) => {
+            if (t < at) return;
+            const p = expo((t - at) / 0.3);
+            k.layer(() => {
+              k.fade(p);
+              ctx.translate(x + w / 2, y + h / 2);
+              ctx.scale(lerp(0.9, 1, p), lerp(0.9, 1, p));
+              ctx.shadowColor = "rgba(70,45,20,0.18)";
+              ctx.shadowBlur = 40 * u;
+              ctx.shadowOffsetY = 12 * u;
+              ctx.fillStyle = "#FFFFFF";
+              ctx.beginPath();
+              ctx.roundRect(-w / 2, -h / 2, w, h, 28 * u);
+              ctx.fill();
+              ctx.shadowColor = "transparent";
+              ctx.textAlign = "center";
+              ctx.textBaseline = "middle";
+              ctx.fillStyle = THEME.ink;
+              const text =
+                item.count == null
+                  ? item.text
+                  : `${item.prefix ?? ""}${Math.round(lerp(0, item.count, expo((t - at) / 1))).toLocaleString("en-US")}${item.suffix ?? ""}`;
+              const weight = item.count == null ? 600 : 700;
+              ctx.font = k.font(k.fit(text, w * 0.8, item.count == null ? 56 : 84, weight), weight);
+              ctx.fillText(text, 0, 0);
+            });
+          };
+
+          // ---- a dotted line that draws on between two points
+          const dots = (x1, y1, x2, y2, at) => {
+            const p = expo((t - at) / 0.4);
+            if (p <= 0) return;
+            k.layer(() => {
+              ctx.strokeStyle = alpha(THEME.accent2, 0.8);
+              ctx.lineWidth = 5 * u;
+              ctx.lineCap = "round";
+              ctx.setLineDash([1, 14 * u]);
+              ctx.beginPath();
+              ctx.moveTo(x1, y1);
+              ctx.lineTo(lerp(x1, x2, p), lerp(y1, y2, p));
+              ctx.stroke();
+            });
+          };
+
+          for (const s of SCENES) {
+            if (t < s.at || t >= s.out) continue;
+            world();
+            k.layer(() => {
+              ctx.textAlign = "center";
+              ctx.textBaseline = "middle";
+              ctx.fillStyle = THEME.ink;
+              ctx.font = k.font(68, 500, THEME.serif);
+              ctx.fillText(typed(s.title, s.at + 0.1), W / 2, H * 0.2);
+            });
+            const n = s.items.length;
+            const gap = 70 * u;
+            const w = Math.min(W * 0.26, (W * 0.84 - gap * (n - 1)) / n);
+            const h = H * 0.3;
+            const x0 = (W - (w * n + gap * (n - 1))) / 2;
+            const y = H * 0.4;
+            s.items.forEach((item, i) => {
+              const x = x0 + i * (w + gap);
+              if (i) dots(x - gap + 10 * u, y + h / 2, x - 10 * u, y + h / 2, itemAt(s, i) - 0.1);
+              card(x, y, w, h, itemAt(s, i), item);
+            });
+            // Into white cards with a 3-frame white tint.
+            k.flash(s.at, 0.1);
+          }
+
+          // ---- the face shrinking into a circle at the bottom right over 12 frames
+          for (const s of SHRINKS) {
+            if (t < s.at || t >= s.out) continue;
+            const into = expo((t - s.at) / 0.4);
+            const back = t > s.out - 0.4 ? easeIn((t - (s.out - 0.4)) / 0.4) : 0;
+            const p = into * (1 - back);
+            if (s.path) {
+              k.layer(() => {
+                ctx.fillStyle = "#0E0E10";
+                ctx.fillRect(0, 0, W, H);
+                ctx.drawImage(picture(s.path), 0, 0, W, H);
+              });
+            } else world();
+            const d = W * 0.155;
+            const tx = W - d - W * 0.03;
+            const ty = H - d - W * 0.03;
+            const [x, y] = [lerp(0, tx, p), lerp(0, ty, p)];
+            const [w, h] = [lerp(W, d, p), lerp(H, d, p)];
+            k.layer(() => {
+              ctx.shadowColor = "rgba(0,0,0,0.35)";
+              ctx.shadowBlur = 30 * u * p;
+              ctx.fillStyle = "#000";
+              ctx.beginPath();
+              ctx.roundRect(x, y, w, h, lerp(0, d / 2, p));
+              ctx.fill();
+            });
+            // The circle crops in on the face as it shrinks.
+            face(x, y, w, h, lerp(0, d / 2, p), lerp(zoom, 2.2, p));
+          }
+
+          // ---- keywords: small white sans over big italic serif, typed on, cut off at out
+          for (const kw of KEYWORDS) {
+            if (t < kw.at || t >= kw.out) continue;
+            const x = W * (kw.x ?? (FACE.x < 0.5 ? 0.56 : 0.07));
+            const y = H * (kw.y ?? 0.6);
+            k.layer(() => {
+              ctx.textBaseline = "alphabetic";
+              ctx.shadowColor = "rgba(0,0,0,0.55)";
+              ctx.shadowBlur = 16 * u;
+              ctx.fillStyle = "#FFFFFF";
+              ctx.font = k.font(40, 500);
+              ctx.fillText(typed(kw.line, kw.at), x, y);
+              ctx.fillStyle = THEME.accent;
+              ctx.font = k.font(100, 500, THEME.serif, true);
+              ctx.fillText(typed(kw.key, kw.at + kw.line.length / CPS), x, y + 104 * u);
+            });
+          }
+
+          // ---- subscribe: a pill pops, a cursor comes in and clicks it
+          if (t >= SUBSCRIBE.at && t < SUBSCRIBE.out) {
+            const p = expo((t - SUBSCRIBE.at) / 0.3);
+            const click = SUBSCRIBE.at + 0.9;
+            const done = t >= click;
+            const [px, py, pw, ph] = [70 * u, H - 170 * u, 300 * u, 84 * u];
+            k.layer(() => {
+              k.fade(p);
+              ctx.translate(px + pw / 2, py + ph / 2);
+              const press = done && t < click + 0.12 ? 0.94 : 1;
+              ctx.scale(lerp(0.9, 1, p) * press, lerp(0.9, 1, p) * press);
+              ctx.shadowColor = "rgba(0,0,0,0.3)";
+              ctx.shadowBlur = 24 * u;
+              ctx.fillStyle = done ? "#E5E5E5" : "#FFFFFF";
+              ctx.beginPath();
+              ctx.roundRect(-pw / 2, -ph / 2, pw, ph, ph / 2);
+              ctx.fill();
+              ctx.shadowColor = "transparent";
+              ctx.fillStyle = done ? "#555" : "#111";
+              ctx.font = k.font(38, 700);
+              ctx.textAlign = "center";
+              ctx.textBaseline = "middle";
+              ctx.fillText(done ? "Subscribed" : "Subscribe", 0, 2 * u);
+            });
+            // The cursor glides from the lower right onto the pill.
+            const c = expo((t - (SUBSCRIBE.at + 0.3)) / 0.55);
+            const cx = lerp(px + pw * 2.4, px + pw * 0.7, c);
+            const cy = lerp(H + 40 * u, py + ph * 0.6, c);
+            k.layer(() => {
+              ctx.translate(cx, cy);
+              ctx.scale(1.6 * u, 1.6 * u);
+              ctx.fillStyle = "#FFFFFF";
+              ctx.strokeStyle = "#111";
+              ctx.lineWidth = 1.5;
+              ctx.beginPath();
+              ctx.moveTo(0, 0);
+              ctx.lineTo(0, 26);
+              ctx.lineTo(7, 20);
+              ctx.lineTo(12, 31);
+              ctx.lineTo(16, 29);
+              ctx.lineTo(11, 18);
+              ctx.lineTo(20, 18);
+              ctx.closePath();
+              ctx.fill();
+              ctx.stroke();
+            });
+          }
+        },
+        {
+          audio: () => [
+            ...SCENES.flatMap((s) => s.items.map((_, i) => ({ path: sfx("pop"), at: itemAt(s, i), volume: 0.4 }))),
+            ...SHRINKS.map((s) => ({ path: sfx("whoosh"), at: s.at, volume: 0.25 })),
+            { path: sfx("click"), at: SUBSCRIBE.at + 0.9, volume: 0.6 },
+          ],
+        },
+      );
+    </script>
+  </body>
+</html>
