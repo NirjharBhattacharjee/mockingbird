@@ -36,6 +36,31 @@ cards, a blue-sky desktop, a hand-made collage, a doodled mascot on paper),
 but each one built its cards the same way. Keep the card construction and
 invent the world per video with **look**.
 
+## Depth
+
+A second pass through the same videos looked only for 3D. It's rare and it
+sits where most people are still watching: 7 of the 10 videos put their one
+real 3D move in the first 10 s or at the first card scene, and each one lasts
+3–9 s. Through the body, depth comes from cheaper things: cards at a small
+fixed tilt, cards that stack, and a sharp panel over the face blurred behind.
+[depth.html](./depth.html) builds the first three below in three.js (a real
+camera, shadows and depth of field), so run the **motion-graphics** 3D notes
+first.
+
+| Scene | What the study measured |
+|---|---|
+| `wall` | hundreds of 16:9 tiles with a 2–3 px glowing accent rim on the inside of a sphere, so rows bow at the edges. Three framings cut hard (close and rolled about 4°, wider at 20%, the whole bowl at 55%) with a slow push of about 9% a second. Exit over 18 frames: tiles turn to the accent at random, then fall back in depth into the cream world. 4–6 s, the first shot of the video, the "everyone does this" beat |
+| `cards` | after 8 empty frames, cards flip up from edge-on (about 80° to flat in 7 frames), a new one every 4 frames, each at its own roll of 2–4°. After a 1.2 s hold one card comes forward to about 2.2x in 10 frames, expo out, while the rest step back, spread out and go out of focus; it holds 1–2.5 s, then the next one comes forward. The end of the hook, "the questions I get" |
+| `stage` | the video on a card that swings up off the floor over 1.5 s while the camera pushes in, lays back about 20° over 0.8 s, and a number stands up on its far edge, rolling up over about 1.1 s, ease-out. The opening shot, or a step card |
+| Card tilt | every card in a scene held at a 3–5° roll and an 8–15° yaw, never animated. `cards` does it; for a 2D scene in tutorial.html keep the cards flat |
+| Blurred face | a prompt box or clip card sharp over the face blurred 12–20 px and darkened 10–20%, 20–40 times a video. Neither template draws it yet; in 2D it's the face drawn with `ctx.filter = "blur(16px) brightness(0.85)"` under the panel |
+
+Use one or two 3D scenes a video, timed to the words they show: the wall on
+a "most people" line, the card focus on each item as it's said. Render
+depth.html over tutorial.html's output (or over the cut, if that's all you
+need), with the same `fps`. A 3D scene costs about five times a 2D one;
+between scenes the page only draws the video.
+
 ## Steps
 
 1. **Cut.** Follow **long-form** steps 1–5. Aim for the pace above. Under
@@ -61,7 +86,10 @@ invent the world per video with **look**.
    fill in its settings block, and run `motion` with `script`, `path` (the
    render), `captions` and `fps` matching the cut. For a long video, try a
    60 s stretch first.
-8. **Review.** `frames` over every card scene and shrink, `measure` the
+8. **Depth.** Pick the one or two moments from **Depth** above, fill in
+   [depth.html](./depth.html)'s `SCENES`, and run `motion` again with the
+   step 7 render as `path`.
+9. **Review.** `frames` over every card scene and shrink, `measure` the
    loudness, then the **reviewer** agent. Check the pace with `scenes`
    against the numbers above.
 
