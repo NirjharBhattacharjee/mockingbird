@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "lint": "biome check .",
+    "lint": "biome check . && bun scripts/file-size.ts",
     "format": "biome check --write .",
     "test": "bun test",
     "test:integration": "MOCKINGBIRD_INTEGRATION=1 bun test",

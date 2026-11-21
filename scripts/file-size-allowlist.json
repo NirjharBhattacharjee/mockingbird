@@ -1,0 +1,289 @@
+{
+  "apps/daemon/src/cli.ts": { "max": 318, "why": "legacy, shrink by refactor (#300)" },
+  "apps/daemon/src/effects.ts": { "max": 564, "why": "legacy, shrink by refactor (#300)" },
+  "apps/daemon/src/mcp.ts": { "max": 4802, "why": "legacy, shrink by refactor (#300)" },
+  "apps/daemon/src/models.ts": { "max": 1268, "why": "legacy, shrink by refactor (#300)" },
+  "apps/daemon/src/runtime.ts": { "max": 535, "why": "legacy, shrink by refactor (#300)" },
+  "apps/daemon/src/setup.ts": { "max": 478, "why": "legacy, shrink by refactor (#300)" },
+  "apps/daemon/test/mcp.test.ts": { "max": 2039, "why": "legacy, shrink by refactor (#300)" },
+  "apps/daemon/test/models.test.ts": { "max": 607, "why": "legacy, shrink by refactor (#300)" },
+  "docs/ARCHITECTURE.md": { "max": 631, "why": "legacy, shrink by refactor (#300)" },
+  "docs/MCP.md": { "max": 835, "why": "legacy, shrink by refactor (#300)" },
+  "packages/captions/src/index.ts": { "max": 453, "why": "legacy, shrink by refactor (#300)" },
+  "packages/motion/src/html.ts": { "max": 497, "why": "legacy, shrink by refactor (#300)" },
+  "packages/timeline/src/export.ts": { "max": 557, "why": "legacy, shrink by refactor (#300)" },
+  "packages/timeline/src/index.ts": { "max": 1459, "why": "legacy, shrink by refactor (#300)" },
+  "packages/timeline/test/timeline.test.ts": {
+    "max": 973,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/faceless-tutorial/neon.html": {
+    "max": 632,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/kit.ts": {
+    "max": 2608,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/art-deco.ts": {
+    "max": 448,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/ballpoint-notebook.ts": {
+    "max": 407,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/blueprint.ts": {
+    "max": 428,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/botanical-plate.ts": {
+    "max": 466,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/claymation.ts": {
+    "max": 440,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/collage-zine.ts": {
+    "max": 461,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/cosmic.ts": {
+    "max": 454,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/cross-stitch.ts": {
+    "max": 441,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/cut-paper.ts": {
+    "max": 454,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/deep-sea.ts": {
+    "max": 357,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/editorial-collage.ts": {
+    "max": 414,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/felt-quilt.ts": {
+    "max": 523,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/film-noir.ts": {
+    "max": 383,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/flat-space.ts": {
+    "max": 438,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/gouache-poster.ts": {
+    "max": 407,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/holographic-foil.ts": {
+    "max": 408,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/illuminated.ts": {
+    "max": 498,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/impasto-oil.ts": {
+    "max": 368,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/isometric.ts": {
+    "max": 360,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/kawaii.ts": {
+    "max": 418,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/letterpress.ts": {
+    "max": 353,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/light-painting.ts": {
+    "max": 393,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/linocut.ts": {
+    "max": 437,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/low-poly.ts": {
+    "max": 497,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/manga-panel.ts": {
+    "max": 431,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/memphis.ts": {
+    "max": 431,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/mosaic.ts": {
+    "max": 406,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/ms-paint.ts": {
+    "max": 437,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/neon-sign.ts": {
+    "max": 366,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/newsprint.ts": {
+    "max": 368,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/origami.ts": {
+    "max": 526,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/oscilloscope.ts": {
+    "max": 395,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/paper-marbling.ts": {
+    "max": 364,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/papercraft.ts": {
+    "max": 380,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/patent-drawing.ts": {
+    "max": 484,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/pixel-16bit.ts": {
+    "max": 392,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/pointillism.ts": {
+    "max": 411,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/product-launch.ts": {
+    "max": 388,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/psychedelic.ts": {
+    "max": 379,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/risograph.ts": {
+    "max": 364,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/roles.json": {
+    "max": 1120,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/screenprint-grid.ts": {
+    "max": 361,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/shadow-puppet.ts": {
+    "max": 445,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/sketchbook-pencil.ts": {
+    "max": 403,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/soft-3d.ts": {
+    "max": 382,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/spirograph.ts": {
+    "max": 477,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/stained-glass.ts": {
+    "max": 429,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/sticky-notes.ts": {
+    "max": 421,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/string-art.ts": {
+    "max": 516,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/sumi-e.ts": {
+    "max": 490,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/synthwave.ts": {
+    "max": 410,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/tarot-card.ts": {
+    "max": 445,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/tech-glow.ts": {
+    "max": 402,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/topographic.ts": {
+    "max": 416,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/transit-map.ts": {
+    "max": 355,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/ukiyo-e.ts": {
+    "max": 424,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/vaporwave.ts": {
+    "max": 419,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/vector-arcade.ts": {
+    "max": 419,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/voxel.ts": {
+    "max": 368,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/watercolor.ts": {
+    "max": 420,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/wireframe-terrain.ts": {
+    "max": 376,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/x-ray.ts": {
+    "max": 433,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/motion-graphics/styles/y2k-chrome.ts": {
+    "max": 381,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/music/generators/lib.js": {
+    "max": 484,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "plugin/skills/talking-tutorial/depth.html": {
+    "max": 475,
+    "why": "legacy, shrink by refactor (#300)"
+  },
+  "scripts/install.sh": { "max": 450, "why": "legacy, shrink by refactor (#300)" }
+}
