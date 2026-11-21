@@ -78,6 +78,7 @@ so Claude doesn't see every tool twice.
 | `product-demo` | Screen recordings into product demos: audience, visible actions, readable framing, a short sample and evidence for claims |
 | `viral-short` | The shorts workflow, and the bar a short has to clear |
 | `long-form` | The long-form workflow: cut, opening, chapters, captions file, titles, thumbnails |
+| `faceless-tutorial` | A tutorial or explainer in a dark neon style: screens that fly in as 3D cards, lists as a neon staircase or a row of cards the camera tracks along, big letters flying in from behind the camera, duotone flashes, all in three.js with bloom and depth of field |
 | `talking-tutorial` | A long talking-head tutorial in an edited creator style: two framings cut hard, keywords beside the face, card scenes, the face in a circle over screens, and three 3D moments in three.js (a video wall, a card wall with a focus pull, a tilt-back stage) |
 | `hooks` | The first seconds of a short, the first minute of a long video |
 | `retention-editing` | Cutting pauses and retakes, where to cut, punch-ins, pace |

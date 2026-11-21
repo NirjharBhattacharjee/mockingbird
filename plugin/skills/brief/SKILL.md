@@ -76,7 +76,9 @@ Also read off:
 ## 4. Route to the playbooks
 
 The edit itself follows **viral-short** or **long-form**; a long talking-head
-tutorial that should look edited, not just tightened, adds **talking-tutorial**.
+tutorial that should look edited, not just tightened, adds **talking-tutorial**;
+a tutorial or explainer that walks through tools and screens, or a talking
+head that needs more going on, adds **faceless-tutorial** (its 3D scenes).
 The row below sets what they leave open. Pace numbers come from
 [STYLE-STUDY.md](../../docs/STYLE-STUDY.md).
 

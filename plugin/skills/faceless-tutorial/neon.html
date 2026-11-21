@@ -1,0 +1,616 @@
+<!doctype html>
+<html lang="en">
+  <body style="margin: 0">
+    <script type="module">
+      // The faceless-tutorial's scenes (#298), in three.js, over a cut from
+      // `render`. Between scenes the video plays as it is. Copy it next to the
+      // video and change the settings block; leave the imports alone, motion
+      // fills them in.
+      //
+      // A dark world: a near-black backdrop with a faint grid and a vignette,
+      // and glowing lines and letters (real bloom, so the glow spills like a
+      // neon tube's). Six scenes from the study in SKILL.md:
+      // - "fly": the video on a rounded card flies in from deep behind, turning
+      //   from 50 degrees to 12, then the camera pushes into one spot of it with
+      //   depth of field, and rushes through the card to cut back.
+      // - "chain": a row of cards, each a crop of the video with an italic label,
+      //   joined by a line; the camera tracks from card to card as each is said,
+      //   the others out of focus.
+      // - "path": a neon staircase that draws itself node to node, a star
+      //   popping up with each item as it's said, in a drifting 3D camera.
+      // - "word": big neon letters fly in from behind the camera and settle,
+      //   with motion trails, then the camera rushes through them.
+      // - "type": a word typed on in rainbow neon over the video, dimmed.
+      // - "tint": the video flashed to one colour (a duotone) with a bold
+      //   glowing caption, the punch on a key line.
+      import { clamp, easeIn, expo, lerp, sfx, spring } from "KIT";
+      import * as THREE from "THREE";
+      import { BokehPass, EffectComposer, OutputPass, RenderPass, RoomEnvironment, UnrealBloomPass } from "THREE_ADDONS";
+
+      // ---- settings --------------------------------------------------------
+      /** The dark world: backdrop, grid lines, text ink. */
+      const BG = "#0B0C10";
+      const GRID = "#1C1F27";
+      const INK = "#F4F4F5";
+      /** Neon colours. Each scene can set its own `color` (or `colors`, a gradient). */
+      const NEON = { red: "#FF3B3B", amber: "#FFB020", yellow: "#FFE14D", green: "#3CFF7A", cyan: "#3DD6FF", violet: "#A46BFF" };
+      const SANS = "Inter";
+      const SERIF = '"Charis SIL"';
+      /**
+       * The scenes, in seconds of the video. Most last 2-5 s; the study's videos
+       * changed picture every 2-4 s through the hook.
+       * - fly: `push` ({ at, u, v, dist }: the spot, 0-1 across and down the frame, to push into, and how close; 1.7 frames a face).
+       * - chain: `items` ([{ text, at }], up to 6).
+       * - path: `items` ([{ text, at }], 3-7).
+       * - word: `text` (one or two words), `colors` (a gradient across the letters), `sub` (a small line under it).
+       * - type: `text`, typed at `cps` characters a second.
+       * - tint: `text` (the caption), `color` (the duotone), `ink` (the caption's colour).
+       */
+      const SCENES = [
+        { type: "path", at: 0, out: 5.0, items: [{ text: "Skill", at: 0.13 }, { text: "File", at: 0.87 }, { text: "Tool", at: 1.41 }, { text: "Permissions", at: 2.04 }, { text: "Trace", at: 3.25 }] },
+        { type: "word", at: 5.0, out: 7.3, text: "BOUNDARIES", colors: [NEON.red, NEON.yellow] },
+        { type: "tint", at: 7.8, out: 9.1, text: "DISABLED", color: NEON.red, ink: NEON.green },
+        { type: "fly", at: 9.15, out: 12.3, push: { at: 11.2, u: 0.48, v: 0.24 } },
+        { type: "chain", at: 12.9, out: 17.6, items: [{ text: "Database", at: 13.28 }, { text: "Second brain", at: 14.36 }, { text: "Knowledge", at: 15.24 }, { text: "Documents", at: 15.95 }, { text: "Client data", at: 16.65 }] },
+      ];
+
+      // ---- the renderer, the footage and the plain shot -------------------------
+      const m = mockingbird;
+      m.drawVideo = true;
+      const A = m.width / m.height;
+      const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+      renderer.setSize(m.width, m.height);
+      renderer.toneMapping = THREE.NeutralToneMapping;
+      document.body.append(renderer.domElement);
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      const room = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+      // The video as a texture. An ImageBitmap ignores flipY, so the UVs flip it.
+      const footage = new THREE.Texture();
+      footage.colorSpace = THREE.SRGBColorSpace;
+      footage.flipY = false;
+      footage.repeat.set(1, -1);
+      footage.offset.set(0, 1);
+
+      const plain = new THREE.Scene();
+      plain.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ map: footage, toneMapped: false })));
+      const flat = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 2);
+      flat.position.z = 1;
+
+      // A 30° lens at this distance shows 2 units of height at z = 0, 2A of width.
+      const FOV = 30;
+      const CAM_Z = 1 / Math.tan(THREE.MathUtils.degToRad(FOV / 2));
+      const lens = () => new THREE.PerspectiveCamera(FOV, A, 0.02, 80);
+
+      // ---- shared pieces --------------------------------------------------------
+      /** A colour pushed past white so the bloom picks it up; `k` is how hot. */
+      const hot = (hex, k = 2) => new THREE.Color(hex).multiplyScalar(k);
+      const glowing = (hex, k) => new THREE.MeshBasicMaterial({ color: hot(hex, k), toneMapped: false });
+      /** A back-ease that overshoots about 10%, for things that pop. */
+      const pop = (p) => (p <= 0 ? 0 : p >= 1 ? 1 : 1 + 2.7 * (p - 1) ** 3 + 1.7 * (p - 1) ** 2);
+      /** A rounded slab w x h, d thick, its front face at z = 0, UVs 0-1 over the front. */
+      function slab(w, h, r, d) {
+        const [x, y] = [-w / 2, -h / 2];
+        const s = new THREE.Shape();
+        s.moveTo(x + r, y);
+        s.lineTo(x + w - r, y);
+        s.quadraticCurveTo(x + w, y, x + w, y + r);
+        s.lineTo(x + w, y + h - r);
+        s.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+        s.lineTo(x + r, y + h);
+        s.quadraticCurveTo(x, y + h, x, y + h - r);
+        s.lineTo(x, y + r);
+        s.quadraticCurveTo(x, y, x + r, y);
+        const g = new THREE.ExtrudeGeometry(s, { depth: d, bevelEnabled: false, curveSegments: 8 });
+        g.translate(0, 0, -d);
+        const [p, uv] = [g.attributes.position, g.attributes.uv];
+        for (let i = 0; i < p.count; i++) uv.setXY(i, (p.getX(i) - x) / w, (p.getY(i) - y) / h);
+        return g;
+      }
+      /** A canvas and its texture, `px` wide at the plane's shape. */
+      function canvas(w, h, px = 1024) {
+        const c = document.createElement("canvas");
+        c.width = px;
+        c.height = Math.max(2, Math.round((px * h) / w));
+        const tex = new THREE.CanvasTexture(c);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = 8;
+        return { c, ctx: c.getContext("2d"), tex };
+      }
+      /** The backdrop: near black, a faint grid, darker at the edges. Unlit, `w` x `h` at depth `z`. */
+      function backdrop(scene, w, h, z) {
+        const { c, ctx, tex } = canvas(w, h, 2400);
+        ctx.fillStyle = BG;
+        ctx.fillRect(0, 0, c.width, c.height);
+        ctx.strokeStyle = GRID;
+        ctx.lineWidth = 2;
+        const step = c.width / (w * 6);
+        for (let x = 0; x < c.width; x += step) ctx.strokeRect(x, -2, 0, c.height + 4);
+        for (let y = 0; y < c.height; y += step) ctx.strokeRect(-2, y, c.width + 4, 0);
+        const v = ctx.createRadialGradient(c.width / 2, c.height / 2, c.height * 0.15, c.width / 2, c.height / 2, c.width * 0.6);
+        v.addColorStop(0, "rgba(0,0,0,0)");
+        v.addColorStop(1, "rgba(0,0,0,0.85)");
+        ctx.fillStyle = v;
+        ctx.fillRect(0, 0, c.width, c.height);
+        const back = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }));
+        back.position.z = z;
+        scene.add(back);
+        scene.background = new THREE.Color(BG);
+        return back;
+      }
+      /** Specks of warm dust through the volume, so a moving camera shows depth. */
+      function dust(scene, n, size) {
+        const g = new THREE.BufferGeometry();
+        const p = new Float32Array(n * 3);
+        for (let i = 0; i < n; i++) p.set([(Math.random() - 0.5) * size * 2 * A, (Math.random() - 0.5) * size * 2, (Math.random() - 0.7) * size * 1.5], i * 3);
+        g.setAttribute("position", new THREE.BufferAttribute(p, 3));
+        const pts = new THREE.Points(g, new THREE.PointsMaterial({ color: hot(NEON.amber, 1.2), size: 0.012, transparent: true, opacity: 0.6, toneMapped: false }));
+        scene.add(pts);
+        return pts;
+      }
+      /** The passes: the scene, bloom for the neon, depth of field if asked. */
+      function passes(scene, camera, { dof = false, bloom = 0.85 } = {}) {
+        const composer = new EffectComposer(renderer);
+        composer.addPass(new RenderPass(scene, camera));
+        composer.addPass(new UnrealBloomPass(new THREE.Vector2(m.width, m.height), bloom, 0.45, 0.82));
+        const bokeh = dof ? new BokehPass(scene, camera, { focus: CAM_Z, aperture: 0, maxblur: 0.012 }) : null;
+        if (bokeh) composer.addPass(bokeh);
+        composer.addPass(new OutputPass());
+        return { composer, bokeh };
+      }
+      /** Glowing text on a 2D canvas: a coloured halo, then a near-white core. */
+      function neonText(ctx, text, x, y, fill, glow) {
+        ctx.save();
+        ctx.shadowColor = glow;
+        for (const b of [40, 18]) {
+          ctx.shadowBlur = b;
+          ctx.fillStyle = fill;
+          ctx.fillText(text, x, y);
+        }
+        ctx.restore();
+      }
+      /** The colour `p` (0-1) of the way along a gradient of hex colours. */
+      function along(colors, p) {
+        if (colors.length === 1) return new THREE.Color(colors[0]);
+        const q = clamp(p) * (colors.length - 1);
+        const i = Math.min(colors.length - 2, Math.floor(q));
+        return new THREE.Color(colors[i]).lerp(new THREE.Color(colors[i + 1]), q - i);
+      }
+      const css = (c) => `#${c.getHexString()}`;
+
+      // ---- fly: the video on a card flies in from deep behind, then a push in ---
+      function fly(s) {
+        const scene = new THREE.Scene();
+        const camera = lens();
+        backdrop(scene, 2 * A * 3, 6, -3);
+        dust(scene, 220, 2);
+        scene.environment = room;
+        const [w, h] = [2 * A * 0.74, 2 * 0.74];
+        const card = new THREE.Group();
+        const face = new THREE.Mesh(slab(w, h, 0.06, 0.04), [
+          new THREE.MeshBasicMaterial({ map: footage, toneMapped: false }),
+          new THREE.MeshStandardMaterial({ color: 0x15171d, roughness: 0.6 }),
+        ]);
+        // A thin white rim behind it, hot enough to bloom into a soft edge glow.
+        const rim = new THREE.Mesh(slab(w + 0.03, h + 0.03, 0.075, 0.01), glowing("#ffffff", 1.15));
+        rim.position.z = -0.045;
+        card.add(face, rim);
+        scene.add(card);
+        // Faint scanlines over the whole picture, carried by the camera.
+        const lines = canvas(2 * A, 2, 4);
+        lines.c.height = 540;
+        for (let y = 0; y < 540; y += 3) {
+          lines.ctx.fillStyle = "rgba(0,0,0,0.5)";
+          lines.ctx.fillRect(0, y, 4, 1);
+        }
+        lines.tex.needsUpdate = true;
+        const scan = new THREE.Mesh(new THREE.PlaneGeometry(2 * A * 0.06, 0.12), new THREE.MeshBasicMaterial({ map: lines.tex, transparent: true, opacity: 0.18, depthTest: false }));
+        scan.position.z = -1;
+        camera.add(scan);
+        scene.add(camera);
+        const { composer, bokeh } = passes(scene, camera, { dof: true, bloom: 0.7 });
+        const spot = new THREE.Vector3();
+        const normal = new THREE.Vector3();
+        return {
+          composer,
+          update(t) {
+            const p = expo((t - s.at) / 0.75);
+            const drift = Math.max(0, t - s.at - 0.75);
+            card.position.set(lerp(1.4, 0.12, p), lerp(-0.5, 0, p), lerp(-14, 0, p));
+            card.rotation.set(lerp(0.35, 0.06, p), lerp(0.9, 0.22, p) - 0.03 * drift, lerp(-0.2, -0.03, p));
+            card.updateMatrixWorld();
+            const base = new THREE.Vector3(0, 0, CAM_Z + 0.35);
+            let look = new THREE.Vector3(0.05, 0, 0);
+            let q = 0;
+            if (s.push) {
+              q = expo((t - s.push.at) / 0.55);
+              spot.set((s.push.u - 0.5) * w, (0.5 - s.push.v) * h, 0).applyMatrix4(card.matrixWorld);
+              normal.set(0, 0, 1).transformDirection(card.matrixWorld);
+              base.lerp(spot.clone().addScaledVector(normal, s.push.dist ?? 1.7), q);
+              look = look.lerp(spot, q);
+            }
+            // The exit: the camera rushes through the card in the last 0.25 s.
+            const through = easeIn((t - (s.out - 0.25)) / 0.25);
+            const target = s.push ? spot : new THREE.Vector3(0, 0, 0);
+            base.lerp(target, through * 0.97);
+            camera.position.copy(base);
+            camera.lookAt(look);
+            bokeh.uniforms.focus.value = camera.position.distanceTo(s.push ? spot : card.position);
+            bokeh.uniforms.aperture.value = 0.0006 + 0.004 * q;
+          },
+        };
+      }
+
+      // ---- chain: a row of cards joined by a line, the camera tracking along ----
+      function chain(s) {
+        const scene = new THREE.Scene();
+        const camera = lens();
+        const GAP = 2.3;
+        const n = s.items.length;
+        backdrop(scene, GAP * n + 12, 10, -2.5).position.x = (GAP * (n - 1)) / 2;
+        dust(scene, 300, 3).position.x = (GAP * (n - 1)) / 2;
+        const [w, h] = [1.5, 1.5 / A];
+        const cards = s.items.map((item, i) => {
+          // Each card shows its own crop of the frame, 1.3-1.9x in.
+          const z = 1.3 + Math.random() * 0.6;
+          const [cx, cy] = [Math.random() * (1 - 1 / z), Math.random() * (1 - 1 / z) * 0.7];
+          const g = slab(w, h, 0.07, 0.03);
+          const uv = g.attributes.uv;
+          for (let k = 0; k < uv.count; k++) uv.setXY(k, cx + uv.getX(k) / z, 1 - cy - (1 - uv.getY(k)) / z);
+          const group = new THREE.Group();
+          const face = new THREE.Mesh(g, [new THREE.MeshBasicMaterial({ map: footage, toneMapped: false }), new THREE.MeshBasicMaterial({ color: 0x111318 })]);
+          const rim = new THREE.Mesh(slab(w + 0.025, h + 0.025, 0.08, 0.01), glowing("#ffffff", 1.1));
+          rim.position.z = -0.035;
+          // The italic label sits over the bottom of the card, with a shade under it.
+          const lab = canvas(w, h * 0.42, 1200);
+          const { c, ctx, tex } = lab;
+          const shade = ctx.createLinearGradient(0, 0, 0, c.height);
+          shade.addColorStop(0, "rgba(0,0,0,0)");
+          shade.addColorStop(1, "rgba(0,0,0,0.6)");
+          ctx.fillStyle = shade;
+          ctx.fillRect(0, 0, c.width, c.height);
+          ctx.textAlign = "center";
+          ctx.font = `italic 500 ${Math.round(c.height * 0.4)}px ${SERIF}`;
+          ctx.shadowColor = "rgba(0,0,0,0.6)";
+          ctx.shadowBlur = 12;
+          ctx.fillStyle = "#ffffff";
+          ctx.fillText(item.text, c.width / 2, c.height * 0.72, c.width * 0.9);
+          const label = new THREE.Mesh(new THREE.PlaneGeometry(w, h * 0.42), new THREE.MeshBasicMaterial({ map: tex, transparent: true, toneMapped: false }));
+          label.position.set(0, -h * 0.29, 0.002);
+          group.add(face, rim, label);
+          const home = new THREE.Vector3(i * GAP, i % 2 ? -0.14 : 0.14, i % 2 ? -0.35 : 0);
+          group.position.copy(home);
+          group.rotation.set(0, 0.22, i % 2 ? 0.035 : -0.03);
+          scene.add(group);
+          return { group, home, item };
+        });
+        // The line from each card to the next, drawn on as the next one is said.
+        const links = cards.slice(1).map((b, i) => {
+          const a = cards[i];
+          const from = a.home.clone().add(new THREE.Vector3(w / 2 - 0.05, -h / 2 - 0.08, 0));
+          const to = b.home.clone().add(new THREE.Vector3(-w / 2 + 0.05, -h / 2 - 0.08, 0));
+          const mid = from.clone().lerp(to, 0.5).add(new THREE.Vector3(0, -0.22, 0));
+          const curve = new THREE.QuadraticBezierCurve3(from, mid, to);
+          const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 60, 0.006, 6), glowing("#ffffff", 1.6));
+          scene.add(tube);
+          return { tube, at: b.item.at };
+        });
+        const { composer, bokeh } = passes(scene, camera, { dof: true, bloom: 0.6 });
+        const ats = s.items.map((it) => it.at);
+        return {
+          composer,
+          update(t) {
+            let x = 0;
+            let y = cards[0].home.y;
+            for (let i = 0; i < n; i++) {
+              const c = cards[i];
+              const p = pop((t - ats[i] + 0.25) / 0.35);
+              c.group.visible = p > 0;
+              c.group.scale.setScalar(lerp(0.85, 1, p));
+              c.group.position.y = c.home.y + (1 - p) * -0.3;
+              // The camera glides to each card over 0.5 s, landing as its word is said.
+              const g = expo((t - ats[i] + 0.35) / 0.5);
+              if (i > 0) {
+                x = lerp(x, c.home.x, g);
+                y = lerp(y, c.home.y, g);
+              }
+            }
+            for (const l of links) {
+              const p = clamp((t - l.at + 0.4) / 0.35);
+              l.tube.geometry.setDrawRange(0, Math.floor(p * l.tube.geometry.index.count / 6) * 6);
+            }
+            const drift = (t - s.at) * 0.03;
+            camera.position.set(x - 0.55 + drift, y + 0.1, 2.9);
+            camera.lookAt(x + 0.1 + drift, y, -0.2);
+            const near = cards.reduce((a, c) => (Math.abs(c.home.x - x) < Math.abs(a.home.x - x) ? c : a));
+            bokeh.uniforms.focus.value = camera.position.distanceTo(near.home);
+            bokeh.uniforms.aperture.value = 0.0045;
+          },
+        };
+      }
+
+      // ---- path: a neon staircase drawn node to node, a star on each item -------
+      function path(s) {
+        const scene = new THREE.Scene();
+        const camera = lens();
+        backdrop(scene, 2 * A * 3, 7, -2.2);
+        const pts = dust(scene, 380, 2.2);
+        const n = s.items.length;
+        const W = 2 * A * 0.78;
+        const nodes = s.items.map((_, i) => new THREE.Vector3(-W / 2 + (W * i) / (n - 1), i % 2 ? -0.28 : 0.22, 0));
+        // Right angles between nodes: across half way, then up or down, then across.
+        const curve = new THREE.CurvePath();
+        const marks = [0];
+        for (let i = 0; i < n - 1; i++) {
+          const [a, b] = [nodes[i], nodes[i + 1]];
+          const mx = (a.x + b.x) / 2;
+          const p1 = new THREE.Vector3(mx, a.y, 0);
+          const p2 = new THREE.Vector3(mx, b.y, 0);
+          curve.add(new THREE.LineCurve3(a, p1));
+          curve.add(new THREE.LineCurve3(p1, p2));
+          curve.add(new THREE.LineCurve3(p2, b));
+          marks.push(curve.getLength());
+        }
+        const total = curve.getLength();
+        const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 600, 0.008, 8), glowing("#ffffff", 1.35));
+        scene.add(tube);
+        const star = (i) => {
+          const { c, ctx, tex } = canvas(1, 1, 256);
+          ctx.translate(128, 128);
+          ctx.beginPath();
+          for (let k = 0; k < 10; k++) {
+            const r = k % 2 ? 46 : 104;
+            const a = (k * Math.PI) / 5 - Math.PI / 2;
+            ctx.lineTo(r * Math.cos(a), r * Math.sin(a));
+          }
+          ctx.closePath();
+          ctx.shadowColor = NEON.amber;
+          ctx.shadowBlur = 24;
+          ctx.fillStyle = NEON.yellow;
+          ctx.fill();
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = "#3a2a00";
+          ctx.font = `800 84px ${SANS}`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(String(i + 1), 0, 8);
+          return new THREE.Mesh(new THREE.PlaneGeometry(0.26, 0.26), new THREE.MeshBasicMaterial({ map: tex, transparent: true, color: hot("#ffffff", 1.3), toneMapped: false }));
+        };
+        const items = s.items.map((item, i) => {
+          const st = star(i);
+          st.position.copy(nodes[i]).setZ(0.02);
+          const { c, ctx, tex } = canvas(1.2, 0.3, 900);
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.font = `700 ${Math.round(c.height * 0.5)}px ${SANS}`;
+          neonText(ctx, item.text, c.width / 2, c.height / 2, "#ffffff", "rgba(255,255,255,0.35)");
+          // Kept under the bloom's threshold so the words stay sharp.
+          const label = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.3), new THREE.MeshBasicMaterial({ map: tex, transparent: true, color: new THREE.Color(0.78, 0.78, 0.78), toneMapped: false }));
+          const up = i % 2 ? -1 : 1;
+          label.position.copy(nodes[i]).add(new THREE.Vector3(0, up * 0.27, 0.01));
+          scene.add(st, label);
+          return { st, label, item, up };
+        });
+        const { composer, bokeh } = passes(scene, camera, { dof: true, bloom: 0.75 });
+        return {
+          composer,
+          update(t) {
+            // The line reaches node i as item i is said, drawing the last 0.3 s before it.
+            let f = 0;
+            for (let i = 1; i < n; i++) if (t >= items[i].item.at - 0.3) f = lerp(marks[i - 1], marks[i], expo((t - items[i].item.at + 0.3) / 0.3));
+            const count = tube.geometry.index.count;
+            tube.geometry.setDrawRange(0, Math.floor(((f / total) * count) / 48) * 48);
+            for (const [i, it] of items.entries()) {
+              const p = spring(t, { start: it.item.at, stiffness: 260, damping: 14 });
+              it.st.scale.setScalar(Math.max(0.001, p));
+              it.st.rotation.z = (1 - clamp(p)) * 1.2;
+              const q = expo((t - it.item.at - 0.05) / 0.35);
+              it.label.material.opacity = q;
+              it.label.position.y = nodes[i].y + it.up * (0.27 - 0.06 * (1 - q));
+            }
+            // A slow drift from low left to the right, so the staircase turns in depth.
+            const k = clamp((t - s.at) / (s.out - s.at));
+            const lead = (f / total - 0.5) * W * 0.35;
+            camera.position.set(lerp(-1.3, 0.8, k) + lead * 0.3, lerp(-0.9, -0.6, k), lerp(4.6, 4.1, k));
+            camera.lookAt(lead * 0.5, 0.12, 0);
+            pts.rotation.y = (t - s.at) * 0.02;
+            bokeh.uniforms.focus.value = camera.position.length();
+            bokeh.uniforms.aperture.value = 0.0012;
+          },
+        };
+      }
+
+      // ---- word: neon letters fly in from behind the camera and settle -----------
+      function word(s) {
+        const scene = new THREE.Scene();
+        const camera = lens();
+        backdrop(scene, 2 * A * 3, 7, -2);
+        dust(scene, 250, 2);
+        const colors = s.colors ?? [s.color ?? NEON.green];
+        const chars = [...s.text];
+        const size = Math.min(0.5, (2 * A * 0.82) / (chars.length * 0.62));
+        const letters = [];
+        let built = false;
+        const group = new THREE.Group();
+        scene.add(group);
+        // The letters are drawn once the fonts are in, on the first frame.
+        function build() {
+          const probe = canvas(1, 1, 64).ctx;
+          probe.font = `italic 800 100px ${SANS}`;
+          const widths = chars.map((ch) => (probe.measureText(ch).width / 100) * size);
+          const total = widths.reduce((a, b) => a + b, 0);
+          let x = -total / 2;
+          for (const [i, ch] of chars.entries()) {
+            const lw = widths[i] + size * 0.5;
+            const { c, ctx, tex } = canvas(lw, size * 1.5, 512);
+            ctx.font = `italic 800 ${c.height / 1.5}px ${SANS}`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            const col = css(along(colors, chars.length > 1 ? i / (chars.length - 1) : 0));
+            neonText(ctx, ch, c.width / 2, c.height / 2, col, col);
+            const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, color: hot("#ffffff", 1.25), toneMapped: false, depthWrite: false });
+            const home = new THREE.Vector3(x + widths[i] / 2, s.sub ? 0.08 : 0, 0);
+            // Three fading copies trail each letter while it flies: a cheap motion blur.
+            const copies = [1, 0.35, 0.18, 0.08].map((o) => {
+              const mm = mat.clone();
+              mm.opacity = o;
+              const mesh = new THREE.Mesh(new THREE.PlaneGeometry(lw, size * 1.5), mm);
+              group.add(mesh);
+              return mesh;
+            });
+            const side = i % 2 ? 1 : -1;
+            letters.push({ copies, home, start: new THREE.Vector3(home.x * 2.4 + side * 0.4, home.y + side * 0.35, CAM_Z - 0.25), turn: side * 0.9, at: s.at + 0.05 + i * 0.035 });
+            x += widths[i];
+          }
+          if (s.sub) {
+            const { c, ctx, tex } = canvas(2, 0.2, 1400);
+            ctx.font = `600 ${Math.round(c.height * 0.55)}px ${SANS}`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillStyle = INK;
+            ctx.fillText(s.sub, c.width / 2, c.height / 2);
+            const sub = new THREE.Mesh(new THREE.PlaneGeometry(2, 0.2), new THREE.MeshBasicMaterial({ map: tex, transparent: true, toneMapped: false }));
+            sub.position.y = -size * 0.75;
+            letters.sub = sub;
+            group.add(sub);
+          }
+          built = true;
+        }
+        const { composer } = passes(scene, camera, { bloom: 0.75 });
+        const place = (L, mesh, t) => {
+          const p = expo((t - L.at) / 0.45);
+          mesh.visible = t >= L.at;
+          mesh.position.lerpVectors(L.start, L.home, p);
+          mesh.rotation.y = L.turn * (1 - p);
+          return p;
+        };
+        return {
+          composer,
+          update(t) {
+            if (!built) build();
+            for (const L of letters) {
+              const p = place(L, L.copies[0], t);
+              for (const [k, mesh] of L.copies.entries()) {
+                if (k === 0) continue;
+                place(L, mesh, t - k * 0.022);
+                mesh.visible = mesh.visible && p < 0.98;
+              }
+            }
+            if (letters.sub) letters.sub.material.opacity = expo((t - s.at - 0.55) / 0.3);
+            const k = t - s.at;
+            const through = easeIn((t - (s.out - 0.22)) / 0.22);
+            camera.position.set(Math.sin(k * 0.6) * 0.06, Math.cos(k * 0.5) * 0.03, CAM_Z - 0.06 * k - through * (CAM_Z - 0.1));
+            camera.lookAt(0, 0, -1);
+          },
+        };
+      }
+
+      // ---- type: a word typed on in rainbow neon over the dimmed video ----------
+      function type(s) {
+        const scene = new THREE.Scene();
+        const dim = new THREE.MeshBasicMaterial({ map: footage, color: new THREE.Color(0.38, 0.38, 0.4), toneMapped: false });
+        scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), dim));
+        const words = canvas(2, 2 / A, 1920);
+        const text = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ map: words.tex, transparent: true, color: hot("#ffffff", 1.2), toneMapped: false }));
+        text.position.z = 0.01;
+        scene.add(text);
+        const colors = s.colors ?? [NEON.red, NEON.amber, NEON.yellow];
+        const cps = s.cps ?? 14;
+        let shown = null;
+        const { composer } = passes(scene, flat, { bloom: 1.1 });
+        return {
+          composer,
+          update(t) {
+            const k = t - s.at;
+            // The first few frames flicker between dim and bright, a neon sign catching.
+            dim.color.setScalar(k < 0.25 && Math.floor(k * 30) % 2 ? 0.7 : 0.38);
+            const n = Math.floor(clamp(k * cps, 0, s.text.length));
+            const on = s.text.slice(0, n);
+            if (on === shown) return;
+            shown = on;
+            const { c, ctx, tex } = words;
+            ctx.clearRect(0, 0, c.width, c.height);
+            const px = Math.round(Math.min(c.height * 0.2, (c.width * 0.8) / (s.text.length * 0.55)));
+            ctx.font = `italic 700 ${px}px ${SANS}`;
+            ctx.textBaseline = "middle";
+            const full = ctx.measureText(s.text).width;
+            let x = (c.width - full) / 2;
+            for (const [i, ch] of [...on].entries()) {
+              const col = css(along(colors, i / Math.max(1, s.text.length - 1)));
+              neonText(ctx, ch, x, c.height * (s.y ?? 0.5), col, col);
+              x += ctx.measureText(ch).width;
+            }
+            tex.needsUpdate = true;
+          },
+        };
+      }
+
+      // ---- tint: the video in one colour with a bold glowing caption -------------
+      function tint(s) {
+        const scene = new THREE.Scene();
+        const duo = new THREE.ShaderMaterial({
+          uniforms: { map: { value: footage }, tint: { value: new THREE.Color(s.color ?? NEON.red) }, zoom: { value: 1 } },
+          vertexShader: "varying vec2 vUv; uniform float zoom; void main(){ vUv = (uv - 0.5) / zoom + 0.5; gl_Position = vec4(position.xy, 0.0, 1.0); }",
+          fragmentShader:
+            "varying vec2 vUv; uniform sampler2D map; uniform vec3 tint; void main(){ vec3 c = texture2D(map, vec2(vUv.x, 1.0 - vUv.y)).rgb; float l = dot(c, vec3(0.3, 0.59, 0.11)); vec3 o = mix(tint * 0.08, mix(tint, vec3(1.0), 0.35), smoothstep(0.04, 0.85, l)); gl_FragColor = vec4(o, 1.0); }",
+          toneMapped: false,
+        });
+        scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), duo));
+        const cap = canvas(2, 2 / A, 1920);
+        const caption = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ map: cap.tex, transparent: true, color: hot("#ffffff", 1.0), toneMapped: false }));
+        caption.position.z = 0.01;
+        scene.add(caption);
+        let drawn = false;
+        const { composer } = passes(scene, flat, { bloom: 0.5 });
+        return {
+          composer,
+          update(t) {
+            if (!drawn) {
+              drawn = true;
+              const { c, ctx, tex } = cap;
+              ctx.font = `900 ${Math.round(c.height * 0.13)}px ${SANS}`;
+              ctx.textAlign = "center";
+              ctx.textBaseline = "middle";
+              const ink = s.ink ?? NEON.green;
+              neonText(ctx, s.text, c.width / 2, c.height * 0.78, ink, ink);
+              tex.needsUpdate = true;
+            }
+            const k = t - s.at;
+            duo.uniforms.zoom.value = 1 + 0.06 * expo(k / 0.25) + 0.02 * k;
+            const p = pop(k / 0.18);
+            caption.scale.setScalar(lerp(1.35, 1, p));
+            caption.material.opacity = clamp(k / 0.06);
+          },
+        };
+      }
+
+      const BUILD = { fly, chain, path, word, type, tint };
+      const fonts = Promise.all([`700 40px ${SANS}`, `800 40px ${SANS}`, `900 40px ${SANS}`, `italic 800 40px ${SANS}`, `italic 700 40px ${SANS}`, `italic 500 40px ${SERIF}`].map((f) => document.fonts.load(f)));
+      let built = null;
+
+      m.audio = SCENES.flatMap((s) => {
+        const at = (path, t, volume = 0.35) => ({ path: sfx(path), at: t, volume });
+        if (s.type === "path") return s.items.map((it) => at("pop", it.at, 0.4));
+        if (s.type === "chain") return s.items.flatMap((it, i) => [at("pop", it.at - 0.2, 0.3), ...(i ? [at("whoosh", it.at - 0.35, 0.22)] : [])]);
+        if (s.type === "fly") return [at("whoosh", s.at, 0.4), ...(s.push ? [at("whoosh", s.push.at, 0.25)] : []), at("whoosh", s.out - 0.25, 0.3)];
+        if (s.type === "word") return [at("riser", s.at, 0.25), at("impact", s.at + 0.4, 0.35), at("whoosh", s.out - 0.22, 0.3)];
+        if (s.type === "type") return [at("shimmer", s.at, 0.3)];
+        return [at("impact", s.at, 0.45)];
+      });
+
+      m.draw = async (t) => {
+        await fonts;
+        // Built after the fonts load, so every canvas draws in the right face.
+        built ??= SCENES.map((s) => ({ s, ...BUILD[s.type](s) }));
+        if (m.video) {
+          footage.image = m.video;
+          footage.needsUpdate = true;
+        }
+        const on = built.find(({ s }) => t >= s.at && t < s.out);
+        if (!on) return renderer.render(plain, flat);
+        on.update(t);
+        on.composer.render();
+      };
+    </script>
+  </body>
+</html>
