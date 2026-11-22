@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { maskSteps, pictureSteps } from "../src/effects.ts";
+import { along, follow } from "../src/inspect/track.ts";
 import { renderGraph } from "../src/mcp.ts";
-import { along, follow } from "../src/track.ts";
 
 test("track follows a textured square across noisy frames (#200)", async () => {
   const [W, H] = [160, 90];

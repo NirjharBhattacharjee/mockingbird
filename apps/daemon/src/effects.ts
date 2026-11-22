@@ -4,7 +4,7 @@
  * names its parameters with their ranges and builds the ffmpeg filter that
  * render puts on a clip's picture or sound.
  */
-import { along, type Point } from "./track.ts";
+import { along, type TrackPoint } from "./inspect/track.ts";
 
 type Param = { min: number; max: number; default: number; about: string };
 /** What an effect is put on: the picture's size, and how long it lasts in the finished video. */
@@ -41,7 +41,7 @@ export type Mask = {
   invert?: boolean;
   end?: { x: number; y: number; w: number; h: number };
   /** A rect or ellipse following a path, its top left `at` seconds into the clip: what `track` gives. */
-  path?: Point[];
+  path?: TrackPoint[];
   /** A subject mask's video, made by render before the graph (subject.ts), never by hand, and its source's size. */
   file?: string;
   size?: string;

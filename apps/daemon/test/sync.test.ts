@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { bestLag, envelope } from "../src/sync.ts";
+import { bestLag, envelope } from "../src/inspect/sync.ts";
 
 test("sync finds where one recording's sound sits in another's (#200)", () => {
   // Bursts at uneven times, heard by two microphones: the second starts 37 hops later, quieter, with its own noise.

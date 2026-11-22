@@ -29,9 +29,9 @@ in a file at the root of `apps/daemon/src/`.
 | Domain | Subdomain | Tools | Today | Folder |
 |---|---|---|---|---|
 | Transcript | speech to text, word cache, dictionary | transcribe, dictionary_list, dictionary_add | mcp.ts, transcribe.ts, dictionary.ts, `packages/{asr,vad,store}` | `D/transcript/` |
-| Inspection | picture: frames, scenes, scopes | frames, scenes, scopes | mcp.ts, scopes.ts | `D/inspect/` |
-| | sound: pauses, measure, stats, sync | pauses, measure, audio_stats, sync | pauses.ts, audio-stats.ts, sync.ts | `D/inspect/` |
-| | tracking | track | track.ts | `D/inspect/` |
+| Inspection | picture: frames, scenes, scopes | frames, scenes, scopes | moved: `inspect/tools.ts`, `frames.ts`, `scenes.ts`, `scopes.ts`, `probe.ts` | `D/inspect/` |
+| | sound: pauses, measure, stats, sync | pauses, measure, audio_stats, sync | moved: `inspect/pauses.ts`, `audio-stats.ts`, `sync.ts` | `D/inspect/` |
+| | tracking | track | moved: `inspect/track.ts` | `D/inspect/` |
 | Screen recording | inspection | screen_frames, screen_changes, screen_privacy, screen_watch | moved: `screen/tools.ts`, `screen/inspection/` | `D/screen/` |
 | | normalise, render | screen_normalize, screen_render | moved: `screen/tools.ts`, `screen/render.ts`; `packages/video` | `D/screen/` |
 | Project | edit ops, export | edit, export | mcp.ts, `packages/timeline` | `D/project/` |

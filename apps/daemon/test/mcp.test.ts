@@ -15,6 +15,8 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { captionStyle } from "@mockingbird/captions";
+import { fineClock } from "../src/clock.ts";
+import { parseScenes } from "../src/inspect/scenes.ts";
 import { handle, PROMPTS } from "../src/mcp/server.ts";
 import { mcpTools } from "../src/mcp/tools.ts";
 import {
@@ -24,14 +26,12 @@ import {
   CLIPS_PER_PASS,
   captionFontWarning,
   chunks,
-  fineClock,
   KIT_URL,
   LOOK_BOARD,
   levelGains,
   lookCaptions,
   mixGraph,
   moving,
-  parseScenes,
   pieces,
   renderGraph,
   STYLES_URL,

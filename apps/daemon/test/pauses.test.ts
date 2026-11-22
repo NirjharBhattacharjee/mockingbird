@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { clipsFrom, findPauses, measure, parseSilence } from "../src/pauses.ts";
+import { clipsFrom, findPauses, measure, parseSilence } from "../src/inspect/pauses.ts";
 
 // What ffmpeg's silencedetect printed for the gaps fixture below, scanned from 0.5 s.
 const LOG = `[silencedetect @ 0x1] silence_start: 0.941667

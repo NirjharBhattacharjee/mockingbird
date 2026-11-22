@@ -16,7 +16,7 @@ const KEEP = 5;
 
 export type Box = { x: number; y: number; w: number; h: number };
 /** Where the box's top left is, `at` seconds into the stretch, in 0-1 of the picture. */
-export type Point = { at: number; x: number; y: number };
+export type TrackPoint = { at: number; x: number; y: number };
 
 /** `from` to `to` of `path` as grey frames `WIDTH` wide, at `RATE` a second. */
 async function frames(path: string, from: number, to: number, aspect: number) {
@@ -165,7 +165,7 @@ export async function track(
   to: number,
   box: Box,
   aspect: number,
-): Promise<{ points: Point[]; worst: number }> {
+): Promise<{ points: TrackPoint[]; worst: number }> {
   const { list, height } = await frames(path, from, to, aspect);
   const { points, worst } = await follow(list, WIDTH, height, box);
   const step = RATE / KEEP;
@@ -185,23 +185,23 @@ export async function track(
  * them, held past the ends. A balanced tree of if()s, so 150 points nest 8
  * deep, not 150: ffmpeg's parser stops at 100.
  */
-export function along(points: Point[], key: "x" | "y", t: string, scale: number): string {
-  const v = (p: Point) => String(Math.round(p[key] * scale * 100) / 100);
+export function along(points: TrackPoint[], key: "x" | "y", t: string, scale: number): string {
+  const v = (p: TrackPoint) => String(Math.round(p[key] * scale * 100) / 100);
   const first = points[0];
   if (!first) return "0";
   if (points.length < 2) return v(first);
   // Segment i runs from points[i] to points[i + 1]; segments lo..hi as one expression.
   const span = (lo: number, hi: number): string => {
     if (lo === hi) {
-      const a = points[lo] as Point;
-      const b = points[lo + 1] as Point;
+      const a = points[lo] as TrackPoint;
+      const b = points[lo + 1] as TrackPoint;
       const d = Math.max(b.at - a.at, 1e-3);
       return `(${v(a)}+(${v(b)}-${v(a)})*(${t}-${a.at})/${d})`;
     }
     const mid = (lo + hi) >> 1;
-    return `if(lt(${t},${(points[mid + 1] as Point).at}),${span(lo, mid)},${span(mid + 1, hi)})`;
+    return `if(lt(${t},${(points[mid + 1] as TrackPoint).at}),${span(lo, mid)},${span(mid + 1, hi)})`;
   };
-  const last = points.at(-1) as Point;
+  const last = points.at(-1) as TrackPoint;
   const inner = `if(lt(${t},${last.at}),${span(0, points.length - 2)},${v(last)})`;
   return `if(lt(${t},${first.at}),${v(first)},${inner})`;
 }
