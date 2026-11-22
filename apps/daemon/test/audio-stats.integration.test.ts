@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { audioStats } from "../src/audio-stats.ts";
+import { audioStats } from "../src/inspect/audio-stats.ts";
 
 const home = process.env.MOCKINGBIRD_HOME ?? join(homedir(), ".mockingbird");
 const hello = join(import.meta.dir, "../../../bench/fixtures/hello.wav");

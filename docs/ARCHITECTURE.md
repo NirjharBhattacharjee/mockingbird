@@ -427,8 +427,7 @@ mockingbird/
 │   ├── daemon/src/          the engine (the name predates the pivot)
 │   │   ├── cli.ts           every command
 │   │   ├── mcp/ · mcp.ts · screen/   the MCP server · the tools not yet moved · screen recording
-│   │   ├── audio-stats.ts   `audio_stats`: what a file's sound measures
-│   │   ├── pauses.ts        `pauses` and `measure`, once the playbooks' shell scripts
+│   │   ├── inspect/         `frames`, `scenes`, `scopes`, `pauses`, `measure`, `audio_stats`, `sync`, `track`
 │   │   ├── guide.ts         the plugin's playbooks, served by `guide`
 │   │   ├── motion-run.ts    runs a motion script or page in its own process
 │   │   ├── transcribe.ts    `mockingbird transcribe`

@@ -9,7 +9,7 @@ import {
   sections,
 } from "@mockingbird/audio";
 import { detectSpeech, SileroVad } from "@mockingbird/vad";
-import { mockingbirdHome, requireFile } from "./runtime.ts";
+import { mockingbirdHome, requireFile } from "../runtime.ts";
 
 /** Seconds as m:ss.s, or with `places` decimals, for times an agent cuts on. */
 const time = (s: number, places = 1) =>

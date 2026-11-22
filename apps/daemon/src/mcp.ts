@@ -46,7 +46,7 @@ import {
 } from "@mockingbird/timeline";
 import { type Source, toFcpxml, toOtio } from "@mockingbird/timeline/export";
 import type { SpeechSegment } from "@mockingbird/vad";
-import { audioStats } from "./audio-stats.ts";
+import { clock, fineClock } from "./clock.ts";
 import { addEntries, formatEntry, readDictionary } from "./dictionary.ts";
 import {
   type Ctx,
@@ -62,11 +62,12 @@ import {
   quoted,
 } from "./effects.ts";
 import { guide, PLUGIN, playbooks } from "./guide.ts";
-import { BT709, type Transfer, toSdrFor, transferOf } from "./hdr.ts";
+import { BT709, toSdrFor } from "./hdr.ts";
+import { even, probe } from "./inspect/probe.ts";
+import { along, type TrackPoint } from "./inspect/track.ts";
 import { area, items, seconds, stretch, within } from "./mcp/args.ts";
 import type { Tool } from "./mcp/types.ts";
 import { findChrome, fontFaces } from "./models.ts";
-import { clipsFrom, findPauses, measure } from "./pauses.ts";
 import {
   asrChoice,
   checkChoice,
@@ -80,10 +81,7 @@ import {
   spokenLanguage,
   WHISPER_LANGUAGES,
 } from "./runtime.ts";
-import { scopes } from "./scopes.ts";
 import { subjectMask } from "./subject.ts";
-import { sync } from "./sync.ts";
-import { along, type Point, track } from "./track.ts";
 
 /**
  * Groups VAD's speech segments into chunks of at most `maxSamples`, so a long
@@ -153,18 +151,6 @@ export function timedWords(words: AsrWord[], offsetMs: number): AsrWord[] {
     .map((w) => ({ ...w, word: stripNonSpeech(w.word) }))
     .filter((w) => /[\p{L}\p{N}]/u.test(w.word));
 }
-
-const clock = (ms: number) => {
-  const s = Math.floor(ms / 1000);
-  const hh = Math.floor(s / 3600);
-  const mm = String(Math.floor(s / 60) % 60).padStart(2, "0");
-  const ss = String(s % 60).padStart(2, "0");
-  return hh ? `${hh}:${mm}:${ss}` : `${mm}:${ss}`;
-};
-
-/** A clock to the hundredth of a second, for cutting on a word: `01:23.48`. */
-export const fineClock = (ms: number) =>
-  `${clock(ms)}.${String(Math.floor((ms % 1000) / 10)).padStart(2, "0")}`;
 
 /**
  * Spells words the user's way: their `heard => term` corrections, then names
@@ -270,134 +256,6 @@ export async function transcribe(
   } finally {
     await engines.close();
   }
-}
-
-/**
- * Stills from a video, one every `every` seconds, as JPEGs in a new temp
- * folder; from `from` to `to` seconds if given.
- */
-async function frames(
-  path: string,
-  every: number,
-  { from = 0, to }: { from?: number; to?: number } = {},
-): Promise<string> {
-  requireFile(path, "File");
-  const source = await probe(path);
-  if (!source.video) return `${path} has no video, only audio. \`transcribe\` reads it.`;
-  // Stills from an HDR source as SDR, as render shows it, not flat and grey.
-  const sdr = toSdrFor(source.transfer);
-  const end = Math.min(to ?? source.seconds, source.seconds);
-  const times: number[] = [];
-  for (let t = from; t < end; t += every) times.push(t);
-  if (!times.length) throw new Error(`No stills from ${from}s: ${path} is ${source.seconds}s.`);
-  const dir = mkdtempSync(join(tmpdir(), "mockingbird-frames-"));
-  const stills: string[] = [];
-  try {
-    for (const t of times) {
-      // Each still seeks straight to its time, so a long 4K video isn't decoded end to end.
-      const file = join(dir, `${String(stills.length + 1).padStart(4, "0")}.jpg`);
-      const proc = Bun.spawn(
-        [
-          ...[
-            "ffmpeg",
-            "-nostdin",
-            "-loglevel",
-            "error",
-            "-hwaccel",
-            "auto",
-            "-ss",
-            String(t),
-            "-i",
-            path,
-          ],
-          ...["-frames:v", "1", "-vf", `${sdr ? `${sdr},` : ""}scale='min(1280,iw)':-2`, file],
-        ],
-        { stderr: "pipe" },
-      );
-      if ((await proc.exited) !== 0) {
-        const why = (await new Response(proc.stderr).text()).trim();
-        throw new Error(`ffmpeg couldn't read frames from ${path}: ${why}`);
-      }
-      // A time in the last moments, after the final frame, gives no still.
-      if (readdirSync(dir).length > stills.length) stills.push(`[${clock(t * 1000)}] ${file}`);
-    }
-  } catch (error) {
-    rmSync(dir, { recursive: true, force: true });
-    throw error;
-  }
-  return stills.join("\n");
-}
-
-/**
- * The shot changes ffmpeg's `scdet` logged, `from` seconds added back, since
- * a seek starts its times at 0: `lavfi.scd.score: 29.3, lavfi.scd.time: 2`.
- */
-export function parseScenes(log: string, from = 0): { at: number; score: number }[] {
-  return (
-    [...log.matchAll(/lavfi\.scd\.score: ([\d.]+), lavfi\.scd\.time: ([\d.]+)/g)]
-      // To the millisecond, so a seek that started a frame early doesn't read 3.9999 as 3.99.
-      .map(([, score, at]) => ({
-        at: Math.round((from + Number(at)) * 1000) / 1000,
-        score: Number(score),
-      }))
-      .filter((c) => c.score > 0)
-  ); // At threshold 0, an unchanged frame is logged too.
-}
-
-/**
- * The shot changes in a video, from `from` to `to` seconds: ffmpeg's `scdet`
- * over each frame shrunk to 180 lines, which is plenty to see a cut and
- * quick to compare. `threshold` (0-100, default 10) is how different two
- * frames must be to count; a jump cut in one shot scores lower than a cut
- * to another shot. Decoded with the hardware when there's a decoder for it:
- * a minute of 4K HEVC from a phone took 21.6 s that way, 165.6 s without.
- */
-async function scenes(
-  path: string,
-  { from = 0, to, threshold = 10 }: { from?: number; to?: number; threshold?: number },
-): Promise<string> {
-  requireFile(path, "File");
-  const source = await probe(path);
-  if (!source.video) return `${path} has no video, only audio.`;
-  // ffprobe can't always tell a length (some streams and broken files): 0 then
-  // means unknown, so the asked-for range is scanned, or to the end.
-  const known = source.seconds > 0;
-  const end = known ? Math.min(to ?? source.seconds, source.seconds) : to;
-  if (end !== undefined && !(end > from))
-    throw new Error(`Nothing to look at from ${from}s: ${path} is ${source.seconds}s.`);
-  // scdet compares each frame with the one before, so a cut on the first frame
-  // needs a frame before it: start one early and drop cuts before `from`.
-  const start = Math.max(0, from - 1 / source.fps);
-  const run = async (hw: boolean) => {
-    const proc = Bun.spawn(
-      [
-        ...["ffmpeg", "-nostdin", "-nostats", ...(hw ? ["-hwaccel", "auto"] : [])],
-        ...["-ss", String(start), ...(end === undefined ? [] : ["-t", String(end - start)])],
-        ...["-i", path, "-an"],
-        ...["-vf", `scale=-2:180,scdet=threshold=${threshold}`, "-f", "null", "-"],
-      ],
-      { stderr: "pipe" },
-    );
-    const said = await new Response(proc.stderr).text();
-    return { said, code: await proc.exited };
-  };
-  // A hardware decoder that can't hand its frames over fails; software then.
-  let { said, code } = await run(true);
-  if (code !== 0) ({ said, code } = await run(false));
-  if (code !== 0) {
-    throw new Error(
-      `ffmpeg couldn't look for cuts in ${path}: ${said.trim().split("\n").slice(-3).join("\n")}`,
-    );
-  }
-  const half = 1 / source.fps / 2;
-  const cuts = parseScenes(said, start).filter((c) => c.at >= from - half);
-  const length = end === undefined ? 0 : end - from;
-  const pace = length
-    ? `, ${((cuts.length / length) * 60).toFixed(1)} a minute, ${(length / (cuts.length + 1)).toFixed(1)} s a shot`
-    : "";
-  const until = end === undefined ? "the end (its length is unknown)" : fineClock(end * 1000);
-  const head = `${path}: ${cuts.length} cut${cuts.length === 1 ? "" : "s"} from ${fineClock(from * 1000)} to ${until}${pace}`;
-  return [head, ...cuts.map((c) => `[${fineClock(c.at * 1000)}] ${c.score.toFixed(1)}`)].join("\n");
 }
 
 /** The captions file's name in render's temp folder. */
@@ -610,7 +468,6 @@ const MAX_GAIN = 30;
 const SQUARE = "scale='trunc(iw*sar/2)*2':ih,setsar=1";
 
 /** What SQUARE does to a width: down to an even number. */
-const even = (n: number) => Math.trunc(n / 2) * 2;
 
 /** `area` of the picture, scaled and cropped to fill `w`x`h`. Even sizes, which yuv420p needs. */
 const fill = ({ x, y, w, h }: Area, size: string) =>
@@ -965,76 +822,6 @@ export function mixGraph(
   return [...lift, ...keys, ...mixed, ...sound];
 }
 
-/**
- * The streams in a media file, how long it is, its picture's size as played
- * (`WxH`, turned for a phone video recorded on its side) and short side, and
- * its frame rate.
- */
-async function probe(path: string): Promise<{
-  video: boolean;
-  audio: boolean;
-  seconds: number;
-  side: number;
-  size: string;
-  fps: number;
-  /** The picture's codec and pixel format, e.g. "h264" and "yuv420p". */
-  codec: string;
-  pix: string;
-  /** Its HDR transfer, or undefined for SDR. */
-  transfer?: Transfer;
-}> {
-  const proc = Bun.spawn(
-    [
-      "ffprobe",
-      ...["-v", "error", "-show_entries"],
-      "stream=codec_type,codec_name,pix_fmt,color_transfer,width,height,sample_aspect_ratio,avg_frame_rate:stream_side_data=rotation:format=duration",
-      ...["-of", "json", path],
-    ],
-    { stderr: "pipe" },
-  );
-  const out = await new Response(proc.stdout).text();
-  if ((await proc.exited) !== 0) {
-    throw new Error(
-      `ffprobe couldn't read ${path}: ${(await new Response(proc.stderr).text()).trim()}`,
-    );
-  }
-  const { streams = [], format } = JSON.parse(out);
-  type Stream = {
-    codec_type: string;
-    codec_name?: string;
-    pix_fmt?: string;
-    color_transfer?: string;
-    width?: number;
-    height?: number;
-    sample_aspect_ratio?: string;
-    avg_frame_rate?: string;
-    side_data_list?: { rotation?: number }[];
-  };
-  const has = (type: string) => streams.some((s: Stream) => s.codec_type === type);
-  const picture: Stream | undefined = streams.find((s: Stream) => s.codec_type === "video");
-  const { width: w = 0, height: h = 0 } = picture ?? {};
-  const [num, den] = (picture?.sample_aspect_ratio ?? "1:1").split(":").map(Number);
-  const sar = num && den ? num / den : 1;
-  // ffmpeg turns the picture upright as it decodes, so filters see it turned,
-  // with its pixel ratio turned over too. The size is SQUARE's, so every clip matches it.
-  const turned = Math.abs(picture?.side_data_list?.find((d) => d.rotation)?.rotation ?? 0) === 90;
-  const [width, height] = turned ? [even(h / sar), w] : [even(w * sar), h];
-  // "30000/1001"; a still picture or an odd file says "0/0".
-  const [fn, fd] = (picture?.avg_frame_rate ?? "0/0").split("/").map(Number);
-  const fps = fn && fd ? Number((fn / fd).toFixed(3)) : 30;
-  return {
-    fps,
-    codec: picture?.codec_name ?? "",
-    pix: picture?.pix_fmt ?? "",
-    transfer: transferOf(picture?.color_transfer),
-    video: has("video"),
-    audio: has("audio"),
-    seconds: Number(format?.duration ?? 0),
-    side: Math.min(width, height),
-    size: `${width}x${height}`,
-  };
-}
-
 /** Whether this ffmpeg can draw subtitles onto the picture. Homebrew's is built without libass. */
 let burnable: Promise<boolean> | undefined;
 const canBurn = () => {
@@ -1226,7 +1013,7 @@ export const BLENDS = [
  */
 export type Look = {
   /** `path`, from `track`: the box's top left over time, from the insert's start. */
-  box?: { x: number; y: number; w: number; h: number; path?: Point[] };
+  box?: { x: number; y: number; w: number; h: number; path?: TrackPoint[] };
   blend?: string;
   effects?: Effect[];
   moves?: Move[];
@@ -3780,7 +3567,7 @@ function tracked(value: unknown, what: string): NonNullable<Look["box"]> {
   const path = (value as { path?: unknown } | null)?.path;
   if (path === undefined) return area(value, what);
   checkPath(path, `${what}.path`);
-  return { ...area(value, what), path: path as Point[] };
+  return { ...area(value, what), path: path as TrackPoint[] };
 }
 
 /** The tools still defined here, until each moves to its domain's tools.ts (#300). */
@@ -4263,80 +4050,6 @@ export function engineTools(status: () => Promise<object>, log: (m: string) => v
       run: async () => catalog(),
     },
     {
-      name: "sync",
-      description:
-        "Line up recordings of one take (two or more cameras, or a camera and a separate recorder) by their sound, for a multicam edit. Gives each file's offset against the first: a moment at t seconds in it is at t + offset in the first. To cut to another angle at T seconds of the first's clock, add a project clip from that file with from = T - offset. Reads the first `window` seconds of each (default 120); a score under about 0.3 means the sound didn't match and the offset is a guess. It finds offsets up to half the window: for recordings started more than a minute apart, give a window over twice the gap.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          paths: {
-            type: "array",
-            items: { type: "string" },
-            description: "The recordings, the first as the reference",
-          },
-          window: {
-            type: "number",
-            description:
-              "Seconds of each to compare (default 120); offsets up to half of it are found",
-          },
-        },
-        required: ["paths"],
-      },
-      run: async (a) => {
-        const paths = items(a.paths as unknown).map((p) => requireFile(resolve(String(p)), "File"));
-        const done = await sync(paths, within(a.window, 10, 1200, "window", 120));
-        return done
-          .map((d, i) =>
-            i === 0
-              ? `${d.path}: the reference`
-              : `${d.path}: offset ${d.offset >= 0 ? "+" : ""}${d.offset.toFixed(3)} s (score ${d.score.toFixed(2)}${d.score < 0.3 ? ", a guess" : ""})`,
-          )
-          .join("\n");
-      },
-    },
-    {
-      name: "track",
-      description:
-        "Follow a box through a video: give where the subject is at `from` (x, y, w, h, 0-1 of the picture) and get its top left over time, five points a second, `at` seconds from `from`. Give the points as a mask's `path` (with the box's w and h) to keep a blur or a grade on a moving face, plate or logo. They're in the source picture, so they line up with the clip when it isn't reframed. `worst` is the weakest match on the way: under about 0.5 the subject was probably lost there; track shorter stretches. Up to two minutes a call.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          path: { type: "string" },
-          from: { type: "number", description: "Seconds where the box is given" },
-          to: { type: "number", description: "Seconds to follow it to" },
-          box: {
-            type: "object",
-            properties: {
-              x: { type: "number" },
-              y: { type: "number" },
-              w: { type: "number" },
-              h: { type: "number" },
-            },
-            required: ["x", "y", "w", "h"],
-          },
-        },
-        required: ["path", "from", "to", "box"],
-      },
-      run: async (a) => {
-        const path = requireFile(resolve(String(a.path)), "File");
-        const source = await probe(path);
-        const from = within(a.from, 0, source.seconds, "from", 0);
-        // Two minutes at most: every frame is held at 320 wide, about 330 MB for a 9:16 window.
-        const end = Math.min(source.seconds, from + 120);
-        const to = within(a.to, from, end, "to", end);
-        const b = (a.box ?? {}) as Record<string, unknown>;
-        const box = {
-          x: within(b.x, 0, 1, "box.x", 0),
-          y: within(b.y, 0, 1, "box.y", 0),
-          w: within(b.w, 0.01, 1, "box.w", 0.2),
-          h: within(b.h, 0.01, 1, "box.h", 0.2),
-        };
-        if (box.x + box.w > 1 || box.y + box.h > 1) throw new Error("box must fit in the picture");
-        const [w, h] = source.size.split("x").map(Number) as [number, number];
-        return JSON.stringify(await track(path, from, to, box, w / h));
-      },
-    },
-    {
       name: "export",
       description:
         "Save a project as FCPXML 1.10 (Final Cut Pro, DaVinci Resolve, Premiere through it) and OpenTimelineIO (.otio: Resolve, Premiere, Avid through OTIO's adapters), so a person can finish the cut in an editor. Carries the clips with their source times and transitions, inserts on video tracks above, texts as titles (markers in OTIO) and sounds on audio tracks; returns what an editor can't take this way (effects, framing, generated music). Saves beside the project as <name>.fcpxml and <name>.otio, or in `out`, a folder, and never overwrites.",
@@ -4355,48 +4068,6 @@ export function engineTools(status: () => Promise<object>, log: (m: string) => v
       },
       run: async (a) =>
         exportProject(resolve(String(a.project)), String(a.format ?? "both"), a.out),
-    },
-    {
-      name: "scopes",
-      description:
-        "Measure a video's picture, as a colourist reads the scopes, since you can't judge a grade from a few stills: mean and 5th to 95th percentile luma, the histogram's shadows, mids and highlights, crushed blacks and clipped whites, mean saturation, and how far skin sits from the skin-tone line. Each number comes with what a graded picture usually shows. `from`/`to` (seconds) measure one stretch; it samples up to 60 frames. Grade with `effect`s, render, and measure again.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          path,
-          from: { type: "number", description: "Start, in seconds from the start of the file" },
-          to: { type: "number", description: "End, in seconds (default the end)" },
-          every: { type: "number", description: "Seconds between frames (default 1)" },
-        },
-        required: ["path"],
-      },
-      run: async (a) => {
-        const file = requireFile(resolve(String(a.path)), "File");
-        const info = await probe(file);
-        if (!info.video) throw new Error(`${file} has no video, only audio.`);
-        const from = seconds(a.from) ?? 0;
-        return scopes(file, info.size, {
-          from,
-          to: Math.min(seconds(a.to) ?? info.seconds, info.seconds),
-          every: within(a.every, 0.04, 600, "every", 1),
-          sdr: toSdrFor(info.transfer),
-        });
-      },
-    },
-    {
-      name: "audio_stats",
-      description:
-        "Measure a file's sound, since you can't listen to it: integrated loudness (aim for -14 LUFS), loudness range, true and sample peak (clipping), and noise floor. With speech: how much of it is speech, and how far under the voice the sound between phrases sits (music under speech: 18 to 24 dB under) and how much of the 1 to 4 kHz speech band it fills. The beat (tempo and where beats fall, to cut on) when there's a steady one: measure the music file itself, since speech over it hides the beat; and the sections where the energy changes for a while. `from`/`to` (seconds) measure one stretch; times come back from the start of the file.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          path,
-          from: { type: "number", description: "Start, in seconds from the start of the file" },
-          to: { type: "number", description: "End, in seconds from the start of the file" },
-        },
-        required: ["path"],
-      },
-      run: (a) => audioStats(resolve(String(a.path)), { from: seconds(a.from), to: seconds(a.to) }),
     },
     {
       name: "music",
@@ -4433,111 +4104,6 @@ export function engineTools(status: () => Promise<object>, log: (m: string) => v
           key: a.key === undefined ? undefined : String(a.key).slice(0, 40),
           energy: energy(a.energy),
         }),
-    },
-    {
-      name: "frames",
-      description:
-        "Save stills from a video file, one every `every` seconds (default 60), and return their paths with [mm:ss] times, to see slides and screen shares next to the transcript, or where the speaker is before framing a clip. `from`/`to` (seconds) take stills from one stretch only.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          path,
-          every: { type: "number", description: "Seconds between stills" },
-          from: { type: "number", description: "Start, in seconds from the start of the file" },
-          to: { type: "number", description: "End, in seconds from the start of the file" },
-        },
-        required: ["path"],
-      },
-      run: (a) =>
-        frames(String(a.path), Math.max(1, Number(a.every ?? 60)), {
-          from: seconds(a.from),
-          to: seconds(a.to),
-        }),
-    },
-    {
-      name: "scenes",
-      description:
-        "The cuts in a video: each shot change's time ([mm:ss.cc]) and how big a change it is (0-100), plus cuts a minute and seconds a shot. To find the shots in b-roll, a screen recording or multi-camera footage without looking at every frame, or to measure a reference video's pace. `from`/`to` (seconds) look at one stretch. `threshold` (0-100, default 10) is how different two frames must be: lower finds subtler cuts, such as a jump cut within one shot.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          path,
-          from: { type: "number", description: "Start, in seconds from the start of the file" },
-          to: { type: "number", description: "End, in seconds from the start of the file" },
-          threshold: {
-            type: "number",
-            minimum: 0,
-            maximum: 100,
-            description: "0-100 (default 10)",
-          },
-        },
-        required: ["path"],
-      },
-      run: (a) =>
-        scenes(String(a.path), {
-          from: seconds(a.from),
-          to: seconds(a.to),
-          threshold: within(a.threshold, 0, 100, "threshold", 10),
-        }),
-    },
-    {
-      name: "pauses",
-      description:
-        "The pauses in a file's sound (ffmpeg's silencedetect), and render's clips that keep the speech between them: each pause at least `minPause` seconds long is cut, `margin` seconds kept into it either side, and a stretch of 0.3 s or less is joined to the next so no word is lost. Returns one line per pause (start end length, in seconds of the file), then the clips as JSON for render. Short: minPause 0.3, margin 0.1. Long-form: 0.5 and 0.2. Whisper's word times smear across silences, so cut pauses with this, not with word gaps.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          path,
-          from: { type: "number", description: "Start, in seconds from the start of the file" },
-          to: { type: "number", description: "End, in seconds (default the end)" },
-          noise: {
-            type: "number",
-            description: "Quieter than this is a pause, in dB (default -35)",
-          },
-          shortest: {
-            type: "number",
-            description: "Shortest pause to report, in seconds (default 0.25)",
-          },
-          minPause: {
-            type: "number",
-            description: "Shortest pause to cut, in seconds (default 0.4)",
-          },
-          margin: {
-            type: "number",
-            description: "Kept into each cut pause, in seconds (default 0.15)",
-          },
-        },
-        required: ["path"],
-      },
-      run: async (a) => {
-        const file = requireFile(String(a.path), "File");
-        const from = seconds(a.from) ?? 0;
-        const length = (await probe(file)).seconds;
-        const end = Math.min(seconds(a.to) ?? length, length);
-        if (!(end > from))
-          throw new Error(`Nothing to look at from ${from}s: ${file} is ${length}s.`);
-        const found = await findPauses(file, {
-          from,
-          to: end,
-          noise: within(a.noise, -90, 0, "noise", -35),
-          shortest: within(a.shortest, 0.01, 10, "shortest", 0.25),
-        });
-        const clips = clipsFrom(found, from, end, {
-          min: within(a.minPause, 0.05, 30, "minPause", 0.4),
-          margin: within(a.margin, 0, 5, "margin", 0.15),
-        });
-        const lines = found.map(
-          (p) => `${p.start.toFixed(2)} ${p.end.toFixed(2)} ${p.length.toFixed(2)}`,
-        );
-        return `${lines.length ? lines.join("\n") : "no pauses"}\n\nclips: ${JSON.stringify(clips)}`;
-      },
-    },
-    {
-      name: "measure",
-      description:
-        "A finished video's picture size (WxH), length and loudness (EBU R128 integrated LUFS and true peak), to match a reference's style or check a render. Its cuts come from `scenes`.",
-      inputSchema: { type: "object", properties: { path }, required: ["path"] },
-      run: (a) => measure(requireFile(String(a.path), "File")),
     },
     {
       name: "guide",

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { catalog, checkEffects, effectFilters, maskSource, pictureSteps } from "../src/effects.ts";
+import { measure } from "../src/inspect/scopes.ts";
 import { renderGraph } from "../src/mcp.ts";
-import { measure } from "../src/scopes.ts";
 
 test("effects are checked against the catalog", () => {
   expect(checkEffects([{ name: "color", exposure: 1 }], "fx")).toEqual([
