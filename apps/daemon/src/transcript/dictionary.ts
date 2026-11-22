@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { type DictionaryEntry, openStore, parseDictionary, type Store } from "@mockingbird/store";
-import { mockingbirdHome } from "./runtime.ts";
+import { mockingbirdHome } from "../runtime.ts";
 
 const USAGE = `Usage: mockingbird dictionary [list | add <entry> | remove <term>]
 

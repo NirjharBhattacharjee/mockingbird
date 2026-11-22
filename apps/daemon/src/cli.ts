@@ -1,7 +1,6 @@
 import { existsSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { main as dictionaryMain, readDictionary } from "./dictionary.ts";
 import { serve } from "./mcp/server.ts";
 import {
   findChrome,
@@ -28,6 +27,7 @@ import {
 } from "./runtime.ts";
 import { doctor, OLD_PLUGIN_FIX, oldPlugin, setup } from "./setup.ts";
 import { main as transcribeMain, UsageError } from "./transcribe.ts";
+import { main as dictionaryMain, readDictionary } from "./transcript/dictionary.ts";
 import { uninstall } from "./uninstall.ts";
 
 /** The commands, for `--help`. */
