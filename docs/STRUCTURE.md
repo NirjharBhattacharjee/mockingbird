@@ -37,8 +37,8 @@ in a file at the root of `apps/daemon/src/`.
 | Project | edit ops, export | edit, export | mcp.ts, `packages/timeline` | `D/project/` |
 | Captions | cues from words, style, drawing | captions | mcp.ts, `packages/captions` | `D/captions/` |
 | Effects | catalog, filters, masks, subject mattes | effects | moved: `effects/tools.ts`, `catalog.ts`, `filters.ts`, `masks.ts`, `subject.ts`; `packages/matte` | `D/effects/` |
-| Motion | HTML pages, the kit, the sandbox | motion | mcp.ts, motion-run.ts, `packages/motion` | `D/motion/` |
-| | look boards | look | mcp.ts | `D/motion/` |
+| Motion | HTML pages, the kit, the sandbox | motion | moved: `motion/tools.ts`, `run.ts`, `kit.ts`, `runner.ts`; `packages/motion` | `D/motion/` |
+| | look boards | look | moved: `motion/look.ts` | `D/motion/` |
 | Render | types, camera movement (framing, moves), filter graph, mix | render, the make_short prompt | mcp.ts | `D/render/` |
 | | loudness to −14 LUFS | | mcp.ts | `D/render/` |
 | | music beds | music | mcp.ts | `D/render/` |
@@ -88,7 +88,7 @@ Tests may import anything.
 | inspect | install |
 | transcript | inspect, install |
 | effects | inspect (track's path points), install |
-| motion | install |
+| motion | inspect (`probe`, HDR to SDR), install |
 | screen | motion, install |
 | captions | transcript, motion, install |
 | project | transcript, captions, install |

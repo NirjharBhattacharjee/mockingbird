@@ -3,8 +3,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderHtml } from "@mockingbird/motion";
-import { KIT_URL } from "../src/mcp.ts";
 import { findChrome, fontFaces } from "../src/models.ts";
+import { KIT_URL } from "../src/motion/kit.ts";
 
 /**
  * The editor-reel pieces (#255), the scene camera (#274) and the light

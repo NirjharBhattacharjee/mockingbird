@@ -15,7 +15,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import type { AsrWord } from "@mockingbird/asr";
 import { tempo } from "@mockingbird/audio";
 import {
@@ -56,6 +56,8 @@ import { along, type TrackPoint } from "./inspect/track.ts";
 import { area, items, seconds, stretch, within } from "./mcp/args.ts";
 import type { Tool } from "./mcp/types.ts";
 import { findChrome, fontFaces } from "./models.ts";
+import { withKit } from "./motion/kit.ts";
+import { type Host, MOTION_MAX_SECONDS, makeMotion, needChrome, sandboxed } from "./motion/run.ts";
 import {
   checkChoice,
   type ModelChoice,
@@ -2000,214 +2002,22 @@ async function renderCut(
   }
 }
 
-/**
- * Word-by-word captions for the video `clips` make out of `path`, as SRT
- * for render: each clip transcribed with word times, then wordCaptions.
- */
-const MOTION_RUNNER = join(import.meta.dir, "motion-run.ts");
-/** Two hours: past any real video, short of a frame count that never ends. */
-const MOTION_MAX_SECONDS = 7200;
-
-/**
- * Runs MOTION_RUNNER with `options` in a fresh process, sandboxed with no
- * network where the OS can (Chrome blocks it everywhere): the script is the client's code, and mockingbird's only download
- * is `models pull`. Returns what it printed.
- */
-async function sandboxed(options: object, what: string): Promise<string> {
-  const proc = Bun.spawn(
-    [...noNetwork(), process.execPath, MOTION_RUNNER, JSON.stringify(options)],
-    { stdout: "pipe", stderr: "pipe" },
-  );
-  const [said, why, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  if (code !== 0) throw new Error(why.trim() || `${what} stopped (exit ${code})`);
-  return said;
-}
-
-/** Chrome's path, or the error that says how to get it. */
-function needChrome(): string {
-  const chrome = findChrome();
-  if (chrome) return chrome;
-  throw new Error(
-    process.env.MOCKINGBIRD_CHROME
-      ? `MOCKINGBIRD_CHROME is ${process.env.MOCKINGBIRD_CHROME}, which isn't a program that can run. Ask the user to fix it, or to unset it and run \`mockingbird models pull chrome\`.`
-      : "An HTML page renders in a headless Chrome that isn't downloaded yet. Ask the user to run `mockingbird models pull chrome` (about 100 MB), or to set MOCKINGBIRD_CHROME to one.",
-  );
-}
-
-/** The motion kit, as the URL a page imports it from. */
-export const KIT_URL = pathToFileURL(join(PLUGIN, "skills", "motion-graphics", "kit.js")).href;
-/** The explainer styles (whiteboard, comic and the rest), as the URL a page imports them from. */
-export const STYLES_URL = pathToFileURL(
-  join(PLUGIN, "skills", "motion-graphics", "styles.js"),
-).href;
-/** three.js, pinned and shipped with the plugin, as the URL a page imports it from (#270). */
-export const THREE_URL = pathToFileURL(
-  join(PLUGIN, "skills", "motion-graphics", "vendor", "three.module.min.js"),
-).href;
-/** three.js's add-ons for light and post-processing (#275): RoomEnvironment, EffectComposer, bloom, depth of field. */
-export const THREE_ADDONS_URL = pathToFileURL(
-  join(PLUGIN, "skills", "motion-graphics", "vendor", "three-addons.min.js"),
-).href;
-/** What a page can import by name, and where each one is. */
-const NAMED = {
-  KIT: KIT_URL,
-  STYLES: STYLES_URL,
-  THREE: THREE_URL,
-  THREE_ADDONS: THREE_ADDONS_URL,
-};
-
-/**
- * A template imports the kit `from "KIT"`, and motion fills it in (#213): an
- * agent replacing it by hand hit the template's comment first, and a Windows
- * path isn't a URL. The filled-in copy goes beside the page, so the page's own
- * files are where it says. `from "STYLES"`, `from "THREE"` and
- * `from "THREE_ADDONS"` are filled in the same way. Returns the page to load: `script` itself when it imports none.
- */
-export function withKit(script: string): string {
-  const html = readFileSync(script, "utf8");
-  const used = Object.entries(NAMED).filter(([name]) => html.includes(`from "${name}"`));
-  if (!used.length) return script;
-  const copy = join(dirname(script), `.${basename(script)}.${process.pid}-${Date.now()}.html`);
-  writeFileSync(
-    copy,
-    used.reduce(
-      (page, [name, url]) => page.replaceAll(`from "${name}"`, `from ${JSON.stringify(url)}`),
-      html,
-    ),
-  );
-  return copy;
-}
-
-/**
- * Renders `script`, an HTML page, in Chrome, over the video at `path` or on
- * its own at `size` for `duration` seconds, and saves the result. It runs in its own
- * sandboxed process with no network, Chrome included.
- */
-export async function motion(
-  script: string,
-  {
-    path,
-    size = "1080x1920",
-    duration,
-    fps = 30,
-    captions,
-    out,
-    gpu,
-  }: {
-    path?: string;
-    size?: string;
-    duration?: number;
-    fps?: number;
-    captions?: string;
-    out?: string;
-    /** Draw on the GPU; by default, when the page imports "THREE". */
-    gpu?: boolean;
-  },
-): Promise<string> {
-  requireFile(script, "Script");
-  if (path) requireFile(path, "File");
-  if (!/\.html?$/i.test(script)) {
-    throw new Error(
-      `motion renders an HTML page; ${script} isn't one. Canvas scripts went with the Canvas engine (#169): draw on a <canvas> in a page, with the kit's page() (guide("motion-graphics")).`,
-    );
-  }
-  const chrome = needChrome();
-  let seconds = duration;
-  let audio = false;
-  let picture = size;
-  let videoFilters: string | undefined;
-  if (path) {
-    const source = await probe(path);
-    if (!source.video) throw new Error(`${path} has no video, only audio.`);
-    picture = source.size;
-    audio = source.audio;
-    seconds = Math.min(duration ?? source.seconds, source.seconds);
-    // An HDR video is brought to SDR before the page sees it or it's drawn under (#252).
-    videoFilters = toSdrFor(source.transfer);
-  }
-  const [width = 0, height = 0] = picture.split("x").map(Number);
-  if (
-    !/^\d+x\d+$/.test(picture) ||
-    width % 2 ||
-    height % 2 ||
-    width < 16 ||
-    height < 16 ||
-    width > 4096 ||
-    height > 4096
-  ) {
-    throw new Error(`size must be WIDTHxHEIGHT, even, 16 to 4096; got ${picture}`);
-  }
-  if (!seconds) throw new Error("Give a `duration` in seconds, or a video `path` to draw over.");
-  if (!(seconds <= MOTION_MAX_SECONDS)) {
-    throw new Error(`duration must be at most ${MOTION_MAX_SECONDS} s; got ${seconds}`);
-  }
-  const target = outputFor(path ?? script, out, false, "motion");
-  const started = performance.now();
-  const page = withKit(script);
-  const options = {
-    script: page,
-    chrome,
-    out: target,
-    width,
-    height,
-    fps,
-    duration: seconds,
-    video: path,
-    audio,
-    cues: captions?.trim() ? parseSrt(captions) : [],
-    fonts: fontFaces(),
-    videoFilters,
-    // A three.js page draws on the GPU; 2D pages keep software rendering's exact pixels (#270).
-    gpu: gpu ?? /from "THREE(_ADDONS)?"/.test(readFileSync(script, "utf8")),
-  };
-  let said: string;
-  try {
-    said = await sandboxed(options, "the motion script");
-  } catch (error) {
-    rmSync(target, { force: true });
-    throw error;
-  } finally {
-    if (page !== script) rmSync(page, { force: true });
-  }
-  let frames = 0;
-  let warnings: string[] = [];
-  let fonts: unknown = [];
-  let work: string | undefined;
-  try {
-    // The runner's last line; a script's own console.log comes before it. A
-    // script that exits early leaves none, and the claimed target goes with the error.
-    let result: { frames?: unknown; sounds?: unknown; warnings?: unknown; fonts?: unknown } = {};
+/** Render's side of a motion draw, which motion/ can't import (render comes after motion). */
+export const motionHost: Host = {
+  outputFor,
+  claim,
+  ffmpeg,
+  async mix(target, { audio, sounds, seconds }) {
+    // A folder of its own beside the target: the same disk, so the move is a rename,
+    // and a name no one else's file can have.
+    const work = mkdtempSync(join(dirname(target), ".mockingbird-mix-"));
     try {
-      result = JSON.parse(said.trim().split("\n").at(-1) || "{}") ?? {};
-    } catch {}
-    frames = Number(result.frames);
-    warnings = Array.isArray(result.warnings) ? result.warnings.map(String) : [];
-    fonts = result.fonts;
-    if (!Number.isInteger(frames) || frames < 1) {
-      throw new Error("the motion script stopped without drawing; did it call process.exit?");
-    }
-    // The script's `audio` export, its paths already from the script's folder.
-    const sounds = items(result.sounds).map((t, i) => ({
-      path: requireFile(String(t.path), `audio[${i}]`),
-      at: within(t.at, 0, Number.MAX_VALUE, `audio[${i}].at`, 0),
-      volume: within(t.volume, 0, 4, `audio[${i}].volume`, 1),
-      loop: !!t.loop,
-      duck: !!t.duck,
-    }));
-    if (sounds.length) {
-      // A folder of its own beside the target: the same disk, so the move is a rename,
-      // and a name no one else's file can have.
-      work = mkdtempSync(join(dirname(target), ".mockingbird-mix-"));
       const mixing = join(work, "mix.mkv");
       const levelled = join(work, "levelled.mp4");
       const gain = audio ? await speechGain(["-i", target], ["[0:a]"]) : 0;
       const graph = [
         ...(audio ? ["[0:a]anull[speech]"] : []),
-        ...mixGraph(sounds, { speech: audio, length: frames / fps, first: 1, gain }),
+        ...mixGraph(sounds, { speech: audio, length: seconds, first: 1, gain }),
       ].join(";");
       const mix = Bun.spawn(
         [
@@ -2226,222 +2036,13 @@ export async function motion(
       }
       await level(mixing, levelled);
       renameSync(levelled, target);
+    } finally {
+      rmSync(work, { recursive: true, force: true });
     }
-  } catch (error) {
-    rmSync(target, { force: true });
-    throw error;
-  } finally {
-    if (work) rmSync(work, { recursive: true, force: true });
-  }
-  const took = ((performance.now() - started) / 1000).toFixed(1);
-  // Which fonts drew its text, so a substitution can't hide, and any it lacked (#276).
-  const families = Array.isArray(fonts) && fonts.length ? `; fonts: ${fonts.join(", ")}` : "";
-  const warned = warnings.length ? `. Warning: ${warnings.join(" ")}` : "";
-  return `${target} (${clock((frames / fps) * 1000)}, ${width}x${height}, ${fps} fps), drawn in ${took} s${families}${warned}`;
-}
-
-const MOTION = join(PLUGIN, "skills", "motion-graphics");
-/** The page a look board renders: templates/look-board.html. */
-export const LOOK_BOARD = join(MOTION, "templates", "look-board.html");
-
-/** Words from the video for the look board: a title, up to three short labels, and a number. */
-export type Board = {
-  title: string;
-  points: string[];
-  stat?: { value: number; unit?: string; label?: string };
+  },
 };
-
-/** A build message with its place: `file:line:column: message`, then the line. */
-function where(log: unknown): string {
-  const { message, position: p } = log as {
-    message?: string;
-    position?: { file: string; line: number; column: number; lineText: string } | null;
-  };
-  if (!p) return String(message ?? log);
-  return `${p.file}:${p.line}:${p.column}: ${message}\n  ${p.lineText.trim()}`;
-}
-
-/**
- * Builds the look the agent wrote at `file` (TypeScript or JavaScript) into
- * one module, `out` (`<name>.look.js` beside it by default), that a page
- * imports. "STYLES", "KIT" and "THREE" stay imports of the plugin's built
- * files by their file URLs, so the module holds only the look itself. A
- * mistake comes back with its line. Returns the module's path.
- */
-export async function buildLook(
-  file: string,
-  out = join(dirname(file), `${basename(file, extname(file))}.look.js`),
-): Promise<string> {
-  requireFile(file, "Look");
-  if (!/\.(ts|js|mjs)$/i.test(file)) {
-    throw new Error(`A look is a .ts or .js module; ${file} isn't one.`);
-  }
-  let built: Awaited<ReturnType<typeof Bun.build>>;
-  try {
-    built = await Bun.build({
-      entrypoints: [file],
-      target: "browser",
-      format: "esm",
-      plugins: [
-        {
-          name: "mockingbird-look",
-          setup(b) {
-            // The plugin's built files, imported by their file URLs, not bundled:
-            // the kit finds its sounds and grain beside itself (a bundled copy
-            // would look beside the look), and a page that imports STYLES too
-            // loads one copy of the styles, not two (#263).
-            const external = (path: string) => () => ({ path, external: true });
-            b.onResolve({ filter: /^KIT$|[\\/]kit\.ts$/ }, external(KIT_URL));
-            b.onResolve({ filter: /^STYLES$/ }, external(STYLES_URL));
-            b.onResolve({ filter: /^THREE$/ }, external(THREE_URL));
-          },
-        },
-      ],
-    });
-  } catch (error) {
-    const logs = (error as { errors?: unknown[] }).errors;
-    throw new Error(
-      `The look at ${file} doesn't build:\n${logs?.length ? logs.map(where).join("\n") : String(error)}`,
-    );
-  }
-  const [module] = built.outputs;
-  if (!built.success || !module) {
-    throw new Error(`The look at ${file} doesn't build:\n${built.logs.map(where).join("\n")}`);
-  }
-  writeFileSync(out, await module.text());
-  return out;
-}
-
-/** `v` as board words, or an error naming what's wrong. */
-export function boardFrom(v: unknown): Board {
-  const o = (v ?? {}) as Record<string, unknown>;
-  if (typeof o !== "object" || Array.isArray(o)) throw new Error("board must be an object");
-  const short = (s: unknown, what: string, max: number) => {
-    if (typeof s !== "string" || !s.trim()) throw new Error(`${what} must be some words`);
-    const t = s.trim();
-    if (t.length > max) throw new Error(`${what} is ${t.length} characters; keep it to ${max}`);
-    return t;
-  };
-  const points = o.points ?? [];
-  if (!Array.isArray(points) || points.length > 3) {
-    throw new Error("board.points must be a list of up to three labels");
-  }
-  // null is no stat, as a client leaving it out often sends it.
-  const stat = (o.stat ?? undefined) as Record<string, unknown> | undefined;
-  if (stat !== undefined && (typeof stat !== "object" || Array.isArray(stat))) {
-    throw new Error("board.stat must be { value, unit?, label? }");
-  }
-  return {
-    title: o.title === undefined ? "Your video" : short(o.title, "board.title", 60),
-    points: points.map((p, i) => short(p, `board.points[${i}]`, 24)),
-    stat:
-      stat === undefined
-        ? undefined
-        : {
-            value: within(stat.value, -1e9, 1e9, "board.stat.value"),
-            unit: stat.unit === undefined ? undefined : short(stat.unit, "board.stat.unit", 4),
-            label: stat.label === undefined ? undefined : short(stat.label, "board.stat.label", 24),
-          },
-  };
-}
-
-/**
- * `out`, or `<look>-board-N.mp4` beside the look with the first N whose clip
- * and contact sheet are both free. The sheet is claimed here; the clip is
- * left for `motion` to claim.
- */
-function boardTarget(file: string, out: string | undefined): { clip: string; sheet: string } {
-  const sheetOf = (clip: string) => `${clip.replace(/\.mp4$/i, "")}-sheet.jpg`;
-  if (out) {
-    const sheet = sheetOf(out);
-    if (existsSync(out) || !claim(sheet)) {
-      throw new Error(`${out} or its sheet ${sheet} already exists; give another \`out\`.`);
-    }
-    return { clip: out, sheet };
-  }
-  const base = join(dirname(file), basename(file, extname(file)));
-  for (let n = 1; ; n++) {
-    const clip = `${base}-board-${n}.mp4`;
-    if (!existsSync(clip) && claim(sheetOf(clip))) return { clip, sheet: sheetOf(clip) };
-  }
-}
-
-/**
- * Shows a look before editing starts (#262): builds it, draws it, and saves
- * the clip and a contact sheet of twelve stills beside the look, for the user
- * to approve or send back. With `page`, the agent's own board (a page that
- * imports the look `from "LOOK"`, drawn from the video's content) is drawn,
- * over `path` if given; without, a generic storyboard of `board`'s words.
- */
-async function lookBoard(
-  file: string,
-  board: Board,
-  {
-    size = "1920x1080",
-    duration = 8.5,
-    out,
-    page: own,
-    path,
-  }: { size?: string; duration?: number; out?: string; page?: string; path?: string },
-): Promise<string> {
-  if (own) requireFile(own, "Board page");
-  if (path) requireFile(path, "File");
-  // Claimed before anything is written, so a taken `out` leaves nothing behind.
-  const { clip: target, sheet } = boardTarget(file, out);
-  // This board's own build, so a rebuild running alongside can't swap it out;
-  // the stable <name>.look.js beside it is what the edit's pages import.
-  const stamp = `${process.pid}-${randomUUID()}`;
-  const mine = join(dirname(file), `.${basename(file)}.${stamp}.look.js`);
-  const module = join(dirname(file), `${basename(file, extname(file))}.look.js`);
-  const template = own ?? LOOK_BOARD;
-  const page = join(dirname(own ?? file), `.${basename(template)}.board-${stamp}.html`);
-  let drawn: string;
-  try {
-    await buildLook(file, mine);
-    const url = JSON.stringify(pathToFileURL(mine).href);
-    // Inline as data, never as code: "<" escaped so a title can't close the script,
-    // and given through callbacks so "$&" in it isn't a replacement pattern.
-    const words = JSON.stringify(board).replace(/</g, "\\u003c");
-    writeFileSync(
-      page,
-      readFileSync(template, "utf8")
-        .replaceAll('from "LOOK"', () => `from ${url}`)
-        .replaceAll('const BOARD = "BOARD";', () => `const BOARD = ${words};`),
-    );
-    // A 3D look draws on the GPU, as a page that imports THREE does.
-    const gpu = readFileSync(file, "utf8").includes('from "THREE"');
-    drawn = await motion(
-      page,
-      path ? { path, duration, out: target, gpu } : { size, duration, out: target, gpu },
-    );
-    // Twelve stills over the clip as drawn: over a shorter `path`, it's shorter than `duration`.
-    const length = (await probe(target)).seconds || duration;
-    await ffmpeg(
-      ["-i", target, "-vf", `fps=12/${length},scale=480:-2,tile=4x3`, "-frames:v", "1", sheet],
-      "make the contact sheet",
-    );
-    // Only a look that drew becomes the one the edit's pages import, swapped in
-    // whole so a render reading it never sees half a file.
-    const swap = `${module}.${stamp}.tmp`;
-    copyFileSync(mine, swap);
-    renameSync(swap, module);
-  } catch (error) {
-    rmSync(sheet, { force: true });
-    rmSync(target, { force: true });
-    throw error;
-  } finally {
-    rmSync(page, { force: true });
-    rmSync(mine, { force: true });
-  }
-  const pageUrl = JSON.stringify(pathToFileURL(module).href);
-  return [
-    `Look board: ${drawn}`,
-    `Stills: ${sheet}`,
-    `Built look: ${module}. A page imports it with \`import look from ${pageUrl}\` and draws with look.make(ctx, t, m).`,
-    'Now show the user the stills and the clip, and ask them, word for word: "Should I edit with this look, or what should change?" Don\'t start editing until they say yes.',
-    "When they do, save it in the project with edit's set { look: { file, mood, approved: true } }. If they say to skip the look, set { look: { skipped: true } }.",
-  ].join("\n");
-}
+/** Draws an HTML page in Chrome (motion/), with this file's output naming and mixing. */
+export const motion = makeMotion(motionHost);
 
 /** The rate every generated track is made at. */
 const MUSIC_RATE = 48000;
@@ -3380,92 +2981,6 @@ export function engineTools(status: () => Promise<object>, log: (m: string) => v
           choiceOf(a),
         );
       },
-    },
-    {
-      name: "look",
-      description:
-        'Shows a look before editing starts (guide("look")): `file` is a style module you wrote for this video (.ts or .js) whose default export is { id, name, category, make(ctx, t, m) } returning the pieces every style draws (surface, title, label, node, box, link, store, stat, mark, finish), with any of your own beside them. It can import the styles and their helpers from "STYLES" and the kit from "KIT". The look is built into `<name>.look.js` beside it and drawn on a board, then saved as a clip and a sheet of twelve stills for the user to approve. Write the board yourself as `page`, an HTML page that imports the look `from "LOOK"` and shows the real content of the video in it (its subjects, its words, over the footage as `path`). Without a `page`, a generic storyboard of the words in `board` is drawn, which only checks that the pieces work. Runs in the pinned headless Chrome with no network. A mistake in the look comes back with its line.',
-      inputSchema: {
-        type: "object",
-        properties: {
-          file: { type: "string", description: "Absolute path to the look (.ts or .js)" },
-          board: {
-            type: "object",
-            description:
-              "Words from the video: title (up to 60 characters), points (up to three labels of up to 24), stat { value, unit, label } for its key number",
-            properties: {
-              title: { type: "string" },
-              points: { type: "array", items: { type: "string" } },
-              stat: {
-                type: "object",
-                properties: {
-                  value: { type: "number" },
-                  unit: { type: "string" },
-                  label: { type: "string" },
-                },
-              },
-            },
-          },
-          page: {
-            type: "string",
-            description:
-              'Absolute path to your own board page (.html) that imports the look `from "LOOK"` (and "KIT" or "STYLES" if it likes) and draws the video\'s real content in it. Without one, a generic storyboard of `board` is drawn',
-          },
-          path: {
-            type: "string",
-            description:
-              "Absolute path to a video for the board to draw over (the page gets its frames as m.video)",
-          },
-          duration: { type: "number", description: "Seconds, 1 to 60 (default 8.5)" },
-          size: {
-            type: "string",
-            description: 'WIDTHxHEIGHT (default "1920x1080"; "1080x1920" for a short)',
-          },
-          out: {
-            type: "string",
-            description: "Absolute path for the clip (default beside the look)",
-          },
-        },
-        required: ["file"],
-      },
-      run: async (a) =>
-        lookBoard(resolve(String(a.file)), boardFrom(a.board), {
-          size: a.size === undefined ? undefined : String(a.size),
-          duration: within(a.duration, 1, 60, "duration", 8.5),
-          out: a.out === undefined ? undefined : resolve(String(a.out)),
-          page: a.page === undefined ? undefined : resolve(String(a.page)),
-          path: a.path === undefined ? undefined : resolve(String(a.path)),
-        }),
-    },
-    {
-      name: "motion",
-      description:
-        "Motion graphics written as code. `script` is an HTML page, rendered in a pinned headless Chrome at the video's size, with a transparent background: any HTML, CSS, SVG, fonts and images by relative path. For each frame at `t` seconds, every CSS animation, transition and Web Animation is set to `t` (stylesheet animations start at 0, so time them with animation-delay; one started later runs from when it started), requestAnimationFrame callbacks run with performance.now() and Date.now() frozen at `t`, and `mockingbird.draw(t, m)`, if the page sets it, is called and awaited. The global `mockingbird` (also `m`) has width, height, fps, duration, frame and cues, and is there before the page's own scripts run, so a page can build captions from cues as it loads. Sound: set `mockingbird.audio = [{ path, at, volume, loop, duck }]` (paths from the page's folder), mixed in as render's audio is, ducked under any speech if `duck`, and brought to -14 LUFS. With `path` (usually render's output), the page is laid over each frame of that video, whose sound is kept; or, if the page sets `mockingbird.drawVideo = true`, it gets each frame as `m.video` (an ImageBitmap) before draw and draws the whole picture itself, e.g. ctx.drawImage(m.video, ...) on a <canvas> to zoom, shake, cut between framings or make a picture-in-picture. setTimeout runs in real time, so don't time anything with it; Math.random is seeded, the same every render. Without `path`, give `size` and `duration`. Saves to `out` or <name>-motion-N.mp4 and never overwrites. The page runs in a sandbox with no network access.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          script: {
-            type: "string",
-            description: "Absolute path to the .html page",
-          },
-          path: { type: "string", description: "Absolute path to a video to draw over" },
-          captions: { type: "string", description: "SRT for m.cues, timed to the video" },
-          size: { type: "string", description: "WIDTHxHEIGHT without `path` (default 1080x1920)" },
-          duration: { type: "number", description: "Seconds; without `path`, required" },
-          fps: { type: "number", description: "Frames a second, 1-120 (default 30)" },
-          out: { type: "string", description: "Absolute path for the MP4" },
-        },
-        required: ["script"],
-      },
-      run: (a) =>
-        motion(resolve(String(a.script)), {
-          path: a.path === undefined ? undefined : resolve(String(a.path)),
-          size: a.size === undefined ? undefined : String(a.size),
-          duration: seconds(a.duration),
-          fps: Math.round(within(a.fps, 1, 120, "fps", 30)),
-          captions: a.captions === undefined ? undefined : String(a.captions),
-          out: a.out === undefined ? undefined : resolve(String(a.out)),
-        }),
     },
     {
       name: "export",

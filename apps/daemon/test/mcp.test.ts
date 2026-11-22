@@ -20,31 +20,26 @@ import { parseScenes } from "../src/inspect/scenes.ts";
 import { handle, PROMPTS } from "../src/mcp/server.ts";
 import { mcpTools } from "../src/mcp/tools.ts";
 import {
-  boardFrom,
-  buildLook,
   CLIPS_PER_PASS,
   captionFontWarning,
-  KIT_URL,
-  LOOK_BOARD,
   levelGains,
   lookCaptions,
   mixGraph,
   moving,
   pieces,
   renderGraph,
-  STYLES_URL,
   seekClips,
   segments,
   soundOf,
-  THREE_ADDONS_URL,
-  THREE_URL,
   tempo,
   timeline,
   transcriptionAt,
-  withKit,
   wordCaptions,
 } from "../src/mcp.ts";
 import { findChrome } from "../src/models.ts";
+import { KIT_URL, STYLES_URL, THREE_ADDONS_URL, THREE_URL, withKit } from "../src/motion/kit.ts";
+import { buildLook, LOOK_BOARD } from "../src/motion/look.ts";
+import { boardFrom } from "../src/motion/motion.schema.ts";
 import { mockingbirdHome } from "../src/runtime.ts";
 import { spans } from "../src/transcript/clips.ts";
 import { chunks, timedLines, timedWords } from "../src/transcript/transcribe.ts";
