@@ -21,13 +21,19 @@ export const LIMITS = [
     max: 200,
     globs: [
       "apps/daemon/src/mcp.ts",
+      "apps/daemon/src/mcp/**",
+      "apps/daemon/src/*/tools.ts",
       "apps/daemon/src/cli.ts",
-      "apps/daemon/src/tools/**",
+      "apps/daemon/src/agent.ts",
+      "apps/daemon/src/motion/runner.ts",
       "apps/cli/main.go",
     ],
   },
-  { max: 600, globs: ["**/*.test.ts", "**/*_test.go"] },
-  { max: 500, globs: ["**/*.md", "**/*.json", "**/*.yml", "**/*.yaml", "**/*.toml"] },
+  { max: 600, globs: ["**/test/**/*.ts", "**/*.test.ts", "**/*_test.go"] },
+  {
+    max: 500,
+    globs: ["**/*.schema.ts", "**/*.md", "**/*.json", "**/*.yml", "**/*.yaml", "**/*.toml"],
+  },
   { max: 350, globs: ["**"] },
 ].map((r) => ({ max: r.max, globs: r.globs.map((g) => new Bun.Glob(g)) }));
 
@@ -60,17 +66,32 @@ export function check(files: Map<string, string>, allow: Allow): string[] {
   return errors;
 }
 
-if (import.meta.main) {
-  const root = join(import.meta.dir, "..");
-  const tracked = Bun.spawnSync(["git", "ls-files", "-z"], { cwd: root })
-    .stdout.toString()
-    .split("\0");
+/** Each file git knows under `paths` (and, with `untracked`, new files not ignored), by path. */
+export function repoFiles(
+  root: string,
+  paths: string[] = [],
+  untracked = false,
+): Map<string, string> {
+  const args = [
+    "git",
+    "ls-files",
+    "-z",
+    ...(untracked ? ["--cached", "--others", "--exclude-standard"] : []),
+  ];
+  const git = Bun.spawnSync([...args, "--", ...paths], { cwd: root });
+  if (git.exitCode !== 0) throw new Error(`git ls-files failed: ${git.stderr.toString().trim()}`);
   const files = new Map<string, string>();
-  for (const path of tracked.filter(Boolean)) {
+  for (const path of git.stdout.toString().split("\0").filter(Boolean)) {
     try {
       files.set(path, readFileSync(join(root, path), "utf8"));
     } catch {} // submodule directory or deleted file
   }
+  return files;
+}
+
+if (import.meta.main) {
+  const root = join(import.meta.dir, "..");
+  const files = repoFiles(root);
   const allow: Allow = JSON.parse(
     readFileSync(join(root, "scripts/file-size-allowlist.json"), "utf8"),
   );

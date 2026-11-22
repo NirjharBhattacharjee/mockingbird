@@ -11,6 +11,10 @@ test("classifies files, first rule wins", () => {
   expect(limitFor("apps/daemon/src/mcp.ts")).toBe(200);
   expect(limitFor("apps/daemon/test/mcp.test.ts")).toBe(600);
   expect(limitFor("docs/MCP.md")).toBe(500);
+  expect(limitFor("apps/daemon/src/mcp/server.ts")).toBe(200);
+  expect(limitFor("apps/daemon/src/screen/tools.ts")).toBe(200);
+  expect(limitFor("apps/daemon/src/render/render.schema.ts")).toBe(500);
+  expect(limitFor("packages/video/test/fixture.ts")).toBe(600);
   expect(limitFor("packages/timeline/src/index.ts")).toBe(350);
   expect(limitFor("plugin/skills/motion-graphics/vendor/three.module.min.js")).toBe(Infinity);
 });
@@ -25,4 +29,9 @@ test("allowlist can only shrink", () => {
     "remove",
   );
   expect(check(new Map(), { "a.ts": { max: 400, why: "" } })[0]).toContain("not tracked");
+});
+
+test("only code under test/ gets the test limit", () => {
+  expect(limitFor("apps/daemon/test/fixtures/x.json")).toBe(500);
+  expect(limitFor("apps/daemon/test/fixtures/x.html")).toBe(350);
 });
