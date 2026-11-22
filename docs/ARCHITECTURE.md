@@ -176,8 +176,8 @@ clips they belong to, so changing the cut doesn't break their timing.
 
 ## 5. The tools
 
-The MCP server (`apps/daemon/src/mcp/`) is the product's surface. Each
-tool, with its options, is documented in [MCP.md](./MCP.md):
+The MCP server (`apps/daemon/src/mcp/`) serves the product's surface: tools still in `mcp.ts`, and each moved domain's `tools.ts`
+([STRUCTURE.md](./STRUCTURE.md)). Each tool, with its options, is documented in [MCP.md](./MCP.md):
 
 | Tool | Does |
 |---|---|
@@ -426,7 +426,7 @@ mockingbird/
 ├── apps/
 │   ├── daemon/src/          the engine (the name predates the pivot)
 │   │   ├── cli.ts           every command
-│   │   ├── mcp/, mcp.ts     the MCP server, then the tools by domain (screen/; STRUCTURE.md)
+│   │   ├── mcp/ · mcp.ts · screen/   the MCP server · the tools not yet moved · screen recording
 │   │   ├── audio-stats.ts   `audio_stats`: what a file's sound measures
 │   │   ├── pauses.ts        `pauses` and `measure`, once the playbooks' shell scripts
 │   │   ├── guide.ts         the plugin's playbooks, served by `guide`

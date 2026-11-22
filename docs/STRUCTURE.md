@@ -32,8 +32,8 @@ in a file at the root of `apps/daemon/src/`.
 | Inspection | picture: frames, scenes, scopes | frames, scenes, scopes | mcp.ts, scopes.ts | `D/inspect/` |
 | | sound: pauses, measure, stats, sync | pauses, measure, audio_stats, sync | pauses.ts, audio-stats.ts, sync.ts | `D/inspect/` |
 | | tracking | track | track.ts | `D/inspect/` |
-| Screen recording | inspection | screen_frames, screen_changes, screen_privacy, screen_watch | moved | `D/screen/` |
-| | normalise, render | screen_normalize, screen_render | moved; `packages/video` | `D/screen/` |
+| Screen recording | inspection | screen_frames, screen_changes, screen_privacy, screen_watch | moved: `screen/tools.ts`, `screen/inspection/` | `D/screen/` |
+| | normalise, render | screen_normalize, screen_render | moved: `screen/tools.ts`, `screen/render.ts`; `packages/video` | `D/screen/` |
 | Project | edit ops, export | edit, export | mcp.ts, `packages/timeline` | `D/project/` |
 | Captions | cues from words, style, drawing | captions | mcp.ts, `packages/captions` | `D/captions/` |
 | Effects | catalog, filters, masks, HDR, subject mattes | effects | effects.ts, hdr.ts, subject.ts, `packages/matte` | `D/effects/` |

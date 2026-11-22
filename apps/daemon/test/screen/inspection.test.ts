@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { hasEncodedPixelCoordinates, type VideoGeometry } from "@mockingbird/video";
-import { privacyRows } from "../src/screen/inspection/ocr-rows.ts";
+import { privacyRows } from "../../src/screen/inspection/ocr-rows.ts";
 
 const geometry: VideoGeometry = {
   encoded: { width: 100, height: 80 },

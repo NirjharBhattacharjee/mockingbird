@@ -3,9 +3,9 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderHtml, screenOptions, screenPage } from "@mockingbird/motion";
-import { mcpTools } from "../src/mcp/tools.ts";
-import { findChrome } from "../src/models.ts";
-import { normalizeRecording } from "../src/screen/render.ts";
+import { mcpTools } from "../../src/mcp/tools.ts";
+import { findChrome } from "../../src/models.ts";
+import { normalizeRecording } from "../../src/screen/render.ts";
 
 describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("source-pixel screen rendering", () => {
   const dir = mkdtempSync(join(tmpdir(), "screen-render-test-"));
@@ -103,8 +103,7 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("source-pixel screen rende
       source,
     ]);
     expect(made.exitCode).toBe(0);
-    await normalizeRecording(async () => ({ video: true, audio: false, seconds: 20.1 }))({
-      path: source,
+    await normalizeRecording({ video: true, audio: false, seconds: 20.1 }, source, {
       out,
       from: 5,
       to: 15,
@@ -131,8 +130,7 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("source-pixel screen rende
     expect(raw[15 * 3]).toBeLessThan(40);
     expect(raw[15 * 3 + 2]).toBeGreaterThan(200);
     await expect(
-      normalizeRecording(async () => ({ video: true, audio: false, seconds: 20.1 }))({
-        path: source,
+      normalizeRecording({ video: true, audio: false, seconds: 20.1 }, source, {
         out,
         from: 5,
         to: 15,
@@ -162,8 +160,7 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("source-pixel screen rende
         source,
       ]).exitCode,
     ).toBe(0);
-    await normalizeRecording(async () => ({ video: true, audio: true, seconds: 2 }))({
-      path: source,
+    await normalizeRecording({ video: true, audio: true, seconds: 2 }, source, {
       out,
       from: 0.5,
       to: 1.5,
@@ -205,8 +202,7 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("source-pixel screen rende
         source,
       ]).exitCode,
     ).toBe(0);
-    await normalizeRecording(async () => ({ video: true, audio: false, seconds: 1 }))({
-      path: source,
+    await normalizeRecording({ video: true, audio: false, seconds: 1 }, source, {
       out,
       fps: 4,
     });

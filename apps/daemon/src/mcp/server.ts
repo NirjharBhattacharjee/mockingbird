@@ -89,16 +89,12 @@ export async function handle(
   }
 }
 
-/**
- * Serves every tool and prompt on stdin/stdout until stdin closes. `status`
- * answers the status tool; logs go to stderr only.
- */
-export async function serve(
-  status: () => Promise<object>,
-  log: (m: string) => void,
-): Promise<number> {
-  const tools = mcpTools(status, log);
-  const prompts = PROMPTS;
+/** Serves every tool and prompt; `status` answers the status tool. */
+export const serve = (status: () => Promise<object>, log: (m: string) => void) =>
+  serveTools(mcpTools(status, log));
+
+/** Serves `tools` and `prompts` on stdin/stdout until stdin closes. Logs go to stderr only. */
+export async function serveTools(tools: Tool[], prompts = PROMPTS): Promise<number> {
   const decoder = new TextDecoder();
   let pending = "";
   const answer = async (line: string) => {

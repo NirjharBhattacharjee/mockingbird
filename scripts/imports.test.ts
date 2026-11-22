@@ -39,6 +39,15 @@ test("only the frozen list imports mcp.ts, and the list only shrinks", () => {
 test("a folder that isn't a domain fails", () => {
   const errors = check(new Map([[`${D}misc/a.ts`, ""]]));
   expect(errors.some((e) => e.includes("misc/ isn't a domain"))).toBe(true);
+  // mcp/ is the server, not a domain, and is allowed by its exact name only.
+  const named = check(
+    new Map([
+      [`${D}mcp/server.ts`, ""],
+      [`${D}mcp-old/server.ts`, ""],
+    ]),
+  );
+  expect(named.some((e) => e.includes("mcp/ isn't a domain"))).toBe(false);
+  expect(named.some((e) => e.includes("mcp-old/ isn't a domain"))).toBe(true);
 });
 
 test("review fixes: tests, comments, extensionless paths, root files, tools-only folders", () => {

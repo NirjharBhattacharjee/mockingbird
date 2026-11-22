@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderHtml } from "@mockingbird/motion";
-import { screenTools } from "../src/screen/tools.ts";
+import { screenTools } from "../../src/screen/tools.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "screen-inspect-test-"));
 // These tests never call screen_render, the one tool that draws with motion.
@@ -544,7 +544,7 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("screen inspection (integr
   }, 60_000);
 
   test("reports missing OCR without disabling the other tools", async () => {
-    const moduleUrl = new URL("../src/screen/tools.ts", import.meta.url).href;
+    const moduleUrl = new URL("../../src/screen/tools.ts", import.meta.url).href;
     const script = `import {screenTools} from ${JSON.stringify(moduleUrl)};
       const tools = screenTools(async () => "");
       try { await tools.find(t => t.name === "screen_privacy").run({path: process.argv[1]}); }
