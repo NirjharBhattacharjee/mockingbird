@@ -45,22 +45,13 @@ import {
 } from "@mockingbird/timeline";
 import { type Source, toFcpxml, toOtio } from "@mockingbird/timeline/export";
 import { clock, fineClock } from "./clock.ts";
-import {
-  type Ctx,
-  catalog,
-  checkEffects,
-  checkPath,
-  EFFECTS,
-  type Effect,
-  effectFilters,
-  type Mask,
-  masked,
-  pictureSteps,
-  quoted,
-} from "./effects.ts";
+import { type Ctx, EFFECTS, type Effect } from "./effects/catalog.ts";
+import { checkEffects, effectFilters, masked, pictureSteps } from "./effects/filters.ts";
+import { checkPath, type Mask } from "./effects/masks.ts";
+import { subjectMask } from "./effects/subject.ts";
 import { guide, PLUGIN, playbooks } from "./guide.ts";
-import { BT709, toSdrFor } from "./hdr.ts";
-import { even, probe } from "./inspect/probe.ts";
+import { BT709, toSdrFor } from "./inspect/hdr.ts";
+import { even, probe, quoted } from "./inspect/probe.ts";
 import { along, type TrackPoint } from "./inspect/track.ts";
 import { area, items, seconds, stretch, within } from "./mcp/args.ts";
 import type { Tool } from "./mcp/types.ts";
@@ -72,7 +63,6 @@ import {
   requireFile,
   spokenLanguage,
 } from "./runtime.ts";
-import { subjectMask } from "./subject.ts";
 import { clipWords } from "./transcript/clips.ts";
 import { choiceOf } from "./transcript/transcribe.ts";
 import { type Span, sourceWords } from "./transcript/words.ts";
@@ -1407,7 +1397,9 @@ function fontStamps(fonts: PageFont[]): [string, number, number][] {
 // ponytail: the files that build the picture, not everything they import; add any whose change goes unnoticed.
 const ENGINE = createHash("sha256")
   .update(readFileSync(import.meta.path))
-  .update(readFileSync(join(import.meta.dir, "effects.ts")))
+  .update(readFileSync(join(import.meta.dir, "effects/catalog.ts")))
+  .update(readFileSync(join(import.meta.dir, "effects/filters.ts")))
+  .update(readFileSync(join(import.meta.dir, "effects/masks.ts")))
   .update(readFileSync(Bun.resolveSync("@mockingbird/captions", import.meta.dir)))
   .digest("hex");
 
@@ -3474,13 +3466,6 @@ export function engineTools(status: () => Promise<object>, log: (m: string) => v
           captions: a.captions === undefined ? undefined : String(a.captions),
           out: a.out === undefined ? undefined : resolve(String(a.out)),
         }),
-    },
-    {
-      name: "effects",
-      description:
-        "The effects catalog: each effect's name, whether it's on the picture or the sound, and its settings with their ranges and defaults. Put effects on a project's clip with edit's {op:\"set\", id, effects:[{name:\"color\", exposure:0.5}, {name:\"denoise\", amount:0.4}]}, or on render's clips (effects: [...]). They apply in order, after the clip's framing; check a grade with `scopes`.",
-      inputSchema: { type: "object", properties: {} },
-      run: async () => catalog(),
     },
     {
       name: "export",

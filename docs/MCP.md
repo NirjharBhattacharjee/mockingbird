@@ -535,7 +535,7 @@ An SDR-only render keeps its source's tags, untagged or not.
 `motion` converts an HDR `path` the same way before the page sees it or it's
 drawn under, and tags its output BT.709, a transparent `alpha` page included.
 
-The LUT is made by mockingbird (`apps/daemon/src/hdr.ts`), since Homebrew's
+The LUT is made by mockingbird (`apps/daemon/src/inspect/hdr.ts`), since Homebrew's
 ffmpeg has neither zscale nor libplacebo and every ffmpeg has `lut3d`. It
 takes the signal to display light (HLG's OOTF for a 1000-nit display, or
 PQ's EOTF), puts HDR's reference white (203 nits) at SDR display light 0.56,

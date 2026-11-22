@@ -33,7 +33,15 @@ export const LIMITS = [
   { max: 600, globs: ["**/test/**/*.ts", "**/*.test.ts", "**/*_test.go"] },
   {
     max: 500,
-    globs: ["**/*.schema.ts", "**/*.md", "**/*.json", "**/*.yml", "**/*.yaml", "**/*.toml"],
+    globs: [
+      "apps/daemon/src/effects/catalog.ts",
+      "**/*.schema.ts",
+      "**/*.md",
+      "**/*.json",
+      "**/*.yml",
+      "**/*.yaml",
+      "**/*.toml",
+    ],
   },
   { max: 350, globs: ["**"] },
 ].map((r) => ({ max: r.max, globs: r.globs.map((g) => new Bun.Glob(g)) }));

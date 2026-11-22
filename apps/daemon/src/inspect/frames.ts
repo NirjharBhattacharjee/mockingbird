@@ -2,8 +2,8 @@ import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { clock } from "../clock.ts";
-import { toSdrFor } from "../hdr.ts";
 import { requireFile } from "../runtime.ts";
+import { toSdrFor } from "./hdr.ts";
 import { probe } from "./probe.ts";
 
 /**

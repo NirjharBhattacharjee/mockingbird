@@ -303,7 +303,7 @@ it, in x264 CRF 18 with float sound, and kept in
 `~/.mockingbird/cache/segments/` under a key made of its clips (each
 source by path, size and modified time), the captions and texts by their
 words and times, the inserts, the size, rate and split, the Chrome that
-draws the text, and the code of `mcp.ts`, `effects.ts` and the captions
+draws the text, and the code of `mcp.ts`, `effects/` and the captions
 package. Text is keyed by its words, not its pixels: Chrome's antialiasing
 varies a little with the line it drew before. The segments are joined by the
 concat demuxer without encoding again. A segment's overlays are timed from

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { cube, lutFile, sdrFilters, toSdr, transferOf, WHITE } from "../src/hdr.ts";
+import { cube, lutFile, sdrFilters, toSdr, transferOf, WHITE } from "../src/inspect/hdr.ts";
 
 test("ffprobe's transfer names HLG and PQ; anything else is SDR", () => {
   expect(transferOf("arib-std-b67")).toBe("hlg");

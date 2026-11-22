@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { matteSize, SubjectMatte } from "@mockingbird/matte";
-import { MODNET_FILE } from "./models.ts";
+import { MODNET_FILE } from "../models.ts";
 
 export type MaskJob = {
   path: string;

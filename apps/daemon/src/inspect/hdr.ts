@@ -9,7 +9,7 @@ import { createHash } from "node:crypto";
 import { existsSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { quoted } from "./effects.ts";
+import { quoted } from "./probe.ts";
 
 /** An HDR transfer: hybrid log-gamma, or PQ (SMPTE ST 2084). */
 export type Transfer = "hlg" | "pq";
