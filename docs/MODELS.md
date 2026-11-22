@@ -41,7 +41,7 @@ its eval and its benchmarks, is in git: `git show v0.3.2:docs/MODELS.md`.
 `transcribe` and `captions` run Silero over the whole decoded file in 32 ms
 windows (512 samples at 16 kHz, with the previous window's last 64 samples
 as context), then cut the speech it finds into chunks of up to 30 seconds
-for Whisper (`chunks` in `apps/daemon/src/mcp.ts`). Whisper decides per
+for Whisper (`chunks` in `apps/daemon/src/transcript/transcribe.ts`). Whisper decides per
 30-second window whether a stretch is speech, so feeding it speech and not
 long silences keeps it from dropping or inventing passages.
 

@@ -339,7 +339,7 @@ before `concat`, and a clip from a source with no sound gets silence
 project file; probing and rendering stay in the engine.
 
 `motion` runs in a separate Bun process with the network denied
-(`apps/daemon/src/motion-run.ts`): under `sandbox-exec` on macOS, in a
+(`apps/daemon/src/motion/runner.ts`): under `sandbox-exec` on macOS, in a
 network namespace (`unshare -rn`) on Linux where one can be made, and with
 Chrome's own blocking alone on Windows (`noNetwork` in
 `packages/motion/src/sandbox.ts`).
@@ -431,7 +431,7 @@ mockingbird/
 │   │   ├── transcript/      `transcribe`, `dictionary_list`, `dictionary_add`; the word cache; `mockingbird dictionary`
 │   │   ├── clock.ts         `[mm:ss]` and `[mm:ss.cc]` times, shared by the tools
 │   │   ├── guide.ts         the plugin's playbooks, served by `guide`
-│   │   ├── motion-run.ts    runs a motion script or page in its own process
+│   │   ├── motion/runner.ts   runs a motion script or page in its own process
 │   │   ├── transcribe.ts    `mockingbird transcribe`
 │   │   ├── record.ts        `mockingbird record`, the mic through ffmpeg
 │   │   ├── models.ts        `mockingbird models`, pinned downloads

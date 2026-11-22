@@ -24,7 +24,7 @@ export const DOMAINS: Record<string, string[]> = {
   inspect: ["install"],
   transcript: ["inspect", "install"],
   effects: ["inspect", "install"],
-  motion: ["install"],
+  motion: ["inspect", "install"],
   screen: ["motion", "install"],
   captions: ["transcript", "motion", "install"],
   project: ["transcript", "captions", "install"],
@@ -37,7 +37,6 @@ export const MCP_IMPORTERS = [
   "apps/daemon/test/characterize/cache.test.ts",
   "apps/daemon/test/characterize/graphs.test.ts",
   "apps/daemon/test/effects.test.ts",
-  "apps/daemon/test/kit.integration.test.ts",
   "apps/daemon/test/mcp.test.ts",
   "apps/daemon/test/track.test.ts",
 ];

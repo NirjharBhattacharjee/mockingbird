@@ -1,6 +1,7 @@
 import { effectsTools } from "../effects/tools.ts";
 import { inspectTools } from "../inspect/tools.ts";
-import { engineTools, motion, projectTranscript } from "../mcp.ts";
+import { engineTools, motion, motionHost, projectTranscript } from "../mcp.ts";
+import { motionTools } from "../motion/tools.ts";
 import { screenTools } from "../screen/tools.ts";
 import { transcriptTools } from "../transcript/tools.ts";
 import type { Tool } from "./types.ts";
@@ -23,6 +24,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
     ...engineTools(status, log),
     ...effectsTools,
     ...inspectTools,
+    ...motionTools(motion, motionHost),
     ...transcriptTools(log, (file, choice) => projectTranscript(file, log, choice)),
   ].sort((a, b) => rank(a) - rank(b));
   return [...general, ...screenTools(motion)];
