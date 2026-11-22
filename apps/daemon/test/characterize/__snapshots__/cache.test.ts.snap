@@ -1,0 +1,413 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`spans joined, and the parts left to hear 1`] = `
+[
+  {
+    "from": 0,
+    "to": 3,
+  },
+  {
+    "from": 3.4,
+    "to": 4,
+  },
+  {
+    "from": 5,
+    "to": 6,
+  },
+]
+`;
+
+exports[`spans joined, and the parts left to hear 2`] = `
+[
+  {
+    "from": 0,
+    "to": 4,
+  },
+  {
+    "from": 5,
+    "to": 6,
+  },
+]
+`;
+
+exports[`spans joined, and the parts left to hear 3`] = `
+[
+  {
+    "from": 10,
+    "to": 12,
+  },
+  {
+    "from": 15,
+    "to": 30,
+  },
+  {
+    "from": 40,
+    "to": 50,
+  },
+]
+`;
+
+exports[`spans joined, and the parts left to hear 4`] = `
+[
+  {
+    "from": 10,
+    "to": 12,
+  },
+  {
+    "from": 15,
+    "to": 30,
+  },
+]
+`;
+
+exports[`words placed between silences from their DTW points 1`] = `
+[
+  {
+    "end": 0.675,
+    "start": 0.3,
+    "word": "so",
+  },
+  {
+    "end": 1.4,
+    "start": 0.675,
+    "word": "today",
+  },
+  {
+    "end": 1.3,
+    "start": 1.1,
+    "word": "we",
+  },
+  {
+    "end": 2.65,
+    "start": 2.2,
+    "word": "create",
+  },
+  {
+    "end": 3.1,
+    "start": 2.65,
+    "word": "things",
+  },
+]
+`;
+
+exports[`words placed between silences from their DTW points 2`] = `
+[
+  {
+    "end": 0.675,
+    "start": 0.2,
+    "word": "so",
+  },
+  {
+    "end": 1.1,
+    "start": 0.675,
+    "word": "today",
+  },
+  {
+    "end": 1.3,
+    "start": 1.1,
+    "word": "we",
+  },
+  {
+    "end": 2.65,
+    "start": 1.8,
+    "word": "create",
+  },
+  {
+    "end": 3,
+    "start": 2.65,
+    "word": "things",
+  },
+]
+`;
+
+exports[`speech cut into chunks, and words into timed lines 1`] = `
+[
+  {
+    "endSample": 300000,
+    "startSample": 0,
+  },
+  {
+    "endSample": 900000,
+    "startSample": 310000,
+  },
+  {
+    "endSample": 920000,
+    "startSample": 910000,
+  },
+]
+`;
+
+exports[`speech cut into chunks, and words into timed lines 2`] = `
+[
+  {
+    "atMs": 60000,
+    "text": "Hello world. Next line goes on",
+  },
+]
+`;
+
+exports[`speech cut into chunks, and words into timed lines 3`] = `
+[
+  {
+    "atEndMs": 60200,
+    "atMs": 60200,
+    "endMs": 60400,
+    "probability": 0.9,
+    "startMs": 60000,
+    "word": "Hello",
+  },
+  {
+    "endMs": 60900,
+    "probability": 0.9,
+    "startMs": 60450,
+    "word": "world.",
+  },
+  {
+    "atEndMs": 69100,
+    "atMs": 69100,
+    "endMs": 69300,
+    "probability": 0.9,
+    "startMs": 69000,
+    "word": "Next",
+  },
+  {
+    "endMs": 69800,
+    "probability": 0.9,
+    "startMs": 69350,
+    "word": "line",
+  },
+  {
+    "endMs": 75400,
+    "probability": 0.9,
+    "startMs": 75000,
+    "word": "goes",
+  },
+  {
+    "endMs": 75600,
+    "probability": 0.9,
+    "startMs": 75450,
+    "word": "on",
+  },
+]
+`;
+
+exports[`where a render is cut into cached segments 1`] = `
+[
+  [
+    0,
+    3,
+  ],
+  [
+    3,
+    6,
+  ],
+  [
+    6,
+    8,
+  ],
+]
+`;
+
+exports[`where a render is cut into cached segments 2`] = `
+[
+  [
+    [
+      0,
+      4,
+    ],
+    [
+      4,
+      7,
+    ],
+    [
+      7,
+      8,
+    ],
+  ],
+  [
+    [
+      0,
+      4,
+    ],
+    [
+      4,
+      7,
+    ],
+    [
+      7,
+      8,
+    ],
+  ],
+  [
+    [
+      0,
+      4,
+    ],
+    [
+      4,
+      7,
+    ],
+    [
+      7,
+      8,
+    ],
+  ],
+  [
+    [
+      0,
+      3,
+    ],
+    [
+      3,
+      7,
+    ],
+    [
+      7,
+      8,
+    ],
+  ],
+]
+`;
+
+exports[`where a render is cut into cached segments 3`] = `
+[
+  [
+    0,
+    100,
+  ],
+  [
+    100,
+    105,
+  ],
+]
+`;
+
+exports[`what render copies and what it encodes, and the stretches it hears 1`] = `
+[
+  {
+    "a": 15,
+    "b": 60,
+    "clip": {
+      "from": 0.5,
+      "to": 7.5,
+    },
+    "copy": false,
+  },
+  {
+    "a": 60,
+    "b": 180,
+    "clip": {
+      "from": 0.5,
+      "to": 7.5,
+    },
+    "copy": true,
+  },
+  {
+    "a": 180,
+    "b": 225,
+    "clip": {
+      "from": 0.5,
+      "to": 7.5,
+    },
+    "copy": false,
+  },
+  {
+    "a": 63,
+    "b": 87,
+    "clip": {
+      "from": 2.1,
+      "to": 2.9,
+    },
+    "copy": false,
+  },
+  {
+    "a": 0,
+    "b": 240,
+    "clip": {
+      "from": 0,
+      "to": 8,
+    },
+    "copy": true,
+  },
+]
+`;
+
+exports[`what render copies and what it encodes, and the stretches it hears 2`] = `
+[
+  {
+    "a": 15,
+    "b": 60,
+    "clip": {
+      "from": 0.5,
+      "to": 7.5,
+    },
+    "copy": false,
+  },
+  {
+    "a": 60,
+    "b": 180,
+    "clip": {
+      "from": 0.5,
+      "to": 7.5,
+    },
+    "copy": true,
+  },
+  {
+    "a": 180,
+    "b": 225,
+    "clip": {
+      "from": 0.5,
+      "to": 7.5,
+    },
+    "copy": false,
+  },
+  {
+    "a": 63,
+    "b": 87,
+    "clip": {
+      "from": 2.1,
+      "to": 2.9,
+    },
+    "copy": false,
+  },
+  {
+    "a": 0,
+    "b": 240,
+    "clip": {
+      "from": 0,
+      "to": 8,
+    },
+    "copy": false,
+  },
+]
+`;
+
+exports[`what render copies and what it encodes, and the stretches it hears 3`] = `
+[
+  {
+    "from": 0,
+    "to": 8,
+  },
+  {
+    "from": 10,
+    "to": 15,
+  },
+  {
+    "from": 28,
+    "to": 33,
+  },
+]
+`;
+
+exports[`what render copies and what it encodes, and the stretches it hears 4`] = `
+[
+  {
+    "from": 0.5,
+    "to": 3.5,
+  },
+  {
+    "from": 29.5,
+    "to": 31.5,
+  },
+]
+`;

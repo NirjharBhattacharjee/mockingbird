@@ -171,7 +171,7 @@ first rule that matches a path wins:
 
 | Files | Max lines |
 |---|---|
-| Generated, vendored, data (`**/vendor/**`, `*.cube`, `bun.lock`, `bench/fixtures/**`, the built `kit.js`/`styles.js`/`styles/index.ts`) | none |
+| Generated, vendored, data (`**/vendor/**`, test snapshots, `*.cube`, `bun.lock`, `bench/fixtures/**`, the built `kit.js`/`styles.js`/`styles/index.ts`) | none |
 | Entry points and tool handlers (`mcp.ts`, `mcp/**`, `*/tools.ts`, `cli.ts`, `agent.ts`, `motion/runner.ts` under `apps/daemon/src`, and `apps/cli/main.go`) | 200 |
 | Tests (`*.ts` under `test/`, `*.test.ts`, `*_test.go`) | 600 |
 | Docs, schemas and config (`*.schema.ts`, `*.md`, `*.json`, `*.yml`, `*.toml`) | 500 |

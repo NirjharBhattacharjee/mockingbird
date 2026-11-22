@@ -9,6 +9,7 @@ export const LIMITS = [
     max: Number.POSITIVE_INFINITY,
     globs: [
       "**/vendor/**",
+      "**/__snapshots__/**",
       "bun.lock",
       "**/*.cube",
       "bench/fixtures/**",
