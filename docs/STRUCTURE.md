@@ -102,8 +102,10 @@ domain may import it, until it moves.
 goes stale, so they get shorter as the move goes on:
 
 - `MCP_IMPORTERS`: the only files that may import `mcp.ts` (`cli.ts`,
-  `transcribe.ts` and the tests that do today). New code imports from the
-  domain's folder.
+  `transcribe.ts` and the tests that do today, including the
+  characterization tests in `apps/daemon/test/characterize/`, which pin
+  today's behaviour so each move can show it changed nothing). New code
+  imports from the domain's folder.
 - `LEGACY_DIRS`: folders under `D` that predate this map
   (`screen-inspection/`). Any other folder must be in the domain graph.
 

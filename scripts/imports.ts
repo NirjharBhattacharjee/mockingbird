@@ -38,6 +38,10 @@ export const LEGACY_DIRS = ["screen-inspection"];
 export const MCP_IMPORTERS = [
   "apps/daemon/src/cli.ts",
   "apps/daemon/src/transcribe.ts",
+  "apps/daemon/test/characterize/cache.test.ts",
+  "apps/daemon/test/characterize/graphs.test.ts",
+  "apps/daemon/test/characterize/render.integration.test.ts",
+  "apps/daemon/test/characterize/surface.test.ts",
   "apps/daemon/test/effects.test.ts",
   "apps/daemon/test/guide.test.ts",
   "apps/daemon/test/kit.integration.test.ts",

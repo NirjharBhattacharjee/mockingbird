@@ -1,0 +1,41 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`render (characterization) a path and its clips 1`] = `
+[
+  {
+    "codec_name": "h264",
+    "codec_type": "video",
+    "height": 360,
+    "pix_fmt": "yuv420p",
+    "r_frame_rate": "30/1",
+    "width": 640,
+  },
+  {
+    "channels": 1,
+    "codec_name": "aac",
+    "codec_type": "audio",
+    "r_frame_rate": "0/0",
+    "sample_rate": "48000",
+  },
+]
+`;
+
+exports[`render (characterization) a project, rendered twice from the segment cache 1`] = `
+[
+  {
+    "codec_name": "h264",
+    "codec_type": "video",
+    "height": 360,
+    "pix_fmt": "yuv420p",
+    "r_frame_rate": "30/1",
+    "width": 640,
+  },
+  {
+    "channels": 1,
+    "codec_name": "aac",
+    "codec_type": "audio",
+    "r_frame_rate": "0/0",
+    "sample_rate": "48000",
+  },
+]
+`;

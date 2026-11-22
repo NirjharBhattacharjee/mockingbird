@@ -1,0 +1,188 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`render graph: two clips, sound 1`] = `"[0:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1,crop=w='floor(min(iw,ih*16/9)/1/2)*2':h='floor(min(ih,iw*9/16)/1/2)*2':x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=1920:1080,setsar=1,fps=30[v0];[0:a]asetpts=PTS-STARTPTS[a0];[1:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1,crop=w='floor(min(iw,ih*16/9)/1/2)*2':h='floor(min(ih,iw*9/16)/1/2)*2':x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=1920:1080,setsar=1,fps=30[v1];[1:a]asetpts=PTS-STARTPTS[a1];[v0][a0][v1][a1]concat=n=2:v=1:a=1[joined][speech];[joined]null[v];[speech]atrim=duration=3.5[a]"`;
+
+exports[`render graph: no sound, 9:16, libass captions 1`] = `"[0:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1,crop=w='floor(min(iw,ih*9/16)/1/2)*2':h='floor(min(ih,iw*16/9)/1/2)*2':x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=1080:1920,setsar=1,fps=30[v0];[v0]concat=n=1:v=1:a=0[joined];[joined]null[laid];[laid]subtitles=filename=captions.srt:force_style='Alignment=2,MarginV=76'[v]"`;
+
+exports[`render graph: focus and zoom 1`] = `"[0:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1,crop=w='floor(min(iw,ih*16/9)/1/2)*2':h='floor(min(ih,iw*9/16)/1/2)*2':x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=1280:720,setsar=1,fps=30[v0];[1:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1,crop=w='floor(min(iw,ih*16/9)/1.2/2)*2':h='floor(min(ih,iw*9/16)/1.2/2)*2':x='clip(0.3*iw-ow/2,0,iw-ow)':y='clip(0.4*ih-oh/2,0,ih-oh)',scale=1280:720,setsar=1,fps=30[v1];[v0][v1]concat=n=2:v=1:a=0[joined];[joined]null[v]"`;
+
+exports[`render graph: sources of their own, a silent one 1`] = `"[0:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1,crop=w='floor(min(iw,ih*9/16)/1/2)*2':h='floor(min(ih,iw*16/9)/1/2)*2':x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=1080:1920,setsar=1,fps=30[v0];[0:a]asetpts=PTS-STARTPTS[a0];[1:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1,crop=w='floor(min(iw,ih*9/16)/1.5/2)*2':h='floor(min(ih,iw*16/9)/1.5/2)*2':x='clip(0.3*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=1080:1920,setsar=1,fps=30[v1];aevalsrc=0:c=stereo:s=48000:d=3[a1];[v0][a0][v1][a1]concat=n=2:v=1:a=1[joined][speech];[joined]null[v];[speech]atrim=duration=5[a]"`;
+
+exports[`render graph: speed and a transition 1`] = `"[0:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1,crop=w='floor(min(iw,ih*16/9)/1/2)*2':h='floor(min(ih,iw*9/16)/1/2)*2':x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=1280:720,setsar=1,fps=30,settb=1/30[v0];[0:a]asetpts=PTS-STARTPTS[a0];[1:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1,crop=w='floor(min(iw,ih*16/9)/1/2)*2':h='floor(min(ih,iw*9/16)/1/2)*2':x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=1280:720,setsar=1,fps=30,settb=1/30[v1];[1:a]asetpts=PTS-STARTPTS[a1];[2:v]setpts=PTS-STARTPTS,setpts=PTS/2,scale='trunc(iw*sar/2)*2':ih,setsar=1,crop=w='floor(min(iw,ih*16/9)/1/2)*2':h='floor(min(ih,iw*9/16)/1/2)*2':x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=1280:720,setsar=1,fps=30,settb=1/30[v2];[2:a]asetpts=PTS-STARTPTS,atempo=2[a2];[v0][v1]xfade=transition=fadeblack:duration=0.5:offset=1.500000[jv1];[a0][a1]acrossfade=d=0.5[ja1];[jv1][v2]concat=n=2:v=1:a=0,settb=1/30[joined];[ja1][a2]concat=n=2:v=0:a=1[speech];[joined]null[v];[speech]atrim=duration=4.5[a]"`;
+
+exports[`render graph: J and L cuts 1`] = `"[0:v]trim=start=0:duration=3.5,setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1,crop=w='floor(min(iw,ih*16/9)/1/2)*2':h='floor(min(ih,iw*9/16)/1/2)*2':x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=640:360,setsar=1,fps=30[v0];[0:a]atrim=start=0:duration=3,asetpts=PTS-STARTPTS[a0];[1:v]trim=start=0.5:duration=4,setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1,crop=w='floor(min(iw,ih*16/9)/1/2)*2':h='floor(min(ih,iw*9/16)/1/2)*2':x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=640:360,setsar=1,fps=30[v1];[1:a]atrim=start=0:duration=4.5,asetpts=PTS-STARTPTS[a1];[v0][v1]concat=n=2:v=1:a=0[joined];[a0][a1]concat=n=2:v=0:a=1[speech];[joined]null[v];[speech]atrim=duration=7.5[a]"`;
+
+exports[`render graph: moves 1`] = `"[0:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1,fps=30,perspective=x0='clip(if(lt((in/30),2),(0.5+-0.2*(clip(((in/30)-0)/2,0,1)*clip(((in/30)-0)/2,0,1)*(3-2*clip(((in/30)-0)/2,0,1)))),0.3)*W-(min(W,H*9/16)/if(lt((in/30),2),(1+0.5*(clip(((in/30)-0)/2,0,1)*clip(((in/30)-0)/2,0,1)*(3-2*clip(((in/30)-0)/2,0,1)))),1.5))/2,0,W-(min(W,H*9/16)/if(lt((in/30),2),(1+0.5*(clip(((in/30)-0)/2,0,1)*clip(((in/30)-0)/2,0,1)*(3-2*clip(((in/30)-0)/2,0,1)))),1.5)))':y0='clip(if(lt((in/30),2),0.5,0.5)*H-(min(H,W*16/9)/if(lt((in/30),2),(1+0.5*(clip(((in/30)-0)/2,0,1)*clip(((in/30)-0)/2,0,1)*(3-2*clip(((in/30)-0)/2,0,1)))),1.5))/2,0,H-(min(H,W*16/9)/if(lt((in/30),2),(1+0.5*(clip(((in/30)-0)/2,0,1)*clip(((in/30)-0)/2,0,1)*(3-2*clip(((in/30)-0)/2,0,1)))),1.5)))':x1='clip(if(lt((in/30),2),(0.5+-0.2*(clip(((in/30)-0)/2,0,1)*clip(((in/30)-0)/2,0,1)*(3-2*clip(((in/30)-0)/2,0,1)))),0.3)*W-(min(W,H*9/16)/if(lt((in/30),2),(1+0.5*(clip(((in/30)-0)/2,0,1)*clip(((in/30)-0)/2,0,1)*(3-2*clip(((in/30)-0)/2,0,1)))),1.5))/2,0,W-(min(W,H*9/16)/if(lt((in/30),2),(1+0.5*(clip(((in/30)-0)/2,0,1)*clip(((in/30)-0)/2,0,1)*(3-2*clip(((in/30)-0)/2,0,1)))),1.5)))+(min(W,H*9/16)/if(lt((in/30),2),(1+0.5*(clip(((in/30)-0)/2,0,1)*clip(((in/30)-0)/2,0,1)*(3-2*clip(((in/30)-0)/2,0,1)))),1.5))':y1='clip(if(lt((in/30),2),0.5,0.5)*H-(min(H,W*16/9)/if(lt((in/30),2),(1+0.5*(clip(((in/30)-0)/2,0,1)*clip(((in/30)-0)/2,0,1)*(3-2*clip(((in/30)-0)/2,0,1)))),1.5))/2,0,H-(min(H,W*16/9)/if(lt((in/30),2),(1+0.5*(clip(((in/30)-0)/2,0,1)*clip(((in/30)-0)/2,0,1)*(3-2*clip(((in/30)-0)/2,0,1)))),1.5)))':x2='clip(if(lt((in/30),2),(0.5+-0.2*(clip(((in/30)-0)/2,0,1)*clip(((in/30)-0)/2,0,1)*(3-2*clip(((in/30)-0)/2,0,1)))),0.3)*W-(min(W,H*9/16)/if(lt((in/30),2),(1+0.5*(clip(((in/30)-0)/2,0,1)*clip(((in/30)-0)/2,0,1)*(3-2*clip(((in/30)-0)/2,0,1)))),1.5))/2,0,W-(min(W,H*9/16)/if(lt((in/30),2),(1+0.5*(clip(((in/30)-0)/2,0,1)*clip(((in/30)-0)/2,0,1)*(3-2*clip(((in/30)-0)/2,0,1)))),1.5)))':y2='clip(if(lt((in/30),2),0.5,0.5)*H-(min(H,W*16/9)/if(lt((in/30),2),(1+0.5*(clip(((in/30)-0)/2,0,1)*clip(((in/30)-0)/2,0,1)*(3-2*clip(((in/30)-0)/2,0,1)))),1.5))/2,0,H-(min(H,W*16/9)/if(lt((in/30),2),(1+0.5*(clip(((in/30)-0)/2,0,1)*clip(((in/30)-0)/2,0,1)*(3-2*clip(((in/30)-0)/2,0,1)))),1.5)))+(min(H,W*16/9)/if(lt((in/30),2),(1+0.5*(clip(((in/30)-0)/2,0,1)*clip(((in/30)-0)/2,0,1)*(3-2*clip(((in/30)-0)/2,0,1)))),1.5))':x3='clip(if(lt((in/30),2),(0.5+-0.2*(clip(((in/30)-0)/2,0,1)*clip(((in/30)-0)/2,0,1)*(3-2*clip(((in/30)-0)/2,0,1)))),0.3)*W-(min(W,H*9/16)/if(lt((in/30),2),(1+0.5*(clip(((in/30)-0)/2,0,1)*clip(((in/30)-0)/2,0,1)*(3-2*clip(((in/30)-0)/2,0,1)))),1.5))/2,0,W-(min(W,H*9/16)/if(lt((in/30),2),(1+0.5*(clip(((in/30)-0)/2,0,1)*clip(((in/30)-0)/2,0,1)*(3-2*clip(((in/30)-0)/2,0,1)))),1.5)))+(min(W,H*9/16)/if(lt((in/30),2),(1+0.5*(clip(((in/30)-0)/2,0,1)*clip(((in/30)-0)/2,0,1)*(3-2*clip(((in/30)-0)/2,0,1)))),1.5))':y3='clip(if(lt((in/30),2),0.5,0.5)*H-(min(H,W*16/9)/if(lt((in/30),2),(1+0.5*(clip(((in/30)-0)/2,0,1)*clip(((in/30)-0)/2,0,1)*(3-2*clip(((in/30)-0)/2,0,1)))),1.5))/2,0,H-(min(H,W*16/9)/if(lt((in/30),2),(1+0.5*(clip(((in/30)-0)/2,0,1)*clip(((in/30)-0)/2,0,1)*(3-2*clip(((in/30)-0)/2,0,1)))),1.5)))+(min(H,W*16/9)/if(lt((in/30),2),(1+0.5*(clip(((in/30)-0)/2,0,1)*clip(((in/30)-0)/2,0,1)*(3-2*clip(((in/30)-0)/2,0,1)))),1.5))':interpolation=linear:eval=frame,scale=1080:1920,setsar=1[v0];[v0]concat=n=1:v=1:a=0[joined];[joined]null[v]"`;
+
+exports[`render graph: split 1`] = `"[0:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1,crop=w='floor(min(iw,ih*16/9)/1/2)*2':h='floor(min(ih,iw*9/16)/1/2)*2':x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=1920:1080,setsar=1,fps=30[v0];[v0]concat=n=1:v=1:a=0[joined];[joined]split[upper][lower];[upper]crop=w='floor(0.8*iw/2)*2':h='floor(1*ih/2)*2':x='0*iw':y='0*ih',scale=1080:960:force_original_aspect_ratio=increase,crop=1080:960[top];[lower]crop=w='floor(0.2*iw/2)*2':h='floor(0.3*ih/2)*2':x='0.8*iw':y='0.7*ih',scale=1080:960:force_original_aspect_ratio=increase,crop=1080:960[bottom];[top][bottom]vstack,setsar=1[stacked];[stacked]null[v]"`;
+
+exports[`render graph: texts, an insert, music ducked and a sound effect 1`] = `"[0:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1,crop=w='floor(min(iw,ih*9/16)/1/2)*2':h='floor(min(ih,iw*16/9)/1/2)*2':x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=1080:1920,setsar=1,fps=30[v0];[0:a]asetpts=PTS-STARTPTS[a0];[1:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1,crop=w='floor(min(iw,ih*9/16)/1/2)*2':h='floor(min(ih,iw*16/9)/1/2)*2':x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=1080:1920,setsar=1,fps=30[v1];[1:a]asetpts=PTS-STARTPTS[a1];[v0][a0][v1][a1]concat=n=2:v=1:a=1[joined][speech];[joined]null[c0];[3:v]trim=duration=1,setpts=PTS-STARTPTS+1/TB,crop=w='floor(1*iw/2)*2':h='floor(1*ih/2)*2':x='0*iw':y='0*ih',scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1[i0];[c0][i0]overlay=eof_action=pass:enable='gte(t,1)*lt(t,2)'[c1];[c1][2:v]overlay=x=(main_w-overlay_w)/2:y=main_h*0.5-overlay_h/2:enable='gte(t,0)*lt(t,1)'[v];[speech]volume=6.50dB[lifted];[lifted]asplit=2[voice][key0];[4:a]atrim=duration=3.5,adelay=0:all=1,volume=0.15[s0];[s0][key0]sidechaincompress=threshold=0.04:ratio=8:attack=100:release=500[m0];[5:a]adelay=3000:all=1,volume=1[m1];[voice][m0][m1]amix=inputs=3:duration=longest:normalize=0,atrim=duration=3.5[a]"`;
+
+exports[`render graph: a batch's whole sound 1`] = `"[0:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1,crop=w='floor(min(iw,ih*16/9)/1/2)*2':h='floor(min(ih,iw*9/16)/1/2)*2':x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=1920:1080,setsar=1,fps=30[v0];[0:a]asetpts=PTS-STARTPTS[a0];[v0][a0]concat=n=1:v=1:a=1[joined][speech];[joined]null[v];[speech]anull[a]"`;
+
+exports[`render graph: libass captions over an insert 1`] = `"[0:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1,crop=w='floor(min(iw,ih*9/16)/1/2)*2':h='floor(min(ih,iw*16/9)/1/2)*2':x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=1080:1920,setsar=1,fps=30[v0];[v0]concat=n=1:v=1:a=0[joined];[joined]null[c0];[1:v]trim=duration=1,setpts=PTS-STARTPTS+1/TB,crop=w='floor(1*iw/2)*2':h='floor(1*ih/2)*2':x='0*iw':y='0*ih',scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1[i0];[c0][i0]overlay=eof_action=pass:enable='gte(t,1)*lt(t,2)'[laid];[laid]subtitles=filename=captions.srt:force_style='Alignment=2,MarginV=134'[v]"`;
+
+exports[`render graph: music under a silent video 1`] = `"[0:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1,crop=w='floor(min(iw,ih*16/9)/1/2)*2':h='floor(min(ih,iw*9/16)/1/2)*2':x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=1920:1080,setsar=1,fps=30[v0];[v0]concat=n=1:v=1:a=0[joined];[joined]null[v];[1:a]atrim=duration=4,adelay=0:all=1,volume=0.5[m0];[2:a]adelay=1000:all=1,volume=1[m1];[m0][m1]amix=inputs=2:duration=longest:normalize=0,atrim=duration=4[a]"`;
+
+exports[`render graph: caption images 1`] = `"[0:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1,crop=w='floor(min(iw,ih*16/9)/1/2)*2':h='floor(min(ih,iw*9/16)/1/2)*2':x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=1920:1080,setsar=1,fps=30[v0];[v0]concat=n=1:v=1:a=0[joined];[joined]null[c0];[c0][1:v]overlay=x=(main_w-overlay_w)/2:y=main_h*0.7-overlay_h/2:enable='gte(t,0)*lt(t,1.5)'[c1];[c1][2:v]overlay=x=(main_w-overlay_w)/2:y=main_h*0.7-overlay_h/2:enable='gte(t,1.5)*lt(t,3)'[v]"`;
+
+exports[`render graph: HDR clips and b-roll 1`] = `"[0:v]lut3d=file=/hlg.cube,setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1,crop=w='floor(min(iw,ih*16/9)/1/2)*2':h='floor(min(ih,iw*9/16)/1/2)*2':x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=1920:1080,setsar=1,fps=30[v0];[1:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1,crop=w='floor(min(iw,ih*16/9)/1/2)*2':h='floor(min(ih,iw*9/16)/1/2)*2':x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=1920:1080,setsar=1,fps=30[v1];[v0][v1]concat=n=2:v=1:a=0[joined];[joined]null[c0];[2:v]lut3d=file=/hlg.cube,trim=duration=1,setpts=PTS-STARTPTS+0.5/TB,crop=w='floor(1*iw/2)*2':h='floor(1*ih/2)*2':x='0*iw':y='0*ih',scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setsar=1[i0];[c0][i0]overlay=eof_action=pass:enable='gte(t,0.5)*lt(t,1.5)'[c1];[3:v]trim=duration=0.5,setpts=PTS-STARTPTS+2.5/TB,crop=w='floor(1*iw/2)*2':h='floor(1*ih/2)*2':x='0*iw':y='0*ih',scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setsar=1[i1];[c1][i1]overlay=eof_action=pass:enable='gte(t,2.5)*lt(t,3)'[v]"`;
+
+exports[`render graph: picture and sound effects 1`] = `"[0:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1,crop=w='floor(min(iw,ih*16/9)/1/2)*2':h='floor(min(ih,iw*9/16)/1/2)*2':x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=640:360,setsar=1,fps=30,exposure=exposure=1[v0];[0:a]asetpts=PTS-STARTPTS,highpass=f=80,afftdn=nr=23.2:nf=-40:tn=1[a0];[v0][a0]concat=n=1:v=1:a=1[joined][speech];[joined]null[v];[speech]atrim=duration=2[a]"`;
+
+exports[`render graph: a moving masked blur 1`] = `"[0:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1,crop=w='floor(min(iw,ih*16/9)/1/2)*2':h='floor(min(ih,iw*9/16)/1/2)*2':x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=640:360,setsar=1,fps=25[b0];[b0]null[c0p0];[c0p0]split[c0k0][c0e0];color=c=black:s=640x360:r=25:d=4,format=gray,geq=lum='255*between((X/W),(0.1+0.3*clip(T/4,0,1)),(0.1+0.3*clip(T/4,0,1))+0.5)*between((Y/H),0.1,0.1+0.5)'[c0m0];[c0e0]gblur=sigma=10,format=yuva420p[c0f0];[c0f0][c0m0]alphamerge[c0x0];[c0k0][c0x0]overlay=format=auto[c0o0];[c0o0]null[e0];[e0]null[v0];[v0]concat=n=1:v=1:a=0[joined];[joined]null[v]"`;
+
+exports[`render graph: an ellipse mask, feathered and inverted 1`] = `"[0:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1,crop=w='floor(min(iw,ih*16/9)/1/2)*2':h='floor(min(ih,iw*9/16)/1/2)*2':x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=640:360,setsar=1,fps=30[b0];[b0]null[c0p0];[c0p0]split[c0k0][c0e0];color=c=black:s=640x360:r=30:d=2,format=gray,geq=lum='255*(1-lte(pow(((X/W)-0.2-0.4/2)/(0.4/2),2)+pow(((Y/H)-0.2-0.4/2)/(0.4/2),2),1))',gblur=sigma=32[c0m0];[c0e0]gblur=sigma=10,format=yuva420p[c0f0];[c0f0][c0m0]alphamerge[c0x0];[c0k0][c0x0]overlay=format=auto[c0o0];[c0o0]null[e0];[e0]null[v0];[v0]concat=n=1:v=1:a=0[joined];[joined]null[v]"`;
+
+exports[`render graph: inserts with a box, a blend and an adjustment layer 1`] = `"[0:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1,crop=w='floor(min(iw,ih*16/9)/1/2)*2':h='floor(min(ih,iw*9/16)/1/2)*2':x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=640:360,setsar=1,fps=30[v0];[v0]concat=n=1:v=1:a=0[joined];[joined]null[c0];[2:v]trim=duration=2,setpts=PTS-STARTPTS,fps=30,crop=w='floor(1*iw/2)*2':h='floor(1*ih/2)*2':x='0*iw':y='0*ih',scale=160:90:force_original_aspect_ratio=increase,crop=160:90,setsar=1[ib0];[ib0]null[ie0];[ie0]setpts=PTS+1/TB[i0];[c0][i0]overlay=x=320:y=36:eof_action=pass:enable='gte(t,1)*lt(t,3)'[c1];[3:v]trim=duration=2,setpts=PTS-STARTPTS,fps=30,crop=w='floor(1*iw/2)*2':h='floor(1*ih/2)*2':x='0*iw':y='0*ih',scale=640:360:force_original_aspect_ratio=increase,crop=640:360,setsar=1[ib1];[ib1]null[ie1];[ie1]setpts=PTS+1/TB[i1];[c1]format=gbrp[ig1];[i1]format=gbrp[ih1];[ig1][ih1]blend=all_mode=screen:eof_action=pass:enable='gte(t,1)*lt(t,3)',format=yuv420p[c2];[c2]split[ak2][ae2];[ae2]trim=start=2:end=3,setpts=PTS-STARTPTS[ar2];[ar2]eq=contrast=1:saturation=0:gamma=1[ag2];[ag2]setpts=PTS+2/TB[ad2];[ak2][ad2]overlay=eof_action=pass:enable='gte(t,2)*lt(t,3)'[c3];[c3][1:v]overlay=x=(main_w-overlay_w)/2:y=main_h*0.7-overlay_h/2:enable='gte(t,0)*lt(t,4)'[v]"`;
+
+exports[`render graph: an insert following a tracked path 1`] = `"[0:v]setpts=PTS-STARTPTS,scale='trunc(iw*sar/2)*2':ih,setsar=1,crop=w='floor(min(iw,ih*16/9)/1/2)*2':h='floor(min(ih,iw*9/16)/1/2)*2':x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=640:360,setsar=1,fps=30[v0];[v0]concat=n=1:v=1:a=0[joined];[joined]null[c0];[1:v]trim=duration=2,setpts=PTS-STARTPTS,fps=30,crop=w='floor(1*iw/2)*2':h='floor(1*ih/2)*2':x='0*iw':y='0*ih',scale=160:90:force_original_aspect_ratio=increase,crop=160:90,setsar=1[ib0];[ib0]null[ie0];[ie0]setpts=PTS+1/TB[i0];[c0][i0]overlay=x='if(lt((t-1),0),0,if(lt((t-1),2),(0+(320-0)*((t-1)-0)/2),320))':y='if(lt((t-1),0),180,if(lt((t-1),2),(180+(180-180)*((t-1)-0)/2),180))':eof_action=pass:enable='gte(t,1)*lt(t,3)'[v]"`;
+
+exports[`render graph: slow motion by interpolation 1`] = `"[0:v]setpts=PTS-STARTPTS,setpts=PTS/0.25,scale='trunc(iw*sar/2)*2':ih,setsar=1,crop=w='floor(min(iw,ih*16/9)/1/2)*2':h='floor(min(ih,iw*9/16)/1/2)*2':x='clip(0.5*iw-ow/2,0,iw-ow)':y='clip(0.5*ih-oh/2,0,ih-oh)',scale=640:360,setsar=1,minterpolate=fps=30:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1,fps=30[v0];[v0]concat=n=1:v=1:a=0[joined];[joined]null[v]"`;
+
+exports[`each clip's input, and where each starts in the finished video 1`] = `
+[
+  "-hwaccel",
+  "auto",
+  "-ss",
+  "1",
+  "-t",
+  "1",
+  "-i",
+  "/phone.mov",
+  "-hwaccel",
+  "auto",
+  "-ss",
+  "9.5",
+  "-t",
+  "4",
+  "-i",
+  "/a.mp4",
+  "-hwaccel",
+  "auto",
+  "-ss",
+  "0",
+  "-t",
+  "2",
+  "-i",
+  "/b.mp4",
+]
+`;
+
+exports[`each clip's input, and where each starts in the finished video 2`] = `
+{
+  "length": 4.833333333333334,
+  "starts": [
+    0,
+    1,
+    2.8333333333333335,
+  ],
+}
+`;
+
+exports[`a clip's sound, and the moves filter 1`] = `"[3:a]asetpts=PTS-STARTPTS,atempo=2,deesser=i=0.5"`;
+
+exports[`a clip's sound, and the moves filter 2`] = `"perspective=x0='clip(if(lt((in/25),2),0.5,if(lt((in/25),4),(0.5+0.19999999999999996*(clip(((in/25)-2)/2,0,1)*clip(((in/25)-2)/2,0,1)*(3-2*clip(((in/25)-2)/2,0,1)))),0.7))*W-(min(W,H*16/9)/if(lt((in/25),2),(1.2+0.8*clip(((in/25)-0)/2,0,1)),if(lt((in/25),4),2,2)))/2,0,W-(min(W,H*16/9)/if(lt((in/25),2),(1.2+0.8*clip(((in/25)-0)/2,0,1)),if(lt((in/25),4),2,2))))':y0='clip(if(lt((in/25),2),0.5,if(lt((in/25),4),(0.5+-0.2*(clip(((in/25)-2)/2,0,1)*clip(((in/25)-2)/2,0,1)*(3-2*clip(((in/25)-2)/2,0,1)))),0.3))*H-(min(H,W*9/16)/if(lt((in/25),2),(1.2+0.8*clip(((in/25)-0)/2,0,1)),if(lt((in/25),4),2,2)))/2,0,H-(min(H,W*9/16)/if(lt((in/25),2),(1.2+0.8*clip(((in/25)-0)/2,0,1)),if(lt((in/25),4),2,2))))':x1='clip(if(lt((in/25),2),0.5,if(lt((in/25),4),(0.5+0.19999999999999996*(clip(((in/25)-2)/2,0,1)*clip(((in/25)-2)/2,0,1)*(3-2*clip(((in/25)-2)/2,0,1)))),0.7))*W-(min(W,H*16/9)/if(lt((in/25),2),(1.2+0.8*clip(((in/25)-0)/2,0,1)),if(lt((in/25),4),2,2)))/2,0,W-(min(W,H*16/9)/if(lt((in/25),2),(1.2+0.8*clip(((in/25)-0)/2,0,1)),if(lt((in/25),4),2,2))))+(min(W,H*16/9)/if(lt((in/25),2),(1.2+0.8*clip(((in/25)-0)/2,0,1)),if(lt((in/25),4),2,2)))':y1='clip(if(lt((in/25),2),0.5,if(lt((in/25),4),(0.5+-0.2*(clip(((in/25)-2)/2,0,1)*clip(((in/25)-2)/2,0,1)*(3-2*clip(((in/25)-2)/2,0,1)))),0.3))*H-(min(H,W*9/16)/if(lt((in/25),2),(1.2+0.8*clip(((in/25)-0)/2,0,1)),if(lt((in/25),4),2,2)))/2,0,H-(min(H,W*9/16)/if(lt((in/25),2),(1.2+0.8*clip(((in/25)-0)/2,0,1)),if(lt((in/25),4),2,2))))':x2='clip(if(lt((in/25),2),0.5,if(lt((in/25),4),(0.5+0.19999999999999996*(clip(((in/25)-2)/2,0,1)*clip(((in/25)-2)/2,0,1)*(3-2*clip(((in/25)-2)/2,0,1)))),0.7))*W-(min(W,H*16/9)/if(lt((in/25),2),(1.2+0.8*clip(((in/25)-0)/2,0,1)),if(lt((in/25),4),2,2)))/2,0,W-(min(W,H*16/9)/if(lt((in/25),2),(1.2+0.8*clip(((in/25)-0)/2,0,1)),if(lt((in/25),4),2,2))))':y2='clip(if(lt((in/25),2),0.5,if(lt((in/25),4),(0.5+-0.2*(clip(((in/25)-2)/2,0,1)*clip(((in/25)-2)/2,0,1)*(3-2*clip(((in/25)-2)/2,0,1)))),0.3))*H-(min(H,W*9/16)/if(lt((in/25),2),(1.2+0.8*clip(((in/25)-0)/2,0,1)),if(lt((in/25),4),2,2)))/2,0,H-(min(H,W*9/16)/if(lt((in/25),2),(1.2+0.8*clip(((in/25)-0)/2,0,1)),if(lt((in/25),4),2,2))))+(min(H,W*9/16)/if(lt((in/25),2),(1.2+0.8*clip(((in/25)-0)/2,0,1)),if(lt((in/25),4),2,2)))':x3='clip(if(lt((in/25),2),0.5,if(lt((in/25),4),(0.5+0.19999999999999996*(clip(((in/25)-2)/2,0,1)*clip(((in/25)-2)/2,0,1)*(3-2*clip(((in/25)-2)/2,0,1)))),0.7))*W-(min(W,H*16/9)/if(lt((in/25),2),(1.2+0.8*clip(((in/25)-0)/2,0,1)),if(lt((in/25),4),2,2)))/2,0,W-(min(W,H*16/9)/if(lt((in/25),2),(1.2+0.8*clip(((in/25)-0)/2,0,1)),if(lt((in/25),4),2,2))))+(min(W,H*16/9)/if(lt((in/25),2),(1.2+0.8*clip(((in/25)-0)/2,0,1)),if(lt((in/25),4),2,2)))':y3='clip(if(lt((in/25),2),0.5,if(lt((in/25),4),(0.5+-0.2*(clip(((in/25)-2)/2,0,1)*clip(((in/25)-2)/2,0,1)*(3-2*clip(((in/25)-2)/2,0,1)))),0.3))*H-(min(H,W*9/16)/if(lt((in/25),2),(1.2+0.8*clip(((in/25)-0)/2,0,1)),if(lt((in/25),4),2,2)))/2,0,H-(min(H,W*9/16)/if(lt((in/25),2),(1.2+0.8*clip(((in/25)-0)/2,0,1)),if(lt((in/25),4),2,2))))+(min(H,W*9/16)/if(lt((in/25),2),(1.2+0.8*clip(((in/25)-0)/2,0,1)),if(lt((in/25),4),2,2)))':interpolation=linear:eval=frame,scale=1920:1080,setsar=1"`;
+
+exports[`sounds mixed under the speech 1`] = `
+[
+  "[speech]asplit=2[voice][key0]",
+  "[1:a]adelay=1000:all=1,volume=1[s0]",
+  "[s0][key0]sidechaincompress=threshold=0.04:ratio=8:attack=100:release=500[m0]",
+  "[2:a]atrim=duration=4,adelay=0:all=1,volume=0.2[m1]",
+  "[voice][m0][m1]amix=inputs=3:duration=longest:normalize=0,atrim=duration=4[a]",
+]
+`;
+
+exports[`sounds mixed under the speech 2`] = `
+[
+  "[speech]volume=12.00dB[lifted]",
+  "[lifted]asplit=2[voice][key0]",
+  "[2:a]adelay=1000:all=1,volume=1[s0]",
+  "[s0][key0]sidechaincompress=threshold=0.04:ratio=8:attack=100:release=500[m0]",
+  "[3:a]atrim=duration=4,adelay=0:all=1,volume=0.2[m1]",
+  "[voice][m0][m1]amix=inputs=3:duration=longest:normalize=0,anull[a]",
+]
+`;
+
+exports[`sounds mixed under the speech 3`] = `
+[
+  "[1:a]adelay=1000:all=1,volume=1[m0]",
+  "[2:a]atrim=duration=4,adelay=0:all=1,volume=0.2[m1]",
+  "[m0][m1]amix=inputs=2:duration=longest:normalize=0,atrim=duration=4[a]",
+]
+`;
+
+exports[`captions for a cut: pages, lit words, speed and a J cut 1`] = `
+"1
+00:00:00,100 --> 00:00:00,450
+* Hello*  there  this
+
+2
+00:00:00,450 --> 00:00:01,000
+ Hello * there*  this
+
+3
+00:00:01,000 --> 00:00:01,250
+ Hello  there * this*
+
+4
+00:00:01,250 --> 00:00:01,450
+* is*  a  test
+
+5
+00:00:01,450 --> 00:00:01,550
+ is * a*  test
+
+6
+00:00:01,550 --> 00:00:02,800
+ is  a * test*
+
+7
+00:00:02,800 --> 00:00:03,150
+* Second*  clip  here
+
+8
+00:00:03,150 --> 00:00:03,450
+ Second * clip*  here
+
+9
+00:00:03,450 --> 00:00:03,950
+ Second  clip * here*"
+`;
+
+exports[`captions for a cut: pages, lit words, speed and a J cut 2`] = `
+"1
+00:00:00,100 --> 00:00:01,000
+ HELLO  THERE
+
+2
+00:00:01,000 --> 00:00:01,250
+ THIS
+
+3
+00:00:01,250 --> 00:00:01,550
+ IS  A
+
+4
+00:00:01,550 --> 00:00:02,800
+ TEST
+
+5
+00:00:02,800 --> 00:00:03,450
+ SECOND  CLIP
+
+6
+00:00:03,450 --> 00:00:03,950
+ HERE"
+`;
+
+exports[`captions for a cut: pages, lit words, speed and a J cut 3`] = `
+"1
+00:00:00,000 --> 00:00:01,200
+今日は新しいカメラを試し
+
+2
+00:00:01,200 --> 00:00:01,700
+ました"
+`;
