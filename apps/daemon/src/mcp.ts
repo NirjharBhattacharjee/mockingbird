@@ -1213,6 +1213,8 @@ const ENGINE = createHash("sha256")
   .update(readFileSync(join(import.meta.dir, "effects/catalog.ts")))
   .update(readFileSync(join(import.meta.dir, "effects/filters.ts")))
   .update(readFileSync(join(import.meta.dir, "effects/masks.ts")))
+  .update(readFileSync(join(import.meta.dir, "captions/burn.ts")))
+  .update(readFileSync(join(import.meta.dir, "captions/style.ts")))
   .update(readFileSync(Bun.resolveSync("@mockingbird/captions", import.meta.dir)))
   .digest("hex");
 
@@ -1271,7 +1273,7 @@ async function segmented(
     const [width, height] = (split ? "1080x1920" : size).split("x").map(Number);
     const chrome = lines.length ? findChrome() : undefined;
     const wrap = noNetwork();
-    const fonts = captionFonts(lines, style);
+    const fonts = captionFonts();
     const language = spoken ?? spokenLanguage();
     // Which shapes Han characters take: in the segment key, since it changes what's drawn.
     const han = hanOrder(language, lines);
@@ -1662,7 +1664,7 @@ async function renderCut(
       ? await drawCaptions(lines, dir, width ?? 1080, height, {
           chrome,
           wrap,
-          fonts: captionFonts(lines, style),
+          fonts: captionFonts(),
           language: language ?? spokenLanguage(),
           style,
         })

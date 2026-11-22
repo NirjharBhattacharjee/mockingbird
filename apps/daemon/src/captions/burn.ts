@@ -3,7 +3,7 @@ import type { PageFont } from "@mockingbird/motion";
 import { findChrome, fontFaces } from "../models.ts";
 
 /** The pinned fonts for drawing captions: whichever are downloaded. */
-export function captionFonts(_lines: string[], _style: CaptionStyle): PageFont[] {
+export function captionFonts(): PageFont[] {
   return fontFaces();
 }
 
