@@ -15,15 +15,16 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { captionStyle } from "@mockingbird/captions";
+import { captionFontWarning } from "../src/captions/burn.ts";
+import { wordCaptions } from "../src/captions/cues.ts";
+import { lookCaptions } from "../src/captions/style.ts";
 import { fineClock } from "../src/clock.ts";
 import { parseScenes } from "../src/inspect/scenes.ts";
 import { handle, PROMPTS } from "../src/mcp/server.ts";
 import { mcpTools } from "../src/mcp/tools.ts";
 import {
   CLIPS_PER_PASS,
-  captionFontWarning,
   levelGains,
-  lookCaptions,
   mixGraph,
   moving,
   pieces,
@@ -34,7 +35,6 @@ import {
   tempo,
   timeline,
   transcriptionAt,
-  wordCaptions,
 } from "../src/mcp.ts";
 import { findChrome } from "../src/models.ts";
 import { KIT_URL, STYLES_URL, THREE_ADDONS_URL, THREE_URL, withKit } from "../src/motion/kit.ts";

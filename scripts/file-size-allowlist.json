@@ -1,10 +1,10 @@
 {
   "apps/daemon/src/cli.ts": { "max": 318, "why": "legacy, shrink by refactor (#300)" },
-  "apps/daemon/src/mcp.ts": { "max": 3063, "why": "legacy, shrink by refactor (#300)" },
+  "apps/daemon/src/mcp.ts": { "max": 2732, "why": "legacy, shrink by refactor (#300)" },
   "apps/daemon/src/models.ts": { "max": 1268, "why": "legacy, shrink by refactor (#300)" },
   "apps/daemon/src/runtime.ts": { "max": 535, "why": "legacy, shrink by refactor (#300)" },
   "apps/daemon/src/setup.ts": { "max": 478, "why": "legacy, shrink by refactor (#300)" },
-  "apps/daemon/test/mcp.test.ts": { "max": 2039, "why": "legacy, shrink by refactor (#300)" },
+  "apps/daemon/test/mcp.test.ts": { "max": 2028, "why": "legacy, shrink by refactor (#300)" },
   "apps/daemon/test/models.test.ts": { "max": 607, "why": "legacy, shrink by refactor (#300)" },
   "docs/ARCHITECTURE.md": { "max": 631, "why": "legacy, shrink by refactor (#300)" },
   "docs/MCP.md": { "max": 835, "why": "legacy, shrink by refactor (#300)" },
