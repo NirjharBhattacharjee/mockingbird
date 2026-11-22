@@ -211,55 +211,65 @@ exports[`where a render is cut into cached segments 1`] = `
 exports[`where a render is cut into cached segments 2`] = `
 [
   [
-    0,
-    3,
+    [
+      0,
+      4,
+    ],
+    [
+      4,
+      7,
+    ],
+    [
+      7,
+      8,
+    ],
   ],
   [
-    3,
-    6,
+    [
+      0,
+      4,
+    ],
+    [
+      4,
+      7,
+    ],
+    [
+      7,
+      8,
+    ],
   ],
   [
-    6,
-    8,
+    [
+      0,
+      4,
+    ],
+    [
+      4,
+      7,
+    ],
+    [
+      7,
+      8,
+    ],
+  ],
+  [
+    [
+      0,
+      3,
+    ],
+    [
+      3,
+      7,
+    ],
+    [
+      7,
+      8,
+    ],
   ],
 ]
 `;
 
 exports[`where a render is cut into cached segments 3`] = `
-[
-  [
-    0,
-    4,
-  ],
-  [
-    4,
-    7,
-  ],
-  [
-    7,
-    8,
-  ],
-]
-`;
-
-exports[`where a render is cut into cached segments 4`] = `
-[
-  [
-    0,
-    3,
-  ],
-  [
-    3,
-    6,
-  ],
-  [
-    6,
-    8,
-  ],
-]
-`;
-
-exports[`where a render is cut into cached segments 5`] = `
 [
   [
     0,

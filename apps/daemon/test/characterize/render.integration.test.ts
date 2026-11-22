@@ -3,7 +3,7 @@
 // clips, once from a project, which goes through the segment cache.
 // Needs ffmpeg. Run with MOCKINGBIRD_INTEGRATION=1.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mcpTools } from "../../src/mcp.ts";
@@ -98,11 +98,18 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (characterization)
     expect(streams(out)).toMatchSnapshot();
     expect(Math.abs(lufs(out) - -14)).toBeLessThanOrEqual(0.5);
     const cache = join(dir, "home", "cache", "segments");
-    const kept = readdirSync(cache).sort();
-    expect(kept.length).toBeGreaterThan(0);
+    // Each segment by name, with when it was written.
+    const written = () =>
+      Object.fromEntries(
+        readdirSync(cache)
+          .sort()
+          .map((f) => [f, statSync(join(cache, f)).mtimeMs]),
+      );
+    const kept = written();
+    expect(Object.keys(kept).length).toBeGreaterThan(0);
     await tool("render").run({ project });
-    // The second render reads the same segments and makes no new ones.
-    expect(readdirSync(cache).sort()).toEqual(kept);
+    // The second render reads the same segments: none made again, none added.
+    expect(written()).toEqual(kept);
     expect(streams(join(dir, "edit-render-2.mp4"))).toEqual(streams(out));
   }, 120_000);
 });

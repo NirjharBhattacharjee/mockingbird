@@ -65,17 +65,30 @@ test("speech cut into chunks, and words into timed lines", () => {
 });
 
 test("where a render is cut into cached segments", () => {
+  // Eight 3.5 s clips: they start at 0, 3.5, 7, 10.5, …, so a plain cut splits at 10.5 s and 21 s.
   const clips = Array.from({ length: 8 }, (_, i) => s(i * 10, i * 10 + 3.5));
-  expect(segments(clips, [])).toMatchSnapshot();
-  expect(segments(clips, [{ from: 6, to: 8 }])).toMatchSnapshot();
-  const faded = clips.map((c, i) =>
-    i === 3 ? { ...c, transition: { type: "fade", duration: 0.5 } } : c,
-  );
-  expect(segments(faded, [])).toMatchSnapshot();
-  const jcut = clips.map((c, i) =>
-    i === 4 ? { ...c, sound: { from: c.from - 0.5, to: c.to } } : c,
-  );
-  expect(segments(jcut, [])).toMatchSnapshot();
+  const plain = segments(clips, []);
+  expect(plain).toMatchSnapshot();
+  // Each input below sits on one of those edges, so it moves the split.
+  const across = [
+    segments(clips, [{ from: 10, to: 11 }]),
+    segments(
+      clips.map((c, i) => (i === 3 ? { ...c, transition: { type: "fade", duration: 0.5 } } : c)),
+      [],
+    ),
+    // A J cut on the clip starting at 10.5 s: its sound starts half a second before its picture.
+    segments(
+      clips.map((c, i) => (i === 3 ? { ...c, sound: { from: c.from - 0.5, to: c.to } } : c)),
+      [],
+    ),
+    // An L cut on the clip ending at 21 s: its sound runs on past its picture.
+    segments(
+      clips.map((c, i) => (i === 5 ? { ...c, sound: { from: c.from, to: c.to + 0.5 } } : c)),
+      [],
+    ),
+  ];
+  for (const runs of across) expect(runs).not.toEqual(plain);
+  expect(across).toMatchSnapshot();
   const many = Array.from({ length: CLIPS_PER_PASS + 5 }, (_, i) => s(i, i + 0.05));
   expect(segments(many, [])).toMatchSnapshot();
 });
