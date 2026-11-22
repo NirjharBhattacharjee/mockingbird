@@ -4,7 +4,7 @@
 // whisper-server, the models and the pinned Chrome.
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { mcpTools } from "../apps/daemon/src/mcp.ts";
+import { mcpTools } from "../apps/daemon/src/mcp/tools.ts";
 
 const out = resolve(process.argv[2] ?? "edit-out");
 mkdirSync(out, { recursive: true });

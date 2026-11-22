@@ -2,7 +2,7 @@ import { existsSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { main as dictionaryMain, readDictionary } from "./dictionary.ts";
-import { mcpTools, serve } from "./mcp.ts";
+import { serve } from "./mcp/server.ts";
 import {
   findChrome,
   MODNET_FILE,
@@ -297,7 +297,7 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
     case "uninstall":
       return uninstallHere(rest);
     case "mcp":
-      return serve(mcpTools(async () => engineStatus(), log));
+      return serve(async () => engineStatus(), log);
     default:
       throw new UsageError(`unknown command "${command}"`);
   }

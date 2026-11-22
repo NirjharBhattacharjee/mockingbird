@@ -31,23 +31,15 @@ export const DOMAINS: Record<string, string[]> = {
   render: ["effects", "captions", "motion", "project", "transcript", "inspect", "install"],
 };
 
-/** Folders that predate the domain map. May only shrink. */
-export const LEGACY_DIRS = ["screen-inspection"];
-
 /** The only files that may import the legacy mcp.ts. May only shrink. */
 export const MCP_IMPORTERS = [
-  "apps/daemon/src/cli.ts",
+  "apps/daemon/src/mcp/tools.ts",
   "apps/daemon/src/transcribe.ts",
   "apps/daemon/test/characterize/cache.test.ts",
   "apps/daemon/test/characterize/graphs.test.ts",
-  "apps/daemon/test/characterize/render.integration.test.ts",
-  "apps/daemon/test/characterize/surface.test.ts",
   "apps/daemon/test/effects.test.ts",
-  "apps/daemon/test/guide.test.ts",
   "apps/daemon/test/kit.integration.test.ts",
   "apps/daemon/test/mcp.test.ts",
-  "apps/daemon/test/screen-render.integration.test.ts",
-  "apps/daemon/test/screen-render.test.ts",
   "apps/daemon/test/track.test.ts",
 ];
 
@@ -135,7 +127,7 @@ export function check(files: Map<string, string>): string[] {
   const mcpImporters = new Set<string>();
   for (const [path, text] of files) {
     const dir = path.startsWith(D) && path.slice(D.length).includes("/") ? folder(path) : "";
-    if (dir && dir !== "mcp" && !(dir in DOMAINS) && !LEGACY_DIRS.includes(dir))
+    if (dir && dir !== "mcp" && !(dir in DOMAINS))
       errors.push(`${path}: ${D}${dir}/ isn't a domain; add it to docs/STRUCTURE.md`);
     for (const spec of importsOf(text)) {
       const to = resolve(path, spec);
@@ -148,9 +140,6 @@ export function check(files: Map<string, string>): string[] {
   for (const path of MCP_IMPORTERS)
     if (!mcpImporters.has(path))
       errors.push(`${path}: no longer imports mcp.ts; remove it from MCP_IMPORTERS`);
-  for (const dir of LEGACY_DIRS)
-    if (![...files.keys()].some((p) => p.startsWith(D) && folder(p) === dir))
-      errors.push(`${D}${dir}/ is gone; remove it from LEGACY_DIRS`);
   return errors;
 }
 

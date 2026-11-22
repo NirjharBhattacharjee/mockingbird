@@ -28,12 +28,12 @@ test("tools and mcp/ stay thin", () => {
 });
 
 test("only the frozen list imports mcp.ts, and the list only shrinks", () => {
-  expect(forbidden(`${D}cli.ts`, `${D}mcp.ts`)).toBeUndefined();
+  expect(forbidden(`${D}mcp/tools.ts`, `${D}mcp.ts`)).toBeUndefined();
+  expect(forbidden(`${D}cli.ts`, `${D}mcp.ts`)).toContain("mcp.ts");
   expect(forbidden(`${D}track.ts`, `${D}mcp.ts`)).toContain("mcp.ts");
   expect(forbidden(`${D}track.ts`, `${D}cli.ts`)).toContain("entry point");
-  const errors = check(new Map([[`${D}cli.ts`, 'import { serve } from "./mcp.ts";']]));
+  const errors = check(new Map([[`${D}mcp/tools.ts`, 'import { motion } from "../mcp.ts";']]));
   expect(errors.some((e) => e.startsWith(`${D}transcribe.ts: no longer imports`))).toBe(true);
-  expect(errors.some((e) => e.includes("screen-inspection/ is gone"))).toBe(true);
 });
 
 test("a folder that isn't a domain fails", () => {

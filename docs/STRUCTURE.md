@@ -32,8 +32,8 @@ in a file at the root of `apps/daemon/src/`.
 | Inspection | picture: frames, scenes, scopes | frames, scenes, scopes | mcp.ts, scopes.ts | `D/inspect/` |
 | | sound: pauses, measure, stats, sync | pauses, measure, audio_stats, sync | pauses.ts, audio-stats.ts, sync.ts | `D/inspect/` |
 | | tracking | track | track.ts | `D/inspect/` |
-| Screen recording | inspection | screen_frames, screen_changes, screen_privacy, screen_watch | screen-inspect.ts, screen-inspection/ | `D/screen/` |
-| | normalise, render | screen_normalize, screen_render | screen-render.ts, `packages/video` | `D/screen/` |
+| Screen recording | inspection | screen_frames, screen_changes, screen_privacy, screen_watch | moved | `D/screen/` |
+| | normalise, render | screen_normalize, screen_render | moved; `packages/video` | `D/screen/` |
 | Project | edit ops, export | edit, export | mcp.ts, `packages/timeline` | `D/project/` |
 | Captions | cues from words, style, drawing | captions | mcp.ts, `packages/captions` | `D/captions/` |
 | Effects | catalog, filters, masks, HDR, subject mattes | effects | effects.ts, hdr.ts, subject.ts, `packages/matte` | `D/effects/` |
@@ -96,18 +96,16 @@ Tests may import anything.
 A file at the root of `D` is legacy: it may import any domain, and any
 domain may import it, until it moves.
 
-## Lists that only shrink
+## A list that only shrinks
 
-`scripts/imports.ts` keeps two lists that fail the check when an entry
-goes stale, so they get shorter as the move goes on:
-
-- `MCP_IMPORTERS`: the only files that may import `mcp.ts` (`cli.ts`,
-  `transcribe.ts` and the tests that do today, including the
-  characterization tests in `apps/daemon/test/characterize/`, which pin
-  today's behaviour so each move can show it changed nothing). New code
-  imports from the domain's folder.
-- `LEGACY_DIRS`: folders under `D` that predate this map
-  (`screen-inspection/`). Any other folder must be in the domain graph.
+`MCP_IMPORTERS` in `scripts/imports.ts` names the only files that may
+import the legacy `mcp.ts`: `mcp/tools.ts`, which lists the tools still
+defined there, `transcribe.ts`, and the tests that reach into it,
+including the characterization tests in `apps/daemon/test/characterize/`,
+which pin today's behaviour so each move can show it changed nothing. An
+entry that no longer imports it fails the check, so the list gets shorter
+as the move goes on. New code imports from the domain's folder, and any
+folder under `D` must be in the domain graph.
 
 ## Adding a domain or an edge
 
