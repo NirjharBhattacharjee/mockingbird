@@ -428,12 +428,12 @@ mockingbird/
 │   │   ├── cli.ts           every command
 │   │   ├── mcp/ · mcp.ts · screen/   the MCP server · the tools not yet moved · screen recording
 │   │   ├── inspect/         `frames`, `scenes`, `scopes`, `pauses`, `measure`, `audio_stats`, `sync`, `track`
+│   │   ├── transcript/      `transcribe`, `dictionary_list`, `dictionary_add`; the word cache; `mockingbird dictionary`
 │   │   ├── clock.ts         `[mm:ss]` and `[mm:ss.cc]` times, shared by the tools
 │   │   ├── guide.ts         the plugin's playbooks, served by `guide`
 │   │   ├── motion-run.ts    runs a motion script or page in its own process
 │   │   ├── transcribe.ts    `mockingbird transcribe`
 │   │   ├── record.ts        `mockingbird record`, the mic through ffmpeg
-│   │   ├── dictionary.ts    `mockingbird dictionary`, data.db access
 │   │   ├── models.ts        `mockingbird models`, pinned downloads
 │   │   ├── runtime.ts       model lookup, VAD + whisper-server startup
 │   │   ├── setup.ts         `mockingbird setup` and `doctor`

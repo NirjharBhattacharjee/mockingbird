@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { formatEntry, readDictionary } from "./dictionary.ts";
+import { formatEntry, readDictionary } from "./transcript/dictionary.ts";
 
 /** The lines scripts/install.sh adds to a shell profile, exactly. */
 const PROFILE_LINES =

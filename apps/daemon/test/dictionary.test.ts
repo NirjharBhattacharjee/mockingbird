@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openStore } from "@mockingbird/store";
-import { formatEntry, main, readDictionary, withStore } from "../src/dictionary.ts";
+import { formatEntry, main, readDictionary, withStore } from "../src/transcript/dictionary.ts";
 
 const newHome = () => mkdtempSync(join(tmpdir(), "mb-"));
 const quiet = () => {};

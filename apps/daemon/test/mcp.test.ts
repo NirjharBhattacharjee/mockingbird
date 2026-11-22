@@ -20,12 +20,10 @@ import { parseScenes } from "../src/inspect/scenes.ts";
 import { handle, PROMPTS } from "../src/mcp/server.ts";
 import { mcpTools } from "../src/mcp/tools.ts";
 import {
-  align,
   boardFrom,
   buildLook,
   CLIPS_PER_PASS,
   captionFontWarning,
-  chunks,
   KIT_URL,
   LOOK_BOARD,
   levelGains,
@@ -38,22 +36,19 @@ import {
   seekClips,
   segments,
   soundOf,
-  sourceWords,
-  spans,
   THREE_ADDONS_URL,
   THREE_URL,
   tempo,
-  timedLines,
-  timedWords,
   timeline,
   transcriptionAt,
-  uncovered,
-  union,
   withKit,
   wordCaptions,
 } from "../src/mcp.ts";
 import { findChrome } from "../src/models.ts";
 import { mockingbirdHome } from "../src/runtime.ts";
+import { spans } from "../src/transcript/clips.ts";
+import { chunks, timedLines, timedWords } from "../src/transcript/transcribe.ts";
+import { align, sourceWords, uncovered, union } from "../src/transcript/words.ts";
 
 const echo = {
   name: "echo",

@@ -22,7 +22,7 @@ export const PACKAGES: Record<string, string[]> = {
 export const DOMAINS: Record<string, string[]> = {
   install: [],
   inspect: ["install"],
-  transcript: ["install"],
+  transcript: ["inspect", "install"],
   effects: ["inspect", "install"],
   motion: ["install"],
   screen: ["motion", "install"],
@@ -34,7 +34,6 @@ export const DOMAINS: Record<string, string[]> = {
 /** The only files that may import the legacy mcp.ts. May only shrink. */
 export const MCP_IMPORTERS = [
   "apps/daemon/src/mcp/tools.ts",
-  "apps/daemon/src/transcribe.ts",
   "apps/daemon/test/characterize/cache.test.ts",
   "apps/daemon/test/characterize/graphs.test.ts",
   "apps/daemon/test/effects.test.ts",

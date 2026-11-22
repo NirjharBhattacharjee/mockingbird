@@ -7,7 +7,6 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { type Agent, agents } from "./agents.ts";
-import { readDictionary } from "./dictionary.ts";
 import { playbooks } from "./guide.ts";
 import { findChrome, MODEL_FILES, missingFonts, pinnedChrome } from "./models.ts";
 import {
@@ -21,6 +20,7 @@ import {
   savedSetting,
 } from "./runtime.ts";
 import { UsageError } from "./transcribe.ts";
+import { readDictionary } from "./transcript/dictionary.ts";
 
 export type Check = {
   name: string;

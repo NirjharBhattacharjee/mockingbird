@@ -17,7 +17,6 @@ import {
 } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
-import { withStore } from "./dictionary.ts";
 import {
   ASR_MODEL_SETTING,
   CPU_ASR_MODEL,
@@ -36,6 +35,7 @@ import {
   WHISPER_LANGUAGES,
   wontStart,
 } from "./runtime.ts";
+import { withStore } from "./transcript/dictionary.ts";
 
 /** `name` is what the progress line calls it; `bytes` is its size, shown before a download. */
 export type ModelFile = { name: string; file: string; url: string; sha256: string; bytes?: number };

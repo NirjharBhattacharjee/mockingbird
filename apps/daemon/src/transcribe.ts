@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import { transcribe } from "./mcp.ts";
+import { transcribe } from "./transcript/transcribe.ts";
 
 const USAGE = `Usage: mockingbird transcribe <file> [--words] [--from <s>] [--to <s>]
                                         [--model <file>] [--language <code>]

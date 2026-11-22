@@ -3,18 +3,10 @@
 // transcript is cut into, and where a render is cut into segments.
 // Don't update these snapshots in a refactor PR.
 import { expect, test } from "bun:test";
-import {
-  align,
-  CLIPS_PER_PASS,
-  chunks,
-  pieces,
-  segments,
-  spans,
-  timedLines,
-  timedWords,
-  uncovered,
-  union,
-} from "../../src/mcp.ts";
+import { CLIPS_PER_PASS, pieces, segments } from "../../src/mcp.ts";
+import { spans } from "../../src/transcript/clips.ts";
+import { chunks, timedLines, timedWords } from "../../src/transcript/transcribe.ts";
+import { align, uncovered, union } from "../../src/transcript/words.ts";
 
 const s = (from: number, to: number) => ({ from, to });
 

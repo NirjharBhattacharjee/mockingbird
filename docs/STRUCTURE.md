@@ -28,7 +28,7 @@ in a file at the root of `apps/daemon/src/`.
 
 | Domain | Subdomain | Tools | Today | Folder |
 |---|---|---|---|---|
-| Transcript | speech to text, word cache, dictionary | transcribe, dictionary_list, dictionary_add | mcp.ts, transcribe.ts, dictionary.ts, `packages/{asr,vad,store}` | `D/transcript/` |
+| Transcript | speech to text, word cache, dictionary | transcribe, dictionary_list, dictionary_add | moved: `transcript/tools.ts`, `transcribe.ts`, `words.ts`, `clips.ts`, `dictionary.ts`; `transcribe.ts` at `D` stays as the command; `packages/{asr,vad,store}` | `D/transcript/` |
 | Inspection | picture: frames, scenes, scopes | frames, scenes, scopes | moved: `inspect/tools.ts`, `frames.ts`, `scenes.ts`, `scopes.ts`, `probe.ts` | `D/inspect/` |
 | | sound: pauses, measure, stats, sync | pauses, measure, audio_stats, sync | moved: `inspect/pauses.ts`, `audio-stats.ts`, `sync.ts` | `D/inspect/` |
 | | tracking | track | moved: `inspect/track.ts` | `D/inspect/` |
@@ -85,7 +85,7 @@ Tests may import anything.
 |---|---|
 | install | — |
 | inspect | install |
-| transcript | install |
+| transcript | inspect, install |
 | effects | inspect (track's path points), install |
 | motion | install |
 | screen | motion, install |
