@@ -161,6 +161,28 @@ This repo tightens them in these ways:
 Do not merge the PR unless explicitly instructed. Keep the worktree until
 the PR is merged or closed.
 
+## File size
+
+Every tracked text file has a line limit, checked by
+`scripts/file-size.ts` as part of `bun run lint` (so CI runs it). The
+first rule that matches a path wins:
+
+| Files | Max lines |
+|---|---|
+| Generated, vendored, data (`**/vendor/**`, `*.cube`, `bun.lock`, `bench/fixtures/**`, the built `kit.js`/`styles.js`/`styles/index.ts`) | none |
+| Entry points and tool handlers (`mcp.ts`, `cli.ts`, `apps/daemon/src/tools/**`, `apps/cli/main.go`) | 200 |
+| Tests (`*.test.ts`, `*_test.go`) | 600 |
+| Docs, schemas and config (`*.md`, `*.json`, `*.yml`, `*.toml`) | 500 |
+| Everything else (code, HTML, shell) | 350 |
+
+Files over their limit when the check landed are listed in
+`scripts/file-size-allowlist.json`, each capped at its size then. That list
+can only shrink: a listed file may not grow, and once it's within its limit
+the check tells you to delete its entry. For a new file, split it by
+responsibility. Don't split it mechanically or squeeze code onto fewer lines
+just to pass. A new exception needs an entry with a `why` that a reviewer
+agrees with. Shrinking the legacy files is tracked in #300.
+
 ## Commands & checks
 
 Mirrors [ARCHITECTURE.md §14](./docs/ARCHITECTURE.md#14-cicd-pipeline) /
@@ -171,7 +193,7 @@ the local setup the integration tests need.
 |---|---|---|
 | Install (deterministic) | `bun install --frozen-lockfile` | yes |
 | Typecheck, all workspaces | `bun run typecheck` | yes |
-| Lint + format (Biome) | `bun run lint` (`bun run format` to fix) | yes |
+| Lint + format (Biome), file size | `bun run lint` (`bun run format` to fix) | yes |
 | Unit tests | `bun test` | yes |
 | Integration tests (real VAD, whisper-server, ffmpeg) | `bun run test:integration` | no — run locally for any change to `packages/{audio,vad,asr,captions,motion}`, a tool, or an integration test or its setup |
 | Build smoke test | `bun build --compile` | not yet — onnxruntime's dylib isn't embedded |

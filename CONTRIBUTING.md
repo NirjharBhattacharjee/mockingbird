@@ -146,6 +146,9 @@ These are enforced, not stylistic suggestions:
 - **Headless-testable.** Point 4 of §2: every tool must run and be
   testable with no GUI, mic or permission prompt. If your change makes that
   untestable, that's a design problem to raise before merging, not after.
+- **Files stay short.** Each file has a line limit by type (code 350,
+  docs 500, tests 600, entry points 200); see
+  [AGENTS.md §File size](./AGENTS.md#file-size). `bun run lint` checks it.
 - **Degrade, don't break.** Point 5 of §2: a dependency dying should degrade
   functionality, not break every tool. New integrations with external
   processes (a new ASR backend, say) need a defined fallback
@@ -187,7 +190,7 @@ PR, on macOS, Linux and Windows (see [below](#on-linux-and-windows)).
 |---|---|---|
 | Install (deterministic) | `bun install --frozen-lockfile` | yes |
 | Typecheck, all workspaces | `bun run typecheck` | yes |
-| Lint + format check (Biome) | `bun run lint` (`bun run format` fixes) | yes |
+| Lint + format check (Biome), file size | `bun run lint` (`bun run format` fixes) | yes |
 | Unit tests, all packages | `bun test` | yes |
 | Integration tests: real VAD, whisper-server and ffmpeg on fixtures | `bun run test:integration` | not yet — needs local models |
 | Build smoke test (macOS runner) | `bun build --compile` | not yet — no entry point to compile |
