@@ -3,9 +3,11 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderHtml } from "@mockingbird/motion";
-import { screenTools } from "../src/screen-inspect.ts";
+import { screenTools } from "../../src/screen/tools.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "screen-inspect-test-"));
+// These tests never call screen_render, the one tool that draws with motion.
+const noMotion = async () => "";
 const sparse = join(dir, "sparse.mkv");
 const sound = join(dir, "sound.mkv");
 const ocr = join(dir, "ocr.mp4");
@@ -27,7 +29,7 @@ function ffmpeg(...args: string[]) {
 }
 
 function tool(name: string) {
-  const found = screenTools().find((t) => t.name === name);
+  const found = screenTools(noMotion).find((t) => t.name === name);
   if (!found) throw new Error(`No ${name} tool`);
   return found;
 }
@@ -542,9 +544,9 @@ describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("screen inspection (integr
   }, 60_000);
 
   test("reports missing OCR without disabling the other tools", async () => {
-    const moduleUrl = new URL("../src/screen-inspect.ts", import.meta.url).href;
+    const moduleUrl = new URL("../../src/screen/tools.ts", import.meta.url).href;
     const script = `import {screenTools} from ${JSON.stringify(moduleUrl)};
-      const tools = screenTools();
+      const tools = screenTools(async () => "");
       try { await tools.find(t => t.name === "screen_privacy").run({path: process.argv[1]}); }
       catch (e) { console.log(e.message); }
       console.log(tools.map(t => t.name).join(","));`;

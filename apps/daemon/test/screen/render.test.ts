@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cameraAt, screenOptions, screenPage } from "@mockingbird/motion";
 import { normalizeScreen } from "@mockingbird/video";
-import { mcpTools } from "../src/mcp.ts";
+import { mcpTools } from "../../src/mcp/tools.ts";
 
 test("MCP exposes the screen renderer", () => {
   expect(

@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mcpTools } from "../../src/mcp.ts";
+import { mcpTools } from "../../src/mcp/tools.ts";
 
 const tools = mcpTools(
   async () => ({}),

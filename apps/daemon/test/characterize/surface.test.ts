@@ -7,7 +7,8 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { playbooks } from "../../src/guide.ts";
-import { handle, mcpTools, PROMPTS } from "../../src/mcp.ts";
+import { handle, PROMPTS } from "../../src/mcp/server.ts";
+import { mcpTools } from "../../src/mcp/tools.ts";
 
 const repo = resolve(import.meta.dir, "../../../..");
 const wav = join(repo, "bench/fixtures/hello.wav");

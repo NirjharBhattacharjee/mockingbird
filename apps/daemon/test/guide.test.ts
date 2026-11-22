@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
 import { guide, INSTRUCTIONS, PLUGIN, playbooks } from "../src/guide.ts";
-import { handle, mcpTools } from "../src/mcp.ts";
+import { handle } from "../src/mcp/server.ts";
+import { mcpTools } from "../src/mcp/tools.ts";
 
 test("every skill in plugin/ and the reviewer are playbooks", () => {
   expect(playbooks().map((p) => p.topic)).toEqual([
