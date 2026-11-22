@@ -428,6 +428,7 @@ mockingbird/
 │   │   ├── cli.ts           every command
 │   │   ├── mcp/ · mcp.ts · screen/   the MCP server · the tools not yet moved · screen recording
 │   │   ├── inspect/         `frames`, `scenes`, `scopes`, `pauses`, `measure`, `audio_stats`, `sync`, `track`
+│   │   ├── clock.ts         `[mm:ss]` and `[mm:ss.cc]` times, shared by the tools
 │   │   ├── guide.ts         the plugin's playbooks, served by `guide`
 │   │   ├── motion-run.ts    runs a motion script or page in its own process
 │   │   ├── transcribe.ts    `mockingbird transcribe`
