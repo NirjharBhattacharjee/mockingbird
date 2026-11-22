@@ -8,11 +8,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mcpTools } from "../../src/mcp.ts";
 
+const tools = mcpTools(
+  async () => ({}),
+  () => {},
+);
 const tool = (name: string) =>
-  mcpTools(
-    async () => ({}),
-    () => {},
-  ).find((t) => t.name === name) as { run: (a: Record<string, unknown>) => Promise<string> };
+  tools.find((t) => t.name === name) as { run: (a: Record<string, unknown>) => Promise<string> };
 
 /** Each stream's layout: what a move must keep exactly. */
 const streams = (file: string) =>
@@ -42,19 +43,23 @@ const lufs = (file: string) => {
 };
 
 describe.skipIf(!process.env.MOCKINGBIRD_INTEGRATION)("render (characterization)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "mb-characterize-render-"));
-  const talk = join(dir, "talk.mp4");
+  // Made in beforeAll, so a skipped run leaves no folder behind.
+  let dir = "";
+  let talk = "";
   const saved = process.env.MOCKINGBIRD_HOME;
   beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), "mb-characterize-render-"));
+    talk = join(dir, "talk.mp4");
     process.env.MOCKINGBIRD_HOME = join(dir, "home");
     mkdirSync(join(dir, "home"));
     // 6 s of a moving test picture with a tone at about -28 LUFS: under -14, within the 30 dB render may add.
-    Bun.spawnSync([
+    const made = Bun.spawnSync([
       ...["ffmpeg", "-nostdin", "-loglevel", "error", "-f", "lavfi"],
       ...["-i", "testsrc2=size=640x360:rate=30:duration=6"],
       ...["-f", "lavfi", "-i", "sine=frequency=440:duration=6,volume=0.5"],
       ...["-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", talk],
     ]);
+    if (made.exitCode !== 0) throw new Error(`ffmpeg couldn't make the test clip: ${made.stderr}`);
   });
   afterAll(() => {
     if (saved === undefined) delete process.env.MOCKINGBIRD_HOME;

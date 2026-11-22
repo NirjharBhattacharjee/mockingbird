@@ -3,7 +3,7 @@
 // move that changes any of it fails here. Don't update these snapshots in a
 // refactor PR; a change to them is a change to the product.
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { playbooks } from "../../src/guide.ts";
@@ -14,10 +14,16 @@ const wav = join(repo, "bench/fixtures/hello.wav");
 const home = mkdtempSync(join(tmpdir(), "mb-characterize-"));
 const saved = process.env.MOCKINGBIRD_HOME;
 // A home of its own: dictionary_add writes to data.db.
+// And a working folder of its own: tools resolve a missing path against it, and it
+// mustn't be the repo, so those replies read the same wherever the tests start.
+const cwd = process.cwd();
 beforeAll(() => {
   process.env.MOCKINGBIRD_HOME = home;
+  mkdirSync(join(home, "cwd"));
+  process.chdir(join(home, "cwd"));
 });
 afterAll(() => {
+  process.chdir(cwd);
   if (saved === undefined) delete process.env.MOCKINGBIRD_HOME;
   else process.env.MOCKINGBIRD_HOME = saved;
   rmSync(home, { recursive: true, force: true });
@@ -29,27 +35,42 @@ const tools = mcpTools(
 );
 const topics = playbooks().map((p) => p.topic);
 
-/** Paths and process ids that differ by machine and run, made the same everywhere. */
-const steady = (v: unknown): unknown =>
-  JSON.parse(
-    JSON.stringify(v)
-      .replaceAll(repo, "<repo>")
-      .replaceAll(process.cwd(), "<cwd>")
-      .replaceAll(home, "<home>")
-      .replaceAll(topics.join(", "), "<topics>")
-      .replace(/\.\d+\.tmp/g, ".<pid>.tmp"),
+const windows = process.platform === "win32";
+const literal = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Paths and process ids that differ by machine and run, made the same
+ * everywhere. The longest path goes first, so a run from apps/daemon still
+ * reads `<cwd>`. On Windows, paths are matched as JSON escapes them and in
+ * any drive-letter case, then their separators read `/` and a leftover
+ * drive (`D:\\x`) is dropped; elsewhere a backslash stays as it is.
+ */
+const steady = (v: unknown): unknown => {
+  let json = JSON.stringify(v);
+  const paths: [string, string][] = [
+    [process.cwd(), "<cwd>"],
+    [repo, "<repo>"],
+    [home, "<home>"],
+  ];
+  for (const [path, tag] of paths.sort((a, b) => b[0].length - a[0].length)) {
+    const re = new RegExp(literal(JSON.stringify(path).slice(1, -1)), windows ? "gi" : "g");
+    json = json.replace(re, tag);
+  }
+  if (windows) json = json.replaceAll("\\\\", "/").replace(/\b[A-Za-z]:\//g, "/");
+  return JSON.parse(
+    json.replaceAll(topics.join(", "), "<topics>").replace(/\.\d+\.tmp/g, ".<pid>.tmp"),
   );
+};
 
 let id = 0;
 const call = (method: string, params?: object) =>
   handle({ jsonrpc: "2.0", id: ++id, method, params } as never, tools, PROMPTS);
 
 test("every tool's name, description and input schema", () => {
-  const surface = tools.map(({ name, description, inputSchema }) => ({
-    name,
-    description,
-    inputSchema,
-  }));
+  // A copy: the tools themselves keep their real schemas for the tests after this one.
+  const surface = structuredClone(
+    tools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
+  );
   // The playbooks change with the plugin, not the engine: their list is checked, not pinned.
   const guide = surface.find((t) => t.name === "guide") as {
     inputSchema: { properties: { topic: { enum: string[] } } };
@@ -97,8 +118,11 @@ const BAD: [string, Record<string, unknown>][] = [
         },
       ],
     ])
-    // Need ffprobe to get as far as their checks.
-    .filter(([n, a]) => !(["screen_render", "screen_normalize"].includes(n) && "project" in a)),
+    // screen_render and screen_normalize need ffprobe to get as far as their checks; edit
+    // would write at the root, which fails with the OS's own words (checked below instead).
+    .filter(
+      ([n, a]) => !(["screen_render", "screen_normalize", "edit"].includes(n) && "project" in a),
+    ),
   ["transcribe", { path: wav, from: -1 }],
   ["transcribe", { path: wav, from: "soon" }],
   ["transcribe", { path: wav, model: "../data.db" }],
@@ -143,6 +167,11 @@ test("each tool's reply to missing or bad arguments", async () => {
     replies.push({ name, args, reply: reply.result });
   }
   expect(steady(replies)).toMatchSnapshot();
+  const unwritable = (await call("tools/call", {
+    name: "edit",
+    arguments: { project: "/nonexistent/p.json", ops: [] },
+  })) as { result: { isError?: boolean } };
+  expect(unwritable.result.isError).toBe(true);
 });
 
 test("the tools that need no arguments", async () => {
