@@ -1,7 +1,7 @@
 // Fails when an import goes the wrong way. Rules: docs/STRUCTURE.md.
 // Run with `bun scripts/imports.ts` (part of `bun run lint`).
-import { readFileSync } from "node:fs";
 import { dirname, join, posix } from "node:path";
+import { repoFiles } from "./file-size.ts";
 
 const D = "apps/daemon/src/";
 
@@ -56,7 +56,7 @@ type Layer =
 
 export function layerOf(path: string): Layer {
   if (/(^|\/)test\//.test(path) || path.endsWith(".test.ts")) return { kind: "test" };
-  const pkg = path.match(/^packages\/([^/]+)\/src\//);
+  const pkg = path.match(/^packages\/([^/]+)\//);
   if (pkg) return { kind: "package", name: pkg[1] as string };
   if (!path.startsWith(D)) return { kind: "other" };
   if (path === `${D}mcp.ts`) return { kind: "legacy-mcp" };
@@ -75,19 +75,26 @@ export function resolve(from: string, spec: string): string | undefined {
   const pkg = spec.match(/^@mockingbird\/([^/]+)/);
   if (pkg) return `packages/${pkg[1]}/src/`;
   if (!spec.startsWith(".")) return undefined;
-  return posix.normalize(posix.join(dirname(from), spec));
+  const to = posix.normalize(posix.join(dirname(from), spec)).replace(/\.m?js$/, ".ts");
+  return /\.[a-z]+$/i.test(to) ? to : `${to}.ts`; // "./mcp" compiles too
 }
 
-const SPECS = /(?:\bfrom|\bimport)\s*\(?\s*["']([^"']+)["']/g;
-export const importsOf = (text: string) => [...text.matchAll(SPECS)].map((m) => m[1] as string);
+// Statements that start a line (so text in comments doesn't count), and import("…").
+const SPECS = [
+  /^(?:import|export)\b[^;]*?\bfrom\s*["']([^"']+)["']/gm,
+  /^import\s*["']([^"']+)["']/gm,
+  /\bimport\(\s*["']([^"']+)["']\s*\)/g,
+];
+export const importsOf = (text: string) =>
+  SPECS.flatMap((re) => [...text.matchAll(re)].map((m) => m[1] as string));
 
 /** Why `from` may not import `to`, or undefined if it may. */
 export function forbidden(from: string, to: string): string | undefined {
   const a = layerOf(from);
   const b = layerOf(to);
-  if (a.kind === "test" || a.kind === "other") return;
   if (b.kind === "legacy-mcp")
     return MCP_IMPORTERS.includes(from) ? undefined : "nothing new may import mcp.ts";
+  if (a.kind === "test" || a.kind === "other") return;
   if (b.kind === "test") return "only tests import tests";
   if (b.kind === "entry") return "nothing imports an entry point";
   if (a.kind === "package") {
@@ -111,8 +118,9 @@ export function forbidden(from: string, to: string): string | undefined {
     return "a domain's tools.ts imports only its own schema, not another tool surface";
   }
   if (a.kind === "domain") {
+    if (a.name === "") return; // a legacy root file, until it moves
     if (b.kind !== "domain") return "a domain never imports mcp/, a tools.ts or a schema";
-    if (b.name === "" || b.name === a.name || a.name === "") return;
+    if (b.name === "" || b.name === a.name) return;
     return DOMAINS[a.name]?.includes(b.name) ? undefined : `domain DAG: ${a.name} -/-> ${b.name}`;
   }
   return; // entry: anything not ruled out above
@@ -122,11 +130,9 @@ export function check(files: Map<string, string>): string[] {
   const errors: string[] = [];
   const mcpImporters = new Set<string>();
   for (const [path, text] of files) {
-    const layer = layerOf(path);
-    if (layer.kind === "domain" && layer.name && !(layer.name in DOMAINS)) {
-      if (!LEGACY_DIRS.includes(layer.name))
-        errors.push(`${path}: ${D}${layer.name}/ isn't a domain; add it to docs/STRUCTURE.md`);
-    }
+    const dir = path.startsWith(D) && path.slice(D.length).includes("/") ? folder(path) : "";
+    if (dir && dir !== "mcp" && !(dir in DOMAINS) && !LEGACY_DIRS.includes(dir))
+      errors.push(`${path}: ${D}${dir}/ isn't a domain; add it to docs/STRUCTURE.md`);
     for (const spec of importsOf(text)) {
       const to = resolve(path, spec);
       if (!to) continue;
@@ -146,14 +152,9 @@ export function check(files: Map<string, string>): string[] {
 
 if (import.meta.main) {
   const root = join(import.meta.dir, "..");
-  const files = new Map<string, string>();
-  const tracked = Bun.spawnSync(["git", "ls-files", "-z", "apps", "packages"], { cwd: root });
-  for (const path of tracked.stdout.toString().split("\0")) {
-    if (!/\.(ts|tsx|js|mjs)$/.test(path)) continue;
-    try {
-      files.set(path, readFileSync(join(root, path), "utf8"));
-    } catch {} // deleted but still in the index
-  }
+  const files = new Map(
+    [...repoFiles(root, ["apps", "packages"], true)].filter(([p]) => /\.(ts|tsx|js|mjs)$/.test(p)),
+  );
   const errors = check(files);
   for (const e of errors) console.error(e);
   if (errors.length) process.exit(1);

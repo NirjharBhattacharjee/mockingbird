@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { check, forbidden } from "./imports.ts";
+import { check, forbidden, importsOf, resolve } from "./imports.ts";
 
 const D = "apps/daemon/src/";
 
@@ -38,5 +38,18 @@ test("only the frozen list imports mcp.ts, and the list only shrinks", () => {
 
 test("a folder that isn't a domain fails", () => {
   const errors = check(new Map([[`${D}misc/a.ts`, ""]]));
+  expect(errors.some((e) => e.includes("misc/ isn't a domain"))).toBe(true);
+});
+
+test("review fixes: tests, comments, extensionless paths, root files, tools-only folders", () => {
+  expect(forbidden("apps/daemon/test/new.test.ts", `${D}mcp.ts`)).toContain("mcp.ts");
+  expect(importsOf('// import { a } from "./mcp.ts";\nconst s = "x from \'./y\'";')).toEqual([]);
+  expect(
+    importsOf('import {\n  a,\n} from "./a.ts";\nimport "./b.ts";\nawait import("./c.ts");'),
+  ).toEqual(["./a.ts", "./b.ts", "./c.ts"]);
+  expect(forbidden(`${D}track.ts`, resolve(`${D}track.ts`, "./mcp") as string)).toContain("mcp.ts");
+  expect(forbidden(`${D}transcribe.ts`, `${D}mcp/args.ts`)).toBeUndefined();
+  expect(forbidden("packages/motion/src/a.ts", "packages/motion/package.json")).toBeUndefined();
+  const errors = check(new Map([[`${D}misc/tools.ts`, ""]]));
   expect(errors.some((e) => e.includes("misc/ isn't a domain"))).toBe(true);
 });

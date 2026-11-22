@@ -30,3 +30,8 @@ test("allowlist can only shrink", () => {
   );
   expect(check(new Map(), { "a.ts": { max: 400, why: "" } })[0]).toContain("not tracked");
 });
+
+test("only code under test/ gets the test limit", () => {
+  expect(limitFor("apps/daemon/test/fixtures/x.json")).toBe(500);
+  expect(limitFor("apps/daemon/test/fixtures/x.html")).toBe(350);
+});
