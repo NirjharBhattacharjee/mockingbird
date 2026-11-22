@@ -36,7 +36,7 @@ in a file at the root of `apps/daemon/src/`.
 | | normalise, render | screen_normalize, screen_render | moved: `screen/tools.ts`, `screen/render.ts`; `packages/video` | `D/screen/` |
 | Project | edit ops, export | edit, export | mcp.ts, `packages/timeline` | `D/project/` |
 | Captions | cues from words, style, drawing | captions | mcp.ts, `packages/captions` | `D/captions/` |
-| Effects | catalog, filters, masks, HDR, subject mattes | effects | effects.ts, hdr.ts, subject.ts, `packages/matte` | `D/effects/` |
+| Effects | catalog, filters, masks, subject mattes | effects | moved: `effects/tools.ts`, `catalog.ts`, `filters.ts`, `masks.ts`, `subject.ts`; `packages/matte` | `D/effects/` |
 | Motion | HTML pages, the kit, the sandbox | motion | mcp.ts, motion-run.ts, `packages/motion` | `D/motion/` |
 | | look boards | look | mcp.ts | `D/motion/` |
 | Render | types, camera movement (framing, moves), filter graph, mix | render, the make_short prompt | mcp.ts | `D/render/` |
@@ -51,7 +51,8 @@ Three words that mean more than one thing here:
 
 - **Normalising** is three separate jobs: loudness to −14 LUFS (render),
   a screen recording to constant frame rate and square pixels
-  (`screen_normalize`), and HDR to SDR (effects).
+  (`screen_normalize`), and HDR to SDR (`inspect/hdr.ts`: `frames`,
+  `scopes` and `probe` need it too, and inspect can't import effects).
 - **Music** made by a generator is sound mixed under the cut, so it sits
   with loudness in render. Motion is pictures.
 - **Voices**: there's no voice or speech-synthesis code, only

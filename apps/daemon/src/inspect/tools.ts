@@ -1,10 +1,10 @@
 import { resolve } from "node:path";
-import { toSdrFor } from "../hdr.ts";
 import { items, seconds, within } from "../mcp/args.ts";
 import type { Tool } from "../mcp/types.ts";
 import { requireFile } from "../runtime.ts";
 import { audioStats } from "./audio-stats.ts";
 import { frames } from "./frames.ts";
+import { toSdrFor } from "./hdr.ts";
 import { INPUT } from "./inspect.schema.ts";
 import { clipsFrom, findPauses, measure } from "./pauses.ts";
 import { probe } from "./probe.ts";

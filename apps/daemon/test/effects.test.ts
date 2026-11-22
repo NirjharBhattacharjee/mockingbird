@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
-import { catalog, checkEffects, effectFilters, maskSource, pictureSteps } from "../src/effects.ts";
+import { catalog } from "../src/effects/catalog.ts";
+import { checkEffects, effectFilters, pictureSteps } from "../src/effects/filters.ts";
+import { maskSource } from "../src/effects/masks.ts";
 import { measure } from "../src/inspect/scopes.ts";
 import { renderGraph } from "../src/mcp.ts";
 

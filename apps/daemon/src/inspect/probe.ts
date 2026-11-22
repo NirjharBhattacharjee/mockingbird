@@ -1,7 +1,15 @@
-import { type Transfer, transferOf } from "../hdr.ts";
+import { type Transfer, transferOf } from "./hdr.ts";
 
 /** Rounds down to an even number, as most codecs need. */
 export const even = (n: number) => Math.trunc(n / 2) * 2;
+
+/**
+ * A path as a filter option inside a graph, escaped at both levels ffmpeg
+ * parses: the option value (`\`, `'`, `:`), then the graph (`\`, `'`, `[`, `]`,
+ * `,`, `;`). Quoting it instead breaks on an apostrophe: `O'Brien.cube`.
+ */
+export const quoted = (path: string) =>
+  path.replace(/[\\':]/g, (c) => `\\${c}`).replace(/[\\'[\],;]/g, (c) => `\\${c}`);
 
 /**
  * The streams in a media file, how long it is, its picture's size as played

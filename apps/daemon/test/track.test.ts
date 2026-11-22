@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { maskSteps, pictureSteps } from "../src/effects.ts";
+import { pictureSteps } from "../src/effects/filters.ts";
+import { maskSteps } from "../src/effects/masks.ts";
 import { along, follow } from "../src/inspect/track.ts";
 import { renderGraph } from "../src/mcp.ts";
 
