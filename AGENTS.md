@@ -7,6 +7,7 @@
 > repo-specific fill-in that collection's own template asks for.
 > **Read [docs/PHILOSOPHY.md](./docs/PHILOSOPHY.md) and
 > [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) first**, plus
+> [docs/STRUCTURE.md](./docs/STRUCTURE.md) for where code goes and what may import what,
 > [docs/DATABASE.md](./docs/DATABASE.md) for any change touching `data.db`
 > and [docs/MCP.md](./docs/MCP.md) for any change to a tool — this file
 > condenses them into checklist form; it doesn't replace them.
@@ -87,7 +88,8 @@ coderabbit-loop have something to check a "fix" against.
   subprocesses or prebuilt native modules.
 - No Electron, no native GUI toolkit — a future preview is a local page in
   the browser.
-- `packages/*` never imports from `apps/*`.
+- `packages/*` never imports from `apps/*`, and imports follow
+  [STRUCTURE.md](./docs/STRUCTURE.md)'s rules (`scripts/imports.ts`).
 - Every editing tool must run and be testable with no GUI, mic or
   permission prompt — a change that breaks headless testability is a design
   problem to raise, not merge around.
@@ -170,9 +172,9 @@ first rule that matches a path wins:
 | Files | Max lines |
 |---|---|
 | Generated, vendored, data (`**/vendor/**`, `*.cube`, `bun.lock`, `bench/fixtures/**`, the built `kit.js`/`styles.js`/`styles/index.ts`) | none |
-| Entry points and tool handlers (`mcp.ts`, `cli.ts`, `apps/daemon/src/tools/**`, `apps/cli/main.go`) | 200 |
-| Tests (`*.test.ts`, `*_test.go`) | 600 |
-| Docs, schemas and config (`*.md`, `*.json`, `*.yml`, `*.toml`) | 500 |
+| Entry points and tool handlers (`mcp.ts`, `mcp/**`, `*/tools.ts`, `cli.ts`, `agent.ts`, `motion/runner.ts` under `apps/daemon/src`, and `apps/cli/main.go`) | 200 |
+| Tests (`**/test/**`, `*.test.ts`, `*_test.go`) | 600 |
+| Docs, schemas and config (`*.schema.ts`, `*.md`, `*.json`, `*.yml`, `*.toml`) | 500 |
 | Everything else (code, HTML, shell) | 350 |
 
 Files over their limit when the check landed are listed in
@@ -193,7 +195,7 @@ the local setup the integration tests need.
 |---|---|---|
 | Install (deterministic) | `bun install --frozen-lockfile` | yes |
 | Typecheck, all workspaces | `bun run typecheck` | yes |
-| Lint + format (Biome), file size | `bun run lint` (`bun run format` to fix) | yes |
+| Lint + format (Biome), file size, import rules | `bun run lint` (`bun run format` to fix) | yes |
 | Unit tests | `bun test` | yes |
 | Integration tests (real VAD, whisper-server, ffmpeg) | `bun run test:integration` | no — run locally for any change to `packages/{audio,vad,asr,captions,motion}`, a tool, or an integration test or its setup |
 | Build smoke test | `bun build --compile` | not yet — onnxruntime's dylib isn't embedded |

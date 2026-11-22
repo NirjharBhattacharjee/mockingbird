@@ -21,13 +21,19 @@ export const LIMITS = [
     max: 200,
     globs: [
       "apps/daemon/src/mcp.ts",
+      "apps/daemon/src/mcp/**",
+      "apps/daemon/src/*/tools.ts",
       "apps/daemon/src/cli.ts",
-      "apps/daemon/src/tools/**",
+      "apps/daemon/src/agent.ts",
+      "apps/daemon/src/motion/runner.ts",
       "apps/cli/main.go",
     ],
   },
-  { max: 600, globs: ["**/*.test.ts", "**/*_test.go"] },
-  { max: 500, globs: ["**/*.md", "**/*.json", "**/*.yml", "**/*.yaml", "**/*.toml"] },
+  { max: 600, globs: ["**/test/**", "**/*.test.ts", "**/*_test.go"] },
+  {
+    max: 500,
+    globs: ["**/*.schema.ts", "**/*.md", "**/*.json", "**/*.yml", "**/*.yaml", "**/*.toml"],
+  },
   { max: 350, globs: ["**"] },
 ].map((r) => ({ max: r.max, globs: r.globs.map((g) => new Bun.Glob(g)) }));
 

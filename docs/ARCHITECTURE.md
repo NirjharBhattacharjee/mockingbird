@@ -462,7 +462,7 @@ mockingbird/
 └── .github/workflows/       ci.yml, release.yml
 ```
 
-Two rules, load-bearing:
+Two rules, load-bearing (all the import rules and the domain map: [STRUCTURE.md](./STRUCTURE.md)):
 
 1. `packages/*` never imports from `apps/*`.
 2. Platform-specific code stays inside `packages/*` (`audio`, `captions`,
