@@ -35,7 +35,7 @@ in a file at the root of `apps/daemon/src/`.
 | Screen recording | inspection | screen_frames, screen_changes, screen_privacy, screen_watch | moved: `screen/tools.ts`, `screen/inspection/` | `D/screen/` |
 | | normalise, render | screen_normalize, screen_render | moved: `screen/tools.ts`, `screen/render.ts`; `packages/video` | `D/screen/` |
 | Project | edit ops, export | edit, export | mcp.ts, `packages/timeline` | `D/project/` |
-| Captions | cues from words, style, drawing | captions | mcp.ts, `packages/captions` | `D/captions/` |
+| Captions | cues from words, style, fonts | captions | moved: `captions/tools.ts`, `cues.ts`, `style.ts`, `style.schema.ts`, `burn.ts`; drawing itself is in render's `renderCut` (mcp.ts) until render moves; `packages/captions` | `D/captions/` |
 | Effects | catalog, filters, masks, subject mattes | effects | moved: `effects/tools.ts`, `catalog.ts`, `filters.ts`, `masks.ts`, `subject.ts`; `packages/matte` | `D/effects/` |
 | Motion | HTML pages, the kit, the sandbox | motion | moved: `motion/tools.ts`, `run.ts`, `kit.ts`, `runner.ts`; `packages/motion` | `D/motion/` |
 | | look boards | look | moved: `motion/look.ts` | `D/motion/` |

@@ -2,15 +2,8 @@
 // so moving the render code can show it builds the same graph, byte for byte.
 // Don't update these snapshots in a refactor PR.
 import { expect, test } from "bun:test";
-import {
-  mixGraph,
-  moving,
-  renderGraph,
-  seekClips,
-  soundOf,
-  timeline,
-  wordCaptions,
-} from "../../src/mcp.ts";
+import { wordCaptions } from "../../src/captions/cues.ts";
+import { mixGraph, moving, renderGraph, seekClips, soundOf, timeline } from "../../src/mcp.ts";
 
 type Clips = Parameters<typeof renderGraph>[0];
 type Options = Parameters<typeof renderGraph>[1];

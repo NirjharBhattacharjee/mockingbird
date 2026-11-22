@@ -1,3 +1,4 @@
+import { captionsTools } from "../captions/tools.ts";
 import { effectsTools } from "../effects/tools.ts";
 import { inspectTools } from "../inspect/tools.ts";
 import { engineTools, motion, motionHost, projectTranscript } from "../mcp.ts";
@@ -22,6 +23,7 @@ export function mcpTools(status: () => Promise<object>, log: (m: string) => void
   const rank = (t: Tool) => ORDER.indexOf(t.name) + 1 || ORDER.length + 1;
   const general = [
     ...engineTools(status, log),
+    ...captionsTools(log),
     ...effectsTools,
     ...inspectTools,
     ...motionTools(motion, motionHost),

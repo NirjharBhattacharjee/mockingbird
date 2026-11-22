@@ -16,11 +16,8 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { AsrWord } from "@mockingbird/asr";
 import { tempo } from "@mockingbird/audio";
 import {
-  CAPTION_FONTS,
-  CAPTION_PRESETS,
   type CaptionStyle,
   type Cue,
   captionStyle,
@@ -44,6 +41,10 @@ import {
   wanted,
 } from "@mockingbird/timeline";
 import { type Source, toFcpxml, toOtio } from "@mockingbird/timeline/export";
+import { captionFonts, captionFontWarning } from "./captions/burn.ts";
+import { cutCaptions } from "./captions/cues.ts";
+import { CAPTION_STYLE_SCHEMA } from "./captions/style.schema.ts";
+import { CAPTIONS_Y, lookCaptions } from "./captions/style.ts";
 import { clock, fineClock } from "./clock.ts";
 import { type Ctx, EFFECTS, type Effect } from "./effects/catalog.ts";
 import { checkEffects, effectFilters, masked, pictureSteps } from "./effects/filters.ts";
@@ -65,8 +66,6 @@ import {
   requireFile,
   spokenLanguage,
 } from "./runtime.ts";
-import { clipWords } from "./transcript/clips.ts";
-import { choiceOf } from "./transcript/transcribe.ts";
 import { type Span, sourceWords } from "./transcript/words.ts";
 
 /** The captions file's name in render's temp folder. */
@@ -171,91 +170,6 @@ export type Area = { x: number; y: number; w: number; h: number };
 
 /** A sound laid under the speech, from `at` seconds into the finished video. */
 export type Sound = { at: number; volume: number; loop: boolean; duck: boolean };
-
-/** Where caption images sit unless told: a little below the middle, where Shorts and Reels leave room for text. */
-export const CAPTIONS_Y = 0.7;
-
-/** Each motion style's typography roles (#276), from plugin/skills/motion-graphics/styles/roles.json. */
-type Roles = Record<
-  string,
-  {
-    title: { family: string };
-    body: { family: string };
-    ink: string;
-    accent: string;
-    background: string;
-  }
->;
-let roles: Roles | undefined;
-
-/**
- * A caption style with `look: "<style id>"` turned into fields: the look's
- * title font if a caption can use it (its body font, or Inter, if not), and
- * its accent (or ink) for the spoken word when it's light enough to read on
- * the outline, so the approved look sets the captions with its titles.
- * Anything else given stays as given.
- */
-export function lookCaptions(v: unknown, what = "captionStyle"): unknown {
-  if (!v || typeof v !== "object" || !("look" in v)) return v;
-  const { look, ...rest } = v as Record<string, unknown>;
-  roles ??= JSON.parse(
-    readFileSync(join(PLUGIN, "skills", "motion-graphics", "styles", "roles.json"), "utf8"),
-  ) as Roles;
-  const r = roles[String(look)];
-  if (!r) throw new Error(`${what}.look: no style "${look}"; see the motion-graphics styles`);
-  const usable = (f: string) => (CAPTION_FONTS as readonly string[]).includes(f);
-  const font = usable(r.title.family)
-    ? r.title.family
-    : usable(r.body.family)
-      ? r.body.family
-      : "Inter";
-  // Captions are light text on a black outline: a dark accent would vanish, so
-  // the look's accent if it's light enough, else its ink, else the preset's.
-  const light = (c: string) => {
-    if (!/^#[0-9a-f]{6}$/i.test(c)) return false;
-    const n = Number.parseInt(c.slice(1), 16);
-    return (
-      (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255 >= 0.35
-    );
-  };
-  const accent = [r.accent, r.ink].find(light);
-  // The colour goes where the preset puts its lit word: behind it on a pill
-  // (the word stays dark on it), on it otherwise, and nowhere for a preset
-  // with no lit word, like subtitle.
-  const presets: Record<string, CaptionStyle> = CAPTION_PRESETS;
-  const p = presets[String(rest.preset ?? "classic")];
-  const lit = !p ? {} : p.pill ? { pill: accent } : p.active !== p.fill ? { active: accent } : {};
-  return { font, ...(accent && lit), ...rest };
-}
-
-/** render's `captionStyle`, and a project's `captions.style` (#276). */
-const CAPTION_STYLE_SCHEMA = {
-  description: `How the captions and texts look: a preset's name (${Object.keys(CAPTION_PRESETS).join(", ")}; default classic, white Inter 700 with a black outline and the *spoken* word yellow), or an object with \`preset\` and any of: font (${CAPTION_FONTS.join(", ")}), weight, upper (capitals, which get 0.06 em of tracking), tracking (em), fill, stroke and active (colours; active is the *spoken* word's), outline (0-0.5 of the text height), shadow, pill (a colour behind the spoken word), maxChars (about this many characters a line), pop (1-1.4: the spoken word that much bigger), keyword (the colour of a word written **like this**, drawn 15% bigger) and look (a motion style's id: its title font and accent, so the approved look sets the captions too). subtitle suits long-form; creator and pill suit Shorts.`,
-  oneOf: [
-    { type: "string", enum: Object.keys(CAPTION_PRESETS) },
-    {
-      type: "object",
-      properties: {
-        preset: { type: "string", enum: Object.keys(CAPTION_PRESETS) },
-        font: { type: "string", enum: [...CAPTION_FONTS] },
-        weight: { type: "number" },
-        upper: { type: "boolean" },
-        tracking: { type: "number" },
-        fill: { type: "string" },
-        stroke: { type: "string" },
-        active: { type: "string" },
-        pill: { type: "string" },
-        outline: { type: "number" },
-        shadow: { type: "boolean" },
-        maxChars: { type: "number" },
-        pop: { type: "number" },
-        keyword: { type: "string" },
-        look: { type: "string" },
-      },
-      additionalProperties: false,
-    },
-  ],
-};
 
 /** The loudness Shorts, Reels, TikTok and YouTube play at: EBU R128 integrated, in LUFS. */
 const LUFS = -14;
@@ -692,109 +606,6 @@ function outputFor(
   for (let n = 1; ; n++) {
     if (claimAll(`${base}-${kind}-${n}${ext}`, sidecar)) return `${base}-${kind}-${n}${ext}`;
   }
-}
-
-/** An SRT time: `00:01:02,345`. */
-const srtClock = (seconds: number) => {
-  const ms = Math.round(seconds * 1000);
-  const hh = String(Math.floor(ms / 3_600_000)).padStart(2, "0");
-  const mm = String(Math.floor(ms / 60_000) % 60).padStart(2, "0");
-  const ss = String(Math.floor(ms / 1000) % 60).padStart(2, "0");
-  return `${hh}:${mm}:${ss},${String(ms % 1000).padStart(3, "0")}`;
-};
-
-/** Chinese and Japanese script and its punctuation (。、「」！？), written without spaces. */
-const CJK = /[\u3000-\u30ff\u3400-\u9fff\uf900-\ufaff\uff00-\uffef]/;
-
-/** Words as a line: a space between them, except between two Chinese or Japanese ones. */
-const joined = (words: string[]) =>
-  words.reduce(
-    (line, w, i) =>
-      line +
-      (i && CJK.test(w.replace(/\*/g, "")) && CJK.test(words[i - 1] ?? "") ? "" : i ? " " : "") +
-      w,
-    "",
-  );
-
-/**
- * Word-by-word captions as SRT, timed to the video `clips` make: `words`
- * holds each clip's words, timed in the source. A cue shows up to `perCue`
- * words with the one being said written *like this*, which render draws
- * yellow (`lit: false` shows the words without it). A new cue starts at a
- * clip, after a sentence, after a pause of half a second, once its words
- * span 1.2 s (how often Remotion's TikTok template turns the page), or
- * before it would show more than 20 characters a second (Netflix's limit).
- * Chinese and Japanese have no spaces: their words are joined without one,
- * and a cue holds about four characters for each of `perCue` (#276).
- */
-export function wordCaptions(
-  clips: Clip[],
-  words: AsrWord[][],
-  { perCue = 3, lit = true, upper = false } = {},
-): string {
-  type Said = { text: string; start: number; end: number; ends: boolean };
-  // Each page with where its clip ends in the finished video: no caption outlasts its shot.
-  const pages: { words: Said[]; cut: number }[] = [];
-  const { starts } = timeline(clips);
-  clips.forEach((clip, i) => {
-    // Captions follow the sound, which a J or L cut moves off the picture.
-    const { from, to } = clip.sound ?? clip;
-    const offset = (starts[i] ?? 0) + (from - clip.from) / (clip.speed ?? 1);
-    // A word's time in the finished video: a clip's speed shortens or stretches it.
-    const at = (t: number) => (t - from) / (clip.speed ?? 1) + offset;
-    const cut = offset + (to - from) / (clip.speed ?? 1);
-    let page: Said[] = [];
-    pages.push({ words: page, cut });
-    for (const w of words[i] ?? []) {
-      const [start, end] = [w.startMs / 1000, w.endMs / 1000];
-      // A word belongs to the clip its middle is in: Whisper's word times can be a little early or late.
-      // Half-open, so a word right on a cut between two clips shows once.
-      const middle = (start + end) / 2;
-      if (middle < from || middle >= to) continue;
-      const text = w.word.replace(/[,.;:]+$/, "");
-      const said = {
-        text: upper ? text.toLocaleUpperCase() : text,
-        start: at(Math.max(start, from)),
-        end: at(Math.min(end, to)),
-        ends: /[.?!。！？]["')\]」』]?$/.test(w.word),
-      };
-      const last = page.at(-1);
-      const chars = page.reduce((n, w) => n + w.text.length, 0);
-      const cjk = page.length > 0 && page.every((w) => CJK.test(w.text)) && CJK.test(said.text);
-      const full =
-        (cjk ? chars + said.text.length > perCue * 4 : page.length >= perCue) ||
-        (page[0] && (chars + said.text.length) / Math.max(0.3, said.end - page[0].start) > 20) ||
-        (last && (last.ends || said.start - last.end >= 0.5)) ||
-        (page[0] && said.start - page[0].start >= 1.2);
-      if (full) {
-        page = [];
-        pages.push({ words: page, cut });
-      }
-      if (said.text) page.push(said);
-    }
-  });
-  const cues = pages
-    .filter(({ words }) => words.length)
-    .flatMap(({ words: page, cut }, p, all) => {
-      const next = all[p + 1]?.words[0]?.start ?? Number.POSITIVE_INFINITY;
-      const last = page.at(-1) as Said;
-      // Stays up into a short pause rather than flickering off. Across a
-      // transition the next page can start before this one ends: end with it.
-      const until = Math.min(
-        cut,
-        next <= last.end ? last.end : next - last.end <= 0.5 ? next : last.end + 0.2,
-      );
-      if (!lit)
-        return [{ start: page[0]?.start ?? 0, end: until, text: joined(page.map((w) => w.text)) }];
-      return page.map((w, j) => ({
-        start: j ? w.start : (page[0]?.start ?? w.start),
-        end: page[j + 1]?.start ?? until,
-        text: joined(page.map((o, k) => (k === j ? `*${o.text}*` : o.text))),
-      }));
-    });
-  return cues
-    .map((c, i) => `${i + 1}\n${srtClock(c.start)} --> ${srtClock(c.end)}\n${c.text}`)
-    .join("\n\n");
 }
 
 /** Text drawn over a stretch of the finished video, its middle at `y` of the height. */
@@ -1402,6 +1213,8 @@ const ENGINE = createHash("sha256")
   .update(readFileSync(join(import.meta.dir, "effects/catalog.ts")))
   .update(readFileSync(join(import.meta.dir, "effects/filters.ts")))
   .update(readFileSync(join(import.meta.dir, "effects/masks.ts")))
+  .update(readFileSync(join(import.meta.dir, "captions/burn.ts")))
+  .update(readFileSync(join(import.meta.dir, "captions/style.ts")))
   .update(readFileSync(Bun.resolveSync("@mockingbird/captions", import.meta.dir)))
   .digest("hex");
 
@@ -1460,7 +1273,7 @@ async function segmented(
     const [width, height] = (split ? "1080x1920" : size).split("x").map(Number);
     const chrome = lines.length ? findChrome() : undefined;
     const wrap = noNetwork();
-    const fonts = captionFonts(lines, style);
+    const fonts = captionFonts();
     const language = spoken ?? spokenLanguage();
     // Which shapes Han characters take: in the segment key, since it changes what's drawn.
     const han = hanOrder(language, lines);
@@ -1613,21 +1426,6 @@ async function segmented(
     if (!made && target) rmSync(target, { force: true });
     rmSync(dir, { recursive: true, force: true });
   }
-}
-
-/** The pinned fonts for drawing captions: whichever are downloaded. */
-function captionFonts(_lines: string[], _style: CaptionStyle): PageFont[] {
-  return fontFaces();
-}
-
-/**
- * A warning for render's result when the captions' font isn't downloaded:
- * they're drawn in a fallback, not refused (#276; degrade, don't break).
- */
-export function captionFontWarning(captions: string | undefined, style: CaptionStyle): string {
-  if (!captions?.trim() || !findChrome() || fontFaces().some((f) => f.family === style.font))
-    return "";
-  return `. Warning: the captions' font, ${style.font}, isn't downloaded, so they're drawn in a fallback font; run \`mockingbird models pull chrome\``;
 }
 
 /**
@@ -1866,7 +1664,7 @@ async function renderCut(
       ? await drawCaptions(lines, dir, width ?? 1080, height, {
           chrome,
           wrap,
-          fonts: captionFonts(lines, style),
+          fonts: captionFonts(),
           language: language ?? spokenLanguage(),
           style,
         })
@@ -2202,54 +2000,6 @@ export async function projectTranscript(
   const dir = dirname(file);
   const heard = await sourceWords(wantedFrom(project, [], dir), log, project.transcription);
   return transcript(project, file, (path) => heard.get(resolve(dir, path))?.words ?? []);
-}
-
-async function captions(
-  path: string,
-  log: (m: string) => void,
-  clips: Clip[],
-  options: Parameters<typeof wordCaptions>[2],
-  choice: ModelChoice = {},
-): Promise<string> {
-  const words = await clipWords(path, clips, log, choice);
-  return wordCaptions(clips, words, options) || "No speech in those clips.";
-}
-
-/**
- * Word-by-word captions for a compiled project's cut, as SRT timed to the
- * finished video: speed, transitions and J and L cuts included. Each
- * source's words come from the word cache.
- */
-async function cutCaptions(
-  cut: ReturnType<typeof compile>,
-  log: (m: string) => void,
-  { perCue = 3, lit = true, upper = false }: { perCue?: number; lit?: boolean; upper?: boolean },
-  choice: ModelChoice = {},
-): Promise<string> {
-  const heard = await sourceWords(
-    new Map(
-      [...new Set(cut.clips.map((c) => c.path))].map((path) => [
-        path,
-        // The sound's stretch, which a J or L cut moves off the picture's.
-        cut.clips.filter((c) => c.path === path).map((c) => c.sound ?? c),
-      ]),
-    ),
-    log,
-    choice,
-  );
-  // Every word of the clip's source: wordCaptions keeps the ones inside each clip.
-  const asr = (path: string): AsrWord[] =>
-    (heard.get(path)?.words ?? []).map((w) => ({
-      word: w.word,
-      startMs: w.start * 1000,
-      endMs: w.end * 1000,
-      probability: 1,
-    }));
-  return wordCaptions(
-    cut.clips,
-    cut.clips.map((c) => asr(c.path)),
-    { perCue, lit, upper },
-  );
 }
 
 /** A source bigger than this on its short side is drafted from a proxy. */
@@ -2900,85 +2650,6 @@ export function engineTools(status: () => Promise<object>, log: (m: string) => v
             out,
             draft: !!a.draft,
           },
-        );
-      },
-    },
-    {
-      name: "captions",
-      description:
-        "Word-by-word captions for the video `render` will make from these clips, or from an `edit` `project` (speed, transitions and J and L cuts included), as SRT timed to the finished video: up to `perCue` words a cue, the word being said marked *like this* so render draws it yellow. Edit the text if you like (fix a misheard word, mark a different word), then pass it to render's `captions`.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          path,
-          clips: {
-            type: "array",
-            description: "The same clips you'll give render, in order, in seconds",
-            items: {
-              type: "object",
-              properties: { from: { type: "number" }, to: { type: "number" } },
-              required: ["from", "to"],
-            },
-          },
-          perCue: { type: "number", description: "Most words on screen at once, 1-8 (default 3)" },
-          lit: { type: "boolean", description: "Mark the word being said (default true)" },
-          upper: { type: "boolean", description: "In capitals (default false)" },
-          model: {
-            type: "string",
-            description:
-              "A Whisper model file in models/ for this call (`mockingbird models` lists them), e.g. a Bangla fine-tune for a Bangla video. Default: the one picked for the language.",
-          },
-          language: {
-            type: "string",
-            description:
-              "What's spoken, as a Whisper code (en, bn, de, hi, …) or auto. Default: the user's setting. Give it for mixed speech, like Bangla and English in one sentence, where detection guesses wrong.",
-          },
-          project: {
-            type: "string",
-            description:
-              "Absolute path to a project file from `edit`, in place of `path` and `clips`; perCue, lit and upper default to the project's captions",
-          },
-        },
-      },
-      run: async (a) => {
-        if (a.project !== undefined) {
-          if (a.model !== undefined || a.language !== undefined) {
-            throw new Error(
-              "A project's captions are heard with its transcription: give `model` and `language` to `transcribe` with the project.",
-            );
-          }
-          const file = resolve(String(a.project));
-          const { project, created } = load(file);
-          if (created) throw new Error(`No project at ${file}; make one with \`edit\`.`);
-          const cut = compile(project, dirname(file));
-          if (!cut.clips.length)
-            throw new Error(`${file} has no clips yet; add some with \`edit\`.`);
-          const set = project.captions ?? {};
-          const srt = await cutCaptions(
-            cut,
-            log,
-            {
-              perCue: Math.round(within(a.perCue, 1, 8, "perCue", set.perCue ?? 3)),
-              lit: a.lit === undefined ? (set.lit ?? true) : !!a.lit,
-              upper: a.upper === undefined ? (set.upper ?? false) : !!a.upper,
-            },
-            project.transcription,
-          );
-          return srt || "No speech in the cut.";
-        }
-        if (a.path === undefined) throw new Error("Give a `path` and `clips`, or a `project`.");
-        const clips = items(a.clips).map((c, i) => stretch(c, `clips[${i}]`));
-        if (!clips.length) throw new Error("No clips: give at least one { from, to } in seconds.");
-        return captions(
-          resolve(String(a.path)),
-          log,
-          clips,
-          {
-            perCue: Math.round(within(a.perCue, 1, 8, "perCue", 3)),
-            lit: a.lit === undefined ? true : !!a.lit,
-            upper: !!a.upper,
-          },
-          choiceOf(a),
         );
       },
     },
