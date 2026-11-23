@@ -34,12 +34,12 @@ import {
   soundOf,
   tempo,
   timeline,
-  transcriptionAt,
 } from "../src/mcp.ts";
 import { findChrome } from "../src/models.ts";
 import { KIT_URL, STYLES_URL, THREE_ADDONS_URL, THREE_URL, withKit } from "../src/motion/kit.ts";
 import { buildLook, LOOK_BOARD } from "../src/motion/look.ts";
 import { boardFrom } from "../src/motion/motion.schema.ts";
+import { transcriptionAt } from "../src/project/edit.ts";
 import { mockingbirdHome } from "../src/runtime.ts";
 import { spans } from "../src/transcript/clips.ts";
 import { chunks, timedLines, timedWords } from "../src/transcript/transcribe.ts";

@@ -34,7 +34,7 @@ in a file at the root of `apps/daemon/src/`.
 | | tracking | track | moved: `inspect/track.ts` | `D/inspect/` |
 | Screen recording | inspection | screen_frames, screen_changes, screen_privacy, screen_watch | moved: `screen/tools.ts`, `screen/inspection/` | `D/screen/` |
 | | normalise, render | screen_normalize, screen_render | moved: `screen/tools.ts`, `screen/render.ts`; `packages/video` | `D/screen/` |
-| Project | edit ops, export | edit, export | mcp.ts, `packages/timeline` | `D/project/` |
+| Project | edit ops, export | edit, export | moved: `project/tools.ts`, `edit.ts`, `export.ts`; `packages/timeline` | `D/project/` |
 | Captions | cues from words, style, fonts | captions | moved: `captions/tools.ts`, `cues.ts`, `style.ts`, `style.schema.ts`, `burn.ts`; drawing itself is in render's `renderCut` (mcp.ts) until render moves; `packages/captions` | `D/captions/` |
 | Effects | catalog, filters, masks, subject mattes | effects | moved: `effects/tools.ts`, `catalog.ts`, `filters.ts`, `masks.ts`, `subject.ts`; `packages/matte` | `D/effects/` |
 | Motion | HTML pages, the kit, the sandbox | motion | moved: `motion/tools.ts`, `run.ts`, `kit.ts`, `runner.ts`; `packages/motion` | `D/motion/` |
@@ -91,7 +91,7 @@ Tests may import anything.
 | motion | inspect (`probe`, HDR to SDR), install |
 | screen | motion, install |
 | captions | transcript, motion, install |
-| project | transcript, captions, install |
+| project | transcript, captions, inspect (`probe`, for export), install |
 | render | effects, captions, motion, project, transcript, inspect, install |
 
 A file at the root of `D` is legacy: it may import any domain, and any
