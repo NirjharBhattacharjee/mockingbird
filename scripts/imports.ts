@@ -27,7 +27,7 @@ export const DOMAINS: Record<string, string[]> = {
   motion: ["inspect", "install"],
   screen: ["motion", "install"],
   captions: ["transcript", "motion", "install"],
-  project: ["transcript", "captions", "install"],
+  project: ["transcript", "captions", "inspect", "install"],
   render: ["effects", "captions", "motion", "project", "transcript", "inspect", "install"],
 };
 

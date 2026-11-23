@@ -27,20 +27,7 @@ import {
 } from "@mockingbird/captions";
 import type { MusicParams, PageFont } from "@mockingbird/motion";
 import { noNetwork } from "@mockingbird/motion/sandbox";
-import {
-  apply,
-  compile,
-  edit,
-  lengthOf,
-  load,
-  lookGate,
-  type Move,
-  type Project,
-  transcript,
-  type Word,
-  wanted,
-} from "@mockingbird/timeline";
-import { type Source, toFcpxml, toOtio } from "@mockingbird/timeline/export";
+import { compile, lengthOf, load, lookGate, type Move } from "@mockingbird/timeline";
 import { captionFonts, captionFontWarning } from "./captions/burn.ts";
 import { cutCaptions } from "./captions/cues.ts";
 import { CAPTION_STYLE_SCHEMA } from "./captions/style.schema.ts";
@@ -59,14 +46,7 @@ import type { Tool } from "./mcp/types.ts";
 import { findChrome, fontFaces } from "./models.ts";
 import { withKit } from "./motion/kit.ts";
 import { type Host, MOTION_MAX_SECONDS, makeMotion, needChrome, sandboxed } from "./motion/run.ts";
-import {
-  checkChoice,
-  type ModelChoice,
-  mockingbirdHome,
-  requireFile,
-  spokenLanguage,
-} from "./runtime.ts";
-import { type Span, sourceWords } from "./transcript/words.ts";
+import { mockingbirdHome, requireFile, spokenLanguage } from "./runtime.ts";
 
 /** The captions file's name in render's temp folder. */
 const CAPTIONS = "captions.srt";
@@ -1910,98 +1890,6 @@ function energy(value: unknown): MusicParams["energy"] {
   });
 }
 
-/** What `wanted` asks of a project in `dir`, by absolute path. */
-function wantedFrom(
-  p: Project,
-  ops: unknown[],
-  dir: string,
-  heard?: Map<string, { words: Word[]; gaps: Span[] }>,
-): Map<string, Span[]> {
-  const out = new Map<string, Span[]>();
-  const words = heard && ((path: string) => heard.get(resolve(dir, path))?.words ?? []);
-  const gaps = heard && ((path: string) => heard.get(resolve(dir, path))?.gaps ?? []);
-  for (const [path, spans] of wanted(p, ops, words, gaps)) {
-    const full = resolve(dir, path);
-    out.set(full, [...(out.get(full) ?? []), ...spans]);
-  }
-  return out;
-}
-
-/**
- * The transcription in effect when the batch's first cut_words runs: a set
- * before it changes which words the cut is made on. Ops that fail here fail
- * the real batch too, so the saved one stands then.
- */
-export function transcriptionAt(p: Project, ops: unknown[]): ModelChoice | undefined {
-  const first = ops.findIndex((o) => (o as { op?: unknown })?.op === "cut_words");
-  if (first < 0) return p.transcription;
-  try {
-    return apply(p, ops.slice(0, first)).project.transcription;
-  } catch {
-    return p.transcription;
-  }
-}
-
-/**
- * `ops` applied to the project in `file`, hearing first whatever cut_words
- * needs: the words of every clip there is or will be.
- */
-async function editProject(file: string, ops: unknown[], log: (m: string) => void) {
-  if (!ops.some((o) => (o as { op?: unknown })?.op === "cut_words")) return edit(file, ops);
-  const dir = dirname(file);
-  // Hearing takes a while: if what the project asks to be heard changed
-  // meanwhile (another edit added a clip), hear that too, so no clip is
-  // missing words (#235). A text or a size changed alongside doesn't count.
-  // ponytail: an edit landing between the last check and the save isn't seen;
-  // a lock file if agents edit one project at once.
-  // With words heard, the cut_words ops are replayed too, so a later op on a
-  // clip one of them splits off asks for its stretch, and that's heard next.
-  const asks = (p: Project, heard?: Awaited<ReturnType<typeof sourceWords>>) => {
-    const spans = wantedFrom(p, ops, dir, heard);
-    const choice = transcriptionAt(p, ops);
-    return { spans, choice, key: JSON.stringify([[...spans], choice]) };
-  };
-  let want = asks(load(file).project);
-  let heard: Awaited<ReturnType<typeof sourceWords>>;
-  // ponytail: a few rounds at most; each can only add stretches a cut made reachable.
-  for (let round = 0; ; round++) {
-    heard = await sourceWords(want.spans, log, want.choice);
-    const now = asks(load(file).project, heard);
-    if (now.key === want.key || round >= 4) break;
-    want = now;
-  }
-  return edit(
-    file,
-    ops,
-    (path) => heard.get(resolve(dir, path))?.words ?? [],
-    (path) => heard.get(resolve(dir, path))?.gaps ?? [],
-  );
-}
-
-/** The words in the project in `file`'s cut, from the word cache. */
-export async function projectTranscript(
-  file: string,
-  log: (m: string) => void,
-  choice: ModelChoice,
-) {
-  if (load(file).created) throw new Error(`No project at ${file}; make one with \`edit\`.`);
-  checkChoice(choice);
-  const models = join(mockingbirdHome(), "models");
-  if (choice.model && !existsSync(join(models, choice.model))) {
-    throw new Error(`${choice.model} isn't in ${models}; \`mockingbird models\` lists what is.`);
-  }
-  // A model or language given here is kept on the project, over what it had,
-  // so cut_words, captions and render hear the words this transcript shows.
-  if (choice.model || choice.language) {
-    const transcription = { ...load(file).project.transcription, ...choice };
-    edit(file, [{ op: "set", transcription }]);
-  }
-  const { project } = load(file);
-  const dir = dirname(file);
-  const heard = await sourceWords(wantedFrom(project, [], dir), log, project.transcription);
-  return transcript(project, file, (path) => heard.get(resolve(dir, path))?.words ?? []);
-}
-
 /** A source bigger than this on its short side is drafted from a proxy. */
 const PROXY_OVER = 1080;
 
@@ -2306,77 +2194,6 @@ async function renderProject(
   });
 }
 
-/**
- * `export`: the project at `file` as FCPXML and/or OTIO (#198), each source
- * probed for its length, size and rate. Never overwrites: a taken name gets -N.
- */
-async function exportProject(file: string, format: string, out: unknown): Promise<string> {
-  if (!["fcpxml", "otio", "both"].includes(format)) {
-    throw new Error(`format must be fcpxml, otio or both; got ${format}`);
-  }
-  const project = load(requireFile(file, "Project")).project;
-  if (!project.clips.length) throw new Error(`${file} has no clips to export.`);
-  const compiled = compile(project, dirname(file));
-  // An HTML overlay is drawn by Chrome at render time, so there's no media for an editor to take.
-  const pages = compiled.inserts.filter((i) => /\.html?$/i.test(i.path));
-  const cut = { ...compiled, inserts: compiled.inserts.filter((i) => !pages.includes(i)) };
-  const paths = [
-    ...new Set([
-      ...cut.clips.map((c) => c.path),
-      ...cut.inserts.map((i) => i.path),
-      ...cut.sounds.flatMap((s) => (s.path ? [s.path] : [])),
-    ]),
-  ];
-  const facts = new Map<string, Source>();
-  for (const p of paths) {
-    const pr = await probe(requireFile(p, "Source"));
-    facts.set(p, {
-      seconds: pr.seconds,
-      video: pr.video,
-      audio: pr.audio,
-      size: pr.size,
-      fps: pr.fps,
-    });
-  }
-  const info = (p: string) => facts.get(p) as Source;
-  const first = info(cut.clips[0]?.path as string);
-  const size = cut.size ?? (cut.split ? "1080x1920" : first.size);
-  const fps = cut.fps ?? first.fps;
-  const name = basename(file).replace(/\.json$/i, "");
-  const dir = out === undefined ? dirname(file) : resolve(String(out));
-  mkdirSync(dir, { recursive: true });
-  const free = (ext: string) => {
-    for (let n = 0; ; n++) {
-      const f = join(dir, `${name}${n ? `-${n}` : ""}.${ext}`);
-      if (!existsSync(f)) return f;
-    }
-  };
-  const saved: string[] = [];
-  let left: string[] = [];
-  if (format !== "otio") {
-    const x = toFcpxml(cut, name, size, fps, info);
-    const f = free("fcpxml");
-    writeFileSync(f, x.text);
-    saved.push(f);
-    left = x.left;
-  }
-  if (format !== "fcpxml") {
-    const o = toOtio(cut, name, fps, info);
-    const f = free("otio");
-    writeFileSync(f, o.text);
-    saved.push(f);
-    // Both formats: everything either one leaves out, said once.
-    left = [...new Set([...left, ...o.left])];
-  }
-  if (pages.length) left = [...left, `${pages.length} HTML overlay page(s)`];
-  return [
-    `Saved ${saved.join(" and ")} (${size}, ${fps} fps, ${cut.clips.length} clips).`,
-    left.length ? `Not carried, so redo them in the editor: ${left.join("; ")}.` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
-
 /** An insert's box: an area, and the `path` `track` gives to move it with a subject. */
 function tracked(value: unknown, what: string): NonNullable<Look["box"]> {
   const path = (value as { path?: unknown } | null)?.path;
@@ -2399,37 +2216,6 @@ export function engineTools(status: () => Promise<object>, log: (m: string) => v
     required: ["x", "y", "w", "h"],
   };
   return [
-    {
-      name: "edit",
-      description: `Edit a project file (project.json): an edit kept between calls, whose clips can come from several sources and whose texts, b-roll and sounds stay on their clips as the cut changes. Applies \`ops\` in order, all or none, saves, and returns an outline: each clip's place in the finished video and what's on it. Makes the file if it isn't there; no ops only reads it. You can also edit the JSON by hand. Times: a clip's from/to are seconds in its source (as \`transcribe\` gives them); a text's, insert's or sound's are seconds from the start of its \`clip\` in the finished video, or of the video without one. Ops:
-- {op:"add", type:"clip", path, from, to, focus?:{x,y}, zoom?, speed?, moves?, transition?, lead?, index?}: on the main track, which plays in order with no gaps (default at the end). speed: 0.25-4. moves: [{at, focus?, zoom?, ease?}], the framing by \`at\` seconds into the clip, eased ("smooth", or "linear") from the one before: a slow push-in, a move to the other speaker. transition: {type, duration}, how the clip comes in over the end of the one before: ffmpeg xfade's fade, fadeblack, fadewhite, dissolve, wipe*, slide*, smooth*, circleopen, zoomin and others. lead: a J cut (positive: the clip's sound starts that many seconds before its picture) or an L cut (negative: the clip before's sound carries on over its picture)
-- {op:"add", type:"text", text, from, to, clip?, y?}: drawn like the captions, *words* yellow
-- {op:"add", type:"insert", path, from, to, clip?, box?, blend?, effects?, moves?}: a picture or video over the whole frame (b-roll). box: {x, y, w, h, path?}, 0-1 of the picture, makes it a picture in the picture; path, from track, moves it with a subject. blend: screen, multiply, overlay, softlight, lighten, darken, addition or difference (whole frame only). effects: from the catalog; chromakey keys a green screen over the cut. moves: as a clip's, a Ken Burns pan over a still
-- {op:"add", type:"adjust", from, to, clip?, effects}: an adjustment layer; its effects change everything under the text (clips and inserts) for its stretch, e.g. a grade over a whole section
-- {op:"add", type:"audio", path, at?, clip?, volume?, loop?, duck?}: music or a sound effect under the speech. Or generated music in place of path: generator:{generator:"/abs/lofi.js", tempo?, key?, energy?, seed?, length?} (a music generator; the bed is made at render time, as long as the video from at or \`length\` seconds if given, and kept, so it isn't made again)
-- {op:"remove", id}: a clip goes with everything on it, and the cut closes up
-- {op:"split", id, at}: a clip in two at a source time; what's on the second half moves with it
-- {op:"trim", id, from?, to?}: a clip's source times; what's on it stays on the same picture
-- {op:"move", id, index}: a clip to another place in the cut
-- {op:"cut_words", text, clip?, all?} or {op:"cut_words", from, to, clip?}: cut words out of the cut by quoting them from \`transcribe\` with the project (no case or punctuation needed): \`text\` must be said once (or give \`clip\`, or \`all: true\` for every time), and from/to cuts from the first words through the last, across clips. Cuts land in the pauses, 0.2 s from the words kept; clips are split, trimmed or removed to do it
-- {op:"set", id, ...fields}: change an item (null clears a field); without id, the project's size ("1080x1920" makes it vertical, cropping each clip around its focus), fps, split {top, bottom} and captions {perCue?, lit?, upper?, y?, style?} (null for none; style is as render's captionStyle). Ids are given out as c1, t1, b1, a1.`,
-      inputSchema: {
-        type: "object",
-        properties: {
-          project: { type: "string", description: "Absolute path to the project's .json file" },
-          ops: { type: "array", items: { type: "object" }, description: "The ops, in order" },
-        },
-        required: ["project"],
-      },
-      run: async (a) => {
-        // Unchecked, a missing project would make a file named "undefined" here.
-        if (typeof a.project !== "string" || !a.project) {
-          throw new Error("project must be the path to a project file");
-        }
-        if (!Array.isArray(a.ops ?? [])) throw new Error("ops must be a list");
-        return editProject(resolve(String(a.project)), (a.ops ?? []) as unknown[], log);
-      },
-    },
     {
       name: "render",
       description:
@@ -2652,26 +2438,6 @@ export function engineTools(status: () => Promise<object>, log: (m: string) => v
           },
         );
       },
-    },
-    {
-      name: "export",
-      description:
-        "Save a project as FCPXML 1.10 (Final Cut Pro, DaVinci Resolve, Premiere through it) and OpenTimelineIO (.otio: Resolve, Premiere, Avid through OTIO's adapters), so a person can finish the cut in an editor. Carries the clips with their source times and transitions, inserts on video tracks above, texts as titles (markers in OTIO) and sounds on audio tracks; returns what an editor can't take this way (effects, framing, generated music). Saves beside the project as <name>.fcpxml and <name>.otio, or in `out`, a folder, and never overwrites.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          project: { type: "string", description: "The project file (project.json)" },
-          format: {
-            type: "string",
-            enum: ["fcpxml", "otio", "both"],
-            description: "Which to save (default both)",
-          },
-          out: { type: "string", description: "A folder to save in (default the project's)" },
-        },
-        required: ["project"],
-      },
-      run: async (a) =>
-        exportProject(resolve(String(a.project)), String(a.format ?? "both"), a.out),
     },
     {
       name: "music",
